@@ -1,0 +1,25 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "STM32: Download Only (OpenOCD)",
+            "type": "process",
+            "command": "openocd",
+            "args": [
+                "-f",
+                "${workspaceFolder}/openocd.cfg",
+                "-c",
+                "program {${command:cmake.launchTargetPath}} verify reset exit"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "clear": true
+            }
+        }
+    ]
+}

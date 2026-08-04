@@ -1,0 +1,41 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "STM32: Download & Debug (OpenOCD)",
+            "type": "stgdbtarget",
+            "request": "launch",
+            "origin": "workspace",
+            "cwd": "${workspaceFolder}",
+            "preBuild": "${command:st-stm32-ide-debug-launch.build}",
+            "program": "${command:cmake.launchTargetPath}",
+            "gdb": "${command:st-stm32-ide-debug-launch.get-gdb-executable}",
+            "deviceName": "${command:st-stm32-ide-debug-launch.get-device-name}",
+            "deviceCore": "${command:st-stm32-ide-debug-launch.get-core-name}",
+            "serverExe": "openocd",
+            "serverParameters": [
+                "-f",
+                "${workspaceFolder}/openocd.cfg"
+            ],
+            "serverHost": "localhost",
+            "serverPort": "3333",
+            "serverCwd": "/usr/bin",
+            "automaticallyKillServer": true,
+            "serverRtos": {
+                "enabled": true,
+                "port": "60000",
+                "driver": "threadx",
+                "driverPort": "cortex_m4"
+            },
+            "runEntry": "main",
+            "imagesAndSymbols": [
+                {
+                    "imageFileName": "${command:cmake.launchTargetPath}",
+                    "imageOffset": "",
+                    "symbolFileName": "${command:cmake.launchTargetPath}",
+                    "symbolOffset": ""
+                }
+            ]
+        }
+    ]
+}
