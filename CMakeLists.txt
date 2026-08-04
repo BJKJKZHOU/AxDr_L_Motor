@@ -47,6 +47,17 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user sources here
 )
 
+# ST Arm Clang defines both __clang__ and GNU compatibility macros. The
+# CubeMX ThreadX low-level source treats every Clang compiler as Arm Compiler
+# 6 and consequently expects the __Vectors symbol, while the generated GNU
+# startup file exports g_pfnVectors. Select the GNU ThreadX assembly branch
+# when building the application assembly sources with starm-clang.
+if(DEFINED STARM_TOOLCHAIN_CONFIG)
+    target_compile_options(${CMAKE_PROJECT_NAME} PRIVATE
+        $<$<COMPILE_LANGUAGE:ASM>:-U__clang__>
+    )
+endif()
+
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined include paths
