@@ -56,6 +56,7 @@ ENTRY(Reset_Handler)
 MEMORY
 {
 RAM (xrw)      : ORIGIN = 0x20000000, LENGTH = 128K
+CCMSRAM (xrw)  : ORIGIN = 0x10000000, LENGTH = 32K
 FLASH (rx)      : ORIGIN = 0x8000000, LENGTH = 512K
 }
 
@@ -93,6 +94,18 @@ SECTIONS
     . = ALIGN(4);
     _etext = .;        /* define a global symbols at end of code */
   } >FLASH
+
+  /* Fast code copied to and executed from CCMSRAM */
+  _siccmram = LOADADDR(.ccmram_text);
+  .ccmram_text :
+  {
+    . = ALIGN(4);
+    _sccmram = .;
+    *(.ccmram_text)
+    *(.ccmram_text*)
+    . = ALIGN(4);
+    _eccmram = .;
+  } >CCMSRAM AT> FLASH
 
   /* Constant data goes into FLASH */
   .rodata :
