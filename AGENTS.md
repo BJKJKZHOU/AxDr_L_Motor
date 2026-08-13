@@ -1,101 +1,50 @@
-# AGENTS.md
+# Project Instructions for Codex
 
-## 工程原则（KISS / YAGNI / DRY / SOLID）
-
-- KISS：优先最小可行改动，避免不必要的复杂性。
-- YAGNI：只实现当前明确需要的内容，避免为“以后可能用到”提前铺设复杂结构。
-- DRY：重复逻辑应收敛，但不为了抽象而抽象。
-- SOLID：保持职责边界清晰，新增接口前先确认是否真的需要。
-
-## 对话输出规范（必须遵守）
-
-1. 语言
-- 默认中文，术语保留英文（如 FOC、ESO、CAN）。
-- 一些代码变量，运行过程等，如果使用英文，首次出现需要使用中文解释。
-
-2. 结论优先
-- 每次先给"结论"，再给依据和代码位置。
-
-3. 公式格式
-- 行内公式用 `$...$`，例如 `$v_m=v_r \cdot ODG$`
-- 独立公式用 `$$...$$`，例如：
-$$
-u = K_p e - d_{eso}
-$$
-
-4. 代码与变量格式
-- 代码、变量、宏、寄存器名统一用反引号：`MTR.v_r`、`CTRL_MODE`、`float_to_uint(...)`
-
-5. 文件跳转格式
-- 多处引用逐条列出，不要只写文件名。
-
-6. 回答结构
-- 默认顺序，简单问答可直接结论+1条证据：结论 -> 关键变量 -> 数据流 -> 代码定位 -> 风险/注意点
-
-7. 修改建议格式
-- 给出"改什么、在哪改、影响什么"
-
-8. 不确定信息
-- 明确写"推测"或"待确认"，并给出需要查看的代码位置
-
-9. 事实与推断
-- 回答中必须区分"事实"和"推断"；事实必须带代码定位链接。
+Before modifying C/C++ source in this repository, read `docs/CODE_STYLE.md` and follow it.
 
 ## 文件变更规范（必须遵守）
 
-1. 每次修改前，需要说明原因，变更计划，取得同意后才能修改。
+ - 每次修改前，需要说明原因，变更计划，取得同意后才能修改。
 
-2. 修改文件时，优先做原位最小改动；禁止顺手重构和无关格式化。
+## Core rules
 
-## 编程行为准则
+- Preserve the existing motor-control behavior and timing unless the task explicitly requires a behavior change.
+- Prefer Simulink/control-engineering style naming and signal flow over enterprise-software abstractions.
+- Use short domain names such as `Ia`, `Iq`, `Ud`, `Theta_e`, `Wm`, `PID_Run`, `Motor_Ctrl`, `Enc_Cal`.
+- Do not introduce long generic software names when a short control-domain name is clear.
+- Do not add lifecycle boilerplate such as `Init`, `Reset`, `Clear`, `Start`, `Stop`, or `DeInit` merely for interface symmetry.
+- A function should exist only when it has an independent, stable algorithm or system meaning. Do not wrap one or two obvious assignments only to reduce duplication.
+- Keep temporary calculations local. Store values in structs only when they must survive across cycles, are externally observed, or represent a real module interface.
+- Do not duplicate values that can be directly derived from existing data or read from hardware.
+- Do not add extra state machines or status fields when the state can be inferred from existing servo state, control mode, feedback, or hardware registers.
+- Do not create Target/Cmd/Ref copies unless they correspond to real processing stages that exist in the implementation.
+- Algorithm objects may use `Para`, `Sig`, and `State`; keep those parts in the same algorithm header.
+- Split files by algorithm family or real functional responsibility, not by struct layer.
+- In ADC/PWM hot paths, prioritize deterministic execution and direct signal flow. Direct register access, local variables, and expanded control formulas are acceptable.
+- Do not add wrapper/manager/service/interface layers unless the current task demonstrates a concrete need.
+- Keep changes narrow. Do not perform unrelated cleanup or architectural refactoring.
+- Comments should explain non-obvious control choices, units, signs, timing, and assumptions; do not narrate obvious assignments.
 
-源自 Andrej Karpathy 对 LLM 编程常见问题的观察。核心权衡：严谨优先于速度。琐碎任务可自行判断。
+## Before adding an abstraction
 
-### 1. 先想再写
+Ask internally:
 
-不要假设，不要隐藏困惑，暴露权衡。
+1. Does this solve a problem that exists now?
+2. Does it represent a real and stable control/system concept?
+3. Is the code clearer without it?
+4. Is it only wrapping a few assignments?
+5. Is it only being added for symmetry or future speculation?
+6. Does it duplicate data already available elsewhere?
 
-动手前：
-- 明确陈述你的假设。如果不确定，直接问。
-- 如果存在多种理解，全部列出——不要自己默默选一个。
-- 如果有更简单的方案，直接说出来。该反对就反对。
-- 如果哪里不清楚，停下来。说清楚哪里不清楚，问。
+If the abstraction is mainly justified by symmetry, generic software convention, or possible future use, do not add it.
 
-### 2. 简洁优先
+## Change review
 
-用最少的代码解决问题，不写推测性代码。
+Before finishing a change, check the diff for:
 
-- 不写没要求的功能。
-- 不为只用一次的代码建抽象。
-- 不写没要求的"灵活性"或"可配置性"。
-- 不为不可能发生的场景加错误处理。
-- 写完发现 200 行能压缩到 50 行，就重写。
-
-自问："一个高级工程师看到这段代码会说它过度复杂吗？"如果是，就简化。
-
-### 3. 精确改动
-
-只动必须动的，只清理自己弄脏的。
-
-编辑已有代码时：
-- 不顺手"改进"相邻代码、注释或格式。
-- 不重构没坏的东西。
-- 匹配现有风格，即使你觉得有别的方式更好。
-- 如果发现了无关的废弃代码，提一句——但不要删。
-
-因你的改动产生了孤立代码时：
-- 删除因你的修改而不再使用的 import/变量/函数。
-- 不删除已有的废弃代码，除非明确要求。
-
-检验标准：每个被改动的行都能直接追溯到用户的请求。
-
-### 4. 目标驱动
-
-定义成功标准，循环验证直到通过。
-
-把任务转化为可验证的目标：
-- "加校验" → "先给无效输入写测试，再让测试通过"
-- "修 bug" → "先写一个能复现的测试，再让它通过"
-- "重构 X" → "保证重构前后的测试都通过"
-
-强成功标准让你能独立循环推进。弱标准（"弄好就行"）需要反复确认。
+- unnecessary new structs or fields;
+- unnecessary `Init/Reset/Clear/Start/Stop` helpers;
+- duplicated physical quantities;
+- long software-style names replacing concise control notation;
+- new layers in the current-loop ISR path;
+- unrelated refactors.
