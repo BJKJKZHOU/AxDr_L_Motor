@@ -44,7 +44,8 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 
 # Add sources to executable
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
-    # Add user sources here
+    Algo/PID.c
+    Motor/Motor_ADC.c
 )
 
 # ST Arm Clang defines both __clang__ and GNU compatibility macros. The
@@ -60,7 +61,8 @@ endif()
 
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
-    # Add user defined include paths
+    Algo
+    Motor
 )
 
 # Add project symbols (macros)
