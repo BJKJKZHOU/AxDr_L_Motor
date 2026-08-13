@@ -105,6 +105,9 @@ int main(void)
   MX_SPI3_Init();
   MX_USB_PCD_Init();
   /* USER CODE BEGIN 2 */
+  ADC_Calib();
+
+  /* Start fast ADC sampling */
   if (HAL_ADCEx_InjectedStart(&hadc2) != HAL_OK)
   {
     Error_Handler();
