@@ -1,8 +1,7 @@
 build
 mx.scratch
 !.settings
-Drivers
-Middlewares
+
 .clangd
 docs/文档
 docs/手册
