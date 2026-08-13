@@ -30,7 +30,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "Motor_ADC.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -105,7 +105,20 @@ int main(void)
   MX_SPI3_Init();
   MX_USB_PCD_Init();
   /* USER CODE BEGIN 2 */
+  if (HAL_ADCEx_InjectedStart(&hadc2) != HAL_OK)
+  {
+    Error_Handler();
+  }
 
+  if (HAL_ADCEx_InjectedStart_IT(&hadc1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  if (HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_4) != HAL_OK)
+  {
+    Error_Handler();
+  }
   /* USER CODE END 2 */
 
   MX_ThreadX_Init();
