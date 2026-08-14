@@ -1,19 +1,21 @@
 #include "Math.h"
 
 
-float Limit_Value(float In, float Min, float Max)
+int8_t Limit_Value(float *Value, float Min, float Max)
 {
-    if (In > Max)
+    if (*Value > Max)
     {
-        return Max;
+        *Value = Max;
+        return 1;
     }
 
-    if (In < Min)
+    if (*Value < Min)
     {
-        return Min;
+        *Value = Min;
+        return -1;
     }
 
-    return In;
+    return 0;
 }
 
 
