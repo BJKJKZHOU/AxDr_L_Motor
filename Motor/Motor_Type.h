@@ -60,4 +60,22 @@ typedef struct
 } Motor_Limit_T;
 
 
+typedef struct
+{
+    int32_t Turn;      /* Software accumulated mechanical turns; +1 on positive 2pi->0 wrap, -1 on negative 0->2pi wrap; starts at 0 after power-up and is not retained across power loss */
+
+    float Theta_m;     /* rad, [0, 2pi) */
+    float Wm;          /* rad/s */
+
+    float Theta_e;     /* rad, [0, 2pi) */
+
+    float Id;          /* A */
+    float Iq;          /* A */
+
+    float Ud;          /* V */
+    float Uq;          /* V */
+
+} Motor_Run_T;
+
+
 #endif /* MOTOR_TYPE_H */
