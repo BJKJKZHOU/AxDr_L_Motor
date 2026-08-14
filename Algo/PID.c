@@ -5,29 +5,43 @@ void PID_Run(PID_T *Pid, float Ts)
 {
     float P;
     float D;
+    float Int_Pre;
+    float Int;
     float Out;
 
     Pid->Sig.Err = Pid->Sig.Ref - Pid->Sig.Fbk;
 
     P = Pid->Para.Kp * Pid->Sig.Err;
 
-    Pid->State.Int +=
-        Pid->Para.Ki * Pid->Sig.Err * Ts;
+    Int_Pre = Pid->State.Int;
+    Int = Int_Pre
+        + Pid->Para.Ki * Pid->Sig.Err * Ts;
 
-    if (Pid->State.Int > Pid->Para.Int_Max)
+    if (Int > Pid->Para.Int_Max)
     {
-        Pid->State.Int = Pid->Para.Int_Max;
+        Int = Pid->Para.Int_Max;
     }
-    else if (Pid->State.Int < Pid->Para.Int_Min)
+    else if (Int < Pid->Para.Int_Min)
     {
-        Pid->State.Int = Pid->Para.Int_Min;
+        Int = Pid->Para.Int_Min;
     }
 
     D = -Pid->Para.Kd
       * (Pid->Sig.Fbk - Pid->State.Fbk_Pre)
       / Ts;
 
-    Out = P + Pid->State.Int + D;
+    Out = P + Int + D;
+
+    if ((Out > Pid->Para.Out_Max) && (Int > Int_Pre))
+    {
+        Int = Int_Pre;
+        Out = P + Int + D;
+    }
+    else if ((Out < Pid->Para.Out_Min) && (Int < Int_Pre))
+    {
+        Int = Int_Pre;
+        Out = P + Int + D;
+    }
 
     if (Out > Pid->Para.Out_Max)
     {
@@ -38,6 +52,7 @@ void PID_Run(PID_T *Pid, float Ts)
         Out = Pid->Para.Out_Min;
     }
 
+    Pid->State.Int = Int;
     Pid->State.Fbk_Pre = Pid->Sig.Fbk;
     Pid->Sig.Out = Out;
 }
