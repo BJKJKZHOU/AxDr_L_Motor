@@ -1,5 +1,9 @@
 #include "Motor_Control.h"
 
+#include "Math.h"
+#include "Motor_ADC.h"
+#include "Speed_Loop.h"
+#include "control_params.h"
 #include "motor_params.h"
 
 
@@ -26,9 +30,56 @@ static int32_t Pos_Ref_Turn = 0;
 static float Pos_Ref_Theta = 0.0f;
 
 
+static void Iq_Limit_Calc(float *Iq_Min, float *Iq_Max)
+{
+    float We;
+    float U_Lim;
+    float Wlq;
+    float Bemf;
+    float A;
+    float B;
+    float C;
+    float D;
+    float Sqrt_D;
+
+    We = (float)Motor_Para.Pp * Motor_Run.Wm;
+    U_Lim = ADC.Vbus_V * INV_SQRT3_F * VOLT_MOD_MAX;
+
+    Wlq = We * Motor_Para.Lq;
+    Bemf = We * Motor_Para.Flux;
+
+    A = Motor_Para.Rs * Motor_Para.Rs + Wlq * Wlq;
+    B = 2.0f * Motor_Para.Rs * Bemf;
+    C = Bemf * Bemf - U_Lim * U_Lim;
+
+    if (A <= 0.0f)
+    {
+        *Iq_Min = 0.0f;
+        *Iq_Max = 0.0f;
+        return;
+    }
+
+    D = B * B - 4.0f * A * C;
+
+    if (D < 0.0f)
+    {
+        *Iq_Min = 0.0f;
+        *Iq_Max = 0.0f;
+        return;
+    }
+
+    Sqrt_D = __builtin_sqrtf(D);
+
+    *Iq_Min = (-B - Sqrt_D) / (2.0f * A);
+    *Iq_Max = (-B + Sqrt_D) / (2.0f * A);
+}
+
+
 void Motor_Control(void)
 {
     float Kt;
+    float Iq_Min;
+    float Iq_Max;
 
     if (Servo_State != State_Pre)
     {
@@ -83,6 +134,8 @@ void Motor_Control(void)
         return;
     }
 
+    Iq_Limit_Calc(&Iq_Min, &Iq_Max);
+
     switch (Ctrl_Mode)
     {
         case CTRL_TORQUE:
@@ -94,6 +147,7 @@ void Motor_Control(void)
             {
                 Kt = 1.5f * (float)Motor_Para.Pp * Motor_Para.Flux;
                 Current_Ref.Iq = Motor_Cmd.Te_Target / Kt;
+                Limit_Value(&Current_Ref.Iq, Iq_Min, Iq_Max);
             }
             break;
 
@@ -107,8 +161,8 @@ void Motor_Control(void)
                 Wm_Ref = Motor_Cmd.Wm_Target;
             }
 
-            /* Speed loop will generate Iq when implemented. */
-            Current_Ref.Iq = 0.0f;
+            Current_Ref.Iq = Speed_Loop(Wm_Ref, Iq_Min, Iq_Max);
+            Limit_Value(&Current_Ref.Iq, Iq_Min, Iq_Max);
             break;
 
         case CTRL_POSITION:
