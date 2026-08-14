@@ -1,6 +1,8 @@
 #ifndef MATH_H
 #define MATH_H
 
+#include <stdint.h>
+
 
 #define PI_F            3.14159265358979323846f
 #define TWO_PI_F        6.28318530717958647692f
@@ -9,7 +11,7 @@
 #define SQRT3_HALF_F    0.86602540378443864676f
 
 
-float Limit_Value(float In, float Min, float Max);
+int8_t Limit_Value(float *Value, float Min, float Max);
 void Vector2_Limit(float *X, float *Y, float Lim);
 float Angle_Wrap(float Theta);
 
