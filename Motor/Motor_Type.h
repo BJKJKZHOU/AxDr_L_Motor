@@ -115,4 +115,8 @@ typedef struct
 } Motor_Run_T;
 
 
+extern Motor_Para_T Motor_Para;
+extern Motor_Run_T Motor_Run;
+
+
 #endif /* MOTOR_TYPE_H */

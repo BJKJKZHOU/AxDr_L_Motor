@@ -50,6 +50,8 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Algo/Voltage_Mod.c
     Motor/Motor_ADC.c
     Motor/Encoder.c
+    Motor/Current_Loop.c
+    Motor/Motor_Control.c
 )
 
 # ST Arm Clang defines both __clang__ and GNU compatibility macros. The
@@ -67,6 +69,7 @@ endif()
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     Algo
     Motor
+    User
 )
 
 # Add project symbols (macros)
