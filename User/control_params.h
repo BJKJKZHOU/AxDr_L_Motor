@@ -6,6 +6,11 @@
 #include "motor_params.h"
 
 
+#define CUR_FREQ_HZ_DEFAULT    20000.0f
+#define CUR_TS                 (1.0f / CUR_FREQ_HZ_DEFAULT)
+#define VOLT_MOD_MAX           0.95f
+
+
 /*
  * Current-loop PI design.
  *
