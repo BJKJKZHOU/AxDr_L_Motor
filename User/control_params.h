@@ -60,4 +60,46 @@
 }
 
 
+/*
+ * Speed-loop PI design.
+ *
+ * Mechanical plant from Iq to mechanical speed:
+ *
+ *                  Kt
+ * G(s) = ---------------------
+ *             J*s + B
+ *
+ * Kt = 1.5 * Pp * Flux
+ *
+ * Choose speed-loop bandwidth Fs and place the PI zero at the
+ * mechanical pole:
+ *
+ * Ws = 2*pi*Fs
+ * Kp = J*Ws/Kt
+ * Ki = B*Ws/Kt
+ *
+ * Speed PI output is Iq_Ref directly.
+ */
+#define SPD_FREQ_HZ_DEFAULT    2000.0f
+#define SPD_TS                 (1.0f / SPD_FREQ_HZ_DEFAULT)
+
+#define SPD_BW_HZ_DEFAULT      50.0f
+#define SPD_WC_DEFAULT         (TWO_PI_F * SPD_BW_HZ_DEFAULT)
+
+#define MOTOR_KT_DEFAULT       (1.5f * (float)MOTOR_PP_DEFAULT * MOTOR_FLUX_DEFAULT)
+#define SPD_KP_DEFAULT         (MOTOR_J_DEFAULT * SPD_WC_DEFAULT / MOTOR_KT_DEFAULT)
+#define SPD_KI_DEFAULT         (MOTOR_B_DEFAULT * SPD_WC_DEFAULT / MOTOR_KT_DEFAULT)
+
+
+#define SPEED_CTRL_DEFAULT             \
+{                                      \
+    .Para =                            \
+    {                                  \
+        .Kp = SPD_KP_DEFAULT,          \
+        .Ki = SPD_KI_DEFAULT,          \
+        .Kd = 0.0f,                    \
+    },                                 \
+}
+
+
 #endif /* USER_CONTROL_PARAMS_H */
