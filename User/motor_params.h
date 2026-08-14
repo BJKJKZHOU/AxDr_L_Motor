@@ -4,15 +4,25 @@
 #include "Motor_Type.h"
 
 
+/* 2312S motor parameters. */
+#define MOTOR_PP_DEFAULT       7U
+#define MOTOR_RS_DEFAULT       0.202977806f
+#define MOTOR_LD_DEFAULT       0.000108778855f
+#define MOTOR_LQ_DEFAULT       0.000112416135f
+#define MOTOR_FLUX_DEFAULT     0.006488f
+#define MOTOR_J_DEFAULT        9.08865259e-05f
+#define MOTOR_B_DEFAULT        0.000188353f
+
+
 #define MOTOR_PARA_DEFAULT              \
 {                                       \
-    .Pp   = 7U,                         \
-    .Rs   = 0.202977806f,               \
-    .Ld   = 0.000108778855f,            \
-    .Lq   = 0.000112416135f,            \
-    .Flux = 0.006488f,                  \
-    .J    = 9.08865259e-05f,            \
-    .B    = 0.000188353f,               \
+    .Pp   = MOTOR_PP_DEFAULT,           \
+    .Rs   = MOTOR_RS_DEFAULT,           \
+    .Ld   = MOTOR_LD_DEFAULT,           \
+    .Lq   = MOTOR_LQ_DEFAULT,           \
+    .Flux = MOTOR_FLUX_DEFAULT,         \
+    .J    = MOTOR_J_DEFAULT,            \
+    .B    = MOTOR_B_DEFAULT,            \
 }
 
 
