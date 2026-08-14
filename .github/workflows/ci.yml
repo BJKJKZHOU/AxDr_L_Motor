@@ -1,0 +1,50 @@
+name: Firmware Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build gcc-arm-none-eabi
+
+      - name: Configure
+        run: |
+          cmake -S . -B build/gcc \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE=cmake/gcc-arm-none-eabi.cmake
+
+      - name: Build
+        run: cmake --build build/gcc
+
+      - name: Generate firmware files
+        run: |
+          arm-none-eabi-objcopy -O binary \
+            build/gcc/AxDr_L_Motor.elf \
+            build/gcc/AxDr_L_Motor.bin
+          arm-none-eabi-objcopy -O ihex \
+            build/gcc/AxDr_L_Motor.elf \
+            build/gcc/AxDr_L_Motor.hex
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware
+          path: |
+            build/gcc/AxDr_L_Motor.elf
+            build/gcc/AxDr_L_Motor.bin
+            build/gcc/AxDr_L_Motor.hex
+            build/gcc/AxDr_L_Motor.map
+          if-no-files-found: error
+          retention-days: 30
