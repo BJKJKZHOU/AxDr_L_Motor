@@ -27,3 +27,24 @@ jobs:
 
       - name: Build
         run: cmake --build build/gcc
+
+      - name: Generate firmware files
+        run: |
+          arm-none-eabi-objcopy -O binary \
+            build/gcc/AxDr_L_Motor.elf \
+            build/gcc/AxDr_L_Motor.bin
+          arm-none-eabi-objcopy -O ihex \
+            build/gcc/AxDr_L_Motor.elf \
+            build/gcc/AxDr_L_Motor.hex
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware
+          path: |
+            build/gcc/AxDr_L_Motor.elf
+            build/gcc/AxDr_L_Motor.bin
+            build/gcc/AxDr_L_Motor.hex
+            build/gcc/AxDr_L_Motor.map
+          if-no-files-found: error
+          retention-days: 30
