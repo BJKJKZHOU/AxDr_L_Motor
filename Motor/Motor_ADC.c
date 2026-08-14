@@ -1,5 +1,8 @@
 #include "Motor_ADC.h"
 
+#include "Current_Loop.h"
+#include "Motor_Control.h"
+#include "Voltage_Mod.h"
 #include "adc.h"
 #include "main.h"
 #include "tim.h"
@@ -117,10 +120,36 @@ void ADC_Sample(void)
 
 void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc)
 {
+    float Id_Ref;
+    float Iq_Ref;
+    float Ualpha;
+    float Ubeta;
+    float DutyA;
+    float DutyB;
+    float DutyC;
+
     if (hadc->Instance != ADC1)
     {
         return;
     }
 
     ADC_Sample();
+    Current_Ref_Get(&Id_Ref, &Iq_Ref);
+
+    Current_Loop(Id_Ref,
+                 Iq_Ref,
+                 &Ualpha,
+                 &Ubeta);
+
+    SVPWM_Calc(Ualpha,
+               Ubeta,
+               ADC.Vbus_V,
+               &DutyA,
+               &DutyB,
+               &DutyC);
+
+    /* Phase PWM outputs remain disabled during fast-loop timing bring-up. */
+    (void)DutyA;
+    (void)DutyB;
+    (void)DutyC;
 }

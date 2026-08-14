@@ -5,6 +5,7 @@
 
 
 void Motor_Control(void);
+void Current_Ref_Get(float *Id_Ref, float *Iq_Ref);
 
 void Servo_Enable(void);
 void Servo_Run(void);

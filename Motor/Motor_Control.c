@@ -183,6 +183,13 @@ void Motor_Control(void)
 }
 
 
+void Current_Ref_Get(float *Id_Ref, float *Iq_Ref)
+{
+    *Id_Ref = Current_Ref.Id;
+    *Iq_Ref = Current_Ref.Iq;
+}
+
+
 void Servo_Enable(void)
 {
     if (Servo_State == SERVO_DISABLED)
