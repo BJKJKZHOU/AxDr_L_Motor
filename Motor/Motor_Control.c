@@ -167,6 +167,10 @@ void Motor_Control(void)
             break;
 
         case CTRL_POSITION:
+            /*
+             * ENABLED keeps the position captured on entry.
+             * RUN will update Pos_Ref through the position trajectory when implemented.
+             */
             (void)Pos_Ref_Turn;
             (void)Pos_Ref_Theta;
             Current_Ref.Iq = 0.0f;
