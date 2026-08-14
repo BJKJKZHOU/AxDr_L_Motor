@@ -13,6 +13,16 @@
 #define MOTOR_J_DEFAULT        9.08865259e-05f
 #define MOTOR_B_DEFAULT        0.000188353f
 
+#define MOTOR_ENC_DIR_DEFAULT   1
+#define MOTOR_THETA_OFF_DEFAULT 0.0f
+
+
+#define MOTOR_CAL_DEFAULT               \
+{                                       \
+    .Enc_Dir   = MOTOR_ENC_DIR_DEFAULT, \
+    .Theta_Off = MOTOR_THETA_OFF_DEFAULT, \
+}
+
 
 #define MOTOR_PARA_DEFAULT              \
 {                                       \

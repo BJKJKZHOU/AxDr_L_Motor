@@ -1,5 +1,7 @@
 #include "Encoder.h"
 
+#include "Math.h"
+#include "Motor_Type.h"
 #include "main.h"
 #include "spi.h"
 
@@ -9,8 +11,7 @@
 #define MT6816_CMD_READ         0x80U
 
 #define ENC_CPR                 16384.0f
-#define TWO_PI                  6.2831853071795864769f
-#define RAW_TO_RAD              (TWO_PI / ENC_CPR)
+#define RAW_TO_RAD              (TWO_PI_F / ENC_CPR)
 
 
 volatile Encoder_T Encoder = {0};
@@ -19,8 +20,10 @@ volatile Encoder_T Encoder = {0};
 static uint16_t Tx;
 static uint16_t Rx;
 static uint16_t Data;
+static float Theta_Pre = 0.0f;
 static uint8_t Step = 0U;
 static uint8_t Busy = 0U;
+static uint8_t Pos_Valid = 0U;
 
 
 static HAL_StatusTypeDef Reg_Read_DMA(uint8_t Reg)
@@ -58,6 +61,9 @@ void Encoder_Start(void)
 
 void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi)
 {
+    float Theta;
+    float Delta;
+
     if (hspi->Instance != SPI1)
     {
         return;
@@ -82,7 +88,36 @@ void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi)
     Data |= (uint16_t)(uint8_t)Rx;
 
     Encoder.Raw = Data >> 2;
-    Encoder.Theta_m = (float)Encoder.Raw * RAW_TO_RAD;
+    Theta = (float)Encoder.Raw * RAW_TO_RAD;
+
+    if (Motor_Cal.Enc_Dir < 0)
+    {
+        Theta = Angle_Wrap(-Theta);
+    }
+
+    if (Pos_Valid != 0U)
+    {
+        Delta = Theta - Theta_Pre;
+
+        if (Delta < -PI_F)
+        {
+            Motor_Run.Turn++;
+        }
+        else if (Delta > PI_F)
+        {
+            Motor_Run.Turn--;
+        }
+    }
+    else
+    {
+        Pos_Valid = 1U;
+    }
+
+    Theta_Pre = Theta;
+
+    Encoder.Theta_m = Theta;
+    Motor_Run.Theta_m = Theta;
+    Motor_Run.Theta_e = Angle_Wrap((float)Motor_Para.Pp * Theta + Motor_Cal.Theta_Off);
 
     Busy = 0U;
 }

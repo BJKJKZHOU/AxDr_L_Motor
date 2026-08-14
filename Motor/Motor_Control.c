@@ -15,6 +15,7 @@ typedef struct
 } Current_Ref_T;
 
 
+Motor_Cal_T Motor_Cal = MOTOR_CAL_DEFAULT;
 Motor_Para_T Motor_Para = MOTOR_PARA_DEFAULT;
 Motor_Run_T Motor_Run = {0};
 
@@ -166,10 +167,6 @@ void Motor_Control(void)
             break;
 
         case CTRL_POSITION:
-            /*
-             * ENABLED keeps the position captured on entry.
-             * RUN will update Pos_Ref through the position trajectory when implemented.
-             */
             (void)Pos_Ref_Turn;
             (void)Pos_Ref_Theta;
             Current_Ref.Iq = 0.0f;
