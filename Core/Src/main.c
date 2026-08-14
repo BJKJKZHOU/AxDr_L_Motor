@@ -122,6 +122,11 @@ int main(void)
   {
     Error_Handler();
   }
+
+  if (HAL_TIM_Base_Start_IT(&htim1) != HAL_OK)
+  {
+    Error_Handler();
+  }
   /* USER CODE END 2 */
 
   MX_ThreadX_Init();
