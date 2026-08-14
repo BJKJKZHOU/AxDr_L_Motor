@@ -58,9 +58,9 @@ void SVPWM_Calc(float Ualpha,
     Db = 0.5f + (Ub + Uoff) / Vbus;
     Dc = 0.5f + (Uc + Uoff) / Vbus;
 
-    Da = Limit_Value(Da, 0.0f, 1.0f);
-    Db = Limit_Value(Db, 0.0f, 1.0f);
-    Dc = Limit_Value(Dc, 0.0f, 1.0f);
+    Limit_Value(&Da, 0.0f, 1.0f);
+    Limit_Value(&Db, 0.0f, 1.0f);
+    Limit_Value(&Dc, 0.0f, 1.0f);
 
     *DutyA = Da;
     *DutyB = Db;
