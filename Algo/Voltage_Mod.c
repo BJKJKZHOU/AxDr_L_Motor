@@ -1,7 +1,6 @@
 #include "Voltage_Mod.h"
 
-
-#define SQRT3_HALF    0.86602540378443864676f
+#include "Math.h"
 
 
 void SVPWM_Calc(float Ualpha,
@@ -30,8 +29,8 @@ void SVPWM_Calc(float Ualpha,
     }
 
     Ua = Ualpha;
-    Ub = -0.5f * Ualpha + SQRT3_HALF * Ubeta;
-    Uc = -0.5f * Ualpha - SQRT3_HALF * Ubeta;
+    Ub = -0.5f * Ualpha + SQRT3_HALF_F * Ubeta;
+    Uc = -0.5f * Ualpha - SQRT3_HALF_F * Ubeta;
 
     Umax = Ua;
     if (Ub > Umax)
@@ -59,32 +58,9 @@ void SVPWM_Calc(float Ualpha,
     Db = 0.5f + (Ub + Uoff) / Vbus;
     Dc = 0.5f + (Uc + Uoff) / Vbus;
 
-    if (Da > 1.0f)
-    {
-        Da = 1.0f;
-    }
-    else if (Da < 0.0f)
-    {
-        Da = 0.0f;
-    }
-
-    if (Db > 1.0f)
-    {
-        Db = 1.0f;
-    }
-    else if (Db < 0.0f)
-    {
-        Db = 0.0f;
-    }
-
-    if (Dc > 1.0f)
-    {
-        Dc = 1.0f;
-    }
-    else if (Dc < 0.0f)
-    {
-        Dc = 0.0f;
-    }
+    Da = Limit_Value(Da, 0.0f, 1.0f);
+    Db = Limit_Value(Db, 0.0f, 1.0f);
+    Dc = Limit_Value(Dc, 0.0f, 1.0f);
 
     *DutyA = Da;
     *DutyB = Db;
