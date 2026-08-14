@@ -4,6 +4,24 @@
 #include <stdint.h>
 
 
+/*
+ * Mechanical positive direction convention:
+ * Viewed from the motor output-shaft side toward the motor body, CCW is positive.
+ * Mechanical angle, speed and torque signs must follow this convention.
+ *
+ * Enc_Dir maps the encoder raw direction into this mechanical coordinate system.
+ * After direction correction, Theta_m increases in the positive mechanical direction.
+ * Theta_Off is the calibrated electrical angle offset used by:
+ * Theta_e = wrap(Pp * Theta_m + Theta_Off).
+ */
+typedef struct
+{
+    int8_t Enc_Dir;       /* +1 / -1 */
+    float Theta_Off;      /* rad */
+
+} Motor_Cal_T;
+
+
 typedef struct
 {
     uint8_t Pp;        /* Pole pairs */
