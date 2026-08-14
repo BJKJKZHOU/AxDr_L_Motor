@@ -45,7 +45,10 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 # Add sources to executable
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Algo/PID.c
+    Algo/Math.c
+    Algo/Voltage_Mod.c
     Motor/Motor_ADC.c
+    Motor/Encoder.c
 )
 
 # ST Arm Clang defines both __clang__ and GNU compatibility macros. The
