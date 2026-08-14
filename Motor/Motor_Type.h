@@ -4,6 +4,43 @@
 #include <stdint.h>
 
 
+typedef enum
+{
+    SERVO_DISABLED = 0,
+    SERVO_ENABLED,
+    SERVO_RUN,
+} Servo_State_e;
+
+
+typedef enum
+{
+    CTRL_TORQUE = 0,
+    CTRL_SPEED,
+    CTRL_POSITION,
+} Ctrl_Mode_e;
+
+
+/*
+ * User motion targets.
+ *
+ * Targets may be modified in SERVO_DISABLED, SERVO_ENABLED and SERVO_RUN.
+ * Servo state controls execution permission, not whether a target can be written.
+ * Only SERVO_RUN executes the saved target through the active control chain.
+ * Enable, Stop and Disable must not clear or overwrite these targets.
+ *
+ * Position target uses Pos_Turn + Pos_Theta to preserve single-turn angle precision.
+ */
+typedef struct
+{
+    float Te_Target;       /* N*m */
+    float Wm_Target;       /* rad/s */
+
+    int32_t Pos_Turn;      /* Mechanical turns */
+    float Pos_Theta;       /* rad, [0, 2pi) */
+
+} Motor_Cmd_T;
+
+
 /*
  * Mechanical positive direction convention:
  * Viewed from the motor output-shaft side toward the motor body, CCW is positive.
