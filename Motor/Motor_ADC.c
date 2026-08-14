@@ -6,8 +6,6 @@
 
 
 #define ADC_SAMPLE_NUM      512U
-#define ADC_TRIG_CCR        3900U
-
 #define ADC_VREF_V          3.3f
 #define ADC_FULL_SCALE      4096.0f
 
@@ -54,8 +52,6 @@ static void Iabc_Calib(void)
      * TIM1 CH4 only provides the ADC injected trigger.
      * No phase PWM output is enabled here.
      */
-    __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_4, ADC_TRIG_CCR);
-
     if (HAL_ADCEx_InjectedStart(&hadc2) != HAL_OK)
     {
         Error_Handler();
