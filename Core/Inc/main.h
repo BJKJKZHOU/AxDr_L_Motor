@@ -99,6 +99,12 @@ void Error_Handler(void);
 #define LCD_RES_GPIO_Port GPIOC
 #define LCD_DC_Pin GPIO_PIN_15
 #define LCD_DC_GPIO_Port GPIOC
+#define RGB_Pin GPIO_PIN_5
+#define RGB_GPIO_Port GPIOA
+#define KEY2_Pin GPIO_PIN_8
+#define KEY2_GPIO_Port GPIOC
+#define KEY1_Pin GPIO_PIN_9
+#define KEY1_GPIO_Port GPIOC
 #define SPI3_CS_Pin GPIO_PIN_15
 #define SPI3_CS_GPIO_Port GPIOA
 #define SPI1_CSN_Pin GPIO_PIN_2
