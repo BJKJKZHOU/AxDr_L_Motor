@@ -54,6 +54,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Motor/Speed_Loop.c
     Motor/Motor_PWM.c
     Motor/Motor_Control.c
+    BSP/RGB.c
     AZURE_RTOS/App/motor_thread.c
 )
 
@@ -71,6 +72,7 @@ endif()
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     Algo
+    BSP
     Motor
     User
 )
