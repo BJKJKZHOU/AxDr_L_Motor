@@ -4,28 +4,22 @@
 #include "tx_api.h"
 
 
-#define TX_APP_STACK_SIZE                       512
-#define TX_APP_THREAD_PRIO                      5
-
-#ifndef TX_APP_THREAD_PREEMPTION_THRESHOLD
-#define TX_APP_THREAD_PREEMPTION_THRESHOLD      TX_APP_THREAD_PRIO
-#endif
-
-#ifndef TX_APP_THREAD_TIME_SLICE
-#define TX_APP_THREAD_TIME_SLICE                TX_NO_TIME_SLICE
-#endif
-
-#ifndef TX_APP_THREAD_AUTO_START
-#define TX_APP_THREAD_AUTO_START                TX_AUTO_START
-#endif
+typedef enum
+{
+    SERVO_CMD_ENABLE = 0,
+    SERVO_CMD_RUN,
+    SERVO_CMD_STOP,
+    SERVO_CMD_DISABLE,
+    SERVO_CMD_EN_TOGGLE,
+    SERVO_CMD_RUN_TOGGLE,
+} Servo_Cmd_e;
 
 
-extern TX_THREAD tx_app_thread;
 extern TX_SEMAPHORE Motor_Sem;
+extern TX_QUEUE Servo_Cmd_Q;
 extern volatile ULONG Motor_Ready;
 
 UINT Motor_Thread_Init(VOID *memory_ptr);
-void MainThread_Entry(ULONG thread_input);
 
 
 #endif /* MOTOR_THREAD_H */

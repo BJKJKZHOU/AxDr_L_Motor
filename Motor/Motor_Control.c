@@ -22,7 +22,7 @@ Motor_Run_T Motor_Run = {0};
 
 
 static Motor_Cmd_T Motor_Cmd = {0};
-static Servo_State_e Servo_State = SERVO_DISABLED;
+static volatile Servo_State_e Servo_State = SERVO_DISABLED;
 static Servo_State_e State_Pre = SERVO_DISABLED;
 static Ctrl_Mode_e Ctrl_Mode = CTRL_TORQUE;
 
@@ -188,6 +188,12 @@ void Current_Ref_Get(float *Id_Ref, float *Iq_Ref)
 {
     *Id_Ref = Current_Ref.Id;
     *Iq_Ref = Current_Ref.Iq;
+}
+
+
+Servo_State_e Servo_State_Get(void)
+{
+    return Servo_State;
 }
 
 
