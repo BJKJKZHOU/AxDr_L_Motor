@@ -54,6 +54,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Motor/Speed_Loop.c
     Motor/Motor_PWM.c
     Motor/Motor_Control.c
+    AZURE_RTOS/App/motor_thread.c
 )
 
 # ST Arm Clang defines both __clang__ and GNU compatibility macros. The

@@ -24,7 +24,7 @@
 /* USER CODE BEGIN Includes */
 #include "Encoder.h"
 #include "Motor_ADC.h"
-#include "app_threadx.h"
+#include "motor_thread.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
