@@ -56,6 +56,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Motor/Motor_Control.c
     BSP/RGB.c
     AZURE_RTOS/App/motor_thread.c
+    AZURE_RTOS/App/panel_thread.c
 )
 
 # ST Arm Clang defines both __clang__ and GNU compatibility macros. The

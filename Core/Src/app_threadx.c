@@ -24,6 +24,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "motor_thread.h"
+#include "panel_thread.h"
 
 /* USER CODE END Includes */
 
@@ -59,6 +60,8 @@
   */
 UINT App_ThreadX_Init(VOID *memory_ptr)
 {
+  UINT status;
+
   /* USER CODE BEGIN App_ThreadX_MEM_POOL */
 
   /* USER CODE END App_ThreadX_MEM_POOL */
@@ -67,7 +70,14 @@ UINT App_ThreadX_Init(VOID *memory_ptr)
 
   /* USER CODE END App_ThreadX_Init */
 
-  return Motor_Thread_Init(memory_ptr);
+  status = Motor_Thread_Init(memory_ptr);
+
+  if (status != TX_SUCCESS)
+  {
+    return status;
+  }
+
+  return Panel_Thread_Init(memory_ptr);
 }
   /**
   * @brief  Function that implements the kernel's initialization.
