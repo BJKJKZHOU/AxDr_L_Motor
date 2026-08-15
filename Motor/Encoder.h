@@ -14,6 +14,9 @@ typedef struct
 extern volatile Encoder_T Encoder;
 
 
-void Encoder_Read(void);
+void Encoder_DMA_Config(void);
+void Encoder_DMA_IRQHandler(void);
+void Encoder_Start(void);
+
 
 #endif

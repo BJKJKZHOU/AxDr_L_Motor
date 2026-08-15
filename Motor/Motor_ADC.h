@@ -29,6 +29,7 @@ extern volatile ADC_T ADC;
 
 void ADC_Calib(void);
 void ADC_Sample(void);
+void ADC_Run(void);
 
 
 #endif /* MOTOR_ADC_H */

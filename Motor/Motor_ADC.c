@@ -1,13 +1,14 @@
 #include "Motor_ADC.h"
 
+#include "Current_Loop.h"
+#include "Motor_Control.h"
+#include "Voltage_Mod.h"
 #include "adc.h"
 #include "main.h"
 #include "tim.h"
 
 
 #define ADC_SAMPLE_NUM      512U
-#define ADC_TRIG_CCR        3900U
-
 #define ADC_VREF_V          3.3f
 #define ADC_FULL_SCALE      4096.0f
 
@@ -50,12 +51,7 @@ static void Iabc_Calib(void)
     uint32_t Ib_Sum = 0U;
     uint32_t Ic_Sum = 0U;
 
-    /*
-     * TIM1 CH4 only provides the ADC injected trigger.
-     * No phase PWM output is enabled here.
-     */
-    __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_4, ADC_TRIG_CCR);
-
+    /* TIM1 CH5/TRGO2 triggers ADC injected without enabling phase PWM. */
     if (HAL_ADCEx_InjectedStart(&hadc2) != HAL_OK)
     {
         Error_Handler();
@@ -66,7 +62,7 @@ static void Iabc_Calib(void)
         Error_Handler();
     }
 
-    if (HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_4) != HAL_OK)
+    if (HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_5) != HAL_OK)
     {
         Error_Handler();
     }
@@ -88,7 +84,7 @@ static void Iabc_Calib(void)
         Ic_Sum += ADC1->JDR1;
     }
 
-    HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_4);
+    HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_5);
 
     HAL_ADCEx_InjectedStop(&hadc1);
     HAL_ADCEx_InjectedStop(&hadc2);
@@ -119,12 +115,45 @@ void ADC_Sample(void)
 }
 
 
-void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc)
+void ADC_Run(void)
 {
-    if (hadc->Instance != ADC1)
-    {
-        return;
-    }
+    float Id_Ref;
+    float Iq_Ref;
+    float Ualpha;
+    float Ubeta;
+    float DutyA;
+    float DutyB;
+    float DutyC;
+    uint32_t T0;
+    uint32_t Cyc;
+
+    T0 = DWT->CYCCNT;
 
     ADC_Sample();
+    Current_Ref_Get(&Id_Ref, &Iq_Ref);
+
+    Current_Loop(Id_Ref,
+                 Iq_Ref,
+                 &Ualpha,
+                 &Ubeta);
+
+    SVPWM_Calc(Ualpha,
+               Ubeta,
+               ADC.Vbus_V,
+               &DutyA,
+               &DutyB,
+               &DutyC);
+
+    /* Phase PWM outputs remain disabled during fast-loop timing bring-up. */
+    (void)DutyA;
+    (void)DutyB;
+    (void)DutyC;
+
+    Cyc = DWT->CYCCNT - T0;
+    Fast_Time.ADC_Run_Cyc = Cyc;
+
+    if (Cyc > Fast_Time.ADC_Run_Max)
+    {
+        Fast_Time.ADC_Run_Max = Cyc;
+    }
 }

@@ -37,6 +37,42 @@ extern "C" {
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
 
+/* Enc_Cyc, ADC_Cyc and Fast_Cyc use the TIM1 underflow ISR as DWT T0. */
+typedef struct
+{
+  uint32_t T0;
+  uint32_t Snap_Cnt;
+  uint32_t TIM_ISR_Cyc;
+  uint32_t TIM_ISR_Max;
+  uint32_t SPI_RX_Cnt;
+  /* SPI_1 is RX DMA HT; SPI_2 is RX DMA TC. */
+  uint32_t SPI_1_Cyc;
+  uint32_t SPI_1_ISR_Cyc;
+  uint32_t SPI_1_Flag;
+  uint32_t SPI_1_CNDTR;
+  uint32_t SPI_2_Cyc;
+  uint32_t SPI_2_ISR_Cyc;
+  uint32_t SPI_2_Flag;
+  uint32_t SPI_2_CNDTR;
+  uint32_t Enc_Cyc;
+  uint32_t ADC_Cyc;
+  uint32_t ADC_Run_Cyc;
+  uint32_t ADC_Run_Max;
+  uint32_t ADC_ISR_Cyc;
+  uint32_t ADC_ISR_Max;
+  uint32_t Fast_Cyc;
+  uint32_t Fast_Max;
+  uint32_t Enc_Late;
+  uint32_t Enc_Miss;
+  uint32_t Deadline_Miss;
+
+} Fast_Time_T;
+
+
+extern volatile Fast_Time_T Fast_Time;
+extern volatile Fast_Time_T Fast_Snap;
+extern volatile uint32_t Fast_Snap_Ready;
+
 /* USER CODE END ET */
 
 /* Exported constants --------------------------------------------------------*/
