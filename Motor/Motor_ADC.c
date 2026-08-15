@@ -51,10 +51,7 @@ static void Iabc_Calib(void)
     uint32_t Ib_Sum = 0U;
     uint32_t Ic_Sum = 0U;
 
-    /*
-     * TIM1 CH4 only provides the ADC injected trigger.
-     * No phase PWM output is enabled here.
-     */
+    /* TIM1 CH5/TRGO2 triggers ADC injected without enabling phase PWM. */
     if (HAL_ADCEx_InjectedStart(&hadc2) != HAL_OK)
     {
         Error_Handler();
@@ -65,7 +62,7 @@ static void Iabc_Calib(void)
         Error_Handler();
     }
 
-    if (HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_4) != HAL_OK)
+    if (HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_5) != HAL_OK)
     {
         Error_Handler();
     }
@@ -87,7 +84,7 @@ static void Iabc_Calib(void)
         Ic_Sum += ADC1->JDR1;
     }
 
-    HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_4);
+    HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_5);
 
     HAL_ADCEx_InjectedStop(&hadc1);
     HAL_ADCEx_InjectedStop(&hadc2);
@@ -127,7 +124,6 @@ void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc)
     float DutyA;
     float DutyB;
     float DutyC;
-
     if (hadc->Instance != ADC1)
     {
         return;

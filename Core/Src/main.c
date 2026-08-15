@@ -30,6 +30,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "Encoder.h"
 #include "Motor_ADC.h"
 /* USER CODE END Includes */
 
@@ -105,6 +106,13 @@ int main(void)
   MX_SPI3_Init();
   MX_USB_PCD_Init();
   /* USER CODE BEGIN 2 */
+  /* DWT provides the MT6816 chip-select and SPI timeout timing. */
+  CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+  DWT->CYCCNT = 0U;
+  DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+
+  Encoder_DMA_Config();
+
   ADC_Calib();
 
   /* Start fast ADC sampling */
@@ -118,7 +126,12 @@ int main(void)
     Error_Handler();
   }
 
-  if (HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_4) != HAL_OK)
+  if (HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_5) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  if (HAL_TIM_PWM_Start_IT(&htim1, TIM_CHANNEL_4) != HAL_OK)
   {
     Error_Handler();
   }
