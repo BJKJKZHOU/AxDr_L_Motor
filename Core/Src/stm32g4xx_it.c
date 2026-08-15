@@ -23,6 +23,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "Encoder.h"
+#include "Motor_ADC.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -249,6 +250,21 @@ void DMA1_Channel5_IRQHandler(void)
 void ADC1_2_IRQHandler(void)
 {
   /* USER CODE BEGIN ADC1_2_IRQn 0 */
+  if (((ADC1->ISR & ADC_ISR_JEOS) == 0U) ||
+      ((ADC1->IER & ADC_IER_JEOSIE) == 0U))
+  {
+    /* Keep the generated HAL path for unexpected shared ADC interrupts. */
+    goto ADC_HAL_IRQ;
+  }
+
+  /* JEOC is also set by the final rank; clear both before running the loop. */
+  ADC1->ISR = ADC_ISR_JEOC | ADC_ISR_JEOS;
+
+  ADC_Run();
+
+  return;
+
+ADC_HAL_IRQ:
 
   /* USER CODE END ADC1_2_IRQn 0 */
   HAL_ADC_IRQHandler(&hadc1);

@@ -115,7 +115,7 @@ void ADC_Sample(void)
 }
 
 
-void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc)
+void ADC_Run(void)
 {
     float Id_Ref;
     float Iq_Ref;
@@ -124,10 +124,6 @@ void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc)
     float DutyA;
     float DutyB;
     float DutyC;
-    if (hadc->Instance != ADC1)
-    {
-        return;
-    }
 
     ADC_Sample();
     Current_Ref_Get(&Id_Ref, &Iq_Ref);
