@@ -2,6 +2,7 @@
 
 #include "Math.h"
 #include "Motor_ADC.h"
+#include "Motor_PWM.h"
 #include "Speed_Loop.h"
 #include "control_params.h"
 #include "motor_params.h"
@@ -194,6 +195,7 @@ void Servo_Enable(void)
 {
     if (Servo_State == SERVO_DISABLED)
     {
+        PWM_Enable();
         Servo_State = SERVO_ENABLED;
     }
 }
@@ -219,6 +221,7 @@ void Servo_Stop(void)
 
 void Servo_Disable(void)
 {
+    PWM_Disable();
     Servo_State = SERVO_DISABLED;
 }
 

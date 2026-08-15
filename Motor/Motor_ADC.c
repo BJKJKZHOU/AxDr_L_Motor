@@ -2,6 +2,7 @@
 
 #include "Current_Loop.h"
 #include "Motor_Control.h"
+#include "Motor_PWM.h"
 #include "Voltage_Mod.h"
 #include "adc.h"
 #include "main.h"
@@ -144,10 +145,7 @@ void ADC_Run(void)
                &DutyB,
                &DutyC);
 
-    /* Phase PWM outputs remain disabled during fast-loop timing bring-up. */
-    (void)DutyA;
-    (void)DutyB;
-    (void)DutyC;
+    PWM_Update(DutyA, DutyB, DutyC);
 
     Cyc = DWT->CYCCNT - T0;
     Fast_Time.ADC_Run_Cyc = Cyc;
