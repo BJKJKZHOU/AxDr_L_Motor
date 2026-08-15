@@ -24,6 +24,7 @@
 /* USER CODE BEGIN Includes */
 #include "Encoder.h"
 #include "Motor_ADC.h"
+#include "app_threadx.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -37,6 +38,7 @@
 /* At 20 kHz, discard 100 ms startup data and capture after 100 ms steady run. */
 #define FAST_SNAP_WARMUP_CYC    2000U
 #define FAST_SNAP_CAPTURE_CYC   4000U
+#define MOTOR_CTRL_DIV          10U
 
 /* USER CODE END PD */
 
@@ -47,6 +49,7 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN PV */
+static uint32_t Motor_Div_Cnt = 0U;
 
 /* USER CODE END PV */
 
@@ -414,6 +417,16 @@ void TIM1_UP_TIM16_IRQHandler(void)
     Fast_Time.SPI_2_ISR_Cyc = UINT32_MAX;
     Fast_Time.SPI_2_Flag = 0U;
     Fast_Time.SPI_2_CNDTR = UINT32_MAX;
+
+    if (++Motor_Div_Cnt >= MOTOR_CTRL_DIV)
+    {
+      Motor_Div_Cnt = 0U;
+
+      if (Motor_Ready != 0U)
+      {
+        (void)tx_semaphore_put(&Motor_Sem);
+      }
+    }
 
   }
   /* USER CODE END TIM1_UP_TIM16_IRQn 0 */

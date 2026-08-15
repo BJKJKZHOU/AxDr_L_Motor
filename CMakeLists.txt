@@ -52,6 +52,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Motor/Encoder.c
     Motor/Current_Loop.c
     Motor/Speed_Loop.c
+    Motor/Motor_PWM.c
     Motor/Motor_Control.c
 )
 

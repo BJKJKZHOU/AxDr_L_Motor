@@ -35,6 +35,8 @@ extern "C" {
 
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
+extern TX_SEMAPHORE Motor_Sem;
+extern volatile ULONG Motor_Ready;
 
 /* USER CODE END ET */
 

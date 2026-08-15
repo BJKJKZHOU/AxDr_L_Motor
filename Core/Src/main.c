@@ -32,6 +32,7 @@
 /* USER CODE BEGIN Includes */
 #include "Encoder.h"
 #include "Motor_ADC.h"
+#include "Motor_PWM.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -148,6 +149,8 @@ int main(void)
   {
     Error_Handler();
   }
+
+  PWM_Disable();
   /* USER CODE END 2 */
 
   MX_ThreadX_Init();

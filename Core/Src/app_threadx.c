@@ -23,6 +23,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "Motor_Control.h"
 
 /* USER CODE END Includes */
 
@@ -44,6 +45,8 @@
 /* Private variables ---------------------------------------------------------*/
 TX_THREAD tx_app_thread;
 /* USER CODE BEGIN PV */
+TX_SEMAPHORE Motor_Sem;
+volatile ULONG Motor_Ready = 0U;
 
 /* USER CODE END PV */
 
@@ -62,6 +65,10 @@ UINT App_ThreadX_Init(VOID *memory_ptr)
   UINT ret = TX_SUCCESS;
   TX_BYTE_POOL *byte_pool = (TX_BYTE_POOL*)memory_ptr;
   /* USER CODE BEGIN App_ThreadX_MEM_POOL */
+  if (tx_semaphore_create(&Motor_Sem, "Motor Semaphore", 0U) != TX_SUCCESS)
+  {
+    return TX_SEMAPHORE_ERROR;
+  }
 
   /* USER CODE END App_ThreadX_MEM_POOL */
   CHAR *pointer;
@@ -94,7 +101,17 @@ UINT App_ThreadX_Init(VOID *memory_ptr)
 void MainThread_Entry(ULONG thread_input)
 {
   /* USER CODE BEGIN MainThread_Entry */
+  (void)thread_input;
 
+  Motor_Ready = 1U;
+
+  while (1)
+  {
+    if (tx_semaphore_get(&Motor_Sem, TX_WAIT_FOREVER) == TX_SUCCESS)
+    {
+      Motor_Control();
+    }
+  }
   /* USER CODE END MainThread_Entry */
 }
 
