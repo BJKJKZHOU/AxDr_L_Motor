@@ -34,6 +34,10 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
+/* At 20 kHz, discard 100 ms startup data and capture after 100 ms steady run. */
+#define FAST_SNAP_WARMUP_CYC    2000U
+#define FAST_SNAP_CAPTURE_CYC   4000U
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -250,6 +254,10 @@ void DMA1_Channel5_IRQHandler(void)
 void ADC1_2_IRQHandler(void)
 {
   /* USER CODE BEGIN ADC1_2_IRQn 0 */
+  uint32_t T0;
+  uint32_t Fast_T0;
+  uint32_t Cyc;
+
   if (((ADC1->ISR & ADC_ISR_JEOS) == 0U) ||
       ((ADC1->IER & ADC_IER_JEOSIE) == 0U))
   {
@@ -257,10 +265,71 @@ void ADC1_2_IRQHandler(void)
     goto ADC_HAL_IRQ;
   }
 
+  T0 = DWT->CYCCNT;
+  Fast_T0 = Fast_Time.T0;
+
   /* JEOC is also set by the final rank; clear both before running the loop. */
   ADC1->ISR = ADC_ISR_JEOC | ADC_ISR_JEOS;
 
+  if (Fast_T0 != UINT32_MAX)
+  {
+    Fast_Time.ADC_Cyc = T0 - Fast_T0;
+
+    if (Fast_Time.Enc_Cyc == UINT32_MAX)
+    {
+      Fast_Time.Enc_Late++;
+    }
+  }
+
   ADC_Run();
+
+  Cyc = DWT->CYCCNT - T0;
+  Fast_Time.ADC_ISR_Cyc = Cyc;
+
+  if (Cyc > Fast_Time.ADC_ISR_Max)
+  {
+    Fast_Time.ADC_ISR_Max = Cyc;
+  }
+
+  if (Fast_T0 != UINT32_MAX)
+  {
+    Cyc = DWT->CYCCNT - Fast_T0;
+    Fast_Time.Fast_Cyc = Cyc;
+
+    if (Cyc > Fast_Time.Fast_Max)
+    {
+      Fast_Time.Fast_Max = Cyc;
+    }
+
+    if (Fast_Time.T0 != Fast_T0)
+    {
+      Fast_Time.Deadline_Miss++;
+    }
+
+    if (Fast_Snap_Ready == 0U)
+    {
+      Fast_Time.Snap_Cnt++;
+
+      if (Fast_Time.Snap_Cnt == FAST_SNAP_WARMUP_CYC)
+      {
+        Fast_Time.TIM_ISR_Max = 0U;
+        Fast_Time.ADC_Run_Max = 0U;
+        Fast_Time.ADC_ISR_Max = 0U;
+        Fast_Time.Fast_Max = 0U;
+        Fast_Time.Enc_Late = 0U;
+        Fast_Time.Enc_Miss = 0U;
+        Fast_Time.Deadline_Miss = 0U;
+      }
+      else if ((Fast_Time.Snap_Cnt >= FAST_SNAP_CAPTURE_CYC) &&
+               (Fast_Time.Enc_Cyc != UINT32_MAX))
+      {
+        /* Timing is closed before this one-time diagnostic copy. */
+        Fast_Snap = Fast_Time;
+        __DMB();
+        Fast_Snap_Ready = 1U;
+      }
+    }
+  }
 
   return;
 
@@ -322,9 +391,44 @@ void FDCAN1_IT1_IRQHandler(void)
 void TIM1_UP_TIM16_IRQHandler(void)
 {
   /* USER CODE BEGIN TIM1_UP_TIM16_IRQn 0 */
+  uint32_t T0;
+  uint32_t Measure;
+
+  T0 = DWT->CYCCNT;
+  Measure = 0U;
+
+  if ((__HAL_TIM_GET_FLAG(&htim1, TIM_FLAG_UPDATE) != RESET) &&
+      (__HAL_TIM_GET_IT_SOURCE(&htim1, TIM_IT_UPDATE) != RESET) &&
+      ((TIM1->CR1 & TIM_CR1_DIR) == 0U))
+  {
+    Measure = 1U;
+    Fast_Time.T0 = T0;
+    /* ADC IRQ uses this sentinel to detect late encoder feedback. */
+    Fast_Time.Enc_Cyc = UINT32_MAX;
+    Fast_Time.SPI_RX_Cnt = 0U;
+    Fast_Time.SPI_1_Cyc = UINT32_MAX;
+    Fast_Time.SPI_1_ISR_Cyc = UINT32_MAX;
+    Fast_Time.SPI_1_Flag = 0U;
+    Fast_Time.SPI_1_CNDTR = UINT32_MAX;
+    Fast_Time.SPI_2_Cyc = UINT32_MAX;
+    Fast_Time.SPI_2_ISR_Cyc = UINT32_MAX;
+    Fast_Time.SPI_2_Flag = 0U;
+    Fast_Time.SPI_2_CNDTR = UINT32_MAX;
+
+  }
   /* USER CODE END TIM1_UP_TIM16_IRQn 0 */
   HAL_TIM_IRQHandler(&htim1);
   /* USER CODE BEGIN TIM1_UP_TIM16_IRQn 1 */
+  if (Measure != 0U)
+  {
+    T0 = DWT->CYCCNT - T0;
+    Fast_Time.TIM_ISR_Cyc = T0;
+
+    if (T0 > Fast_Time.TIM_ISR_Max)
+    {
+      Fast_Time.TIM_ISR_Max = T0;
+    }
+  }
 
   /* USER CODE END TIM1_UP_TIM16_IRQn 1 */
 }

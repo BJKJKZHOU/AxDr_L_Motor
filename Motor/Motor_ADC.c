@@ -124,6 +124,10 @@ void ADC_Run(void)
     float DutyA;
     float DutyB;
     float DutyC;
+    uint32_t T0;
+    uint32_t Cyc;
+
+    T0 = DWT->CYCCNT;
 
     ADC_Sample();
     Current_Ref_Get(&Id_Ref, &Iq_Ref);
@@ -144,4 +148,12 @@ void ADC_Run(void)
     (void)DutyA;
     (void)DutyB;
     (void)DutyC;
+
+    Cyc = DWT->CYCCNT - T0;
+    Fast_Time.ADC_Run_Cyc = Cyc;
+
+    if (Cyc > Fast_Time.ADC_Run_Max)
+    {
+        Fast_Time.ADC_Run_Max = Cyc;
+    }
 }

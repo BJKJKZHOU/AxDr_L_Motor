@@ -53,6 +53,10 @@
 
 /* USER CODE BEGIN PV */
 
+volatile Fast_Time_T Fast_Time = {0};
+volatile Fast_Time_T Fast_Snap = {0};
+volatile uint32_t Fast_Snap_Ready = 0U;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -110,6 +114,10 @@ int main(void)
   CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
   DWT->CYCCNT = 0U;
   DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+
+  /* Ignore ADC timing until the first TIM1 underflow establishes T0. */
+  Fast_Time.T0 = UINT32_MAX;
+  Fast_Time.Enc_Cyc = UINT32_MAX;
 
   Encoder_DMA_Config();
 
