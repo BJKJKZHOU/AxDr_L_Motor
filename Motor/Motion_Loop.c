@@ -22,7 +22,7 @@ float Position_Loop(int32_t Turn_Ref, float Theta_Ref,
     Pos_Ctrl.Para.Out_Min = Wm_Min;
     Pos_Ctrl.Para.Out_Max = Wm_Max;
 
-    PID_Run(&Pos_Ctrl, SPD_TS);
+    PID_Run(&Pos_Ctrl, POS_TS);
 
     return Pos_Ctrl.Sig.Out;
 }

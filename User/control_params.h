@@ -91,6 +91,8 @@
 #define SPD_KI_DEFAULT         (MOTOR_B_DEFAULT * SPD_WC_DEFAULT / MOTOR_KT_DEFAULT)
 
 
+#define POS_FREQ_HZ_DEFAULT    1000.0f
+#define POS_TS                 (1.0f / POS_FREQ_HZ_DEFAULT)
 #define POS_KP_DEFAULT         5.0f /* (rad/s)/rad */
 
 

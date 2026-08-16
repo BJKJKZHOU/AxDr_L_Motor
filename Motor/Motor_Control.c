@@ -32,6 +32,7 @@ static Current_Ref_T Current_Ref = {0};
 static float Wm_Ref = 0.0f;
 static int32_t Pos_Ref_Turn = 0;
 static float Pos_Ref_Theta = 0.0f;
+static uint32_t Pos_Div = 0U;
 
 
 static void Motor_Limit_Get(Motor_Limit_T *Lim)
@@ -147,6 +148,7 @@ void Motor_Control(void)
                     case CTRL_POSITION:
                         Pos_Ref_Turn = Motor_Run.Turn;
                         Pos_Ref_Theta = Motor_Run.Theta_m;
+                        Pos_Div = 0U;
                         break;
 
                     default:
@@ -228,8 +230,14 @@ void Motor_Control(void)
                 Pos_Ref_Theta = Motor_Cmd.Pos_Theta;
             }
 
-            Wm_Ref = Position_Loop(Pos_Ref_Turn, Pos_Ref_Theta,
-                                   -Lim.Wm_Max, Lim.Wm_Max);
+            if (Pos_Div == 0U)
+            {
+                Wm_Ref = Position_Loop(Pos_Ref_Turn, Pos_Ref_Theta,
+                                       -Lim.Wm_Max, Lim.Wm_Max);
+            }
+
+            Pos_Div ^= 1U;
+
             Current_Ref.Iq = Speed_Loop(Wm_Ref, Iq_Min, Iq_Max);
             break;
 
