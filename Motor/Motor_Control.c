@@ -127,6 +127,9 @@ void Motor_Control(void)
                 break;
 
             case SERVO_ENABLED:
+                Speed_Ctrl.State.Int = 0.0f;
+                Speed_Ctrl.State.Fbk_Pre = Motor_Run.Wm;
+
                 switch (Ctrl_Mode)
                 {
                     case CTRL_TORQUE:
