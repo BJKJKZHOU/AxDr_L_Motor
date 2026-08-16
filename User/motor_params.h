@@ -13,6 +13,17 @@
 #define MOTOR_J_DEFAULT        9.08865259e-05f
 #define MOTOR_B_DEFAULT        0.000188353f
 
+#define MOTOR_KT_DEFAULT       (1.5f * (float)MOTOR_PP_DEFAULT * MOTOR_FLUX_DEFAULT)
+
+/* First-version phase-current command ceiling based on the board 10 A operating range. */
+#define MOTOR_I_MAX_DEFAULT    10.0f
+#define MOTOR_TE_MAX_DEFAULT   (MOTOR_KT_DEFAULT * MOTOR_I_MAX_DEFAULT)
+#define MOTOR_WM_MAX_DEFAULT   2617.993878f /* MT6816: 25000 rpm */
+
+#define USER_I_MAX_DEFAULT     5.0f
+#define USER_TE_MAX_DEFAULT    (MOTOR_KT_DEFAULT * USER_I_MAX_DEFAULT)
+#define USER_WM_MAX_DEFAULT    314.159265f  /* 3000 rpm */
+
 #define MOTOR_ENC_DIR_DEFAULT   1
 #define MOTOR_THETA_OFF_DEFAULT 0.0f
 
@@ -33,6 +44,22 @@
     .Flux = MOTOR_FLUX_DEFAULT,         \
     .J    = MOTOR_J_DEFAULT,            \
     .B    = MOTOR_B_DEFAULT,            \
+}
+
+
+#define MOTOR_LIM_DEFAULT               \
+{                                       \
+    .I_Max  = MOTOR_I_MAX_DEFAULT,      \
+    .Te_Max = MOTOR_TE_MAX_DEFAULT,     \
+    .Wm_Max = MOTOR_WM_MAX_DEFAULT,     \
+}
+
+
+#define USER_LIM_DEFAULT                \
+{                                       \
+    .I_Max  = USER_I_MAX_DEFAULT,       \
+    .Te_Max = USER_TE_MAX_DEFAULT,      \
+    .Wm_Max = USER_WM_MAX_DEFAULT,      \
 }
 
 

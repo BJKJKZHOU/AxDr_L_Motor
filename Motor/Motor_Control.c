@@ -18,6 +18,8 @@ typedef struct
 
 Motor_Cal_T Motor_Cal = MOTOR_CAL_DEFAULT;
 Motor_Para_T Motor_Para = MOTOR_PARA_DEFAULT;
+const Motor_Limit_T Motor_Lim = MOTOR_LIM_DEFAULT;
+Motor_Limit_T User_Lim = USER_LIM_DEFAULT;
 Motor_Run_T Motor_Run = {0};
 
 
@@ -30,6 +32,35 @@ static Current_Ref_T Current_Ref = {0};
 static float Wm_Ref = 0.0f;
 static int32_t Pos_Ref_Turn = 0;
 static float Pos_Ref_Theta = 0.0f;
+
+
+static void Motor_Limit_Get(Motor_Limit_T *Lim)
+{
+    Lim->I_Max = (Motor_Lim.I_Max < User_Lim.I_Max)
+               ? Motor_Lim.I_Max
+               : User_Lim.I_Max;
+    Lim->Te_Max = (Motor_Lim.Te_Max < User_Lim.Te_Max)
+                ? Motor_Lim.Te_Max
+                : User_Lim.Te_Max;
+    Lim->Wm_Max = (Motor_Lim.Wm_Max < User_Lim.Wm_Max)
+                ? Motor_Lim.Wm_Max
+                : User_Lim.Wm_Max;
+
+    if (Lim->I_Max < 0.0f)
+    {
+        Lim->I_Max = 0.0f;
+    }
+
+    if (Lim->Te_Max < 0.0f)
+    {
+        Lim->Te_Max = 0.0f;
+    }
+
+    if (Lim->Wm_Max < 0.0f)
+    {
+        Lim->Wm_Max = 0.0f;
+    }
+}
 
 
 static void Iq_Limit_Calc(float *Iq_Min, float *Iq_Max)
@@ -80,8 +111,10 @@ static void Iq_Limit_Calc(float *Iq_Min, float *Iq_Max)
 void Motor_Control(void)
 {
     float Kt;
+    float Te_Ref;
     float Iq_Min;
     float Iq_Max;
+    Motor_Limit_T Lim;
 
     if (Servo_State != State_Pre)
     {
@@ -136,7 +169,24 @@ void Motor_Control(void)
         return;
     }
 
+    Motor_Limit_Get(&Lim);
     Iq_Limit_Calc(&Iq_Min, &Iq_Max);
+
+    if (Iq_Min < -Lim.I_Max)
+    {
+        Iq_Min = -Lim.I_Max;
+    }
+
+    if (Iq_Max > Lim.I_Max)
+    {
+        Iq_Max = Lim.I_Max;
+    }
+
+    if (Iq_Min > Iq_Max)
+    {
+        Iq_Min = 0.0f;
+        Iq_Max = 0.0f;
+    }
 
     switch (Ctrl_Mode)
     {
@@ -148,8 +198,9 @@ void Motor_Control(void)
             else
             {
                 Kt = 1.5f * (float)Motor_Para.Pp * Motor_Para.Flux;
-                Current_Ref.Iq = Motor_Cmd.Te_Target / Kt;
-                Limit_Value(&Current_Ref.Iq, Iq_Min, Iq_Max);
+                Te_Ref = Motor_Cmd.Te_Target;
+                Limit_Value(&Te_Ref, -Lim.Te_Max, Lim.Te_Max);
+                Current_Ref.Iq = Te_Ref / Kt;
             }
             break;
 
@@ -161,10 +212,10 @@ void Motor_Control(void)
             else
             {
                 Wm_Ref = Motor_Cmd.Wm_Target;
+                Limit_Value(&Wm_Ref, -Lim.Wm_Max, Lim.Wm_Max);
             }
 
             Current_Ref.Iq = Speed_Loop(Wm_Ref, Iq_Min, Iq_Max);
-            Limit_Value(&Current_Ref.Iq, Iq_Min, Iq_Max);
             break;
 
         case CTRL_POSITION:
@@ -181,6 +232,8 @@ void Motor_Control(void)
             Current_Ref.Iq = 0.0f;
             break;
     }
+
+    Limit_Value(&Current_Ref.Iq, Iq_Min, Iq_Max);
 }
 
 

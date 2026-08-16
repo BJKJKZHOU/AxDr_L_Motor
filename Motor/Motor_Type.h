@@ -117,6 +117,8 @@ typedef struct
 
 extern Motor_Cal_T Motor_Cal;
 extern Motor_Para_T Motor_Para;
+extern const Motor_Limit_T Motor_Lim;
+extern Motor_Limit_T User_Lim;
 extern Motor_Run_T Motor_Run;
 
 
