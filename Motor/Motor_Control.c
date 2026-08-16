@@ -3,7 +3,7 @@
 #include "Math.h"
 #include "Motor_ADC.h"
 #include "Motor_PWM.h"
-#include "Speed_Loop.h"
+#include "Motion_Loop.h"
 #include "control_params.h"
 #include "motor_params.h"
 
@@ -219,13 +219,15 @@ void Motor_Control(void)
             break;
 
         case CTRL_POSITION:
-            /*
-             * ENABLED keeps the position captured on entry.
-             * RUN will update Pos_Ref through the position trajectory when implemented.
-             */
-            (void)Pos_Ref_Turn;
-            (void)Pos_Ref_Theta;
-            Current_Ref.Iq = 0.0f;
+            if (Servo_State == SERVO_RUN)
+            {
+                Pos_Ref_Turn = Motor_Cmd.Pos_Turn;
+                Pos_Ref_Theta = Motor_Cmd.Pos_Theta;
+            }
+
+            Wm_Ref = Position_Loop(Pos_Ref_Turn, Pos_Ref_Theta,
+                                   -Lim.Wm_Max, Lim.Wm_Max);
+            Current_Ref.Iq = Speed_Loop(Wm_Ref, Iq_Min, Iq_Max);
             break;
 
         default:

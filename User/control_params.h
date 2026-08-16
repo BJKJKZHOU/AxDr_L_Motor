@@ -91,6 +91,20 @@
 #define SPD_KI_DEFAULT         (MOTOR_B_DEFAULT * SPD_WC_DEFAULT / MOTOR_KT_DEFAULT)
 
 
+#define POS_KP_DEFAULT         5.0f /* (rad/s)/rad */
+
+
+#define POSITION_CTRL_DEFAULT          \
+{                                      \
+    .Para =                            \
+    {                                  \
+        .Kp = POS_KP_DEFAULT,          \
+        .Ki = 0.0f,                    \
+        .Kd = 0.0f,                    \
+    },                                 \
+}
+
+
 #define SPEED_CTRL_DEFAULT             \
 {                                      \
     .Para =                            \
