@@ -24,6 +24,7 @@
 /* USER CODE BEGIN Includes */
 #include "Encoder.h"
 #include "Motor_ADC.h"
+#include "control_params.h"
 #include "motor_thread.h"
 /* USER CODE END Includes */
 
@@ -38,7 +39,6 @@
 /* At 20 kHz, discard 100 ms startup data and capture after 100 ms steady run. */
 #define FAST_SNAP_WARMUP_CYC    2000U
 #define FAST_SNAP_CAPTURE_CYC   4000U
-#define MOTOR_CTRL_DIV          10U
 
 /* USER CODE END PD */
 
@@ -433,7 +433,8 @@ void TIM1_UP_TIM16_IRQHandler(void)
     Fast_Time.SPI_2_Flag = 0U;
     Fast_Time.SPI_2_CNDTR = UINT32_MAX;
 
-    if (++Motor_Div_Cnt >= MOTOR_CTRL_DIV)
+    if (++Motor_Div_Cnt >=
+        (uint32_t)(CUR_FREQ_HZ_DEFAULT / SPD_FREQ_HZ_DEFAULT))
     {
       Motor_Div_Cnt = 0U;
 

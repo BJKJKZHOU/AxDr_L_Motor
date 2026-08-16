@@ -2,6 +2,7 @@
 
 #include "Math.h"
 #include "Motor_Type.h"
+#include "control_params.h"
 #include "main.h"
 
 
@@ -24,6 +25,8 @@ volatile Encoder_T Encoder = {0};
 
 static volatile uint16_t Rx[2];
 static float Theta_Pre = 0.0f;
+static float Delta_Sum = 0.0f;
+static uint32_t Speed_Div_Cnt = 0U;
 static uint8_t Step = 0U;
 static uint8_t Busy = 0U;
 static uint8_t Pos_Valid = 0U;
@@ -61,6 +64,10 @@ void Encoder_DMA_Config(void)
     Rx[1] = 0U;
     Step = 0U;
     Busy = 0U;
+    Pos_Valid = 0U;
+    Delta_Sum = 0.0f;
+    Speed_Div_Cnt = 0U;
+    Motor_Run.Wm = 0.0f;
 
     CLEAR_BIT(SPI1->CR2, SPI_CR2_TXDMAEN);
     SET_BIT(SPI1->CR1, SPI_CR1_SPE);
@@ -106,6 +113,7 @@ void Encoder_DMA_IRQHandler(void)
 {
     float Theta;
     float Delta;
+    float Wm_Raw;
     uint16_t Data;
     uint32_t T0;
     uint32_t Wait_T0;
@@ -243,10 +251,25 @@ void Encoder_DMA_IRQHandler(void)
         if (Delta < -PI_F)
         {
             Motor_Run.Turn++;
+            Delta += TWO_PI_F;
         }
         else if (Delta > PI_F)
         {
             Motor_Run.Turn--;
+            Delta -= TWO_PI_F;
+        }
+
+        Delta_Sum += Delta;
+
+        if (++Speed_Div_Cnt >=
+            (uint32_t)(CUR_FREQ_HZ_DEFAULT / SPD_FREQ_HZ_DEFAULT))
+        {
+            Speed_Div_Cnt = 0U;
+            Wm_Raw = Delta_Sum / SPD_TS;
+            Delta_Sum = 0.0f;
+
+            Motor_Run.Wm += SPD_FBK_ALPHA_DEFAULT
+                          * (Wm_Raw - Motor_Run.Wm);
         }
     }
     else

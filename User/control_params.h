@@ -82,6 +82,7 @@
  */
 #define SPD_FREQ_HZ_DEFAULT    2000.0f
 #define SPD_TS                 (1.0f / SPD_FREQ_HZ_DEFAULT)
+#define SPD_FBK_ALPHA_DEFAULT  0.38586955f /* 200 Hz LPF at 2 kHz */
 
 #define SPD_BW_HZ_DEFAULT      50.0f
 #define SPD_WC_DEFAULT         (TWO_PI_F * SPD_BW_HZ_DEFAULT)
