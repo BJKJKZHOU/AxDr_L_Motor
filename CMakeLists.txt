@@ -55,6 +55,9 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Motor/Motor_PWM.c
     Motor/Motor_Control.c
     BSP/RGB.c
+    Comm/AxDr_Proto.c
+    Comm/AxDr_Plot.c
+    Comm/AxDr_USB.c
     AZURE_RTOS/App/motor_thread.c
     AZURE_RTOS/App/panel_thread.c
 )
@@ -74,6 +77,7 @@ endif()
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     Algo
     BSP
+    Comm
     Motor
     User
 )
