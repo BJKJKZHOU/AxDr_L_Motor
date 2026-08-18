@@ -2,6 +2,7 @@
 
 #include "Motor_ADC.h"
 #include "Motor_Type.h"
+#include "USB_Thread.h"
 
 
 #define PLOT_BUF_NONE    0xFFU
@@ -333,6 +334,7 @@ void Plot_Fast_Sample(void)
 
     Fast_Ready = Fill;
     Fast_Fill ^= 1U;
+    USB_Tx_Wake(USB_TX_FAST);
 }
 
 
@@ -363,6 +365,7 @@ void Plot_Normal_Sample(void)
 
     Normal_Ready = Fill;
     Normal_Fill ^= 1U;
+    USB_Tx_Wake(USB_TX_NORMAL);
 }
 
 

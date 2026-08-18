@@ -16,6 +16,7 @@
 
 
 static TX_THREAD USB_Tx_Thread_Obj;
+static TX_EVENT_FLAGS_GROUP USB_Tx_Event;
 static UX_SLAVE_CLASS_CDC_ACM * volatile Cdc_Acm = UX_NULL;
 
 static uint8_t USB_Rx_Stream[USB_RX_STREAM_SIZE];
@@ -30,6 +31,7 @@ static UINT USB_Write(const AxDr_Msg_T *Msg);
 void USB_Activate(void *Cdc)
 {
     Cdc_Acm = (UX_SLAVE_CLASS_CDC_ACM *)Cdc;
+    USB_Tx_Wake(USB_TX_ALL);
 }
 
 
@@ -43,6 +45,11 @@ void USB_Deactivate(void)
 UINT USB_Tx_Thread_Init(TX_BYTE_POOL *Byte_Pool)
 {
     CHAR *Stack;
+
+    if (tx_event_flags_create(&USB_Tx_Event, "USB TX Event") != TX_SUCCESS)
+    {
+        return TX_GROUP_ERROR;
+    }
 
     if (tx_byte_allocate(Byte_Pool, (VOID **)&Stack,
                          USB_TX_STACK_SIZE, TX_NO_WAIT) != TX_SUCCESS)
@@ -95,8 +102,15 @@ void USB_Rx_Thread(void)
 }
 
 
+void USB_Tx_Wake(ULONG Flag)
+{
+    (void)tx_event_flags_set(&USB_Tx_Event, Flag, TX_OR);
+}
+
+
 static VOID USB_Tx_Entry(ULONG thread_input)
 {
+    ULONG Flags;
     AxDr_Msg_T Msg;
     UX_SLAVE_CLASS_CDC_ACM *Cdc;
 
@@ -104,33 +118,43 @@ static VOID USB_Tx_Entry(ULONG thread_input)
 
     while (1)
     {
+        if (tx_event_flags_get(&USB_Tx_Event,
+                               USB_TX_ALL,
+                               TX_OR_CLEAR,
+                               &Flags,
+                               TX_WAIT_FOREVER) != TX_SUCCESS)
+        {
+            continue;
+        }
+
+        (void)Flags;
         Cdc = Cdc_Acm;
 
-        if (Cdc != UX_NULL)
+        if (Cdc == UX_NULL)
         {
-            while (Protocol_Tx_Pop(&Msg))
-            {
-                if (USB_Write(&Msg) != UX_SUCCESS)
-                {
-                    break;
-                }
-            }
+            continue;
+        }
 
-            while (Plot_Fast_Pop(&Msg))
+        while (Protocol_Tx_Pop(&Msg))
+        {
+            if (USB_Write(&Msg) != UX_SUCCESS)
             {
-                if (USB_Write(&Msg) != UX_SUCCESS)
-                {
-                    break;
-                }
-            }
-
-            if (Plot_Normal_Pop(&Msg))
-            {
-                (void)USB_Write(&Msg);
+                break;
             }
         }
 
-        tx_thread_sleep(1U);
+        while (Plot_Fast_Pop(&Msg))
+        {
+            if (USB_Write(&Msg) != UX_SUCCESS)
+            {
+                break;
+            }
+        }
+
+        if (Plot_Normal_Pop(&Msg))
+        {
+            (void)USB_Write(&Msg);
+        }
     }
 }
 

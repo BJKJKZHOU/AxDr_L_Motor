@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "Plot.h"
+#include "USB_Thread.h"
 
 
 #define AXDR_RESP_NUM    4U
@@ -13,7 +14,7 @@ static volatile uint8_t Resp_Wr = 0U;
 static volatile uint8_t Resp_Rd = 0U;
 
 
-static void Response_Push(const AxDr_Msg_T *Msg)
+static bool Response_Push(const AxDr_Msg_T *Msg)
 {
     uint8_t Next;
 
@@ -21,11 +22,14 @@ static void Response_Push(const AxDr_Msg_T *Msg)
 
     if (Next == Resp_Rd)
     {
-        return;
+        return false;
     }
 
     Resp_Buf[Resp_Wr] = *Msg;
     Resp_Wr = Next;
+    USB_Tx_Wake(USB_TX_RESP);
+
+    return true;
 }
 
 
@@ -50,7 +54,7 @@ static void Response(uint8_t Txn,
         memcpy(&Msg.Data[4], Data, Len);
     }
 
-    Response_Push(&Msg);
+    (void)Response_Push(&Msg);
 }
 
 
