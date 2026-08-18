@@ -112,6 +112,8 @@ int main(void)
   MX_SPI3_Init();
   MX_USB_PCD_Init();
   /* USER CODE BEGIN 2 */
+  PWM_Timing_Update();
+
   /* DWT provides the MT6816 chip-select and SPI timeout timing. */
   CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
   DWT->CYCCNT = 0U;
@@ -257,9 +259,9 @@ void Error_Handler(void)
 }
 #ifdef USE_FULL_ASSERT
 /**
-  * @brief  Reports the name of the source file and the source line number
-  *         where the assert_param error has occurred.
-  * @param  file: pointer to the source file name
+  * @brief  Reports the name of the source file and source line number
+  *         where assert_param error has occurred.
+  * @param  file: pointer to source file name
   * @param  line: assert_param error line source number
   * @retval None
   */

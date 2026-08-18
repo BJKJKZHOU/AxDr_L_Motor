@@ -1,11 +1,50 @@
 #include "Motor_PWM.h"
 
+#include "control_params.h"
 #include "tim.h"
 
 
 #define PWM_CCER_MASK  (TIM_CCER_CC1E  | TIM_CCER_CC1NE | \
                         TIM_CCER_CC2E  | TIM_CCER_CC2NE | \
                         TIM_CCER_CC3E  | TIM_CCER_CC3NE)
+
+
+void PWM_Timing_Update(void)
+{
+    RCC_ClkInitTypeDef Clk;
+    uint32_t Flash_Latency;
+    uint32_t Timer_Clk;
+    uint32_t Arr;
+    uint32_t Adc_Offset;
+    uint32_t Enc_Lead;
+
+    HAL_RCC_GetClockConfig(&Clk, &Flash_Latency);
+    (void)Flash_Latency;
+
+    Timer_Clk = HAL_RCC_GetPCLK2Freq();
+    if (Clk.APB2CLKDivider != RCC_HCLK_DIV1)
+    {
+        Timer_Clk *= 2U;
+    }
+
+    Arr = (uint32_t)(((float)Timer_Clk / (2.0f * PWM_FREQ_HZ_DEFAULT)) + 0.5f);
+    Adc_Offset = (uint32_t)(((float)Timer_Clk * ADC_TRIG_CENTER_S) + 0.5f);
+    Enc_Lead = (uint32_t)(((float)Timer_Clk * ENC_TRIG_LEAD_S) + 0.5f);
+
+    if ((Arr <= Adc_Offset) || ((Arr - Adc_Offset) <= Enc_Lead))
+    {
+        return;
+    }
+
+    htim1.Init.Period = Arr;
+    TIM1->ARR = Arr;
+    TIM1->CCR4 = Arr - Adc_Offset - Enc_Lead;
+    TIM1->CCR5 = Arr - Adc_Offset;
+
+    /* Load the new ARR/CCR preload values before TIM1 starts. */
+    TIM1->EGR = TIM_EGR_UG;
+    CLEAR_BIT(TIM1->SR, TIM_SR_UIF);
+}
 
 
 void PWM_Update(float DutyA, float DutyB, float DutyC)

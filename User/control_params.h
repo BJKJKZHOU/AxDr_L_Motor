@@ -6,9 +6,30 @@
 #include "motor_params.h"
 
 
-#define CUR_FREQ_HZ_DEFAULT    20000.0f
+/* Fast-loop timing source. Current control runs once per PWM period. */
+#define PWM_FREQ_HZ_DEFAULT    20000.0f
+#define CUR_FREQ_HZ_DEFAULT    PWM_FREQ_HZ_DEFAULT
 #define CUR_TS                 (1.0f / CUR_FREQ_HZ_DEFAULT)
 #define VOLT_MOD_MAX           0.95f
+
+/*
+ * TIM1 CH4/CH5 timing is expressed as physical time, not fixed CCR values.
+ *
+ * Current 20 kHz measured baseline at TIM1 = 160 MHz:
+ *   ARR  = 4000
+ *   CCR4 = 2240
+ *   CCR5 = 3665
+ *
+ * Therefore:
+ *   PWM center -> ADC trigger = (4000 - 3665) / 160 MHz = 2.09375 us
+ *   Encoder trigger -> ADC trigger = (3665 - 2240) / 160 MHz = 8.90625 us
+ *
+ * PWM_Timing_Update() converts these time constraints back to timer counts.
+ * Changing PWM_FREQ_HZ_DEFAULT therefore moves ARR/CCR4/CCR5 together while
+ * preserving the measured peripheral timing in seconds.
+ */
+#define ADC_TRIG_CENTER_S      2.09375e-6f
+#define ENC_TRIG_LEAD_S        8.90625e-6f
 
 
 /*
