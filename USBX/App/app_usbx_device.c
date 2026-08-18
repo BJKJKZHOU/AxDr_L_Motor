@@ -23,7 +23,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "AxDr_USB.h"
+#include "USB_Thread.h"
 
 /* USER CODE END Includes */
 
@@ -177,7 +177,7 @@ UINT MX_USBX_Device_Init(VOID *memory_ptr)
   }
 
   /* USER CODE BEGIN MX_USBX_Device_Init1 */
-  ret = AxDr_USB_Tx_Init(byte_pool);
+  ret = USB_Tx_Thread_Init(byte_pool);
   if (ret != TX_SUCCESS)
   {
     return ret;
@@ -196,7 +196,7 @@ static VOID app_ux_device_thread_entry(ULONG thread_input)
 {
   /* USER CODE BEGIN app_ux_device_thread_entry */
   TX_PARAMETER_NOT_USED(thread_input);
-  AxDr_USB_Rx();
+  USB_Rx_Thread();
   /* USER CODE END app_ux_device_thread_entry */
 }
 

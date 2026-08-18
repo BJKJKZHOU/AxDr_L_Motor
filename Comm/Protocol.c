@@ -1,8 +1,8 @@
-#include "AxDr_Proto.h"
+#include "Protocol.h"
 
 #include <string.h>
 
-#include "AxDr_Plot.h"
+#include "Plot.h"
 
 
 #define AXDR_RESP_NUM    4U
@@ -13,7 +13,7 @@ static volatile uint8_t Resp_Wr = 0U;
 static volatile uint8_t Resp_Rd = 0U;
 
 
-static void AxDr_Response_Push(const AxDr_Msg_T *Msg)
+static void Response_Push(const AxDr_Msg_T *Msg)
 {
     uint8_t Next;
 
@@ -29,12 +29,12 @@ static void AxDr_Response_Push(const AxDr_Msg_T *Msg)
 }
 
 
-static void AxDr_Response(uint8_t Txn,
-                          uint8_t Req_Msg,
-                          uint8_t Req_Op,
-                          AxDr_Status_e Status,
-                          const uint8_t *Data,
-                          uint8_t Len)
+static void Response(uint8_t Txn,
+                     uint8_t Req_Msg,
+                     uint8_t Req_Op,
+                     AxDr_Status_e Status,
+                     const uint8_t *Data,
+                     uint8_t Len)
 {
     AxDr_Msg_T Msg = {0};
 
@@ -50,11 +50,11 @@ static void AxDr_Response(uint8_t Txn,
         memcpy(&Msg.Data[4], Data, Len);
     }
 
-    AxDr_Response_Push(&Msg);
+    Response_Push(&Msg);
 }
 
 
-static void AxDr_Plot_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
+static void Plot_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
 {
     uint8_t Txn;
     uint8_t Op;
@@ -99,7 +99,7 @@ static void AxDr_Plot_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
                            | ((uint16_t)Data[6U + n * 2U] << 8);
                 }
 
-                Status = AxDr_Plot_Config(Group, Config_ID, Var, Count);
+                Status = Plot_Config(Group, Config_ID, Var, Count);
 
                 if ((Status == AXDR_OK) && (Broadcast == 0U))
                 {
@@ -113,8 +113,8 @@ static void AxDr_Plot_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
                         Resp[4U + n * 2U] = (uint8_t)(Var[n] >> 8);
                     }
 
-                    AxDr_Response(Txn, AXDR_MSG_PLOT, Op, Status,
-                                  Resp, (uint8_t)(3U + Count * 2U));
+                    Response(Txn, AXDR_MSG_PLOT, Op, Status,
+                             Resp, (uint8_t)(3U + Count * 2U));
                     return;
                 }
             }
@@ -128,7 +128,7 @@ static void AxDr_Plot_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
         }
         else
         {
-            Status = AxDr_Plot_Start(Data[2]);
+            Status = Plot_Start(Data[2]);
         }
     }
     else if (Op == AXDR_PLOT_STOP)
@@ -139,7 +139,7 @@ static void AxDr_Plot_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
         }
         else
         {
-            Status = AxDr_Plot_Stop(Data[2]);
+            Status = Plot_Stop(Data[2]);
         }
     }
     else
@@ -149,12 +149,12 @@ static void AxDr_Plot_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
 
     if (Broadcast == 0U)
     {
-        AxDr_Response(Txn, AXDR_MSG_PLOT, Op, Status, 0, 0U);
+        Response(Txn, AXDR_MSG_PLOT, Op, Status, 0, 0U);
     }
 }
 
 
-void AxDr_Rx_Msg(uint16_t Id, const uint8_t *Data, uint8_t Len)
+void Protocol_Rx(uint16_t Id, const uint8_t *Data, uint8_t Len)
 {
     uint8_t Msg_Type;
     uint8_t Node;
@@ -174,12 +174,12 @@ void AxDr_Rx_Msg(uint16_t Id, const uint8_t *Data, uint8_t Len)
 
     if (Msg_Type == AXDR_MSG_PLOT)
     {
-        AxDr_Plot_Rx(Data, Len, (Node == 0U) ? 1U : 0U);
+        Plot_Rx(Data, Len, (Node == 0U) ? 1U : 0U);
     }
 }
 
 
-bool AxDr_Tx_Pop(AxDr_Msg_T *Msg)
+bool Protocol_Tx_Pop(AxDr_Msg_T *Msg)
 {
     if (Resp_Rd == Resp_Wr)
     {

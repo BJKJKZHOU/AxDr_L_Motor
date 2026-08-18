@@ -1,4 +1,4 @@
-#include "AxDr_Plot.h"
+#include "Plot.h"
 
 #include "Motor_ADC.h"
 #include "Motor_Type.h"
@@ -11,18 +11,18 @@ typedef struct
 {
     const volatile float *Data;
     float Scale;
-} AxDr_Fast_Var_T;
+} Fast_Var_T;
 
 
 typedef struct
 {
     const volatile float *Data;
-} AxDr_Normal_Var_T;
+} Normal_Var_T;
 
 
-static AxDr_Plot_Group_T Plot_Group[2] = {0};
-static AxDr_Fast_Var_T Fast_Var[AXDR_FAST_MAX_CH] = {0};
-static AxDr_Normal_Var_T Normal_Var[AXDR_NORMAL_MAX_CH] = {0};
+static Plot_Group_T Plot_Group[2] = {0};
+static Fast_Var_T Fast_Var[AXDR_FAST_MAX_CH] = {0};
+static Normal_Var_T Normal_Var[AXDR_NORMAL_MAX_CH] = {0};
 
 static int16_t Fast_Buf[2][AXDR_FAST_BLOCK_SAMPLE * AXDR_FAST_MAX_CH] = {0};
 static float Normal_Buf[2][AXDR_NORMAL_MAX_CH] = {0};
@@ -141,15 +141,15 @@ static void Plot_Normal_Flush(void)
 }
 
 
-AxDr_Status_e AxDr_Plot_Config(uint8_t Group,
-                               uint8_t Config_ID,
-                               const uint16_t *Var,
-                               uint8_t Count)
+AxDr_Status_e Plot_Config(uint8_t Group,
+                          uint8_t Config_ID,
+                          const uint16_t *Var,
+                          uint8_t Count)
 {
     uint8_t Max_Ch;
     float Scale;
     const volatile float *Data;
-    AxDr_Plot_Group_T *Plot;
+    Plot_Group_T *Plot;
 
     if (Group > AXDR_PLOT_NORMAL)
     {
@@ -221,7 +221,7 @@ AxDr_Status_e AxDr_Plot_Config(uint8_t Group,
 }
 
 
-AxDr_Status_e AxDr_Plot_Start(uint8_t Group_Mask)
+AxDr_Status_e Plot_Start(uint8_t Group_Mask)
 {
     if ((Group_Mask == 0U) ||
         ((Group_Mask & ~(AXDR_PLOT_FAST_MASK | AXDR_PLOT_NORMAL_MASK)) != 0U))
@@ -257,7 +257,7 @@ AxDr_Status_e AxDr_Plot_Start(uint8_t Group_Mask)
 }
 
 
-AxDr_Status_e AxDr_Plot_Stop(uint8_t Group_Mask)
+AxDr_Status_e Plot_Stop(uint8_t Group_Mask)
 {
     if ((Group_Mask == 0U) ||
         ((Group_Mask & ~(AXDR_PLOT_FAST_MASK | AXDR_PLOT_NORMAL_MASK)) != 0U))
@@ -281,7 +281,7 @@ AxDr_Status_e AxDr_Plot_Stop(uint8_t Group_Mask)
 }
 
 
-const AxDr_Plot_Group_T *AxDr_Plot_Group_Get(uint8_t Group)
+const Plot_Group_T *Plot_Group_Get(uint8_t Group)
 {
     if (Group > AXDR_PLOT_NORMAL)
     {
@@ -292,12 +292,12 @@ const AxDr_Plot_Group_T *AxDr_Plot_Group_Get(uint8_t Group)
 }
 
 
-void AxDr_Plot_Fast_Sample(void)
+void Plot_Fast_Sample(void)
 {
     uint16_t Base;
     uint8_t Count;
     uint8_t Fill;
-    AxDr_Plot_Group_T *Plot;
+    Plot_Group_T *Plot;
 
     Plot = &Plot_Group[AXDR_PLOT_FAST];
 
@@ -336,10 +336,10 @@ void AxDr_Plot_Fast_Sample(void)
 }
 
 
-void AxDr_Plot_Normal_Sample(void)
+void Plot_Normal_Sample(void)
 {
     uint8_t Fill;
-    AxDr_Plot_Group_T *Plot;
+    Plot_Group_T *Plot;
 
     Plot = &Plot_Group[AXDR_PLOT_NORMAL];
 
@@ -366,7 +366,7 @@ void AxDr_Plot_Normal_Sample(void)
 }
 
 
-bool AxDr_Plot_Fast_Pop(AxDr_Msg_T *Msg)
+bool Plot_Fast_Pop(AxDr_Msg_T *Msg)
 {
     uint8_t Ready;
     uint8_t Count;
@@ -376,7 +376,7 @@ bool AxDr_Plot_Fast_Pop(AxDr_Msg_T *Msg)
     uint16_t Src;
     uint16_t Dst;
     int16_t Raw;
-    AxDr_Plot_Group_T *Plot;
+    Plot_Group_T *Plot;
 
     Ready = Fast_Ready;
 
@@ -425,7 +425,7 @@ bool AxDr_Plot_Fast_Pop(AxDr_Msg_T *Msg)
 }
 
 
-bool AxDr_Plot_Normal_Pop(AxDr_Msg_T *Msg)
+bool Plot_Normal_Pop(AxDr_Msg_T *Msg)
 {
     uint8_t Ready;
     uint16_t Dst;
@@ -435,7 +435,7 @@ bool AxDr_Plot_Normal_Pop(AxDr_Msg_T *Msg)
         float F;
         uint32_t U;
     } Cv;
-    AxDr_Plot_Group_T *Plot;
+    Plot_Group_T *Plot;
 
     Ready = Normal_Ready;
 

@@ -1,6 +1,6 @@
 #include "motor_thread.h"
 
-#include "AxDr_Plot.h"
+#include "Plot.h"
 #include "Motor_Control.h"
 
 
@@ -137,7 +137,7 @@ static void Motor_Entry(ULONG thread_input)
 
             if (Normal_Div == 0U)
             {
-                AxDr_Plot_Normal_Sample();
+                Plot_Normal_Sample();
             }
         }
     }

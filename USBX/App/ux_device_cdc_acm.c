@@ -23,7 +23,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "AxDr_USB.h"
+#include "USB_Thread.h"
 
 /* USER CODE END Includes */
 
@@ -66,7 +66,7 @@
 VOID USBD_CDC_ACM_Activate(VOID *cdc_acm_instance)
 {
   /* USER CODE BEGIN USBD_CDC_ACM_Activate */
-  AxDr_USB_Activate(cdc_acm_instance);
+  USB_Activate(cdc_acm_instance);
   /* USER CODE END USBD_CDC_ACM_Activate */
 
   return;
@@ -82,7 +82,7 @@ VOID USBD_CDC_ACM_Deactivate(VOID *cdc_acm_instance)
 {
   /* USER CODE BEGIN USBD_CDC_ACM_Deactivate */
   UX_PARAMETER_NOT_USED(cdc_acm_instance);
-  AxDr_USB_Deactivate();
+  USB_Deactivate();
   /* USER CODE END USBD_CDC_ACM_Deactivate */
 
   return;

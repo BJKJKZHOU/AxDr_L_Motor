@@ -1,9 +1,9 @@
-#include "AxDr_USB.h"
+#include "USB_Thread.h"
 
 #include <string.h>
 
-#include "AxDr_Plot.h"
-#include "AxDr_Proto.h"
+#include "Plot.h"
+#include "Protocol.h"
 #include "ux_api.h"
 #include "ux_device_class_cdc_acm.h"
 
@@ -15,32 +15,32 @@
 #define USB_FRAME_HEAD_SIZE  7U
 
 
-static TX_THREAD USB_Tx_Thread;
+static TX_THREAD USB_Tx_Thread_Obj;
 static UX_SLAVE_CLASS_CDC_ACM * volatile Cdc_Acm = UX_NULL;
 
 static uint8_t USB_Rx_Stream[USB_RX_STREAM_SIZE];
 static uint16_t USB_Rx_Len = 0U;
 
 
-static VOID AxDr_USB_Tx_Entry(ULONG thread_input);
-static void AxDr_USB_Rx_Data(const uint8_t *Data, uint16_t Len);
-static UINT AxDr_USB_Write(const AxDr_Msg_T *Msg);
+static VOID USB_Tx_Entry(ULONG thread_input);
+static void USB_Rx_Data(const uint8_t *Data, uint16_t Len);
+static UINT USB_Write(const AxDr_Msg_T *Msg);
 
 
-void AxDr_USB_Activate(void *Cdc)
+void USB_Activate(void *Cdc)
 {
     Cdc_Acm = (UX_SLAVE_CLASS_CDC_ACM *)Cdc;
 }
 
 
-void AxDr_USB_Deactivate(void)
+void USB_Deactivate(void)
 {
     Cdc_Acm = UX_NULL;
     USB_Rx_Len = 0U;
 }
 
 
-UINT AxDr_USB_Tx_Init(TX_BYTE_POOL *Byte_Pool)
+UINT USB_Tx_Thread_Init(TX_BYTE_POOL *Byte_Pool)
 {
     CHAR *Stack;
 
@@ -50,7 +50,7 @@ UINT AxDr_USB_Tx_Init(TX_BYTE_POOL *Byte_Pool)
         return TX_POOL_ERROR;
     }
 
-    if (tx_thread_create(&USB_Tx_Thread, "USB TX", AxDr_USB_Tx_Entry, 0U,
+    if (tx_thread_create(&USB_Tx_Thread_Obj, "USB TX", USB_Tx_Entry, 0U,
                          Stack, USB_TX_STACK_SIZE,
                          USB_TX_THREAD_PRIO, USB_TX_THREAD_PRIO,
                          TX_NO_TIME_SLICE, TX_AUTO_START) != TX_SUCCESS)
@@ -62,7 +62,7 @@ UINT AxDr_USB_Tx_Init(TX_BYTE_POOL *Byte_Pool)
 }
 
 
-void AxDr_USB_Rx(void)
+void USB_Rx_Thread(void)
 {
     uint8_t Buf[USB_RX_READ_SIZE];
     ULONG Len;
@@ -85,7 +85,7 @@ void AxDr_USB_Rx(void)
 
         if ((Status == UX_SUCCESS) && (Len != 0U))
         {
-            AxDr_USB_Rx_Data(Buf, (uint16_t)Len);
+            USB_Rx_Data(Buf, (uint16_t)Len);
         }
         else if (Status != UX_SUCCESS)
         {
@@ -95,7 +95,7 @@ void AxDr_USB_Rx(void)
 }
 
 
-static VOID AxDr_USB_Tx_Entry(ULONG thread_input)
+static VOID USB_Tx_Entry(ULONG thread_input)
 {
     AxDr_Msg_T Msg;
     UX_SLAVE_CLASS_CDC_ACM *Cdc;
@@ -108,25 +108,25 @@ static VOID AxDr_USB_Tx_Entry(ULONG thread_input)
 
         if (Cdc != UX_NULL)
         {
-            while (AxDr_Tx_Pop(&Msg))
+            while (Protocol_Tx_Pop(&Msg))
             {
-                if (AxDr_USB_Write(&Msg) != UX_SUCCESS)
+                if (USB_Write(&Msg) != UX_SUCCESS)
                 {
                     break;
                 }
             }
 
-            while (AxDr_Plot_Fast_Pop(&Msg))
+            while (Plot_Fast_Pop(&Msg))
             {
-                if (AxDr_USB_Write(&Msg) != UX_SUCCESS)
+                if (USB_Write(&Msg) != UX_SUCCESS)
                 {
                     break;
                 }
             }
 
-            if (AxDr_Plot_Normal_Pop(&Msg))
+            if (Plot_Normal_Pop(&Msg))
             {
-                (void)AxDr_USB_Write(&Msg);
+                (void)USB_Write(&Msg);
             }
         }
 
@@ -135,7 +135,7 @@ static VOID AxDr_USB_Tx_Entry(ULONG thread_input)
 }
 
 
-static UINT AxDr_USB_Write(const AxDr_Msg_T *Msg)
+static UINT USB_Write(const AxDr_Msg_T *Msg)
 {
     uint8_t Buf[USB_FRAME_HEAD_SIZE + AXDR_MAX_DATA_LEN];
     ULONG Actual;
@@ -174,7 +174,7 @@ static UINT AxDr_USB_Write(const AxDr_Msg_T *Msg)
 }
 
 
-static void AxDr_USB_Rx_Data(const uint8_t *Data, uint16_t Len)
+static void USB_Rx_Data(const uint8_t *Data, uint16_t Len)
 {
     uint16_t Magic;
     uint16_t Can_ID;
@@ -247,7 +247,7 @@ static void AxDr_USB_Rx_Data(const uint8_t *Data, uint16_t Len)
             return;
         }
 
-        AxDr_Rx_Msg(Can_ID, &USB_Rx_Stream[USB_FRAME_HEAD_SIZE], Data_Len);
+        Protocol_Rx(Can_ID, &USB_Rx_Stream[USB_FRAME_HEAD_SIZE], Data_Len);
 
         USB_Rx_Len = (uint16_t)(USB_Rx_Len - Frame_Len);
 

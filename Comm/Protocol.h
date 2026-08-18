@@ -1,5 +1,5 @@
-#ifndef AXDR_PROTO_H
-#define AXDR_PROTO_H
+#ifndef PROTOCOL_H
+#define PROTOCOL_H
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -47,8 +47,8 @@ typedef struct
 } AxDr_Msg_T;
 
 
-void AxDr_Rx_Msg(uint16_t Id, const uint8_t *Data, uint8_t Len);
-bool AxDr_Tx_Pop(AxDr_Msg_T *Msg);
+void Protocol_Rx(uint16_t Id, const uint8_t *Data, uint8_t Len);
+bool Protocol_Tx_Pop(AxDr_Msg_T *Msg);
 
 
-#endif /* AXDR_PROTO_H */
+#endif /* PROTOCOL_H */
