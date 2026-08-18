@@ -60,25 +60,27 @@
   */
 UINT App_ThreadX_Init(VOID *memory_ptr)
 {
-  UINT status;
-
+  UINT ret = TX_SUCCESS;
   /* USER CODE BEGIN App_ThreadX_MEM_POOL */
 
   /* USER CODE END App_ThreadX_MEM_POOL */
 
   /* USER CODE BEGIN App_ThreadX_Init */
 
-  /* USER CODE END App_ThreadX_Init */
+  ret = Motor_Thread_Init(memory_ptr);
 
-  status = Motor_Thread_Init(memory_ptr);
-
-  if (status != TX_SUCCESS)
+  if (ret != TX_SUCCESS)
   {
-    return status;
+    return ret;
   }
 
-  return Panel_Thread_Init(memory_ptr);
+  ret = Panel_Thread_Init(memory_ptr);
+
+  /* USER CODE END App_ThreadX_Init */
+
+  return ret;
 }
+
   /**
   * @brief  Function that implements the kernel's initialization.
   * @param  None

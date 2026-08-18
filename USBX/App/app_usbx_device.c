@@ -24,6 +24,8 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "USB_Thread.h"
+#include "usb.h"
+#include "ux_dcd_stm32.h"
 
 /* USER CODE END Includes */
 
@@ -177,10 +179,20 @@ UINT MX_USBX_Device_Init(VOID *memory_ptr)
   }
 
   /* USER CODE BEGIN MX_USBX_Device_Init1 */
+  if (_ux_dcd_stm32_initialize(0U, (ULONG)&hpcd_USB_FS) != UX_SUCCESS)
+  {
+    return UX_ERROR;
+  }
+
   ret = USB_Tx_Thread_Init(byte_pool);
   if (ret != TX_SUCCESS)
   {
     return ret;
+  }
+
+  if (HAL_PCD_Start(&hpcd_USB_FS) != HAL_OK)
+  {
+    return UX_ERROR;
   }
   /* USER CODE END MX_USBX_Device_Init1 */
 

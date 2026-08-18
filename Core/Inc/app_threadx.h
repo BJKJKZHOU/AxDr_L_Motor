@@ -48,6 +48,7 @@ extern "C" {
 
 /* USER CODE END PD */
 
+/* Main thread defines -------------------------------------------------------*/
 /* USER CODE BEGIN MTD */
 
 /* USER CODE END MTD */

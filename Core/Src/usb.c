@@ -51,6 +51,12 @@ void MX_USB_PCD_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN USB_Init 2 */
+  /* STM32G4 USB FS PMA: EP0 control + CDC bulk OUT/IN + command IN. */
+  HAL_PCDEx_PMAConfig(&hpcd_USB_FS, 0x00U, PCD_SNG_BUF, 0x018U);
+  HAL_PCDEx_PMAConfig(&hpcd_USB_FS, 0x80U, PCD_SNG_BUF, 0x058U);
+  HAL_PCDEx_PMAConfig(&hpcd_USB_FS, 0x01U, PCD_SNG_BUF, 0x098U);
+  HAL_PCDEx_PMAConfig(&hpcd_USB_FS, 0x81U, PCD_SNG_BUF, 0x0D8U);
+  HAL_PCDEx_PMAConfig(&hpcd_USB_FS, 0x82U, PCD_SNG_BUF, 0x118U);
 
   /* USER CODE END USB_Init 2 */
 
