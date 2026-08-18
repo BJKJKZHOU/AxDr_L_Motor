@@ -15,10 +15,14 @@
 
 #define MOTOR_KT_DEFAULT       (1.5f * (float)MOTOR_PP_DEFAULT * MOTOR_FLUX_DEFAULT)
 
+/* MT6816 absolute speed capability; this is the system hardware speed ceiling. */
+#define ENC_MAX_RPM            25000.0f
+#define ENC_WM_MAX             (ENC_MAX_RPM * 6.283185307f / 60.0f)
+
 /* First-version phase-current command ceiling based on the board 10 A operating range. */
 #define MOTOR_I_MAX_DEFAULT    10.0f
 #define MOTOR_TE_MAX_DEFAULT   (MOTOR_KT_DEFAULT * MOTOR_I_MAX_DEFAULT)
-#define MOTOR_WM_MAX_DEFAULT   2617.993878f /* MT6816: 25000 rpm */
+#define MOTOR_WM_MAX_DEFAULT   ENC_WM_MAX
 
 #define USER_I_MAX_DEFAULT     5.0f
 #define USER_TE_MAX_DEFAULT    (MOTOR_KT_DEFAULT * USER_I_MAX_DEFAULT)
