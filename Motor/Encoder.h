@@ -8,6 +8,11 @@ typedef struct
 {
     uint16_t Raw;
     float Theta_m;
+
+    uint32_t Parity_Err;
+    uint16_t No_Mag_Cnt;
+    uint8_t No_Mag;
+    uint8_t Fault;
 } Encoder_T;
 
 
