@@ -6,18 +6,24 @@
 #include "main.h"
 
 
-#define MT6816_REG_ANGLE_LSB    0x03U
-#define MT6816_REG_ANGLE_MSB    0x04U
-#define MT6816_CMD_READ         0x80U
+#define MT6816_REG_ANGLE_LSB      0x03U
+#define MT6816_REG_ANGLE_MSB      0x04U
+#define MT6816_CMD_READ           0x80U
+#define MT6816_NO_MAG_MASK        0x0002U
 
-#define ENC_CPR                 16384.0f
-#define RAW_TO_RAD              (TWO_PI_F / ENC_CPR)
+#define ENC_CPR                   16384.0f
+#define RAW_TO_RAD                (TWO_PI_F / ENC_CPR)
+
+/* No-magnet must remain asserted for 2 ms before the fault is latched. */
+#define ENC_NOMAG_FAULT_MS        2U
+#define ENC_NOMAG_FAULT_CNT       \
+    ((uint16_t)((CUR_FREQ_HZ_DEFAULT * (float)ENC_NOMAG_FAULT_MS) / 1000.0f))
 
 /* MT6816 requires at least 100 ns from CSN low to the first SCK edge. */
-#define ENC_CSN_LOW_CYC         16U
+#define ENC_CSN_LOW_CYC           16U
 /* 200 ns CSN high time and 1 us SPI end timeout at 160 MHz. */
-#define ENC_CSN_HIGH_CYC        32U
-#define ENC_SPI_END_CYC         160U
+#define ENC_CSN_HIGH_CYC          32U
+#define ENC_SPI_END_CYC           160U
 
 
 volatile Encoder_T Encoder = {0};
@@ -30,6 +36,17 @@ static uint32_t Speed_Div_Cnt = 0U;
 static uint8_t Step = 0U;
 static uint8_t Busy = 0U;
 static uint8_t Pos_Valid = 0U;
+
+
+static uint8_t Parity_Check(uint16_t Data)
+{
+    Data ^= Data >> 8;
+    Data ^= Data >> 4;
+    Data ^= Data >> 2;
+    Data ^= Data >> 1;
+
+    return (uint8_t)((~Data) & 1U);
+}
 
 
 static void DMA_Rearm(void)
@@ -67,6 +84,13 @@ void Encoder_DMA_Config(void)
     Pos_Valid = 0U;
     Delta_Sum = 0.0f;
     Speed_Div_Cnt = 0U;
+
+    Encoder.Raw = 0U;
+    Encoder.Theta_m = 0.0f;
+    Encoder.Parity_Err = 0U;
+    Encoder.No_Mag_Cnt = 0U;
+    Encoder.No_Mag = 0U;
+    Encoder.Fault = 0U;
     Motor_Run.Wm = 0.0f;
 
     CLEAR_BIT(SPI1->CR2, SPI_CR2_TXDMAEN);
@@ -235,6 +259,35 @@ void Encoder_DMA_IRQHandler(void)
     SPI1_CSN_GPIO_Port->BSRR = SPI1_CSN_Pin;
 
     Data = (uint16_t)(((Rx[0] & 0x00FFU) << 8) | (Rx[1] & 0x00FFU));
+
+    if (Parity_Check(Data) == 0U)
+    {
+        Encoder.Parity_Err++;
+        Step = 0U;
+        Busy = 0U;
+        Fast_Time.SPI_2_ISR_Cyc = DWT->CYCCNT - T0;
+        return;
+    }
+
+    if ((Data & MT6816_NO_MAG_MASK) != 0U)
+    {
+        Encoder.No_Mag = 1U;
+
+        if (Encoder.No_Mag_Cnt < ENC_NOMAG_FAULT_CNT)
+        {
+            Encoder.No_Mag_Cnt++;
+        }
+
+        if (Encoder.No_Mag_Cnt >= ENC_NOMAG_FAULT_CNT)
+        {
+            Encoder.Fault = 1U;
+        }
+    }
+    else
+    {
+        Encoder.No_Mag = 0U;
+        Encoder.No_Mag_Cnt = 0U;
+    }
 
     Encoder.Raw = Data >> 2;
     Theta = (float)Encoder.Raw * RAW_TO_RAD;
