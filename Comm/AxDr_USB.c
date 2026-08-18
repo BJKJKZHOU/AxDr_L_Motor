@@ -2,6 +2,7 @@
 
 #include <string.h>
 
+#include "AxDr_Plot.h"
 #include "AxDr_Proto.h"
 #include "ux_api.h"
 #include "ux_device_class_cdc_acm.h"
@@ -113,6 +114,19 @@ static VOID AxDr_USB_Tx_Entry(ULONG thread_input)
                 {
                     break;
                 }
+            }
+
+            while (AxDr_Plot_Fast_Pop(&Msg))
+            {
+                if (AxDr_USB_Write(&Msg) != UX_SUCCESS)
+                {
+                    break;
+                }
+            }
+
+            if (AxDr_Plot_Normal_Pop(&Msg))
+            {
+                (void)AxDr_USB_Write(&Msg);
             }
         }
 

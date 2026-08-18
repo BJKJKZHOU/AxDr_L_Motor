@@ -1,5 +1,6 @@
 #include "motor_thread.h"
 
+#include "AxDr_Plot.h"
 #include "Motor_Control.h"
 
 
@@ -14,6 +15,7 @@ volatile ULONG Motor_Ready = 0U;
 
 
 static TX_THREAD Motor_Thread;
+static uint8_t Normal_Div = 0U;
 
 
 static void Motor_Entry(ULONG thread_input);
@@ -130,6 +132,13 @@ static void Motor_Entry(ULONG thread_input)
         {
             Servo_Cmd_Run();
             Motor_Control();
+
+            Normal_Div ^= 1U;
+
+            if (Normal_Div == 0U)
+            {
+                AxDr_Plot_Normal_Sample();
+            }
         }
     }
 }

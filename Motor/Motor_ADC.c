@@ -1,5 +1,6 @@
 #include "Motor_ADC.h"
 
+#include "AxDr_Plot.h"
 #include "Current_Loop.h"
 #include "Motor_Control.h"
 #include "Motor_PWM.h"
@@ -146,6 +147,7 @@ void ADC_Run(void)
                &DutyC);
 
     PWM_Update(DutyA, DutyB, DutyC);
+    AxDr_Plot_Fast_Sample();
 
     Cyc = DWT->CYCCNT - T0;
     Fast_Time.ADC_Run_Cyc = Cyc;
