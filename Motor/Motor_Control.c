@@ -1,6 +1,7 @@
 #include "Motor_Control.h"
 
 #include "Math.h"
+#include "Current_Loop.h"
 #include "Motor_ADC.h"
 #include "Motor_PWM.h"
 #include "Motion_Loop.h"
@@ -267,6 +268,18 @@ void Servo_Enable(void)
 {
     if (Servo_State == SERVO_DISABLED)
     {
+        Current_Ref.Id = 0.0f;
+        Current_Ref.Iq = 0.0f;
+
+        Id_Ctrl.State.Int = 0.0f;
+        Iq_Ctrl.State.Int = 0.0f;
+
+        Id_Ctrl.Sig.Out = 0.0f;
+        Iq_Ctrl.Sig.Out = 0.0f;
+
+        Motor_Run.Ud = 0.0f;
+        Motor_Run.Uq = 0.0f;
+
         PWM_Enable();
         Servo_State = SERVO_ENABLED;
     }
