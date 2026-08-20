@@ -110,9 +110,9 @@ void ADC_Sample(void)
 
     ADC.Vbus_Raw = (uint16_t)ADC2->JDR1;
 
-    ADC.Ia_A = ((float)ADC.Ia_Raw - (float)ADC.Ia_Off) * CUR_RAW_TO_A;
-    ADC.Ib_A = ((float)ADC.Ib_Raw - (float)ADC.Ib_Off) * CUR_RAW_TO_A;
-    ADC.Ic_A = ((float)ADC.Ic_Raw - (float)ADC.Ic_Off) * CUR_RAW_TO_A;
+    ADC.Ia_A = ((float)ADC.Ia_Off - (float)ADC.Ia_Raw) * CUR_RAW_TO_A;
+    ADC.Ib_A = ((float)ADC.Ib_Off - (float)ADC.Ib_Raw) * CUR_RAW_TO_A;
+    ADC.Ic_A = ((float)ADC.Ic_Off - (float)ADC.Ic_Raw) * CUR_RAW_TO_A;
     ADC.Vbus_V = (float)ADC.Vbus_Raw * VBUS_RAW_TO_V;
 }
 
