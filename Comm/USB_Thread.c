@@ -4,6 +4,7 @@
 
 #include "Plot.h"
 #include "Protocol.h"
+#include "main.h"
 #include "ux_api.h"
 #include "ux_device_class_cdc_acm.h"
 
@@ -21,6 +22,7 @@ static UX_SLAVE_CLASS_CDC_ACM * volatile Cdc_Acm = UX_NULL;
 
 static uint8_t USB_Rx_Stream[USB_RX_STREAM_SIZE];
 static uint16_t USB_Rx_Len = 0U;
+static volatile ULONG USB_Tx_Pending = 0U;
 
 
 static VOID USB_Tx_Entry(ULONG thread_input);
@@ -104,7 +106,36 @@ void USB_Rx_Thread(void)
 
 void USB_Tx_Wake(ULONG Flag)
 {
-    (void)tx_event_flags_set(&USB_Tx_Event, Flag, TX_OR);
+    uint32_t Primask;
+
+    if (__get_IPSR() == 0U)
+    {
+        (void)tx_event_flags_set(&USB_Tx_Event, Flag, TX_OR);
+        return;
+    }
+
+    Primask = __get_PRIMASK();
+    __disable_irq();
+    USB_Tx_Pending |= Flag;
+    __set_PRIMASK(Primask);
+}
+
+
+void USB_Tx_Poll(void)
+{
+    ULONG Pending;
+    uint32_t Primask;
+
+    Primask = __get_PRIMASK();
+    __disable_irq();
+    Pending = USB_Tx_Pending;
+    USB_Tx_Pending = 0U;
+    __set_PRIMASK(Primask);
+
+    if (Pending != 0U)
+    {
+        (void)tx_event_flags_set(&USB_Tx_Event, Pending, TX_OR);
+    }
 }
 
 

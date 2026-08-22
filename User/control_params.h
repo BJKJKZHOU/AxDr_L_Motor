@@ -81,23 +81,50 @@
 }
 
 
+/* Open-loop electrical startup. */
+#define OPEN_ALIGN_ID_A         0.2f
+#define OPEN_ALIGN_TIME_S       0.5f
+#define OPEN_ALIGN_CNT          ((uint32_t)(OPEN_ALIGN_TIME_S / CUR_TS + 0.5f))
+#define OPEN_IQ_A               0.2f
+#define OPEN_WE_RAD_S           20.0f
+
+
+/* Sensorless I/F startup. Electrical speed and acceleration use rad/s. */
+#define IF_ALIGN_ID_A           1.0f
+#define IF_ALIGN_TIME_S         1.0f
+#define IF_ALIGN_CNT            ((uint32_t)(IF_ALIGN_TIME_S / CUR_TS + 0.5f))
+#define IF_IQ_START_A           1.0f
+#define IF_IQ_TARGET_A          1.6f
+#define IF_WE_TARGET_RAD_S      120.0f
+#define IF_ACC_RAD_S2           15.0f
+#define IF_HOLD_TIME_S          0.3f
+#define IF_HOLD_CNT             ((uint32_t)(IF_HOLD_TIME_S / CUR_TS + 0.5f))
+
+
 /*
  * Speed-loop PI design.
  *
- * Mechanical plant from Iq to mechanical speed:
+ * Controller input is electrical speed We. User/communication speed remains
+ * mechanical speed Wm and is converted with We = Pp * Wm before this loop.
+ *
+ * Mechanical plant:
  *
  *                  Kt
- * G(s) = ---------------------
- *             J*s + B
+ * Wm(s)/Iq(s) = ---------
+ *                 J*s+B
  *
- * Kt = 1.5 * Pp * Flux
+ * Since We = Pp * Wm:
  *
- * Choose speed-loop bandwidth Fs and place the PI zero at the
- * mechanical pole:
+ *                  Pp*Kt
+ * We(s)/Iq(s) = ---------
+ *                  J*s+B
+ *
+ * Choose speed-loop bandwidth Fs and place the PI zero at the mechanical
+ * pole:
  *
  * Ws = 2*pi*Fs
- * Kp = J*Ws/Kt
- * Ki = B*Ws/Kt
+ * Kp = J*Ws/(Pp*Kt)
+ * Ki = B*Ws/(Pp*Kt)
  *
  * Speed PI output is Iq_Ref directly.
  */
@@ -108,8 +135,10 @@
 #define SPD_BW_HZ_DEFAULT      50.0f
 #define SPD_WC_DEFAULT         (TWO_PI_F * SPD_BW_HZ_DEFAULT)
 
-#define SPD_KP_DEFAULT         (MOTOR_J_DEFAULT * SPD_WC_DEFAULT / MOTOR_KT_DEFAULT)
-#define SPD_KI_DEFAULT         (MOTOR_B_DEFAULT * SPD_WC_DEFAULT / MOTOR_KT_DEFAULT)
+#define SPD_KP_DEFAULT         (MOTOR_J_DEFAULT * SPD_WC_DEFAULT / \
+                                ((float)MOTOR_PP_DEFAULT * MOTOR_KT_DEFAULT))
+#define SPD_KI_DEFAULT         (MOTOR_B_DEFAULT * SPD_WC_DEFAULT / \
+                                ((float)MOTOR_PP_DEFAULT * MOTOR_KT_DEFAULT))
 
 
 #define POS_FREQ_HZ_DEFAULT    1000.0f

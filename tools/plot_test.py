@@ -68,6 +68,15 @@ VAR = {
     "theta_e": (0x0014, 0.0002),
     "theta_m": (0x0101, 0.0002),
     "wm": (0x0102, 0.1),
+    "va_meas": (0x0120, None),
+    "vb_meas": (0x0121, None),
+    "vc_meas": (0x0122, None),
+    "va_cmd_f": (0x0123, None),
+    "vb_cmd_f": (0x0124, None),
+    "vc_cmd_f": (0x0125, None),
+    "erra": (0x0126, None),
+    "errb": (0x0127, None),
+    "errc": (0x0128, None),
 }
 
 VAR_ID_NAME = {value[0]: name for name, value in VAR.items()}

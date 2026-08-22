@@ -5,3 +5,4 @@ mx.scratch
 .clangd
 docs/文档
 docs/手册
+*/__pycache__

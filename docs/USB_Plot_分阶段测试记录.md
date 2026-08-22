@@ -246,3 +246,16 @@ Miss。
 
 在保持动力母线断开的测试范围内，USB CDC、Plot 协议、编码器反馈链路和
 FAST/NORMAL 并发传输均满足当前验收要求。
+
+## 6. 与 20 kHz 实时性问题的边界
+
+本文验证 FAST/NORMAL 协议、并发传输和数据完整性。后续发现的
+`USB_Tx_Wake()` 在 ADC ISR 内调用 ThreadX event、导致 FAST Plot 周期性长尾和
+Deadline Miss 的问题，属于实时性和 ISR 职责边界。详细定位与
+`468513d/ae4706b` 优化结果见
+[20 kHz 快环时序调试记录](20kHz快环时序调试记录.md)第 8 节。
+
+两类结论需要同时成立：
+
+- USB 数据能传输、主机序号连续，不代表 ISR 执行时间满足 20 kHz Deadline；
+- ISR 唤醒长尾消失，也不自动保证所有 FAST/NORMAL 组合都零丢弃。

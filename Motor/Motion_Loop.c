@@ -28,10 +28,13 @@ float Position_Loop(int32_t Turn_Ref, float Theta_Ref,
 }
 
 
-float Speed_Loop(float Wm_Ref, float Iq_Min, float Iq_Max)
+float Speed_Loop(float We_Ref,
+                 float We_Fbk,
+                 float Iq_Min,
+                 float Iq_Max)
 {
-    Speed_Ctrl.Sig.Ref = Wm_Ref;
-    Speed_Ctrl.Sig.Fbk = Motor_Run.Wm;
+    Speed_Ctrl.Sig.Ref = We_Ref;
+    Speed_Ctrl.Sig.Fbk = We_Fbk;
 
     Speed_Ctrl.Para.Out_Min = Iq_Min;
     Speed_Ctrl.Para.Out_Max = Iq_Max;

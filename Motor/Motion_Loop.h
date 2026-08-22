@@ -12,7 +12,10 @@ extern PID_T Speed_Ctrl;
 
 float Position_Loop(int32_t Turn_Ref, float Theta_Ref,
                     float Wm_Min, float Wm_Max);
-float Speed_Loop(float Wm_Ref, float Iq_Min, float Iq_Max);
+float Speed_Loop(float We_Ref,
+                 float We_Fbk,
+                 float Iq_Min,
+                 float Iq_Max);
 
 
 #endif /* MOTION_LOOP_H */

@@ -13,6 +13,7 @@
 UINT USB_Tx_Thread_Init(TX_BYTE_POOL *Byte_Pool);
 void USB_Rx_Thread(void);
 void USB_Tx_Wake(ULONG Flag);
+void USB_Tx_Poll(void);
 void USB_Activate(void *Cdc);
 void USB_Deactivate(void);
 
