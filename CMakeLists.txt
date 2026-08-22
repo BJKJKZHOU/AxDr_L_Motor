@@ -48,10 +48,14 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Algo/Math.c
     Algo/Sin_LUT.c
     Algo/Voltage_Mod.c
+    Identification/Identification.c
+    Identification/Rs_Ls.c
     Motor/Motor_ADC.c
     Motor/Encoder.c
     Motor/Current_Loop.c
     Motor/Motion_Loop.c
+    Motor/Align.c
+    Motor/Open_Loop.c
     Motor/Motor_PWM.c
     Motor/Motor_Control.c
     BSP/RGB.c
@@ -78,6 +82,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     Algo
     BSP
     Comm
+    Identification
     Motor
     User
 )

@@ -7,6 +7,7 @@
 #include "Motion_Loop.h"
 #include "control_params.h"
 #include "motor_params.h"
+#include "tim.h"
 
 
 typedef struct
@@ -135,6 +136,7 @@ void Motor_Control(void)
                 switch (Ctrl_Mode)
                 {
                     case CTRL_TORQUE:
+                    case CTRL_OPEN_LOOP:
                         Current_Ref.Id = 0.0f;
                         Current_Ref.Iq = 0.0f;
                         break;
@@ -170,6 +172,12 @@ void Motor_Control(void)
     Current_Ref.Id = 0.0f;
 
     if (Servo_State == SERVO_DISABLED)
+    {
+        Current_Ref.Iq = 0.0f;
+        return;
+    }
+
+    if (Ctrl_Mode == CTRL_OPEN_LOOP)
     {
         Current_Ref.Iq = 0.0f;
         return;
@@ -242,6 +250,7 @@ void Motor_Control(void)
             Current_Ref.Iq = Speed_Loop(Wm_Ref, Iq_Min, Iq_Max);
             break;
 
+        case CTRL_OPEN_LOOP:
         default:
             Current_Ref.Iq = 0.0f;
             break;
@@ -261,6 +270,12 @@ void Current_Ref_Get(float *Id_Ref, float *Iq_Ref)
 Servo_State_e Servo_State_Get(void)
 {
     return Servo_State;
+}
+
+
+Ctrl_Mode_e Ctrl_Mode_Get(void)
+{
+    return Ctrl_Mode;
 }
 
 
@@ -316,6 +331,15 @@ void Ctrl_Mode_Set(Ctrl_Mode_e Mode)
     if (Servo_State == SERVO_DISABLED)
     {
         Ctrl_Mode = Mode;
+
+        if (Mode == CTRL_OPEN_LOOP)
+        {
+            CLEAR_BIT(TIM1->DIER, TIM_DIER_CC4IE);
+        }
+        else
+        {
+            SET_BIT(TIM1->DIER, TIM_DIER_CC4IE);
+        }
     }
 }
 

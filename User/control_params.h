@@ -81,6 +81,14 @@
 }
 
 
+/* Open-loop electrical startup. */
+#define OPEN_ALIGN_ID_A         0.2f
+#define OPEN_ALIGN_TIME_S       0.5f
+#define OPEN_ALIGN_CNT          ((uint32_t)(OPEN_ALIGN_TIME_S / CUR_TS + 0.5f))
+#define OPEN_IQ_A               0.2f
+#define OPEN_WE_RAD_S           20.0f
+
+
 /*
  * Speed-loop PI design.
  *

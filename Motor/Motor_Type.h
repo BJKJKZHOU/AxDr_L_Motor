@@ -17,6 +17,7 @@ typedef enum
     CTRL_TORQUE = 0,
     CTRL_SPEED,
     CTRL_POSITION,
+    CTRL_OPEN_LOOP,
 } Ctrl_Mode_e;
 
 
@@ -104,7 +105,7 @@ typedef struct
     float Theta_m;     /* rad, [0, 2pi) */
     float Wm;          /* rad/s */
 
-    float Theta_e;     /* rad, [0, 2pi) */
+    float Theta_e;     /* rad, [0, 2pi), electrical angle currently used by FOC */
 
     float Id;          /* A */
     float Iq;          /* A */

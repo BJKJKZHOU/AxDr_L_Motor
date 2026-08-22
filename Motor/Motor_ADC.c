@@ -2,8 +2,10 @@
 
 #include "Plot.h"
 #include "Current_Loop.h"
+#include "Identification.h"
 #include "Motor_Control.h"
 #include "Motor_PWM.h"
+#include "Open_Loop.h"
 #include "Voltage_Mod.h"
 #include "adc.h"
 #include "main.h"
@@ -132,12 +134,29 @@ void ADC_Run(void)
     T0 = DWT->CYCCNT;
 
     ADC_Sample();
-    Current_Ref_Get(&Id_Ref, &Iq_Ref);
 
-    Current_Loop(Id_Ref,
-                 Iq_Ref,
-                 &Ualpha,
-                 &Ubeta);
+    if (Identification_Active())
+    {
+        Identification_Fast_Run(ADC.Ia_A,
+                                ADC.Ib_A,
+                                ADC.Ic_A,
+                                &Ualpha,
+                                &Ubeta);
+    }
+    else
+    {
+        Current_Ref_Get(&Id_Ref, &Iq_Ref);
+
+        if (Ctrl_Mode_Get() == CTRL_OPEN_LOOP)
+        {
+            Open_Loop(&Id_Ref, &Iq_Ref);
+        }
+
+        Current_Loop(Id_Ref,
+                     Iq_Ref,
+                     &Ualpha,
+                     &Ubeta);
+    }
 
     SVPWM_Calc(Ualpha,
                Ubeta,

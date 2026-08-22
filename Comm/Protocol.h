@@ -8,10 +8,25 @@
 #define AXDR_NODE_ID          1U
 #define AXDR_MAX_DATA_LEN     64U
 
-#define AXDR_MSG_RESPONSE     0x02U
-#define AXDR_MSG_PLOT         0x04U
-#define AXDR_MSG_NORMAL_DATA  0x10U
-#define AXDR_MSG_FAST_DATA    0x18U
+#define AXDR_MSG_RESPONSE       0x02U
+#define AXDR_MSG_CONTROL        0x03U
+#define AXDR_MSG_PLOT           0x04U
+#define AXDR_MSG_IDENTIFICATION 0x05U
+#define AXDR_MSG_NORMAL_DATA    0x10U
+#define AXDR_MSG_FAST_DATA      0x18U
+
+#define AXDR_CTRL_ENABLE      0x01U
+#define AXDR_CTRL_RUN         0x02U
+#define AXDR_CTRL_STOP        0x03U
+#define AXDR_CTRL_DISABLE     0x04U
+#define AXDR_CTRL_MODE_SET    0x05U
+
+#define AXDR_IDENT_START      0x01U
+#define AXDR_IDENT_STATUS     0x02U
+#define AXDR_IDENT_ABORT      0x03U
+#define AXDR_IDENT_APPLY      0x04U
+
+#define AXDR_IDENT_RS_LS      0x01U
 
 #define AXDR_PLOT_CONFIG      0x01U
 #define AXDR_PLOT_START       0x02U

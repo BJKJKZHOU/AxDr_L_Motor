@@ -2,8 +2,12 @@
 
 #include <string.h>
 
+#include "Identification.h"
+#include "Motor_Control.h"
 #include "Plot.h"
+#include "Rs_Ls.h"
 #include "USB_Thread.h"
+#include "motor_thread.h"
 
 
 #define AXDR_RESP_NUM    4U
@@ -55,6 +59,247 @@ static void Response(uint8_t Txn,
     }
 
     (void)Response_Push(&Msg);
+}
+
+
+static void Control_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
+{
+    uint8_t Txn;
+    uint8_t Op;
+    uint8_t Mode;
+    ULONG Cmd;
+    AxDr_Status_e Status;
+
+    Txn = (Len > 0U) ? Data[0] : 0U;
+    Op = (Len > 1U) ? Data[1] : 0U;
+    Status = AXDR_OK;
+    Cmd = 0U;
+
+    if (Len < 2U)
+    {
+        Status = AXDR_ERR_LENGTH;
+    }
+    else if (Identification_Active() && (Op != AXDR_CTRL_DISABLE))
+    {
+        Status = AXDR_ERR_STATE;
+    }
+    else if (Op == AXDR_CTRL_ENABLE)
+    {
+        if (Len != 2U)
+        {
+            Status = AXDR_ERR_LENGTH;
+        }
+        else
+        {
+            Cmd = SERVO_CMD_ENABLE;
+        }
+    }
+    else if (Op == AXDR_CTRL_RUN)
+    {
+        if (Len != 2U)
+        {
+            Status = AXDR_ERR_LENGTH;
+        }
+        else
+        {
+            Cmd = SERVO_CMD_RUN;
+        }
+    }
+    else if (Op == AXDR_CTRL_STOP)
+    {
+        if (Len != 2U)
+        {
+            Status = AXDR_ERR_LENGTH;
+        }
+        else
+        {
+            Cmd = SERVO_CMD_STOP;
+        }
+    }
+    else if (Op == AXDR_CTRL_DISABLE)
+    {
+        if (Len != 2U)
+        {
+            Status = AXDR_ERR_LENGTH;
+        }
+        else
+        {
+            Cmd = SERVO_CMD_DISABLE;
+        }
+    }
+    else if (Op == AXDR_CTRL_MODE_SET)
+    {
+        if (Len != 3U)
+        {
+            Status = AXDR_ERR_LENGTH;
+        }
+        else if (Servo_State_Get() != SERVO_DISABLED)
+        {
+            Status = AXDR_ERR_STATE;
+        }
+        else
+        {
+            Mode = Data[2];
+
+            if (Mode > (uint8_t)CTRL_OPEN_LOOP)
+            {
+                Status = AXDR_ERR_VALUE;
+            }
+            else
+            {
+                Cmd = (ULONG)SERVO_CMD_MODE_SET | ((ULONG)Mode << 8);
+            }
+        }
+    }
+    else
+    {
+        Status = AXDR_ERR_OP;
+    }
+
+    if ((Status == AXDR_OK) &&
+        (tx_queue_send(&Servo_Cmd_Q, &Cmd, TX_NO_WAIT) != TX_SUCCESS))
+    {
+        Status = AXDR_ERR_CONFIG;
+    }
+
+    if (Broadcast == 0U)
+    {
+        Response(Txn, AXDR_MSG_CONTROL, Op, Status, 0, 0U);
+    }
+}
+
+
+static void Identification_Rx(const uint8_t *Data,
+                              uint8_t Len,
+                              uint8_t Broadcast)
+{
+    uint8_t Txn;
+    uint8_t Op;
+    ULONG Cmd;
+    AxDr_Status_e Status;
+
+    Txn = (Len > 0U) ? Data[0] : 0U;
+    Op = (Len > 1U) ? Data[1] : 0U;
+    Status = AXDR_OK;
+    Cmd = 0U;
+
+    if (Broadcast != 0U)
+    {
+        return;
+    }
+
+    if (Len < 2U)
+    {
+        Status = AXDR_ERR_LENGTH;
+    }
+    else if (Op == AXDR_IDENT_START)
+    {
+        if (Len != 3U)
+        {
+            Status = AXDR_ERR_LENGTH;
+        }
+        else if (Data[2] != AXDR_IDENT_RS_LS)
+        {
+            Status = AXDR_ERR_NOT_SUPPORTED;
+        }
+        else if ((Servo_State_Get() != SERVO_DISABLED) ||
+                 Identification_Active())
+        {
+            Status = AXDR_ERR_STATE;
+        }
+        else
+        {
+            Cmd = (ULONG)IDENT_CMD_START | ((ULONG)Data[2] << 8);
+
+            if (tx_queue_send(&Ident_Cmd_Q, &Cmd, TX_NO_WAIT) != TX_SUCCESS)
+            {
+                Status = AXDR_ERR_CONFIG;
+            }
+        }
+    }
+    else if (Op == AXDR_IDENT_STATUS)
+    {
+        uint8_t Resp[12];
+        const Rs_Ls_Result_T *Result;
+
+        if (Len != 2U)
+        {
+            Status = AXDR_ERR_LENGTH;
+        }
+        else
+        {
+            Result = Rs_Ls_Result_Get();
+            Resp[0] = (uint8_t)Identification_Mode_Get();
+            Resp[1] = (uint8_t)Identification_State_Get();
+            Resp[2] = Identification_Stage_Get();
+            Resp[3] = Result->Valid ? 1U : 0U;
+            memcpy(&Resp[4], &Result->Rs_Ohm, sizeof(float));
+            memcpy(&Resp[8], &Result->Ls_H, sizeof(float));
+
+            Response(Txn, AXDR_MSG_IDENTIFICATION, Op,
+                     AXDR_OK, Resp, sizeof(Resp));
+            return;
+        }
+    }
+    else if (Op == AXDR_IDENT_ABORT)
+    {
+        if (Len != 2U)
+        {
+            Status = AXDR_ERR_LENGTH;
+        }
+        else if (!Identification_Active())
+        {
+            Status = AXDR_ERR_STATE;
+        }
+        else
+        {
+            Cmd = IDENT_CMD_ABORT;
+
+            if (tx_queue_send(&Ident_Cmd_Q, &Cmd, TX_NO_WAIT) != TX_SUCCESS)
+            {
+                Status = AXDR_ERR_CONFIG;
+            }
+        }
+    }
+    else if (Op == AXDR_IDENT_APPLY)
+    {
+        const Rs_Ls_Result_T *Result;
+
+        if (Len != 2U)
+        {
+            Status = AXDR_ERR_LENGTH;
+        }
+        else if ((Servo_State_Get() != SERVO_DISABLED) ||
+                 Identification_Active() ||
+                 (Identification_State_Get() != IDENT_DONE))
+        {
+            Status = AXDR_ERR_STATE;
+        }
+        else
+        {
+            Result = Rs_Ls_Result_Get();
+
+            if (!Result->Valid)
+            {
+                Status = AXDR_ERR_CONFIG;
+            }
+            else
+            {
+                Cmd = IDENT_CMD_APPLY;
+
+                if (tx_queue_send(&Ident_Cmd_Q, &Cmd, TX_NO_WAIT) != TX_SUCCESS)
+                {
+                    Status = AXDR_ERR_CONFIG;
+                }
+            }
+        }
+    }
+    else
+    {
+        Status = AXDR_ERR_OP;
+    }
+
+    Response(Txn, AXDR_MSG_IDENTIFICATION, Op, Status, 0, 0U);
 }
 
 
@@ -176,9 +421,17 @@ void Protocol_Rx(uint16_t Id, const uint8_t *Data, uint8_t Len)
         return;
     }
 
-    if (Msg_Type == AXDR_MSG_PLOT)
+    if (Msg_Type == AXDR_MSG_CONTROL)
+    {
+        Control_Rx(Data, Len, (Node == 0U) ? 1U : 0U);
+    }
+    else if (Msg_Type == AXDR_MSG_PLOT)
     {
         Plot_Rx(Data, Len, (Node == 0U) ? 1U : 0U);
+    }
+    else if (Msg_Type == AXDR_MSG_IDENTIFICATION)
+    {
+        Identification_Rx(Data, Len, (Node == 0U) ? 1U : 0U);
     }
 }
 

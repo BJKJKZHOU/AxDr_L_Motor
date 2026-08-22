@@ -1,16 +1,20 @@
 #include "motor_thread.h"
 
-#include "Plot.h"
+#include "Identification.h"
 #include "Motor_Control.h"
+#include "Motor_PWM.h"
+#include "Plot.h"
 
 
 #define MOTOR_STACK_SIZE    512U
 #define MOTOR_THREAD_PRIO   5U
 #define SERVO_CMD_Q_LEN     4U
+#define IDENT_CMD_Q_LEN     4U
 
 
 TX_SEMAPHORE Motor_Sem;
 TX_QUEUE Servo_Cmd_Q;
+TX_QUEUE Ident_Cmd_Q;
 volatile ULONG Motor_Ready = 0U;
 
 
@@ -21,14 +25,70 @@ static uint8_t Normal_Div = 0U;
 static void Motor_Entry(ULONG thread_input);
 
 
+static void Ident_Cmd_Run(void)
+{
+    ULONG Cmd;
+    uint8_t Cmd_Id;
+    uint8_t Arg;
+
+    while (tx_queue_receive(&Ident_Cmd_Q, &Cmd, TX_NO_WAIT) == TX_SUCCESS)
+    {
+        Cmd_Id = (uint8_t)Cmd;
+        Arg = (uint8_t)(Cmd >> 8);
+
+        if (Cmd_Id == (uint8_t)IDENT_CMD_START)
+        {
+            if ((Servo_State_Get() == SERVO_DISABLED) &&
+                !Identification_Active() &&
+                Identification_Start((Ident_Mode_e)Arg))
+            {
+                PWM_Enable();
+            }
+        }
+        else if (Cmd_Id == (uint8_t)IDENT_CMD_ABORT)
+        {
+            if (Identification_Active())
+            {
+                PWM_Disable();
+                Identification_Abort();
+            }
+        }
+        else if (Cmd_Id == (uint8_t)IDENT_CMD_APPLY)
+        {
+            if ((Servo_State_Get() == SERVO_DISABLED) &&
+                !Identification_Active())
+            {
+                (void)Identification_Apply();
+            }
+        }
+    }
+}
+
+
 static void Servo_Cmd_Run(void)
 {
     Servo_State_e State;
     ULONG Cmd;
+    uint8_t Cmd_Id;
+    uint8_t Arg;
 
     while (tx_queue_receive(&Servo_Cmd_Q, &Cmd, TX_NO_WAIT) == TX_SUCCESS)
     {
-        switch ((Servo_Cmd_e)Cmd)
+        Cmd_Id = (uint8_t)Cmd;
+        Arg = (uint8_t)(Cmd >> 8);
+
+        if (Identification_Active())
+        {
+            if (Cmd_Id == (uint8_t)SERVO_CMD_DISABLE)
+            {
+                Servo_Disable();
+                Identification_Abort();
+            }
+
+            continue;
+        }
+
+        switch ((Servo_Cmd_e)Cmd_Id)
         {
             case SERVO_CMD_ENABLE:
                 Servo_Enable();
@@ -72,6 +132,10 @@ static void Servo_Cmd_Run(void)
                 }
                 break;
 
+            case SERVO_CMD_MODE_SET:
+                Ctrl_Mode_Set((Ctrl_Mode_e)Arg);
+                break;
+
             default:
                 break;
         }
@@ -104,6 +168,18 @@ UINT Motor_Thread_Init(VOID *memory_ptr)
     }
 
     if (tx_byte_allocate(byte_pool, (VOID **)&pointer,
+                         IDENT_CMD_Q_LEN * sizeof(ULONG), TX_NO_WAIT) != TX_SUCCESS)
+    {
+        return TX_POOL_ERROR;
+    }
+
+    if (tx_queue_create(&Ident_Cmd_Q, "Identification Command", TX_1_ULONG, pointer,
+                        IDENT_CMD_Q_LEN * sizeof(ULONG)) != TX_SUCCESS)
+    {
+        return TX_QUEUE_ERROR;
+    }
+
+    if (tx_byte_allocate(byte_pool, (VOID **)&pointer,
                          MOTOR_STACK_SIZE, TX_NO_WAIT) != TX_SUCCESS)
     {
         return TX_POOL_ERROR;
@@ -122,6 +198,8 @@ UINT Motor_Thread_Init(VOID *memory_ptr)
 
 static void Motor_Entry(ULONG thread_input)
 {
+    bool Was_Active;
+
     (void)thread_input;
 
     Motor_Ready = 1U;
@@ -130,8 +208,24 @@ static void Motor_Entry(ULONG thread_input)
     {
         if (tx_semaphore_get(&Motor_Sem, TX_WAIT_FOREVER) == TX_SUCCESS)
         {
+            Ident_Cmd_Run();
             Servo_Cmd_Run();
-            Motor_Control();
+
+            Was_Active = Identification_Active();
+
+            if (Was_Active)
+            {
+                Identification_Update();
+
+                if (!Identification_Active())
+                {
+                    PWM_Disable();
+                }
+            }
+            else
+            {
+                Motor_Control();
+            }
 
             Normal_Div ^= 1U;
 
