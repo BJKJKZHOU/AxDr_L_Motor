@@ -29,20 +29,29 @@ FAST_VARS = (
     ("PLL_Err", 0x0022, 0.0001),
     ("Ia", 0x0001, 0.001),
     ("Ib", 0x0002, 0.001),
-    ("Ualpha", 0x0024, 0.001),
-    ("Ubeta", 0x0025, 0.001),
 )
 
 NORMAL_VARS = (
     ("Vbus", 0x0004),
-    ("PsiAlpha", 0x0026),
-    ("PsiBeta", 0x0027),
     ("Flux_Err", 0x0023),
     ("Ic", 0x0003),
+    ("Va_meas", 0x0120),
+    ("Vb_meas", 0x0121),
+    ("Vc_meas", 0x0122),
+    ("Va_cmd_f", 0x0123),
+    ("Vb_cmd_f", 0x0124),
+    ("Vc_cmd_f", 0x0125),
+    ("ErrA", 0x0126),
+    ("ErrB", 0x0127),
+    ("ErrC", 0x0128),
 )
 
-FAST_LINEAR = (2, 3, 4, 5, 6, 7)
+FAST_LINEAR = (2, 3, 4, 5)
 FAST_ANGLE = (0, 1)
+FAST_INDEX = {name: index for index, (name, _, _) in enumerate(FAST_VARS)}
+NORMAL_INDEX = {name: index for index, (name, _) in enumerate(NORMAL_VARS)}
+FAST_POS = {name: index + 2 for index, (name, _, _) in enumerate(FAST_VARS)}
+NORMAL_POS = {name: index + 2 for index, (name, _) in enumerate(NORMAL_VARS)}
 
 
 def angle_wrap(angle):
@@ -100,6 +109,100 @@ def spectrum_summary(points, target_frequency):
         "peak_amplitude": peak_amplitude,
         "target_2fe_frequency_hz": target_point[0],
         "target_2fe_amplitude": target_point[1],
+    }
+
+
+def linear_solve(matrix, vector):
+    count = len(vector)
+    work = [matrix[row][:] + [vector[row]] for row in range(count)]
+
+    for column in range(count):
+        pivot = max(range(column, count),
+                    key=lambda row: abs(work[row][column]))
+        if abs(work[pivot][column]) < 1.0e-12:
+            raise RuntimeError("phase-voltage harmonic fit is singular")
+        work[column], work[pivot] = work[pivot], work[column]
+
+        scale = work[column][column]
+        for item in range(column, count + 1):
+            work[column][item] /= scale
+
+        for row in range(count):
+            if row == column:
+                continue
+            scale = work[row][column]
+            for item in range(column, count + 1):
+                work[row][item] -= scale * work[column][item]
+
+    return [work[row][count] for row in range(count)]
+
+
+def harmonic_fit(theta, values):
+    harmonics = (1, 2, 6)
+    columns = 1 + 2 * len(harmonics)
+    normal = [[0.0] * columns for _ in range(columns)]
+    target = [0.0] * columns
+
+    for angle, value in zip(theta, values):
+        row = [1.0]
+        for harmonic in harmonics:
+            row.extend((math.cos(harmonic * angle),
+                        math.sin(harmonic * angle)))
+
+        for lhs in range(columns):
+            target[lhs] += row[lhs] * value
+            for rhs in range(columns):
+                normal[lhs][rhs] += row[lhs] * row[rhs]
+
+    coefficient = linear_solve(normal, target)
+    result = {"dc_v": coefficient[0]}
+
+    for index, harmonic in enumerate(harmonics):
+        cosine = coefficient[1 + 2 * index]
+        sine = coefficient[2 + 2 * index]
+        result[f"{harmonic}fe"] = {
+            "amplitude_v": math.hypot(cosine, sine),
+            "phase_deg": math.degrees(math.atan2(cosine, sine)),
+        }
+
+    return result
+
+
+def sign_current_fit(current, error, current_min):
+    selected = [(1.0 if phase_current > 0.0 else -1.0, voltage_error)
+                for phase_current, voltage_error in zip(current, error)
+                if abs(phase_current) >= current_min]
+    if len(selected) < 4:
+        return {"samples": len(selected)}
+
+    sign_mean = sum(item[0] for item in selected) / len(selected)
+    error_mean = sum(item[1] for item in selected) / len(selected)
+    sign_var = sum((item[0] - sign_mean) ** 2 for item in selected)
+    error_var = sum((item[1] - error_mean) ** 2 for item in selected)
+    covariance = sum((item[0] - sign_mean) * (item[1] - error_mean)
+                     for item in selected)
+    gain = covariance / sign_var if sign_var > 0.0 else 0.0
+    correlation = 0.0
+    if sign_var > 0.0 and error_var > 0.0:
+        correlation = covariance / math.sqrt(sign_var * error_var)
+
+    return {
+        "samples": len(selected),
+        "current_min_a": current_min,
+        "offset_v": error_mean - gain * sign_mean,
+        "gain_v": gain,
+        "correlation": correlation,
+    }
+
+
+def signal_summary(values):
+    mean = sum(values) / len(values)
+    rms = math.sqrt(sum(value * value for value in values) / len(values))
+    return {
+        "mean": mean,
+        "rms": rms,
+        "min": min(values),
+        "max": max(values),
     }
 
 
@@ -181,8 +284,8 @@ class Observer2FeTest(base.SensorlessTest):
                 continue
 
             self.fast_motion_samples += 1
-            ia = values[4]
-            ib = values[5]
+            ia = values[FAST_INDEX["Ia"]]
+            ib = values[FAST_INDEX["Ib"]]
             ic_rebuilt = -ia - ib
             phase_abs = max(abs(ia), abs(ib), abs(ic_rebuilt))
             self.phase_peak = max(self.phase_peak, phase_abs)
@@ -231,14 +334,15 @@ class Observer2FeTest(base.SensorlessTest):
         self.normal_frames += 1
 
         values = struct.unpack_from(f"<{len(NORMAL_VARS)}f", payload, 4)
-        self.vbus.append(values[0])
+        self.vbus.append(values[NORMAL_INDEX["Vbus"]])
 
         if not self.motion_active:
             return
 
         self.normal_motion_samples += 1
-        self.phase_peak = max(self.phase_peak, abs(values[4]))
-        if abs(values[4]) > self.args.phase_limit:
+        ic = values[NORMAL_INDEX["Ic"]]
+        self.phase_peak = max(self.phase_peak, abs(ic))
+        if abs(ic) > self.args.phase_limit:
             self.tripped = True
 
         elapsed = self.normal_motion_samples / NORMAL_FS_HZ
@@ -258,51 +362,116 @@ class Observer2FeTest(base.SensorlessTest):
                   if row[0] >= normal_end - self.args.analysis_seconds]
 
         fast_signal = {
-            "We_obs": [row[4] for row in fast],
-            "PLL_Err": [row[5] for row in fast],
-            "Delta_Theta": [angle_wrap(row[3] - row[2]) for row in fast],
-            "Ialpha": [row[6] for row in fast],
-            "Ibeta": [(row[6] + 2.0 * row[7]) / math.sqrt(3.0)
-                      for row in fast],
-            "Ualpha": [row[8] for row in fast],
-            "Ubeta": [row[9] for row in fast],
+            "We_obs": [row[FAST_POS["We_obs"]] for row in fast],
+            "PLL_Err": [row[FAST_POS["PLL_Err"]] for row in fast],
+            "Delta_Theta": [
+                angle_wrap(row[FAST_POS["Theta_obs"]] -
+                           row[FAST_POS["Theta_IF"]])
+                for row in fast
+            ],
+            "Ialpha": [row[FAST_POS["Ia"]] for row in fast],
+            "Ibeta": [
+                (row[FAST_POS["Ia"]] + 2.0 * row[FAST_POS["Ib"]]) /
+                math.sqrt(3.0)
+                for row in fast
+            ],
         }
         fast_signal["I_Mag"] = [
             math.hypot(alpha, beta)
             for alpha, beta in zip(fast_signal["Ialpha"], fast_signal["Ibeta"])
         ]
-        fast_signal["U_Mag"] = [
-            math.hypot(alpha, beta)
-            for alpha, beta in zip(fast_signal["Ualpha"], fast_signal["Ubeta"])
-        ]
 
         normal_signal = {
-            "Flux_Mag": [math.hypot(row[3], row[4]) for row in normal],
-            "Flux_Err": [row[5] for row in normal],
+            "Flux_Err": [row[NORMAL_POS["Flux_Err"]] for row in normal],
+            "ErrA": [row[NORMAL_POS["ErrA"]] for row in normal],
+            "ErrB": [row[NORMAL_POS["ErrB"]] for row in normal],
+            "ErrC": [row[NORMAL_POS["ErrC"]] for row in normal],
         }
 
         mean_we = sum(fast_signal["We_obs"]) / len(fast)
         fe = abs(mean_we) / (2.0 * math.pi)
         target_2fe = 2.0 * fe
+        target = 120.0 if direction == 1 else -120.0
+        command_fe = abs(target) / (2.0 * math.pi)
+        command_2fe = 2.0 * command_fe
         spectra = {}
         spectrum_rows = []
 
-        for name in ("We_obs", "PLL_Err", "Delta_Theta",
-                     "I_Mag", "U_Mag"):
+        for name in ("We_obs", "PLL_Err", "Delta_Theta", "I_Mag"):
             points = spectrum(fast_signal[name], FAST_FS_HZ)
             spectra[name] = spectrum_summary(points, target_2fe)
             spectrum_rows.extend((name, frequency, amplitude)
                                  for frequency, amplitude in points)
 
-        for name in ("Flux_Mag", "Flux_Err"):
+        for name in ("Flux_Err",):
             points = spectrum(normal_signal[name], NORMAL_FS_HZ)
             spectra[name] = spectrum_summary(points, target_2fe)
             spectrum_rows.extend((name, frequency, amplitude)
                                  for frequency, amplitude in points)
 
-        flux_mean = sum(normal_signal["Flux_Mag"]) / len(normal)
+        for name in ("ErrA", "ErrB", "ErrC"):
+            points = spectrum(normal_signal[name], NORMAL_FS_HZ)
+            spectra[name] = spectrum_summary(points, command_2fe)
+            spectrum_rows.extend((name, frequency, amplitude)
+                                 for frequency, amplitude in points)
+
+        theta_if = []
+        phase_current = {"A": [], "B": [], "C": []}
+        phase_error = {"A": [], "B": [], "C": []}
+        fast_index = 0
+        alignment_max = 0.0
+        alignment_offset = fast[-1][0] - normal[-1][0]
+
+        for normal_row in normal:
+            target_fast_time = normal_row[0] + alignment_offset
+            while (fast_index + 1 < len(fast) and
+                   abs(fast[fast_index + 1][0] - target_fast_time) <=
+                   abs(fast[fast_index][0] - target_fast_time)):
+                fast_index += 1
+
+            fast_row = fast[fast_index]
+            alignment_max = max(alignment_max,
+                                abs(fast_row[0] - target_fast_time))
+            ia = fast_row[FAST_POS["Ia"]]
+            ib = fast_row[FAST_POS["Ib"]]
+
+            theta_if.append(fast_row[FAST_POS["Theta_IF"]])
+            phase_current["A"].append(ia)
+            phase_current["B"].append(ib)
+            phase_current["C"].append(normal_row[NORMAL_POS["Ic"]])
+            phase_error["A"].append(normal_row[NORMAL_POS["ErrA"]])
+            phase_error["B"].append(normal_row[NORMAL_POS["ErrB"]])
+            phase_error["C"].append(normal_row[NORMAL_POS["ErrC"]])
+
+        phase_voltage = {
+            "samples": len(theta_if),
+            "alignment_max_s": alignment_max,
+            "alignment_offset_s": alignment_offset,
+            "signals": {
+                name: signal_summary(
+                    [row[NORMAL_POS[name]] for row in normal]
+                )
+                for name in (
+                    "Va_meas", "Vb_meas", "Vc_meas",
+                    "Va_cmd_f", "Vb_cmd_f", "Vc_cmd_f",
+                    "ErrA", "ErrB", "ErrC",
+                )
+            },
+            "harmonics": {
+                f"Err{phase}": harmonic_fit(theta_if, phase_error[phase])
+                for phase in ("A", "B", "C")
+            },
+            "sign_current": {
+                f"Err{phase}_vs_I{phase.lower()}": sign_current_fit(
+                    phase_current[phase],
+                    phase_error[phase],
+                    self.args.sign_current_min,
+                )
+                for phase in ("A", "B", "C")
+            },
+        }
+
         flux_err_mean = sum(normal_signal["Flux_Err"]) / len(normal)
-        target = 120.0 if direction == 1 else -120.0
         result = {
             "head": self.head,
             "dirty": self.dirty,
@@ -326,14 +495,13 @@ class Observer2FeTest(base.SensorlessTest):
             "we_error_rad_s": mean_we - target,
             "fe_hz": fe,
             "target_2fe_hz": target_2fe,
-            "flux_mag_mean_wb": flux_mean,
-            "flux_mag_error_percent": (
-                (flux_mean / self.args.flux_wb - 1.0) * 100.0
-            ),
+            "command_fe_hz": command_fe,
+            "command_2fe_hz": command_2fe,
             "flux_err_mean_percent_squared": (
                 flux_err_mean / (self.args.flux_wb * self.args.flux_wb) * 100.0
             ),
             "spectra": spectra,
+            "phase_voltage": phase_voltage,
             "checks": {
                 "fast_frames_complete": self.fast_lost == 0,
                 "normal_frames_complete": self.normal_lost == 0,
@@ -387,8 +555,6 @@ class Observer2FeTest(base.SensorlessTest):
             f"2fe={result['target_2fe_hz']:.3f} Hz"
         )
         print(
-            f"Flux magnitude={result['flux_mag_mean_wb']:.9f} Wb "
-            f"error={result['flux_mag_error_percent']:+.3f}%, "
             f"FluxErr/Flux^2={result['flux_err_mean_percent_squared']:+.3f}%"
         )
         for name, item in result["spectra"].items():
@@ -401,6 +567,28 @@ class Observer2FeTest(base.SensorlessTest):
             f"FAST lost={self.fast_lost}, NORMAL lost={self.normal_lost}, "
             f"phase peak={self.phase_peak:.3f} A"
         )
+        print(
+            f"Phase voltage samples={result['phase_voltage']['samples']} "
+            f"alignment max={result['phase_voltage']['alignment_max_s'] * 1e3:.3f} ms"
+        )
+        for phase in ("A", "B", "C"):
+            harmonic = result["phase_voltage"]["harmonics"][f"Err{phase}"]
+            sign_fit = result["phase_voltage"]["sign_current"][
+                f"Err{phase}_vs_I{phase.lower()}"
+            ]
+            sign_text = f"samples={sign_fit['samples']}"
+            if "gain_v" in sign_fit:
+                sign_text += (
+                    f" K={sign_fit['gain_v']:+.5f} V "
+                    f"corr={sign_fit['correlation']:+.3f}"
+                )
+            print(
+                f"Err{phase}: DC={harmonic['dc_v']:+.5f} V, "
+                f"1fe={harmonic['1fe']['amplitude_v']:.5f} V, "
+                f"2fe={harmonic['2fe']['amplitude_v']:.5f} V, "
+                f"6fe={harmonic['6fe']['amplitude_v']:.5f} V, "
+                f"{sign_text}"
+            )
         for name, passed in result["checks"].items():
             print(f"{name}: {'PASS' if passed else 'WARN'}")
 
@@ -417,6 +605,7 @@ def parse_args():
     parser.add_argument("--hold-seconds", type=float, default=3.0)
     parser.add_argument("--analysis-seconds", type=float, default=2.0)
     parser.add_argument("--phase-limit", type=float, default=2.2)
+    parser.add_argument("--sign-current-min", type=float, default=0.1)
     parser.add_argument("--flux-wb", type=float, default=0.0031891402)
     parser.add_argument("--vbus-min", type=float, default=10.0)
     parser.add_argument("--vbus-seconds", type=float, default=0.2)
@@ -435,6 +624,8 @@ def parse_args():
         parser.error("--analysis-seconds must be in (0, hold-seconds]")
     if args.phase_limit <= 0.0 or args.flux_wb <= 0.0:
         parser.error("phase limit and flux must be positive")
+    if args.sign_current_min < 0.0:
+        parser.error("sign-current-min must be non-negative")
     if args.vbus_seconds <= 0.0 or args.ready_timeout <= 0.0:
         parser.error("Vbus and ready timeouts must be positive")
     if args.poll_interval <= 0.0:

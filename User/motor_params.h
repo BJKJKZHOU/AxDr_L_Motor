@@ -6,12 +6,12 @@
 
 /* Current 32-pole outer-rotor motor current-loop parameters. */
 #define MOTOR_PP_DEFAULT       16U
-#define MOTOR_RS_DEFAULT       0.075f
-#define MOTOR_LD_DEFAULT       0.0000166f
-#define MOTOR_LQ_DEFAULT       0.0000166f
+#define MOTOR_RS_DEFAULT       0.08471736f
+#define MOTOR_LD_DEFAULT       0.000017836f
+#define MOTOR_LQ_DEFAULT       0.000017836f
 
-/* Flux, inertia, and damping still require identification for this motor. */
-#define MOTOR_FLUX_DEFAULT     0.006488f
+/* Inertia and damping still require identification for this motor. */
+#define MOTOR_FLUX_DEFAULT     0.0031835556f
 #define MOTOR_J_DEFAULT        9.08865259e-05f
 #define MOTOR_B_DEFAULT        0.000188353f
 
