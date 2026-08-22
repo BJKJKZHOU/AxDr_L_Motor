@@ -51,7 +51,8 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Identification/Identification.c
     Identification/Rs_Ls.c
     Identification/Flux.c
-    Sensorless/Flux_Observer.c
+    Observer/Flux_Observer.c
+    Observer/PLL.c
     Sensorless/IF_Start.c
     Sensorless/Start.c
     Motor/Motor_ADC.c
@@ -87,6 +88,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     BSP
     Comm
     Identification
+    Observer
     Sensorless
     Motor
     User
