@@ -306,6 +306,7 @@ bool Sensorless_Start_Run(float Ia_A,
     float Iq_IF;
     float Blend;
     bool IF_Ready;
+    bool Profile_Run;
     uint32_t T0;
 
     if (!Start_Active)
@@ -363,9 +364,11 @@ bool Sensorless_Start_Run(float Ia_A,
         return false;
     }
 
+    Profile_Run = (Fast_Profile.Run != 0U);
+
     if (Flux_Obs_U_Valid)
     {
-        if (Fast_Profile.Run != 0U)
+        if (Profile_Run)
         {
             T0 = DWT->CYCCNT;
         }
@@ -377,7 +380,7 @@ bool Sensorless_Start_Run(float Ia_A,
                           Ibeta,
                           CUR_TS);
 
-        if (Fast_Profile.Run != 0U)
+        if (Profile_Run)
         {
             Fast_Profile_Add(&Fast_Profile.Flux_Observer,
                              DWT->CYCCNT - T0);
@@ -390,21 +393,21 @@ bool Sensorless_Start_Run(float Ia_A,
                 Flux_Obs.Para.Flux,
                 CUR_TS);
 
-        if (Fast_Profile.Run != 0U)
+        if (Profile_Run)
         {
             Fast_Profile_Add(&Fast_Profile.PLL,
                              DWT->CYCCNT - T0);
         }
     }
 
-    if (Fast_Profile.Run != 0U)
+    if (Profile_Run)
     {
         T0 = DWT->CYCCNT;
     }
 
     IF_Ready = IF_Start_Run(&Theta_IF, &Id_IF, &Iq_IF);
 
-    if (Fast_Profile.Run != 0U)
+    if (Profile_Run)
     {
         Fast_Profile_Add(&Fast_Profile.IF_Start,
                          DWT->CYCCNT - T0);
