@@ -1,7 +1,11 @@
 #include "motor_thread.h"
 
+#include "IF_Start.h"
+#include "Motor_ADC.h"
 #include "Motor_Control.h"
 #include "Plot.h"
+#include "Start.h"
+#include "USB_Thread.h"
 
 
 #define MOTOR_STACK_SIZE    512U
@@ -25,13 +29,13 @@ static void Motor_Cmd_Run(void)
 {
     Motor_State_e State;
     ULONG Cmd;
+    uint32_t Arg;
     uint8_t Cmd_Id;
-    uint8_t Arg;
 
     while (tx_queue_receive(&Motor_Cmd_Q, &Cmd, TX_NO_WAIT) == TX_SUCCESS)
     {
         Cmd_Id = (uint8_t)Cmd;
-        Arg = (uint8_t)(Cmd >> 8);
+        Arg = (uint32_t)(Cmd >> 8);
 
         switch ((Motor_Cmd_e)Cmd_Id)
         {
@@ -87,6 +91,14 @@ static void Motor_Cmd_Run(void)
 
             case MOTOR_CMD_SENSORLESS_DIR_SET:
                 Motor_Sensorless_Dir_Set((Arg == 2U) ? -1 : 1);
+                break;
+
+            case MOTOR_CMD_SENSORLESS_TARGET_SET:
+                IF_Start_Target_Set((float)Arg);
+                break;
+
+            case MOTOR_CMD_SENSORLESS_SPEED_SET:
+                Sensorless_Speed_Target_Set((float)Arg);
                 break;
 
             case MOTOR_CMD_IDENT_APPLY:
@@ -153,6 +165,7 @@ static void Motor_Entry(ULONG thread_input)
         {
             Motor_Cmd_Run();
             Motor_Control();
+            USB_Tx_Poll();
 
             Normal_Div ^= 1U;
 

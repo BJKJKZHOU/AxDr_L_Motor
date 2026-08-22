@@ -1,12 +1,15 @@
 # 20 kHz 快环时序调试与修改记录
 
-更新时间：2026-08-15<br>
+更新时间：2026-08-22<br>
 工程：AxDr_L_Motor<br>
-分支：`feat/motor-para`
+历史分支：`feat/motor-para`<br>
+最新复测分支：`feat/sensorless-open-loop`
 
 ## 1. 记录范围
 
-本文记录当前不开启功率 MOS 阶段的以下内容：
+本文记录 20 kHz 控制路径的时序、实时性问题和修改验证。第 2～7 节是
+不开启功率 MOS 阶段建立的硬件时序基线；第 8 节开始记录带载运行中的
+ISR 分段耗时和 Deadline 问题。
 
 - TIM1、MT6816 SPI DMA、ADC injected 和电流快环的实际时序；
 - DWT 计时及冻结快照的含义；
@@ -14,7 +17,8 @@
 - ADC 从 JEOC 修正为 JEOS 的原因与状态；
 - 已经实测、已修改未复测和后续计划之间的边界。
 
-当前功率状态：TIM1 CH1/2/3 及其互补输出尚未启用，SVPWM 只执行计算，不写入三相 PWM CCR。
+第 2～7 节对应的功率状态：TIM1 CH1/2/3 及其互补输出尚未启用，
+SVPWM 只执行计算，不写入三相 PWM CCR。该限制不适用于后续带载章节。
 
 ## 2. 当前硬件时序基准
 
@@ -377,3 +381,182 @@ ADC硬件触发 → ADC完整序列 → Current_Loop → SVPWM完成 ≤ 12 us
 - `ADC_ISR_Max`以及ADC触发至快环结束的总时间；
 - 示波器确认低边开通后的放大器稳定时间 `T_blank`；
 - 根据实测 `T_blank`确定最终调制度上限，当前不修改`VOLT_MOD_MAX=0.95`。
+
+## 8. FAST Plot 的 USB 唤醒导致 ADC ISR 长尾
+
+### 8.1 问题分类和版本
+
+本问题属于“实时性 / ISR 职责边界”，不是 Observer 数学模型问题，也不是
+USB 协议是否能够传输数据的问题。相关提交为：
+
+```text
+605b692 test(timing): add windowed fast-loop profiling
+468513d fix(usb): defer ISR tx wake to motor thread
+ae4706b fix(usb): include cmsis intrinsics
+```
+
+`605b692` 增加 2048 周期窗口计时。Sensorless I/F 达到 Ready 后自动请求一次
+Profile，分别累计以下分段的 Min/Sum/Max：
+
+```text
+ADC_Sample
+Motor_Fast
+  Flux_Observer
+  PLL
+  IF_Start
+Current_Loop
+SVPWM
+PWM_Update
+Plot_Fast
+ADC_Run
+```
+
+窗口统计用于定位稳定路径中的具体长尾；独立清零后的 `Fast_Time` 最大值用于检查整轮运行中的最坏墙钟时间和 Deadline。
+
+### 8.2 优化前的问题证据
+
+优化前使用 7 路 FAST 加 1 路 NORMAL 运行 Sensorless Shadow。2048 周期窗口结果为：
+
+| 分段 | Min | Mean | Max |
+|---|---:|---:|---:|
+| `Plot_Fast` | `2.9438 us` | `3.3608 us` | `11.5375 us` |
+| `ADC_Run` | `18.4500 us` | `18.8721 us` | `27.1875 us` |
+
+独立清零后整轮最大值为：
+
+| 字段 | 优化前 |
+|---|---:|
+| `ADC_Run_Max` | `27.8438 us` |
+| `ADC_ISR_Max` | `28.4125 us` |
+| `Fast_Max` | `56.2688 us` |
+| `Deadline_Miss` | `8015` |
+
+NLOB 和 PLL 的固定耗时只有：
+
+```text
+Flux_Observer = 0.8313 us
+PLL           = 1.6875 us
+sum           = 2.5188 us
+```
+
+真正的异常是 `Plot_Fast` 每完成一个 FAST 数据块时出现约 `8 us` 的周期性长尾。
+当时 `Plot_Fast_Sample()` 在 ADC ISR 中调用 `USB_Tx_Wake()`，后者直接执行
+`tx_event_flags_set()`。ThreadX event 唤醒进入了 20 kHz ADC ISR 的硬实时路径。
+
+### 8.3 优化方法
+
+`468513d` 将发送请求按调用上下文分流：
+
+- 线程上下文中的 `USB_Tx_Wake()` 仍直接设置 USB TX event；
+- 中断上下文只在短临界区内将发送位 OR 到 `USB_Tx_Pending`；
+- `2 kHz` Motor Thread 在 `Motor_Control()` 后调用 `USB_Tx_Poll()`；
+- Poll 原子取走 pending 位，再在线程上下文调用 `tx_event_flags_set()`；
+- Plot 双缓冲、USB TX 线程、协议和丢帧计数保持不变。
+
+`ae4706b` 只补充 CMSIS intrinsic 声明，不改变上述执行逻辑。
+
+该修改的控制含义是：ADC ISR 只发布“有数据待发送”的事实，RTOS 对象操作由线程完成。
+
+### 8.4 `ae4706b` 实机复测条件
+
+```text
+HEAD          = ae4706bd51fd7130ca06129e303015ef4f7b90f5
+CPU / PWM     = 160 MHz / 20 kHz
+Vbus          ~= 14.54 V
+Rs            = 0.08471736 ohm
+Ld = Lq       = 17.836 uH
+Flux          = 0.0031835556 Wb
+Voff          = 0.0141716 V
+```
+
+Release 全量构建并烧录校验：
+
+```text
+RAM:   24648 B / 128 KB, 18.80%
+FLASH: 66676 B / 512 KB, 12.72%
+```
+
+参数由自动脚本重新辨识、Apply；每轮时长测试前在 DISABLE 状态下通过调试器独立清零计数，测试结束由脚本执行 `DISABLE`。
+
+### 8.5 7 FAST + 1 NORMAL 分段结果
+
+独立复测共收到 `250784` 个 FAST 样本、`62696` 帧，主机序号丢失为 0。
+
+| 分段 | Min | Mean | Max |
+|---|---:|---:|---:|
+| `ADC_Sample` | `1.0125 us` | `1.0184 us` | `1.1375 us` |
+| `Motor_Fast` | `6.1313 us` | `6.1313 us` | `6.1750 us` |
+| `Flux_Observer` | `0.8313 us` | `0.8313 us` | `0.8313 us` |
+| `PLL` | `1.6875 us` | `1.6875 us` | `1.7313 us` |
+| `IF_Start` | `1.1625 us` | `1.1625 us` | `1.2000 us` |
+| `Current_Loop` | `3.9625 us` | `3.9625 us` | `3.9625 us` |
+| `SVPWM` | `2.2563 us` | `2.2563 us` | `2.2563 us` |
+| `PWM_Update` | `0.4875 us` | `0.4875 us` | `0.4875 us` |
+| `Plot_Fast` | `2.9438 us` | `2.9636 us` | `3.3375 us` |
+| `ADC_Run` | `18.4500 us` | `18.4758 us` | `18.8438 us` |
+
+整轮最大值：
+
+| 字段 | cycles | 时间 | 结果 |
+|---|---:|---:|---|
+| `ADC_Run_Max` | 3149 | `19.6813 us` | PASS |
+| `ADC_ISR_Max` | 3240 | `20.2500 us` | PASS |
+| `Fast_Max` | 7742 | `48.3875 us` | PASS，距离 50 us 为 `1.6125 us` |
+| `Enc_Late` | 0 | - | PASS |
+| `Enc_Miss` | 0 | - | PASS |
+| `Deadline_Miss` | 0 | - | PASS |
+
+板内生产端计数为 FAST Drop 0、NORMAL Drop 9，结束时 `USB_Tx_Pending=0`。
+NORMAL 的 9 个丢弃发生在序号生成前，所以主机 `seq_lost=0` 不能检测这类丢弃。
+当前没有优化前的独立 Drop 基线，因此不能将这 9 个样本判为本次修改引入的回归。
+
+### 8.6 NORMAL-only 对照
+
+NORMAL-only 运行共收到 `12584` 帧，主机序号丢失、FAST Drop 和 NORMAL Drop 均为 0。
+
+| 分段 | Min | Mean | Max |
+|---|---:|---:|---:|
+| `Plot_Fast` | `0.3000 us` | `0.3000 us` | `0.3000 us` |
+| `ADC_Run` | `15.8063 us` | `15.8564 us` | `15.9313 us` |
+
+| 字段 | 时间 | 结果 |
+|---|---:|---|
+| `ADC_Run_Max` | `17.1625 us` | 与优化前基线相同 |
+| `ADC_ISR_Max` | `17.7313 us` | 与优化前基线相同 |
+| `Fast_Max` | `45.7750 us` | 距离 50 us 为 `4.2250 us` |
+| `Deadline_Miss` | `0` | PASS |
+
+该对照说明优化没有把开销转移到普通快环路径。
+
+### 8.7 优化前后结论
+
+| 指标 | 优化前 7 FAST | 优化后 7 FAST | 变化 |
+|---|---:|---:|---:|
+| `Plot_Fast Mean` | `3.3608 us` | `2.9636 us` | `-0.3972 us` |
+| `Plot_Fast Max` | `11.5375 us` | `3.3375 us` | `-8.2000 us` |
+| `ADC_Run window Max` | `27.1875 us` | `18.8438 us` | `-8.3437 us` |
+| `ADC_ISR_Max` | `28.4125 us` | `20.2500 us` | `-8.1625 us` |
+| `Fast_Max` | `56.2688 us` | `48.3875 us` | `-7.8813 us` |
+| `Deadline_Miss` | `8015` | `0` | 问题消失 |
+
+实测差值与原 ThreadX event 唤醒长尾一致，支持根因和修改方向。
+
+`Fast_Max` 从 TIM1 更新中断基准计到 ADC ISR 结束，包含编码器获取、ADC 触发位置、
+硬件转换等待和中断执行，不等于纯 CPU 利用率。当前应该表述为“端到端 Deadline
+余量 `1.6125 us`”，不能直接表述为“CPU 占用 96.8%”。
+
+当前状态：
+
+```text
+USB ISR 唤醒长尾：       FIXED / VERIFIED
+20 kHz Deadline：         PASS
+NLOB + PLL 固定耗时：     2.5188 us
+NORMAL-only 基线：        无回归
+7 FAST 端到端余量：       偏低
+FAST 生产端丢弃：         0
+并发 NORMAL 生产端丢弃：  9，待后续按需求评估
+```
+
+该优化已经解决当前 Deadline Miss，但在加入 Observer Takeover、无感速度环或
+Fine Flux 逻辑前，仍应保留耗时预算审查。诊断阶段如果不需要 7 路 FAST，应减少
+FAST 通道以恢复更大的调试余量。

@@ -17,6 +17,7 @@ typedef enum
     FLUX_CALC,
     FLUX_DONE,
     FLUX_FAILED,
+    FLUX_FINISH,
 
 } Flux_State_e;
 
@@ -38,6 +39,7 @@ void Flux_Control(void);
 bool Flux_Active(void);
 Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A,
                                 float Ib_A,
+                                float Ic_A,
                                 float *Id_Ref,
                                 float *Iq_Ref);
 Flux_State_e Flux_State_Get(void);

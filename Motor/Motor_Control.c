@@ -157,6 +157,7 @@ void Motor_Control(void)
             {
                 Current_Ref.Id = 0.0f;
                 Current_Ref.Iq = 0.0f;
+                PWM_Disable();
                 Motor_State = ENABLED;
             }
         }
@@ -301,7 +302,10 @@ Motor_Fast_Mode_e Motor_Fast_Run(float Ia_A,
                                            Ubeta);
 
         case SENSORLESS_SPEED:
-            (void)Sensorless_Start_Run(Id_Ref, Iq_Ref);
+            (void)Sensorless_Start_Run(Ia_A,
+                                       Ib_A,
+                                       Id_Ref,
+                                       Iq_Ref);
             return FAST_CURRENT;
 
         default:
@@ -340,8 +344,14 @@ void Motor_Enable(void)
 
     Motor_Run.Ud = 0.0f;
     Motor_Run.Uq = 0.0f;
+    Motor_Run.Ualpha = 0.0f;
+    Motor_Run.Ubeta = 0.0f;
 
-    PWM_Enable();
+    if (Motion_Mode_Active())
+    {
+        PWM_Enable();
+    }
+
     Motor_State = ENABLED;
 }
 
@@ -368,6 +378,11 @@ void Motor_Start(void)
     else if (Motor_Mode == SENSORLESS_SPEED)
     {
         Sensorless_Start_Begin(Sensorless_Dir);
+    }
+
+    if (!Motion_Mode_Active())
+    {
+        PWM_Enable();
     }
 
     Motor_State = RUN;
@@ -405,6 +420,11 @@ void Motor_Stop(void)
     if (Motor_Mode == TORQUE)
     {
         Current_Ref.Iq = 0.0f;
+    }
+
+    if (!Motion_Mode_Active())
+    {
+        PWM_Disable();
     }
 
     Motor_State = ENABLED;

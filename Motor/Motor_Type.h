@@ -126,6 +126,9 @@ typedef struct
     float Ud;          /* V */
     float Uq;          /* V */
 
+    float Ualpha;      /* V, alpha-axis voltage command applied by the previous fast loop */
+    float Ubeta;       /* V, beta-axis voltage command applied by the previous fast loop */
+
 } Motor_Run_T;
 
 

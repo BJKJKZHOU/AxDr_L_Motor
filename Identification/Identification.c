@@ -187,7 +187,7 @@ Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
 
     if (Ident_Mode == IDENT_FLUX)
     {
-        return Flux_Fast_Run(Ia_A, Ib_A, Id_Ref, Iq_Ref);
+        return Flux_Fast_Run(Ia_A, Ib_A, Ic_A, Id_Ref, Iq_Ref);
     }
 
     return FAST_OFF;

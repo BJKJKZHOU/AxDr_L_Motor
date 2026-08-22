@@ -55,6 +55,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Observer/PLL.c
     Sensorless/IF_Start.c
     Sensorless/Start.c
+    Motor/Fast_Profile.c
     Motor/Motor_ADC.c
     Motor/Encoder.c
     Motor/Current_Loop.c
