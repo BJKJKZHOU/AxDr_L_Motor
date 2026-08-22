@@ -6,6 +6,7 @@
 #include "Flux_Observer.h"
 #include "IF_Start.h"
 #include "Math.h"
+#include "Motion_Loop.h"
 #include "Motor_Type.h"
 #include "PLL.h"
 #include "Sin_LUT.h"
@@ -34,6 +35,9 @@
 #define SENSORLESS_FLUX_MIN_RATIO2      0.64f
 #define SENSORLESS_FLUX_MAX_RATIO2      1.44f
 
+#define SENSORLESS_SPEED_DIV            10U
+#define SENSORLESS_IQ_MAX_A             2.0f
+
 
 static Sensorless_Start_State_e Start_State = SENSORLESS_ALIGN;
 static int8_t Start_Dir = 1;
@@ -49,13 +53,16 @@ volatile float Sensorless_Id_Ref = 0.0f;
 volatile float Sensorless_Iq_Ref = 0.0f;
 volatile float Sensorless_Blend = 0.0f;
 volatile float Sensorless_We_Obs_F = 0.0f;
+volatile float Sensorless_We_Ref = IF_WE_TARGET_RAD_S;
 
 static bool Flux_Obs_U_Valid = false;
 static bool Profile_Requested = false;
 static uint32_t Obs_Wait_Cnt = 0U;
 static uint32_t Blend_Cnt = 0U;
+static uint32_t Speed_Div = 0U;
 static float Obs_Id_Ref = 0.0f;
 static float Obs_Iq_Ref = 0.0f;
+static float Speed_Target_Abs = IF_WE_TARGET_RAD_S;
 
 
 static float Angle_Diff(float A, float B)
@@ -157,8 +164,55 @@ static float Ramp_Zero(float X, float Step)
 }
 
 
+static void Speed_Loop_Track(float Iq)
+{
+    float Err;
+    float Int;
+
+    Speed_Ctrl.Para.Out_Min = -SENSORLESS_IQ_MAX_A;
+    Speed_Ctrl.Para.Out_Max = SENSORLESS_IQ_MAX_A;
+    Speed_Ctrl.Para.Int_Min = -SENSORLESS_IQ_MAX_A;
+    Speed_Ctrl.Para.Int_Max = SENSORLESS_IQ_MAX_A;
+
+    Speed_Ctrl.Sig.Ref = Sensorless_We_Ref;
+    Speed_Ctrl.Sig.Fbk = Flux_PLL.State.We;
+    Err = Speed_Ctrl.Sig.Ref - Speed_Ctrl.Sig.Fbk;
+    Int = Iq - Speed_Ctrl.Para.Kp * Err;
+    Limit_Value(&Int,
+                Speed_Ctrl.Para.Int_Min,
+                Speed_Ctrl.Para.Int_Max);
+
+    Speed_Ctrl.Sig.Err = Err;
+    Speed_Ctrl.Sig.Out = Iq;
+    Speed_Ctrl.State.Int = Int;
+    Speed_Ctrl.State.Fbk_Pre = Speed_Ctrl.Sig.Fbk;
+    Speed_Div = 0U;
+}
+
+
+static void Sensorless_Speed_Loop_Run(void)
+{
+    if (Speed_Div == 0U)
+    {
+        Obs_Iq_Ref = Speed_Loop(Sensorless_We_Ref,
+                                Flux_PLL.State.We,
+                                -SENSORLESS_IQ_MAX_A,
+                                SENSORLESS_IQ_MAX_A);
+    }
+
+    Speed_Div++;
+
+    if (Speed_Div >= SENSORLESS_SPEED_DIV)
+    {
+        Speed_Div = 0U;
+    }
+}
+
+
 void Sensorless_Start_Begin(int8_t Dir)
 {
+    float We_Abs;
+
     Start_State = SENSORLESS_ALIGN;
     Start_Dir = (Dir >= 0) ? 1 : -1;
     Start_Ready = false;
@@ -166,8 +220,16 @@ void Sensorless_Start_Begin(int8_t Dir)
     Profile_Requested = false;
     Obs_Wait_Cnt = 0U;
     Blend_Cnt = 0U;
+    Speed_Div = 0U;
     Obs_Id_Ref = 0.0f;
     Obs_Iq_Ref = 0.0f;
+
+    We_Abs = Speed_Target_Abs;
+    if (We_Abs < IF_WE_TARGET_RAD_S)
+    {
+        We_Abs = IF_WE_TARGET_RAD_S;
+    }
+    Sensorless_We_Ref = (float)Start_Dir * We_Abs;
 
     Sensorless_Theta_IF = 0.0f;
     Sensorless_Theta_Use = 0.0f;
@@ -190,9 +252,29 @@ void Sensorless_Start_Stop(void)
     Profile_Requested = false;
     Obs_Wait_Cnt = 0U;
     Blend_Cnt = 0U;
+    Speed_Div = 0U;
     Obs_Id_Ref = 0.0f;
     Obs_Iq_Ref = 0.0f;
     Sensorless_Blend = 0.0f;
+}
+
+
+void Sensorless_Speed_Target_Set(float We_Target)
+{
+    float We_Abs;
+
+    We_Abs = Abs_F(We_Target);
+    Speed_Target_Abs = We_Abs;
+
+    if (Start_Active)
+    {
+        if (We_Abs < IF_WE_TARGET_RAD_S)
+        {
+            We_Abs = IF_WE_TARGET_RAD_S;
+        }
+
+        Sensorless_We_Ref = (float)Start_Dir * We_Abs;
+    }
 }
 
 
@@ -413,6 +495,7 @@ bool Sensorless_Start_Run(float Ia_A,
         {
             Obs_Id_Ref = *Id_Ref;
             Obs_Iq_Ref = *Iq_Ref;
+            Speed_Loop_Track(Obs_Iq_Ref);
             Start_Ready = true;
             Sensorless_Blend = 1.0f;
             Start_State = SENSORLESS_OBS_HOLD;
@@ -430,6 +513,7 @@ bool Sensorless_Start_Run(float Ia_A,
     else if (Start_State == SENSORLESS_OBS_CURRENT_TRANS)
     {
         Theta_Use = Theta_Obs;
+        Sensorless_Speed_Loop_Run();
         Obs_Id_Ref = Ramp_Zero(Obs_Id_Ref, SENSORLESS_ID_RAMP_STEP_A);
         *Id_Ref = Obs_Id_Ref;
         *Iq_Ref = Obs_Iq_Ref;
@@ -444,6 +528,7 @@ bool Sensorless_Start_Run(float Ia_A,
     else
     {
         Theta_Use = Theta_Obs;
+        Sensorless_Speed_Loop_Run();
         *Id_Ref = 0.0f;
         *Iq_Ref = Obs_Iq_Ref;
         Start_Ready = true;

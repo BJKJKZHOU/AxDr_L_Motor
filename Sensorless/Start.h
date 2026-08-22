@@ -30,10 +30,12 @@ extern volatile float Sensorless_Id_Ref;
 extern volatile float Sensorless_Iq_Ref;
 extern volatile float Sensorless_Blend;
 extern volatile float Sensorless_We_Obs_F;
+extern volatile float Sensorless_We_Ref;
 
 
 void Sensorless_Start_Begin(int8_t Dir);
 void Sensorless_Start_Stop(void);
+void Sensorless_Speed_Target_Set(float We_Target);
 bool Sensorless_Start_Active(void);
 bool Sensorless_Start_Ready(void);
 

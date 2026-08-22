@@ -116,7 +116,7 @@ static void Iq_Limit_Calc(float *Iq_Min, float *Iq_Max)
 static void Motion_State_Reset(void)
 {
     Speed_Ctrl.State.Int = 0.0f;
-    Speed_Ctrl.State.Fbk_Pre = Motor_Run.Wm;
+    Speed_Ctrl.State.Fbk_Pre = (float)Motor_Para.Pp * Motor_Run.Wm;
     Wm_Ref = 0.0f;
     Pos_Ref_Turn = Motor_Run.Turn;
     Pos_Ref_Theta = Motor_Run.Theta_m;
@@ -136,6 +136,8 @@ void Motor_Control(void)
 {
     float Kt;
     float Te_Ref;
+    float We_Ref;
+    float We_Fbk;
     float Iq_Min;
     float Iq_Max;
     Motor_Limit_T Lim;
@@ -193,6 +195,8 @@ void Motor_Control(void)
         Iq_Max = 0.0f;
     }
 
+    We_Fbk = (float)Motor_Para.Pp * Motor_Run.Wm;
+
     switch (Motor_Mode)
     {
         case TORQUE:
@@ -220,7 +224,11 @@ void Motor_Control(void)
                 Wm_Ref = 0.0f;
             }
 
-            Current_Ref.Iq = Speed_Loop(Wm_Ref, Iq_Min, Iq_Max);
+            We_Ref = (float)Motor_Para.Pp * Wm_Ref;
+            Current_Ref.Iq = Speed_Loop(We_Ref,
+                                        We_Fbk,
+                                        Iq_Min,
+                                        Iq_Max);
             break;
 
         case POSITION:
@@ -237,7 +245,11 @@ void Motor_Control(void)
             }
 
             Pos_Div ^= 1U;
-            Current_Ref.Iq = Speed_Loop(Wm_Ref, Iq_Min, Iq_Max);
+            We_Ref = (float)Motor_Para.Pp * Wm_Ref;
+            Current_Ref.Iq = Speed_Loop(We_Ref,
+                                        We_Fbk,
+                                        Iq_Min,
+                                        Iq_Max);
             break;
 
         default:
@@ -377,6 +389,7 @@ void Motor_Start(void)
     }
     else if (Motor_Mode == SENSORLESS_SPEED)
     {
+        Sensorless_Speed_Target_Set((float)Motor_Para.Pp * Motor_Cmd.Wm_Target);
         Sensorless_Start_Begin(Sensorless_Dir);
     }
 
@@ -494,6 +507,7 @@ void Torque_Target_Set(float Te)
 void Speed_Target_Set(float Wm)
 {
     Motor_Cmd.Wm_Target = Wm;
+    Sensorless_Speed_Target_Set((float)Motor_Para.Pp * Wm);
 }
 
 
