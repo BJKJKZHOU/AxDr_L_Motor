@@ -1,7 +1,7 @@
 #include "Identification.h"
 
 #include "Current_Loop.h"
-#include "Motor_Type.h"
+#include "Flux.h"
 #include "Rs_Ls.h"
 
 
@@ -29,6 +29,10 @@ bool Identification_Start(Ident_Mode_e Mode)
     {
         Rs_Ls_Start();
     }
+    else if (Mode == IDENT_FLUX)
+    {
+        Flux_Start();
+    }
     else
     {
         return false;
@@ -47,15 +51,20 @@ void Identification_Abort(void)
     {
         Rs_Ls_Reset();
     }
+    else if (Ident_Mode == IDENT_FLUX)
+    {
+        Flux_Reset();
+    }
 
     Ident_Mode = IDENT_NONE;
     Ident_State = IDENT_IDLE;
 }
 
 
-void Identification_Update(void)
+void Identification_Control(void)
 {
-    const Rs_Ls_Result_T *Result;
+    const Rs_Ls_Result_T *Rs_Ls_Result;
+    const Flux_Result_T *Flux_Result;
 
     if (Ident_State != IDENT_RUNNING)
     {
@@ -69,34 +78,64 @@ void Identification_Update(void)
             return;
         }
 
-        Result = Rs_Ls_Result_Get();
-        Ident_State = Result->Valid ? IDENT_DONE : IDENT_FAILED;
+        Rs_Ls_Result = Rs_Ls_Result_Get();
+        Ident_State = Rs_Ls_Result->Valid ? IDENT_DONE : IDENT_FAILED;
+    }
+    else if (Ident_Mode == IDENT_FLUX)
+    {
+        Flux_Control();
+
+        if (Flux_Active())
+        {
+            return;
+        }
+
+        Flux_Result = Flux_Result_Get();
+        Ident_State = Flux_Result->Valid ? IDENT_DONE : IDENT_FAILED;
     }
 }
 
 
 bool Identification_Apply(void)
 {
-    const Rs_Ls_Result_T *Result;
+    const Rs_Ls_Result_T *Rs_Ls_Result;
+    const Flux_Result_T *Flux_Result;
 
-    if ((Ident_Mode != IDENT_RS_LS) || (Ident_State != IDENT_DONE))
+    if (Ident_State != IDENT_DONE)
     {
         return false;
     }
 
-    Result = Rs_Ls_Result_Get();
-
-    if (!Result->Valid)
+    if (Ident_Mode == IDENT_RS_LS)
     {
-        return false;
+        Rs_Ls_Result = Rs_Ls_Result_Get();
+
+        if (!Rs_Ls_Result->Valid)
+        {
+            return false;
+        }
+
+        Motor_Para.Rs = Rs_Ls_Result->Rs_Ohm;
+        Motor_Para.Ld = Rs_Ls_Result->Ls_H;
+        Motor_Para.Lq = Rs_Ls_Result->Ls_H;
+        Current_Loop_Para_Update();
+        return true;
     }
 
-    Motor_Para.Rs = Result->Rs_Ohm;
-    Motor_Para.Ld = Result->Ls_H;
-    Motor_Para.Lq = Result->Ls_H;
-    Current_Loop_Para_Update();
+    if (Ident_Mode == IDENT_FLUX)
+    {
+        Flux_Result = Flux_Result_Get();
 
-    return true;
+        if (!Flux_Result->Valid)
+        {
+            return false;
+        }
+
+        Motor_Para.Flux = Flux_Result->Flux_Wb;
+        return true;
+    }
+
+    return false;
 }
 
 
@@ -106,18 +145,22 @@ bool Identification_Active(void)
 }
 
 
-void Identification_Fast_Run(float Ia_A,
-                             float Ib_A,
-                             float Ic_A,
-                             float *Ualpha_V,
-                             float *Ubeta_V)
+Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
+                                          float Ib_A,
+                                          float Ic_A,
+                                          float *Id_Ref,
+                                          float *Iq_Ref,
+                                          float *Ualpha_V,
+                                          float *Ubeta_V)
 {
+    *Id_Ref = 0.0f;
+    *Iq_Ref = 0.0f;
     *Ualpha_V = 0.0f;
     *Ubeta_V = 0.0f;
 
     if (Ident_State != IDENT_RUNNING)
     {
-        return;
+        return FAST_OFF;
     }
 
     if ((Abs_Value(Ia_A) > IDENT_I_MAX_A) ||
@@ -128,14 +171,26 @@ void Identification_Fast_Run(float Ia_A,
         {
             Rs_Ls_Fail();
         }
+        else if (Ident_Mode == IDENT_FLUX)
+        {
+            Flux_Fail();
+        }
 
-        return;
+        return FAST_OFF;
     }
 
     if (Ident_Mode == IDENT_RS_LS)
     {
         Rs_Ls_Run(Ia_A, Ualpha_V, Ubeta_V);
+        return FAST_VOLTAGE;
     }
+
+    if (Ident_Mode == IDENT_FLUX)
+    {
+        return Flux_Fast_Run(Ia_A, Ib_A, Id_Ref, Iq_Ref);
+    }
+
+    return FAST_OFF;
 }
 
 
@@ -156,6 +211,11 @@ uint8_t Identification_Stage_Get(void)
     if (Ident_Mode == IDENT_RS_LS)
     {
         return (uint8_t)Rs_Ls_State_Get();
+    }
+
+    if (Ident_Mode == IDENT_FLUX)
+    {
+        return (uint8_t)Flux_State_Get();
     }
 
     return 0U;

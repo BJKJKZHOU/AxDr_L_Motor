@@ -19,17 +19,19 @@ static Open_State_e Open_State = OPEN_ALIGN;
 static float Theta_Open = 0.0f;
 
 
+void Open_Loop_Reset(void)
+{
+    Open_State = OPEN_ALIGN;
+    Theta_Open = 0.0f;
+    Align_Reset();
+}
+
+
 void Open_Loop(float *Id_Ref, float *Iq_Ref)
 {
-    Servo_State_e Servo_State;
-
-    Servo_State = Servo_State_Get();
-
-    if (Servo_State != SERVO_RUN)
+    if ((Motor_State_Get() != RUN) || (Motor_Mode_Get() != OPEN_LOOP))
     {
-        Open_State = OPEN_ALIGN;
-        Theta_Open = 0.0f;
-        Align_Reset();
+        Open_Loop_Reset();
 
         *Id_Ref = 0.0f;
         *Iq_Ref = 0.0f;

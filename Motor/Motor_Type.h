@@ -6,27 +6,40 @@
 
 typedef enum
 {
-    SERVO_DISABLED = 0,
-    SERVO_ENABLED,
-    SERVO_RUN,
-} Servo_State_e;
+    DISABLED = 0,
+    ENABLED,
+    RUN,
+
+} Motor_State_e;
 
 
 typedef enum
 {
-    CTRL_TORQUE = 0,
-    CTRL_SPEED,
-    CTRL_POSITION,
-    CTRL_OPEN_LOOP,
-} Ctrl_Mode_e;
+    TORQUE = 0,
+    SPEED,
+    POSITION,
+    OPEN_LOOP,
+    IDENT,
+    SENSORLESS_SPEED,
+
+} Motor_Mode_e;
+
+
+typedef enum
+{
+    FAST_OFF = 0,
+    FAST_CURRENT,
+    FAST_VOLTAGE,
+
+} Motor_Fast_Mode_e;
 
 
 /*
  * User motion targets.
  *
- * Targets may be modified in SERVO_DISABLED, SERVO_ENABLED and SERVO_RUN.
- * Servo state controls execution permission, not whether a target can be written.
- * Only SERVO_RUN executes the saved target through the active control chain.
+ * Targets may be modified in DISABLED, ENABLED and RUN.
+ * Motor state controls execution permission, not whether a target can be written.
+ * Only RUN executes the saved target through the active motor mode.
  * Enable, Stop and Disable must not clear or overwrite these targets.
  *
  * Position target uses Pos_Turn + Pos_Theta to preserve single-turn angle precision.

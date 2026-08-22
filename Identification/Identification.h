@@ -4,11 +4,14 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "Motor_Type.h"
+
 
 typedef enum
 {
     IDENT_NONE = 0,
     IDENT_RS_LS,
+    IDENT_FLUX,
 
 } Ident_Mode_e;
 
@@ -25,15 +28,17 @@ typedef enum
 
 bool Identification_Start(Ident_Mode_e Mode);
 void Identification_Abort(void);
-void Identification_Update(void);
+void Identification_Control(void);
 bool Identification_Apply(void);
 
 bool Identification_Active(void);
-void Identification_Fast_Run(float Ia_A,
-                             float Ib_A,
-                             float Ic_A,
-                             float *Ualpha_V,
-                             float *Ubeta_V);
+Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
+                                          float Ib_A,
+                                          float Ic_A,
+                                          float *Id_Ref,
+                                          float *Iq_Ref,
+                                          float *Ualpha_V,
+                                          float *Ubeta_V);
 
 Ident_Mode_e Identification_Mode_Get(void);
 Ident_State_e Identification_State_Get(void);

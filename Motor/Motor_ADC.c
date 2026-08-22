@@ -2,11 +2,8 @@
 
 #include "Plot.h"
 #include "Current_Loop.h"
-#include "Identification.h"
 #include "Motor_Control.h"
 #include "Motor_PWM.h"
-#include "Open_Loop.h"
-#include "Start.h"
 #include "Voltage_Mod.h"
 #include "adc.h"
 #include "main.h"
@@ -122,6 +119,7 @@ void ADC_Sample(void)
 
 void ADC_Run(void)
 {
+    Motor_Fast_Mode_e Fast_Mode;
     float Id_Ref;
     float Iq_Ref;
     float Ualpha;
@@ -136,30 +134,16 @@ void ADC_Run(void)
 
     ADC_Sample();
 
-    if (Identification_Active())
-    {
-        Identification_Fast_Run(ADC.Ia_A,
-                                ADC.Ib_A,
-                                ADC.Ic_A,
-                                &Ualpha,
-                                &Ubeta);
-    }
-    else
-    {
-        if (Sensorless_Start_Active())
-        {
-            (void)Sensorless_Start_Run(&Id_Ref, &Iq_Ref);
-        }
-        else
-        {
-            Current_Ref_Get(&Id_Ref, &Iq_Ref);
+    Fast_Mode = Motor_Fast_Run(ADC.Ia_A,
+                               ADC.Ib_A,
+                               ADC.Ic_A,
+                               &Id_Ref,
+                               &Iq_Ref,
+                               &Ualpha,
+                               &Ubeta);
 
-            if (Ctrl_Mode_Get() == CTRL_OPEN_LOOP)
-            {
-                Open_Loop(&Id_Ref, &Iq_Ref);
-            }
-        }
-
+    if (Fast_Mode == FAST_CURRENT)
+    {
         Current_Loop(Id_Ref,
                      Iq_Ref,
                      &Ualpha,

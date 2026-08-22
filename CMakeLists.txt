@@ -50,6 +50,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Algo/Voltage_Mod.c
     Identification/Identification.c
     Identification/Rs_Ls.c
+    Identification/Flux.c
     Sensorless/Flux_Observer.c
     Sensorless/IF_Start.c
     Sensorless/Start.c

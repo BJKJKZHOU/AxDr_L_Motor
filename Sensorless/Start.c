@@ -21,6 +21,7 @@ void Sensorless_Start_Begin(int8_t Dir)
     Start_Ready = false;
 
     Align_Reset();
+    Current_Loop_State_Reset();
     Start_Active = true;
 }
 

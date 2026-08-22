@@ -5,9 +5,10 @@
 #include "Motor_ADC.h"
 #include "Motor_PWM.h"
 #include "Motion_Loop.h"
+#include "Open_Loop.h"
+#include "Start.h"
 #include "control_params.h"
 #include "motor_params.h"
-#include "tim.h"
 
 
 typedef struct
@@ -26,9 +27,10 @@ Motor_Run_T Motor_Run = {0};
 
 
 static Motor_Cmd_T Motor_Cmd = {0};
-static volatile Servo_State_e Servo_State = SERVO_DISABLED;
-static Servo_State_e State_Pre = SERVO_DISABLED;
-static Ctrl_Mode_e Ctrl_Mode = CTRL_TORQUE;
+static volatile Motor_State_e Motor_State = DISABLED;
+static Motor_Mode_e Motor_Mode = TORQUE;
+static Ident_Mode_e Ident_Mode = IDENT_RS_LS;
+static int8_t Sensorless_Dir = 1;
 
 static Current_Ref_T Current_Ref = {0};
 static float Wm_Ref = 0.0f;
@@ -111,6 +113,25 @@ static void Iq_Limit_Calc(float *Iq_Min, float *Iq_Max)
 }
 
 
+static void Motion_State_Reset(void)
+{
+    Speed_Ctrl.State.Int = 0.0f;
+    Speed_Ctrl.State.Fbk_Pre = Motor_Run.Wm;
+    Wm_Ref = 0.0f;
+    Pos_Ref_Turn = Motor_Run.Turn;
+    Pos_Ref_Theta = Motor_Run.Theta_m;
+    Pos_Div = 0U;
+}
+
+
+static bool Motion_Mode_Active(void)
+{
+    return (Motor_Mode == TORQUE) ||
+           (Motor_Mode == SPEED) ||
+           (Motor_Mode == POSITION);
+}
+
+
 void Motor_Control(void)
 {
     float Kt;
@@ -119,69 +140,38 @@ void Motor_Control(void)
     float Iq_Max;
     Motor_Limit_T Lim;
 
-    if (Servo_State != State_Pre)
+    if (Motor_State == DISABLED)
     {
-        switch (Servo_State)
+        Current_Ref.Id = 0.0f;
+        Current_Ref.Iq = 0.0f;
+        return;
+    }
+
+    if (Motor_Mode == IDENT)
+    {
+        if (Motor_State == RUN)
         {
-            case SERVO_DISABLED:
+            Identification_Control();
+
+            if (!Identification_Active())
+            {
                 Current_Ref.Id = 0.0f;
                 Current_Ref.Iq = 0.0f;
-                Wm_Ref = 0.0f;
-                break;
-
-            case SERVO_ENABLED:
-                Speed_Ctrl.State.Int = 0.0f;
-                Speed_Ctrl.State.Fbk_Pre = Motor_Run.Wm;
-
-                switch (Ctrl_Mode)
-                {
-                    case CTRL_TORQUE:
-                    case CTRL_OPEN_LOOP:
-                        Current_Ref.Id = 0.0f;
-                        Current_Ref.Iq = 0.0f;
-                        break;
-
-                    case CTRL_SPEED:
-                        if (State_Pre == SERVO_DISABLED)
-                        {
-                            Wm_Ref = 0.0f;
-                        }
-                        break;
-
-                    case CTRL_POSITION:
-                        Pos_Ref_Turn = Motor_Run.Turn;
-                        Pos_Ref_Theta = Motor_Run.Theta_m;
-                        Pos_Div = 0U;
-                        break;
-
-                    default:
-                        Current_Ref.Id = 0.0f;
-                        Current_Ref.Iq = 0.0f;
-                        break;
-                }
-                break;
-
-            case SERVO_RUN:
-            default:
-                break;
+                Motor_State = ENABLED;
+            }
         }
 
-        State_Pre = Servo_State;
+        return;
+    }
+
+    if ((Motor_Mode == OPEN_LOOP) || (Motor_Mode == SENSORLESS_SPEED))
+    {
+        Current_Ref.Id = 0.0f;
+        Current_Ref.Iq = 0.0f;
+        return;
     }
 
     Current_Ref.Id = 0.0f;
-
-    if (Servo_State == SERVO_DISABLED)
-    {
-        Current_Ref.Iq = 0.0f;
-        return;
-    }
-
-    if (Ctrl_Mode == CTRL_OPEN_LOOP)
-    {
-        Current_Ref.Iq = 0.0f;
-        return;
-    }
 
     Motor_Limit_Get(&Lim);
     Iq_Limit_Calc(&Iq_Min, &Iq_Max);
@@ -202,38 +192,38 @@ void Motor_Control(void)
         Iq_Max = 0.0f;
     }
 
-    switch (Ctrl_Mode)
+    switch (Motor_Mode)
     {
-        case CTRL_TORQUE:
-            if (Servo_State == SERVO_ENABLED)
-            {
-                Current_Ref.Iq = 0.0f;
-            }
-            else
+        case TORQUE:
+            if (Motor_State == RUN)
             {
                 Kt = 1.5f * (float)Motor_Para.Pp * Motor_Para.Flux;
                 Te_Ref = Motor_Cmd.Te_Target;
                 Limit_Value(&Te_Ref, -Lim.Te_Max, Lim.Te_Max);
                 Current_Ref.Iq = Te_Ref / Kt;
             }
+            else
+            {
+                Current_Ref.Iq = 0.0f;
+            }
             break;
 
-        case CTRL_SPEED:
-            if (Servo_State == SERVO_ENABLED)
-            {
-                Wm_Ref = 0.0f;
-            }
-            else
+        case SPEED:
+            if (Motor_State == RUN)
             {
                 Wm_Ref = Motor_Cmd.Wm_Target;
                 Limit_Value(&Wm_Ref, -Lim.Wm_Max, Lim.Wm_Max);
+            }
+            else
+            {
+                Wm_Ref = 0.0f;
             }
 
             Current_Ref.Iq = Speed_Loop(Wm_Ref, Iq_Min, Iq_Max);
             break;
 
-        case CTRL_POSITION:
-            if (Servo_State == SERVO_RUN)
+        case POSITION:
+            if (Motor_State == RUN)
             {
                 Pos_Ref_Turn = Motor_Cmd.Pos_Turn;
                 Pos_Ref_Theta = Motor_Cmd.Pos_Theta;
@@ -246,11 +236,9 @@ void Motor_Control(void)
             }
 
             Pos_Div ^= 1U;
-
             Current_Ref.Iq = Speed_Loop(Wm_Ref, Iq_Min, Iq_Max);
             break;
 
-        case CTRL_OPEN_LOOP:
         default:
             Current_Ref.Iq = 0.0f;
             break;
@@ -260,87 +248,220 @@ void Motor_Control(void)
 }
 
 
-void Current_Ref_Get(float *Id_Ref, float *Iq_Ref)
+Motor_Fast_Mode_e Motor_Fast_Run(float Ia_A,
+                                 float Ib_A,
+                                 float Ic_A,
+                                 float *Id_Ref,
+                                 float *Iq_Ref,
+                                 float *Ualpha,
+                                 float *Ubeta)
 {
-    *Id_Ref = Current_Ref.Id;
-    *Iq_Ref = Current_Ref.Iq;
-}
+    *Id_Ref = 0.0f;
+    *Iq_Ref = 0.0f;
+    *Ualpha = 0.0f;
+    *Ubeta = 0.0f;
 
-
-Servo_State_e Servo_State_Get(void)
-{
-    return Servo_State;
-}
-
-
-Ctrl_Mode_e Ctrl_Mode_Get(void)
-{
-    return Ctrl_Mode;
-}
-
-
-void Servo_Enable(void)
-{
-    if (Servo_State == SERVO_DISABLED)
+    if (Motor_State == DISABLED)
     {
-        Current_Ref.Id = 0.0f;
+        return FAST_OFF;
+    }
+
+    if (Motor_State == ENABLED)
+    {
+        if (Motion_Mode_Active())
+        {
+            *Id_Ref = Current_Ref.Id;
+            *Iq_Ref = Current_Ref.Iq;
+            return FAST_CURRENT;
+        }
+
+        return FAST_OFF;
+    }
+
+    switch (Motor_Mode)
+    {
+        case TORQUE:
+        case SPEED:
+        case POSITION:
+            *Id_Ref = Current_Ref.Id;
+            *Iq_Ref = Current_Ref.Iq;
+            return FAST_CURRENT;
+
+        case OPEN_LOOP:
+            Open_Loop(Id_Ref, Iq_Ref);
+            return FAST_CURRENT;
+
+        case IDENT:
+            return Identification_Fast_Run(Ia_A,
+                                           Ib_A,
+                                           Ic_A,
+                                           Id_Ref,
+                                           Iq_Ref,
+                                           Ualpha,
+                                           Ubeta);
+
+        case SENSORLESS_SPEED:
+            (void)Sensorless_Start_Run(Id_Ref, Iq_Ref);
+            return FAST_CURRENT;
+
+        default:
+            return FAST_OFF;
+    }
+}
+
+
+Motor_State_e Motor_State_Get(void)
+{
+    return Motor_State;
+}
+
+
+Motor_Mode_e Motor_Mode_Get(void)
+{
+    return Motor_Mode;
+}
+
+
+void Motor_Enable(void)
+{
+    if (Motor_State != DISABLED)
+    {
+        return;
+    }
+
+    Current_Ref.Id = 0.0f;
+    Current_Ref.Iq = 0.0f;
+
+    if (Motion_Mode_Active())
+    {
+        Motion_State_Reset();
+        Current_Loop_State_Reset();
+    }
+
+    Motor_Run.Ud = 0.0f;
+    Motor_Run.Uq = 0.0f;
+
+    PWM_Enable();
+    Motor_State = ENABLED;
+}
+
+
+void Motor_Start(void)
+{
+    if (Motor_State != ENABLED)
+    {
+        return;
+    }
+
+    if (Motor_Mode == OPEN_LOOP)
+    {
+        Current_Loop_State_Reset();
+        Open_Loop_Reset();
+    }
+    else if (Motor_Mode == IDENT)
+    {
+        if (!Identification_Start(Ident_Mode))
+        {
+            return;
+        }
+    }
+    else if (Motor_Mode == SENSORLESS_SPEED)
+    {
+        Sensorless_Start_Begin(Sensorless_Dir);
+    }
+
+    Motor_State = RUN;
+}
+
+
+void Motor_Stop(void)
+{
+    if (Motor_State != RUN)
+    {
+        return;
+    }
+
+    if (Motor_Mode == OPEN_LOOP)
+    {
+        Open_Loop_Reset();
+    }
+    else if ((Motor_Mode == IDENT) && Identification_Active())
+    {
+        Identification_Abort();
+    }
+    else if (Motor_Mode == SENSORLESS_SPEED)
+    {
+        Sensorless_Start_Stop();
+    }
+    else if (Motor_Mode == POSITION)
+    {
+        Pos_Ref_Turn = Motor_Run.Turn;
+        Pos_Ref_Theta = Motor_Run.Theta_m;
+        Pos_Div = 0U;
+    }
+
+    Current_Ref.Id = 0.0f;
+
+    if (Motor_Mode == TORQUE)
+    {
         Current_Ref.Iq = 0.0f;
-
-        Id_Ctrl.State.Int = 0.0f;
-        Iq_Ctrl.State.Int = 0.0f;
-
-        Id_Ctrl.Sig.Out = 0.0f;
-        Iq_Ctrl.Sig.Out = 0.0f;
-
-        Motor_Run.Ud = 0.0f;
-        Motor_Run.Uq = 0.0f;
-
-        PWM_Enable();
-        Servo_State = SERVO_ENABLED;
     }
+
+    Motor_State = ENABLED;
 }
 
 
-void Servo_Run(void)
+void Motor_Disable(void)
 {
-    if (Servo_State == SERVO_ENABLED)
+    if (Motor_State == RUN)
     {
-        Servo_State = SERVO_RUN;
+        Motor_Stop();
     }
-}
 
-
-void Servo_Stop(void)
-{
-    if (Servo_State == SERVO_RUN)
-    {
-        Servo_State = SERVO_ENABLED;
-    }
-}
-
-
-void Servo_Disable(void)
-{
     PWM_Disable();
-    Servo_State = SERVO_DISABLED;
+    Current_Ref.Id = 0.0f;
+    Current_Ref.Iq = 0.0f;
+    Motor_State = DISABLED;
 }
 
 
-void Ctrl_Mode_Set(Ctrl_Mode_e Mode)
+void Motor_Mode_Set(Motor_Mode_e Mode)
 {
-    if (Servo_State == SERVO_DISABLED)
+    if ((Motor_State == DISABLED) && (Mode <= SENSORLESS_SPEED))
     {
-        Ctrl_Mode = Mode;
-
-        if (Mode == CTRL_OPEN_LOOP)
-        {
-            CLEAR_BIT(TIM1->DIER, TIM_DIER_CC4IE);
-        }
-        else
-        {
-            SET_BIT(TIM1->DIER, TIM_DIER_CC4IE);
-        }
+        Motor_Mode = Mode;
     }
+}
+
+
+void Motor_Ident_Mode_Set(Ident_Mode_e Mode)
+{
+    if ((Motor_State == DISABLED) &&
+        (Mode >= IDENT_RS_LS) &&
+        (Mode <= IDENT_FLUX))
+    {
+        Ident_Mode = Mode;
+    }
+}
+
+
+void Motor_Sensorless_Dir_Set(int8_t Dir)
+{
+    if (Motor_State == DISABLED)
+    {
+        Sensorless_Dir = (Dir >= 0) ? 1 : -1;
+    }
+}
+
+
+bool Motor_Ident_Apply(void)
+{
+    if ((Motor_State == RUN) || (Motor_Mode != IDENT))
+    {
+        return false;
+    }
+
+    return Identification_Apply();
 }
 
 

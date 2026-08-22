@@ -9,6 +9,7 @@ static int8_t IF_Dir = 1;
 static uint32_t IF_Hold_Cnt = 0U;
 static float IF_Theta_e = 0.0f;
 static float IF_We_Abs = 0.0f;
+static float IF_We_Target = IF_WE_TARGET_RAD_S;
 
 
 void IF_Start_Reset(float Theta_Start, int8_t Dir)
@@ -18,6 +19,28 @@ void IF_Start_Reset(float Theta_Start, int8_t Dir)
     IF_Hold_Cnt = 0U;
     IF_Theta_e = Angle_Wrap(Theta_Start);
     IF_We_Abs = 0.0f;
+    IF_We_Target = IF_WE_TARGET_RAD_S;
+}
+
+
+void IF_Start_Target_Set(float We_Target)
+{
+    if (We_Target < 0.0f)
+    {
+        We_Target = -We_Target;
+    }
+
+    IF_We_Target = We_Target;
+    IF_Hold_Cnt = 0U;
+
+    if (IF_We_Abs == IF_We_Target)
+    {
+        IF_State = IF_HOLD;
+    }
+    else
+    {
+        IF_State = IF_ACCEL;
+    }
 }
 
 
@@ -27,6 +50,7 @@ bool IF_Start_Run(float *Theta_e,
 {
     float Ratio;
     float Iq_Abs;
+    float We_Step;
 
     Ratio = IF_We_Abs / IF_WE_TARGET_RAD_S;
 
@@ -44,13 +68,29 @@ bool IF_Start_Run(float *Theta_e,
 
     if (IF_State == IF_ACCEL)
     {
-        IF_We_Abs += IF_ACC_RAD_S2 * CUR_TS;
+        We_Step = IF_ACC_RAD_S2 * CUR_TS;
 
-        if (IF_We_Abs >= IF_WE_TARGET_RAD_S)
+        if (IF_We_Abs < IF_We_Target)
         {
-            IF_We_Abs = IF_WE_TARGET_RAD_S;
-            IF_Hold_Cnt = 0U;
-            IF_State = IF_HOLD;
+            IF_We_Abs += We_Step;
+
+            if (IF_We_Abs >= IF_We_Target)
+            {
+                IF_We_Abs = IF_We_Target;
+                IF_Hold_Cnt = 0U;
+                IF_State = IF_HOLD;
+            }
+        }
+        else
+        {
+            IF_We_Abs -= We_Step;
+
+            if (IF_We_Abs <= IF_We_Target)
+            {
+                IF_We_Abs = IF_We_Target;
+                IF_Hold_Cnt = 0U;
+                IF_State = IF_HOLD;
+            }
         }
     }
     else if (IF_Hold_Cnt < IF_HOLD_CNT)

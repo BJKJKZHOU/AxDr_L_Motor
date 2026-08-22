@@ -50,19 +50,19 @@ static uint32_t Key_Press(Key_T *Key, GPIO_TypeDef *Port, uint16_t Pin)
 }
 
 
-static void Panel_LED(Servo_State_e State)
+static void Panel_LED(Motor_State_e State)
 {
     switch (State)
     {
-        case SERVO_DISABLED:
+        case DISABLED:
             RGB_Set(0U, 0U, 8U);
             break;
 
-        case SERVO_ENABLED:
+        case ENABLED:
             RGB_Set(8U, 8U, 0U);
             break;
 
-        case SERVO_RUN:
+        case RUN:
             RGB_Set(0U, 8U, 0U);
             break;
 
@@ -77,15 +77,15 @@ static void Panel_Entry(ULONG thread_input)
 {
     Key_T Key1 = {GPIO_PIN_SET, GPIO_PIN_SET, 0U};
     Key_T Key2 = {GPIO_PIN_SET, GPIO_PIN_SET, 0U};
-    Servo_State_e State;
-    Servo_State_e State_Pre;
+    Motor_State_e State;
+    Motor_State_e State_Pre;
     ULONG Cmd;
     uint32_t Key1_Press;
     uint32_t Key2_Press;
 
     (void)thread_input;
 
-    State_Pre = Servo_State_Get();
+    State_Pre = Motor_State_Get();
     Panel_LED(State_Pre);
 
     while (1)
@@ -95,16 +95,16 @@ static void Panel_Entry(ULONG thread_input)
 
         if (Key1_Press != 0U)
         {
-            Cmd = (ULONG)SERVO_CMD_EN_TOGGLE;
-            (void)tx_queue_send(&Servo_Cmd_Q, &Cmd, TX_NO_WAIT);
+            Cmd = (ULONG)MOTOR_CMD_EN_TOGGLE;
+            (void)tx_queue_send(&Motor_Cmd_Q, &Cmd, TX_NO_WAIT);
         }
         else if (Key2_Press != 0U)
         {
-            Cmd = (ULONG)SERVO_CMD_RUN_TOGGLE;
-            (void)tx_queue_send(&Servo_Cmd_Q, &Cmd, TX_NO_WAIT);
+            Cmd = (ULONG)MOTOR_CMD_RUN_TOGGLE;
+            (void)tx_queue_send(&Motor_Cmd_Q, &Cmd, TX_NO_WAIT);
         }
 
-        State = Servo_State_Get();
+        State = Motor_State_Get();
 
         if (State != State_Pre)
         {
