@@ -24,9 +24,17 @@ typedef enum
 } Ident_Cmd_e;
 
 
+typedef enum
+{
+    SENSORLESS_CMD_START = 0,
+    SENSORLESS_CMD_STOP,
+} Sensorless_Cmd_e;
+
+
 extern TX_SEMAPHORE Motor_Sem;
 extern TX_QUEUE Servo_Cmd_Q;
 extern TX_QUEUE Ident_Cmd_Q;
+extern TX_QUEUE Sensorless_Cmd_Q;
 extern volatile ULONG Motor_Ready;
 
 UINT Motor_Thread_Init(VOID *memory_ptr);

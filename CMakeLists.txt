@@ -50,6 +50,9 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Algo/Voltage_Mod.c
     Identification/Identification.c
     Identification/Rs_Ls.c
+    Sensorless/Flux_Observer.c
+    Sensorless/IF_Start.c
+    Sensorless/Start.c
     Motor/Motor_ADC.c
     Motor/Encoder.c
     Motor/Current_Loop.c
@@ -83,6 +86,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     BSP
     Comm
     Identification
+    Sensorless
     Motor
     User
 )

@@ -3,9 +3,11 @@
 #include <string.h>
 
 #include "Identification.h"
+#include "IF_Start.h"
 #include "Motor_Control.h"
 #include "Plot.h"
 #include "Rs_Ls.h"
+#include "Start.h"
 #include "USB_Thread.h"
 #include "motor_thread.h"
 
@@ -79,7 +81,8 @@ static void Control_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
     {
         Status = AXDR_ERR_LENGTH;
     }
-    else if (Identification_Active() && (Op != AXDR_CTRL_DISABLE))
+    else if ((Identification_Active() || Sensorless_Start_Active()) &&
+             (Op != AXDR_CTRL_DISABLE))
     {
         Status = AXDR_ERR_STATE;
     }
@@ -203,7 +206,8 @@ static void Identification_Rx(const uint8_t *Data,
             Status = AXDR_ERR_NOT_SUPPORTED;
         }
         else if ((Servo_State_Get() != SERVO_DISABLED) ||
-                 Identification_Active())
+                 Identification_Active() ||
+                 Sensorless_Start_Active())
         {
             Status = AXDR_ERR_STATE;
         }
@@ -271,6 +275,7 @@ static void Identification_Rx(const uint8_t *Data,
         }
         else if ((Servo_State_Get() != SERVO_DISABLED) ||
                  Identification_Active() ||
+                 Sensorless_Start_Active() ||
                  (Identification_State_Get() != IDENT_DONE))
         {
             Status = AXDR_ERR_STATE;
@@ -300,6 +305,114 @@ static void Identification_Rx(const uint8_t *Data,
     }
 
     Response(Txn, AXDR_MSG_IDENTIFICATION, Op, Status, 0, 0U);
+}
+
+
+static void Sensorless_Rx(const uint8_t *Data,
+                          uint8_t Len,
+                          uint8_t Broadcast)
+{
+    uint8_t Txn;
+    uint8_t Op;
+    uint8_t Dir;
+    ULONG Cmd;
+    AxDr_Status_e Status;
+
+    Txn = (Len > 0U) ? Data[0] : 0U;
+    Op = (Len > 1U) ? Data[1] : 0U;
+    Status = AXDR_OK;
+    Cmd = 0U;
+
+    if (Broadcast != 0U)
+    {
+        return;
+    }
+
+    if (Len < 2U)
+    {
+        Status = AXDR_ERR_LENGTH;
+    }
+    else if (Op == AXDR_SENSORLESS_START)
+    {
+        if (Len != 3U)
+        {
+            Status = AXDR_ERR_LENGTH;
+        }
+        else
+        {
+            Dir = Data[2];
+
+            if ((Dir != AXDR_SENSORLESS_FORWARD) &&
+                (Dir != AXDR_SENSORLESS_REVERSE))
+            {
+                Status = AXDR_ERR_VALUE;
+            }
+            else if ((Servo_State_Get() != SERVO_DISABLED) ||
+                     Identification_Active() ||
+                     Sensorless_Start_Active())
+            {
+                Status = AXDR_ERR_STATE;
+            }
+            else
+            {
+                Cmd = (ULONG)SENSORLESS_CMD_START | ((ULONG)Dir << 8);
+
+                if (tx_queue_send(&Sensorless_Cmd_Q, &Cmd, TX_NO_WAIT) != TX_SUCCESS)
+                {
+                    Status = AXDR_ERR_CONFIG;
+                }
+            }
+        }
+    }
+    else if (Op == AXDR_SENSORLESS_STATUS)
+    {
+        uint8_t Resp[8];
+        float We;
+
+        if (Len != 2U)
+        {
+            Status = AXDR_ERR_LENGTH;
+        }
+        else
+        {
+            We = IF_Start_We_Get();
+            Resp[0] = Sensorless_Start_Active() ? 1U : 0U;
+            Resp[1] = Sensorless_Start_Ready() ? 1U : 0U;
+            Resp[2] = (uint8_t)Sensorless_Start_State_Get();
+            Resp[3] = (uint8_t)IF_Start_State_Get();
+            memcpy(&Resp[4], &We, sizeof(float));
+
+            Response(Txn, AXDR_MSG_SENSORLESS, Op,
+                     AXDR_OK, Resp, sizeof(Resp));
+            return;
+        }
+    }
+    else if (Op == AXDR_SENSORLESS_STOP)
+    {
+        if (Len != 2U)
+        {
+            Status = AXDR_ERR_LENGTH;
+        }
+        else if (!Sensorless_Start_Active())
+        {
+            Status = AXDR_ERR_STATE;
+        }
+        else
+        {
+            Cmd = SENSORLESS_CMD_STOP;
+
+            if (tx_queue_send(&Sensorless_Cmd_Q, &Cmd, TX_NO_WAIT) != TX_SUCCESS)
+            {
+                Status = AXDR_ERR_CONFIG;
+            }
+        }
+    }
+    else
+    {
+        Status = AXDR_ERR_OP;
+    }
+
+    Response(Txn, AXDR_MSG_SENSORLESS, Op, Status, 0, 0U);
 }
 
 
@@ -432,6 +545,10 @@ void Protocol_Rx(uint16_t Id, const uint8_t *Data, uint8_t Len)
     else if (Msg_Type == AXDR_MSG_IDENTIFICATION)
     {
         Identification_Rx(Data, Len, (Node == 0U) ? 1U : 0U);
+    }
+    else if (Msg_Type == AXDR_MSG_SENSORLESS)
+    {
+        Sensorless_Rx(Data, Len, (Node == 0U) ? 1U : 0U);
     }
 }
 

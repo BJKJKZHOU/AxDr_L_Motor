@@ -14,6 +14,15 @@ PID_T Iq_Ctrl = IQ_CTRL_DEFAULT;
 extern Motor_Run_T Motor_Run;
 
 
+void Current_Loop_State_Reset(void)
+{
+    Id_Ctrl.State.Int = 0.0f;
+    Iq_Ctrl.State.Int = 0.0f;
+    Id_Ctrl.Sig.Out = 0.0f;
+    Iq_Ctrl.Sig.Out = 0.0f;
+}
+
+
 void Current_Loop_Para_Update(void)
 {
     Id_Ctrl.Para.Kp = Motor_Para.Ld * CUR_WC_DEFAULT;
@@ -21,10 +30,7 @@ void Current_Loop_Para_Update(void)
     Iq_Ctrl.Para.Kp = Motor_Para.Lq * CUR_WC_DEFAULT;
     Iq_Ctrl.Para.Ki = Motor_Para.Rs * CUR_WC_DEFAULT;
 
-    Id_Ctrl.State.Int = 0.0f;
-    Iq_Ctrl.State.Int = 0.0f;
-    Id_Ctrl.Sig.Out = 0.0f;
-    Iq_Ctrl.Sig.Out = 0.0f;
+    Current_Loop_State_Reset();
 }
 
 

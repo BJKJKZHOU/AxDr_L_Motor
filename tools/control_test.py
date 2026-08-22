@@ -11,6 +11,9 @@ Examples:
     python tools/control_test.py --port /dev/ttyACM0 --ident-status
     python tools/control_test.py --port /dev/ttyACM0 --ident-abort
     python tools/control_test.py --port /dev/ttyACM0 --ident-apply
+    python tools/control_test.py --port /dev/ttyACM0 --sensorless-start forward
+    python tools/control_test.py --port /dev/ttyACM0 --sensorless-status
+    python tools/control_test.py --port /dev/ttyACM0 --sensorless-stop
 """
 
 import argparse
@@ -31,6 +34,7 @@ NODE_ID = 1
 MSG_RESPONSE = 0x02
 MSG_CONTROL = 0x03
 MSG_IDENTIFICATION = 0x05
+MSG_SENSORLESS = 0x06
 
 CTRL_ENABLE = 0x01
 CTRL_RUN = 0x02
@@ -42,6 +46,15 @@ IDENT_START = 0x01
 IDENT_STATUS = 0x02
 IDENT_ABORT = 0x03
 IDENT_APPLY = 0x04
+
+SENSORLESS_START = 0x01
+SENSORLESS_STATUS = 0x02
+SENSORLESS_STOP = 0x03
+
+SENSORLESS_DIR = {
+    "forward": 1,
+    "reverse": 2,
+}
 
 IDENT_TYPE = {
     "rs_ls": 1,
@@ -65,6 +78,16 @@ RS_LS_STAGE = {
     7: "MEASURE_B",
     8: "DONE",
     9: "FAILED",
+}
+
+SENSORLESS_STAGE = {
+    0: "ALIGN",
+    1: "IF",
+}
+
+IF_STAGE = {
+    0: "ACCEL",
+    1: "HOLD",
 }
 
 MODE = {
@@ -195,6 +218,33 @@ def print_ident_status(status):
           f"Rs={status['rs']:.6g} ohm Ls={status['ls']:.6g} H")
 
 
+def sensorless_status(ser, parser, txn, timeout=1.0):
+    txn, data = request(ser, parser, txn,
+                        MSG_SENSORLESS, SENSORLESS_STATUS,
+                        timeout=timeout)
+
+    if len(data) != 8:
+        raise RuntimeError(f"invalid sensorless status length: {len(data)}")
+
+    active, ready, stage, if_stage = data[:4]
+    we, = struct.unpack_from("<f", data, 4)
+
+    return txn, {
+        "active": bool(active),
+        "ready": bool(ready),
+        "stage": stage,
+        "if_stage": if_stage,
+        "we": we,
+    }
+
+
+def print_sensorless_status(status):
+    stage = SENSORLESS_STAGE.get(status["stage"], str(status["stage"]))
+    if_stage = IF_STAGE.get(status["if_stage"], str(status["if_stage"]))
+    print(f"SENSORLESS active={int(status['active'])} ready={int(status['ready'])} "
+          f"stage={stage} if={if_stage} We={status['we']:.3f} rad/s")
+
+
 def main():
     ap = argparse.ArgumentParser(description="AxDr USB CDC servo control tool")
     ap.add_argument("--port", required=True, help="CDC serial port")
@@ -216,6 +266,12 @@ def main():
                     help="abort active identification")
     ap.add_argument("--ident-apply", action="store_true",
                     help="apply valid identification result to RAM parameters")
+    ap.add_argument("--sensorless-start", choices=SENSORLESS_DIR,
+                    help="start sensorless Align -> I/F runtime")
+    ap.add_argument("--sensorless-status", action="store_true",
+                    help="read sensorless startup status")
+    ap.add_argument("--sensorless-stop", action="store_true",
+                    help="stop active sensorless startup and disable PWM")
     ap.add_argument("--poll-interval", type=float, default=0.1,
                     help="identification status polling interval in seconds")
     ap.add_argument("--timeout", type=float, default=1.0)
@@ -270,6 +326,23 @@ def main():
                                  MSG_IDENTIFICATION, IDENT_APPLY,
                                  timeout=args.timeout)
                 print("IDENT_APPLY OK")
+
+            if args.sensorless_start is not None:
+                direction = SENSORLESS_DIR[args.sensorless_start]
+                txn, _ = request(ser, parser, txn,
+                                 MSG_SENSORLESS, SENSORLESS_START,
+                                 bytes([direction]), args.timeout)
+                print(f"SENSORLESS_START {args.sensorless_start.upper()} OK")
+
+            if args.sensorless_status:
+                txn, status = sensorless_status(ser, parser, txn, args.timeout)
+                print_sensorless_status(status)
+
+            if args.sensorless_stop:
+                txn, _ = request(ser, parser, txn,
+                                 MSG_SENSORLESS, SENSORLESS_STOP,
+                                 timeout=args.timeout)
+                print("SENSORLESS_STOP OK")
 
             if args.open_loop_run:
                 txn = control(ser, parser, txn, CTRL_MODE_SET,

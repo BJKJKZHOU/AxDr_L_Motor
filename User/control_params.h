@@ -89,6 +89,18 @@
 #define OPEN_WE_RAD_S           20.0f
 
 
+/* Sensorless I/F startup. Electrical speed and acceleration use rad/s. */
+#define IF_ALIGN_ID_A           0.2f
+#define IF_ALIGN_TIME_S         0.5f
+#define IF_ALIGN_CNT            ((uint32_t)(IF_ALIGN_TIME_S / CUR_TS + 0.5f))
+#define IF_IQ_START_A           0.2f
+#define IF_IQ_TARGET_A          0.5f
+#define IF_WE_TARGET_RAD_S      200.0f
+#define IF_ACC_RAD_S2           100.0f
+#define IF_HOLD_TIME_S          0.3f
+#define IF_HOLD_CNT             ((uint32_t)(IF_HOLD_TIME_S / CUR_TS + 0.5f))
+
+
 /*
  * Speed-loop PI design.
  *

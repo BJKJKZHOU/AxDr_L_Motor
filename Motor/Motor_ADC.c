@@ -6,6 +6,7 @@
 #include "Motor_Control.h"
 #include "Motor_PWM.h"
 #include "Open_Loop.h"
+#include "Start.h"
 #include "Voltage_Mod.h"
 #include "adc.h"
 #include "main.h"
@@ -145,11 +146,18 @@ void ADC_Run(void)
     }
     else
     {
-        Current_Ref_Get(&Id_Ref, &Iq_Ref);
-
-        if (Ctrl_Mode_Get() == CTRL_OPEN_LOOP)
+        if (Sensorless_Start_Active())
         {
-            Open_Loop(&Id_Ref, &Iq_Ref);
+            (void)Sensorless_Start_Run(&Id_Ref, &Iq_Ref);
+        }
+        else
+        {
+            Current_Ref_Get(&Id_Ref, &Iq_Ref);
+
+            if (Ctrl_Mode_Get() == CTRL_OPEN_LOOP)
+            {
+                Open_Loop(&Id_Ref, &Iq_Ref);
+            }
         }
 
         Current_Loop(Id_Ref,

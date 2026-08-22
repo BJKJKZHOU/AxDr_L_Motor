@@ -4,17 +4,20 @@
 #include "Motor_Control.h"
 #include "Motor_PWM.h"
 #include "Plot.h"
+#include "Start.h"
 
 
-#define MOTOR_STACK_SIZE    512U
-#define MOTOR_THREAD_PRIO   5U
-#define SERVO_CMD_Q_LEN     4U
-#define IDENT_CMD_Q_LEN     4U
+#define MOTOR_STACK_SIZE        512U
+#define MOTOR_THREAD_PRIO       5U
+#define SERVO_CMD_Q_LEN         4U
+#define IDENT_CMD_Q_LEN         4U
+#define SENSORLESS_CMD_Q_LEN    4U
 
 
 TX_SEMAPHORE Motor_Sem;
 TX_QUEUE Servo_Cmd_Q;
 TX_QUEUE Ident_Cmd_Q;
+TX_QUEUE Sensorless_Cmd_Q;
 volatile ULONG Motor_Ready = 0U;
 
 
@@ -40,6 +43,7 @@ static void Ident_Cmd_Run(void)
         {
             if ((Servo_State_Get() == SERVO_DISABLED) &&
                 !Identification_Active() &&
+                !Sensorless_Start_Active() &&
                 Identification_Start((Ident_Mode_e)Arg))
             {
                 PWM_Enable();
@@ -56,9 +60,45 @@ static void Ident_Cmd_Run(void)
         else if (Cmd_Id == (uint8_t)IDENT_CMD_APPLY)
         {
             if ((Servo_State_Get() == SERVO_DISABLED) &&
-                !Identification_Active())
+                !Identification_Active() &&
+                !Sensorless_Start_Active())
             {
                 (void)Identification_Apply();
+            }
+        }
+    }
+}
+
+
+static void Sensorless_Cmd_Run(void)
+{
+    ULONG Cmd;
+    uint8_t Cmd_Id;
+    uint8_t Arg;
+    int8_t Dir;
+
+    while (tx_queue_receive(&Sensorless_Cmd_Q, &Cmd, TX_NO_WAIT) == TX_SUCCESS)
+    {
+        Cmd_Id = (uint8_t)Cmd;
+        Arg = (uint8_t)(Cmd >> 8);
+
+        if (Cmd_Id == (uint8_t)SENSORLESS_CMD_START)
+        {
+            if ((Servo_State_Get() == SERVO_DISABLED) &&
+                !Identification_Active() &&
+                !Sensorless_Start_Active())
+            {
+                Dir = (Arg == 2U) ? -1 : 1;
+                Sensorless_Start_Begin(Dir);
+                PWM_Enable();
+            }
+        }
+        else if (Cmd_Id == (uint8_t)SENSORLESS_CMD_STOP)
+        {
+            if (Sensorless_Start_Active())
+            {
+                PWM_Disable();
+                Sensorless_Start_Stop();
             }
         }
     }
@@ -83,6 +123,17 @@ static void Servo_Cmd_Run(void)
             {
                 Servo_Disable();
                 Identification_Abort();
+            }
+
+            continue;
+        }
+
+        if (Sensorless_Start_Active())
+        {
+            if (Cmd_Id == (uint8_t)SERVO_CMD_DISABLE)
+            {
+                Servo_Disable();
+                Sensorless_Start_Stop();
             }
 
             continue;
@@ -180,6 +231,18 @@ UINT Motor_Thread_Init(VOID *memory_ptr)
     }
 
     if (tx_byte_allocate(byte_pool, (VOID **)&pointer,
+                         SENSORLESS_CMD_Q_LEN * sizeof(ULONG), TX_NO_WAIT) != TX_SUCCESS)
+    {
+        return TX_POOL_ERROR;
+    }
+
+    if (tx_queue_create(&Sensorless_Cmd_Q, "Sensorless Command", TX_1_ULONG, pointer,
+                        SENSORLESS_CMD_Q_LEN * sizeof(ULONG)) != TX_SUCCESS)
+    {
+        return TX_QUEUE_ERROR;
+    }
+
+    if (tx_byte_allocate(byte_pool, (VOID **)&pointer,
                          MOTOR_STACK_SIZE, TX_NO_WAIT) != TX_SUCCESS)
     {
         return TX_POOL_ERROR;
@@ -209,6 +272,7 @@ static void Motor_Entry(ULONG thread_input)
         if (tx_semaphore_get(&Motor_Sem, TX_WAIT_FOREVER) == TX_SUCCESS)
         {
             Ident_Cmd_Run();
+            Sensorless_Cmd_Run();
             Servo_Cmd_Run();
 
             Was_Active = Identification_Active();
@@ -222,7 +286,7 @@ static void Motor_Entry(ULONG thread_input)
                     PWM_Disable();
                 }
             }
-            else
+            else if (!Sensorless_Start_Active())
             {
                 Motor_Control();
             }
