@@ -569,9 +569,9 @@ def parse_args():
                         help="Release toolchain; starm uses STM32Cube bundles")
     parser.add_argument("--elf",
                         help="override the selected toolchain's ELF path")
-    parser.add_argument("--rs-ref", type=float, default=0.0767,
+    parser.add_argument("--rs-ref", type=float, default=0.08471736,
                         help="expected phase resistance in ohm")
-    parser.add_argument("--ls-ref-uh", type=float, default=16.5,
+    parser.add_argument("--ls-ref-uh", type=float, default=17.836,
                         help="expected phase inductance in uH")
     parser.add_argument("--rs-tolerance", type=float, default=0.20)
     parser.add_argument("--ls-tolerance", type=float, default=0.20)
