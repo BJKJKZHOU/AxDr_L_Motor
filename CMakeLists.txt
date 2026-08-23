@@ -37,8 +37,8 @@ add_executable(${CMAKE_PROJECT_NAME})
 # Add STM32CubeMX generated sources
 add_subdirectory(cmake/stm32cubemx)
 
-# Replace CubeMX-vendored portable USBX sources with the pinned Eclipse USBX
-# submodule while retaining the STM32-specific ST DCD glue.
+# Keep Eclipse middleware dependencies outside CubeMX-owned Middlewares/ST paths.
+include(cmake/threadx-eclipse.cmake)
 include(cmake/usbx-eclipse.cmake)
 
 # Link directories setup
