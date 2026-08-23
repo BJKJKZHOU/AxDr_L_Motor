@@ -9,15 +9,32 @@
 - 磁链 Observer 与 PLL 转速/角度估计
 - `ALIGN → I/F → Observer` 无感启动接管
 
-## 默认电机
+## 硬件
 
-- 32 极外转子电机，极对数 `Pp = 16`
-- `Rs = 0.08471736 Ω`
-- `Ld = Lq = 17.836 µH`
-- `Flux = 0.0031835556 Wb`
+本工程基于 AxDr_L(AxDrive-L) 硬件平台进行开发和实机验证。
 
-正常运行直接使用固件当前参数。参数辨识是独立流程，只有明确执行
-`IDENT_APPLY` 后才会更新 RAM 中的电机参数。
+相关硬件开源与参考工程：
+
+- [AxDr_L 硬件](https://oshwhub.com/lylssy/foc_driver) (GPL 3.0)
+- [AxDr_L 软件参考](https://github.com/disnox/AxDr_L)
+
+本仓库并非上述硬件项目的官方固件仓库。
+
+## 依赖
+
+ThreadX 与 USBX 使用 Git 子模块管理：
+
+- `ThirdParty/Eclipse/threadx/`：Eclipse ThreadX 6.5.1
+- `ThirdParty/Eclipse/usbx/`：Eclipse USBX 6.5.0 portable core 与 CDC ACM device class
+- `ThirdParty/ST/usbx_stm32_dcd/`：STM32 USBX device-controller adaptation
+
+克隆后需要初始化子模块：
+
+```bash
+git submodule update --init --recursive
+```
+
+STM32CubeMX 重新生成工程时可能会在 `Middlewares/` 下产生中间件副本。该目录不参与实际构建，项目通过 CMake 重映射使用 `ThirdParty/` 下的依赖。
 
 ## 构建
 
@@ -36,4 +53,19 @@ cmake --build --preset Release
 - `Sensorless/`：I/F 启动与 Observer 接管
 - `Comm/`：USB 控制协议和 Plot
 - `User/`：电机与控制参数
+- `ThirdParty/`：外部依赖与 STM32 USBX DCD 适配层
 - `tools/`：构建、辨识和实机测试脚本
+
+## Project status
+
+This project is under active development. Some functions have been validated on hardware, while other control paths and operating ranges remain experimental.
+
+## Safety
+
+This firmware can directly drive a motor power stage. Verify the target hardware, current limits, PWM configuration, motor parameters, and protection settings before energizing the inverter. Hardware test scripts are not a substitute for independent protection and safe test procedures.
+
+## License
+
+Project-owned source code and documentation are licensed under the Apache License 2.0 unless a file states otherwise.
+
+Third-party components, including STM32Cube, Eclipse ThreadX, Eclipse USBX, and the STM32 USBX device-controller adaptation, remain under their respective licenses. See `THIRD_PARTY_LICENSES.md` and the license files shipped with those components.
