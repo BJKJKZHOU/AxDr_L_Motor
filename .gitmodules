@@ -1,6 +1,6 @@
-[submodule "Middlewares/Eclipse/threadx"]
-	path = Middlewares/Eclipse/threadx
+[submodule "ThirdParty/Eclipse/threadx"]
+	path = ThirdParty/Eclipse/threadx
 	url = https://github.com/eclipse-threadx/threadx.git
-[submodule "Middlewares/Eclipse/usbx"]
-	path = Middlewares/Eclipse/usbx
+[submodule "ThirdParty/Eclipse/usbx"]
+	path = ThirdParty/Eclipse/usbx
 	url = https://github.com/eclipse-threadx/usbx.git
