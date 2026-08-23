@@ -6,3 +6,9 @@ mx.scratch
 docs/文档
 docs/手册
 */__pycache__
+
+# STM32CubeMX-generated middleware copies are not used by the build.
+Middlewares/
+
+# CubeMX may emit an unused CMSIS system template during regeneration.
+Drivers/CMSIS/Device/ST/STM32G4xx/Source/Templates/system_stm32g4xx.c
