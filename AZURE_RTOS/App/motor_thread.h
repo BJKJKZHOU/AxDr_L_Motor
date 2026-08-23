@@ -1,3 +1,8 @@
+/*
+ * SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) 2026 ZHOUHENG
+ */
+
 #ifndef MOTOR_THREAD_H
 #define MOTOR_THREAD_H
 

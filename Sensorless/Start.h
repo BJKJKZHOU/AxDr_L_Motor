@@ -1,3 +1,8 @@
+/*
+ * SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) 2026 ZHOUHENG
+ */
+
 #ifndef SENSORLESS_START_H
 #define SENSORLESS_START_H
 

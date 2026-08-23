@@ -1,3 +1,8 @@
+/*
+ * SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) 2026 ZHOUHENG
+ */
+
 #include "Motor_PWM.h"
 
 #include "control_params.h"

@@ -1,3 +1,8 @@
+/*
+ * SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) 2026 ZHOUHENG
+ */
+
 #ifndef MOTION_LOOP_H
 #define MOTION_LOOP_H
 

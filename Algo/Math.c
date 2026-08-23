@@ -1,3 +1,8 @@
+/*
+ * SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) 2026 ZHOUHENG
+ */
+
 #include "Math.h"
 
 int8_t Limit_Value(float *Value, float Min, float Max)

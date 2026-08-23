@@ -1,3 +1,8 @@
+/*
+ * SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) 2026 ZHOUHENG
+ */
+
 #include "PID.h"
 
 void PID_Run(PID_T *Pid, float Ts)

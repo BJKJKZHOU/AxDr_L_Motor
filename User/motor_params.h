@@ -1,3 +1,8 @@
+/*
+ * SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) 2026 ZHOUHENG
+ */
+
 #ifndef USER_MOTOR_PARAMS_H
 #define USER_MOTOR_PARAMS_H
 
