@@ -4,13 +4,10 @@
 #include "Motor_Control.h"
 #include "control_params.h"
 
-
 PID_T Pos_Ctrl = POSITION_CTRL_DEFAULT;
 PID_T Speed_Ctrl = SPEED_CTRL_DEFAULT;
 
-
-float Position_Loop(int32_t Turn_Ref, float Theta_Ref,
-                    float Wm_Min, float Wm_Max)
+float Position_Loop(int32_t Turn_Ref, float Theta_Ref, float Wm_Min, float Wm_Max)
 {
     int32_t Turn_Err;
 
@@ -27,11 +24,7 @@ float Position_Loop(int32_t Turn_Ref, float Theta_Ref,
     return Pos_Ctrl.Sig.Out;
 }
 
-
-float Speed_Loop(float We_Ref,
-                 float We_Fbk,
-                 float Iq_Min,
-                 float Iq_Max)
+float Speed_Loop(float We_Ref, float We_Fbk, float Iq_Min, float Iq_Max)
 {
     Speed_Ctrl.Sig.Ref = We_Ref;
     Speed_Ctrl.Sig.Fbk = We_Fbk;

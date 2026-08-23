@@ -5,9 +5,7 @@
 #include "Start.h"
 #include "USB_Thread.h"
 
-
-#define PLOT_BUF_NONE    0xFFU
-
+#define PLOT_BUF_NONE 0xFFU
 
 typedef struct
 {
@@ -15,19 +13,17 @@ typedef struct
     float Scale;
 } Fast_Var_T;
 
-
 typedef struct
 {
     const volatile float *Data;
 } Normal_Var_T;
 
+static Plot_Group_T Plot_Group[2] = { 0 };
+static Fast_Var_T Fast_Var[AXDR_FAST_MAX_CH] = { 0 };
+static Normal_Var_T Normal_Var[AXDR_NORMAL_MAX_CH] = { 0 };
 
-static Plot_Group_T Plot_Group[2] = {0};
-static Fast_Var_T Fast_Var[AXDR_FAST_MAX_CH] = {0};
-static Normal_Var_T Normal_Var[AXDR_NORMAL_MAX_CH] = {0};
-
-static int16_t Fast_Buf[2][AXDR_FAST_BLOCK_SAMPLE * AXDR_FAST_MAX_CH] = {0};
-static float Normal_Buf[2][AXDR_NORMAL_MAX_CH] = {0};
+static int16_t Fast_Buf[2][AXDR_FAST_BLOCK_SAMPLE * AXDR_FAST_MAX_CH] = { 0 };
+static float Normal_Buf[2][AXDR_NORMAL_MAX_CH] = { 0 };
 
 static volatile uint8_t Fast_Fill = 0U;
 static volatile uint8_t Fast_Ready = PLOT_BUF_NONE;
@@ -41,7 +37,6 @@ static uint16_t Normal_Seq = 0U;
 
 volatile uint32_t Plot_Fast_Drop = 0U;
 volatile uint32_t Plot_Normal_Drop = 0U;
-
 
 static const volatile float *Plot_Data_Get(uint16_t Var_ID, float *Scale)
 {
@@ -113,7 +108,6 @@ static const volatile float *Plot_Data_Get(uint16_t Var_ID, float *Scale)
     }
 }
 
-
 static int16_t Plot_Fast_Quant(float Value, float Scale)
 {
     float Raw;
@@ -142,7 +136,6 @@ static int16_t Plot_Fast_Quant(float Value, float Scale)
     return (int16_t)Raw;
 }
 
-
 static void Plot_Fast_Flush(void)
 {
     Fast_Fill = 0U;
@@ -151,18 +144,13 @@ static void Plot_Fast_Flush(void)
     Fast_Tx_Sample = 0U;
 }
 
-
 static void Plot_Normal_Flush(void)
 {
     Normal_Fill = 0U;
     Normal_Ready = PLOT_BUF_NONE;
 }
 
-
-AxDr_Status_e Plot_Config(uint8_t Group,
-                          uint8_t Config_ID,
-                          const uint16_t *Var,
-                          uint8_t Count)
+AxDr_Status_e Plot_Config(uint8_t Group, uint8_t Config_ID, const uint16_t *Var, uint8_t Count)
 {
     uint8_t Max_Ch;
     float Scale;
@@ -181,9 +169,7 @@ AxDr_Status_e Plot_Config(uint8_t Group,
         return AXDR_ERR_STATE;
     }
 
-    Max_Ch = (Group == AXDR_PLOT_FAST)
-           ? AXDR_FAST_MAX_CH
-           : AXDR_NORMAL_MAX_CH;
+    Max_Ch = (Group == AXDR_PLOT_FAST) ? AXDR_FAST_MAX_CH : AXDR_NORMAL_MAX_CH;
 
     if ((Count == 0U) || (Count > Max_Ch))
     {
@@ -238,23 +224,19 @@ AxDr_Status_e Plot_Config(uint8_t Group,
     return AXDR_OK;
 }
 
-
 AxDr_Status_e Plot_Start(uint8_t Group_Mask)
 {
-    if ((Group_Mask == 0U) ||
-        ((Group_Mask & ~(AXDR_PLOT_FAST_MASK | AXDR_PLOT_NORMAL_MASK)) != 0U))
+    if ((Group_Mask == 0U) || ((Group_Mask & ~(AXDR_PLOT_FAST_MASK | AXDR_PLOT_NORMAL_MASK)) != 0U))
     {
         return AXDR_ERR_CONFIG;
     }
 
-    if (((Group_Mask & AXDR_PLOT_FAST_MASK) != 0U) &&
-        (Plot_Group[AXDR_PLOT_FAST].Valid == 0U))
+    if (((Group_Mask & AXDR_PLOT_FAST_MASK) != 0U) && (Plot_Group[AXDR_PLOT_FAST].Valid == 0U))
     {
         return AXDR_ERR_CONFIG;
     }
 
-    if (((Group_Mask & AXDR_PLOT_NORMAL_MASK) != 0U) &&
-        (Plot_Group[AXDR_PLOT_NORMAL].Valid == 0U))
+    if (((Group_Mask & AXDR_PLOT_NORMAL_MASK) != 0U) && (Plot_Group[AXDR_PLOT_NORMAL].Valid == 0U))
     {
         return AXDR_ERR_CONFIG;
     }
@@ -274,11 +256,9 @@ AxDr_Status_e Plot_Start(uint8_t Group_Mask)
     return AXDR_OK;
 }
 
-
 AxDr_Status_e Plot_Stop(uint8_t Group_Mask)
 {
-    if ((Group_Mask == 0U) ||
-        ((Group_Mask & ~(AXDR_PLOT_FAST_MASK | AXDR_PLOT_NORMAL_MASK)) != 0U))
+    if ((Group_Mask == 0U) || ((Group_Mask & ~(AXDR_PLOT_FAST_MASK | AXDR_PLOT_NORMAL_MASK)) != 0U))
     {
         return AXDR_ERR_CONFIG;
     }
@@ -298,7 +278,6 @@ AxDr_Status_e Plot_Stop(uint8_t Group_Mask)
     return AXDR_OK;
 }
 
-
 const Plot_Group_T *Plot_Group_Get(uint8_t Group)
 {
     if (Group > AXDR_PLOT_NORMAL)
@@ -308,7 +287,6 @@ const Plot_Group_T *Plot_Group_Get(uint8_t Group)
 
     return &Plot_Group[Group];
 }
-
 
 void Plot_Fast_Sample(void)
 {
@@ -330,8 +308,7 @@ void Plot_Fast_Sample(void)
 
     for (uint8_t n = 0U; n < Count; n++)
     {
-        Fast_Buf[Fill][Base + n] =
-            Plot_Fast_Quant(*Fast_Var[n].Data, Fast_Var[n].Scale);
+        Fast_Buf[Fill][Base + n] = Plot_Fast_Quant(*Fast_Var[n].Data, Fast_Var[n].Scale);
     }
 
     Fast_Sample_Cnt++;
@@ -353,7 +330,6 @@ void Plot_Fast_Sample(void)
     Fast_Fill ^= 1U;
     USB_Tx_Wake(USB_TX_FAST);
 }
-
 
 void Plot_Normal_Sample(void)
 {
@@ -384,7 +360,6 @@ void Plot_Normal_Sample(void)
     Normal_Fill ^= 1U;
     USB_Tx_Wake(USB_TX_NORMAL);
 }
-
 
 bool Plot_Fast_Pop(AxDr_Msg_T *Msg)
 {
@@ -443,7 +418,6 @@ bool Plot_Fast_Pop(AxDr_Msg_T *Msg)
 
     return true;
 }
-
 
 bool Plot_Normal_Pop(AxDr_Msg_T *Msg)
 {

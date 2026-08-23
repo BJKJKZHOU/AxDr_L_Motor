@@ -1,6 +1,5 @@
 #include "PID.h"
 
-
 void PID_Run(PID_T *Pid, float Ts)
 {
     float P;
@@ -14,8 +13,7 @@ void PID_Run(PID_T *Pid, float Ts)
     P = Pid->Para.Kp * Pid->Sig.Err;
 
     Int_Pre = Pid->State.Int;
-    Int = Int_Pre
-        + Pid->Para.Ki * Pid->Sig.Err * Ts;
+    Int = Int_Pre + Pid->Para.Ki * Pid->Sig.Err * Ts;
 
     if (Int > Pid->Para.Int_Max)
     {
@@ -26,9 +24,7 @@ void PID_Run(PID_T *Pid, float Ts)
         Int = Pid->Para.Int_Min;
     }
 
-    D = -Pid->Para.Kd
-      * (Pid->Sig.Fbk - Pid->State.Fbk_Pre)
-      / Ts;
+    D = -Pid->Para.Kd * (Pid->Sig.Fbk - Pid->State.Fbk_Pre) / Ts;
 
     Out = P + Int + D;
 

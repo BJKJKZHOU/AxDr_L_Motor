@@ -4,7 +4,6 @@
 #include "Motor_Type.h"
 #include "Identification.h"
 
-
 void Motor_Control(void);
 Motor_Fast_Mode_e Motor_Fast_Run(float Ia_A,
                                  float Ib_A,
@@ -30,6 +29,5 @@ bool Motor_Ident_Apply(void);
 void Torque_Target_Set(float Te);
 void Speed_Target_Set(float Wm);
 void Position_Target_Set(int32_t Turn, float Theta);
-
 
 #endif /* MOTOR_CONTROL_H */

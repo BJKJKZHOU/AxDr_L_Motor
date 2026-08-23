@@ -1,9 +1,7 @@
 #include "Align.h"
 
-
 static uint32_t Align_Cnt = 0U;
 static float Align_U_V = 0.0f;
-
 
 void Align_Reset(void)
 {
@@ -11,11 +9,7 @@ void Align_Reset(void)
     Align_U_V = 0.0f;
 }
 
-
-bool Align_Current(float Id_A,
-                   uint32_t Hold_Cnt,
-                   float *Id_Ref,
-                   float *Iq_Ref)
+bool Align_Current(float Id_A, uint32_t Hold_Cnt, float *Id_Ref, float *Iq_Ref)
 {
     *Id_Ref = Id_A;
     *Iq_Ref = 0.0f;
@@ -27,7 +21,6 @@ bool Align_Current(float Id_A,
 
     return Align_Cnt >= Hold_Cnt;
 }
-
 
 bool Align_Voltage(float U_Step_V,
                    float U_Max_V,

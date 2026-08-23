@@ -1,6 +1,5 @@
 #include "Math.h"
 
-
 int8_t Limit_Value(float *Value, float Min, float Max)
 {
     if (*Value > Max)
@@ -17,7 +16,6 @@ int8_t Limit_Value(float *Value, float Min, float Max)
 
     return 0;
 }
-
 
 void Vector2_Limit(float *X, float *Y, float Lim)
 {
@@ -45,7 +43,6 @@ void Vector2_Limit(float *X, float *Y, float Lim)
     *X *= Scale;
     *Y *= Scale;
 }
-
 
 float Angle_Wrap(float Theta)
 {

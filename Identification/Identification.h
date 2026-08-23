@@ -6,7 +6,6 @@
 
 #include "Motor_Type.h"
 
-
 typedef enum
 {
     IDENT_NONE = 0,
@@ -14,7 +13,6 @@ typedef enum
     IDENT_FLUX,
 
 } Ident_Mode_e;
-
 
 typedef enum
 {
@@ -24,7 +22,6 @@ typedef enum
     IDENT_FAILED,
 
 } Ident_State_e;
-
 
 bool Identification_Start(Ident_Mode_e Mode);
 void Identification_Abort(void);
@@ -43,6 +40,5 @@ Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
 Ident_Mode_e Identification_Mode_Get(void);
 Ident_State_e Identification_State_Get(void);
 uint8_t Identification_Stage_Get(void);
-
 
 #endif /* IDENTIFICATION_H */

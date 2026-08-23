@@ -1,0 +1,16 @@
+# STM32CubeMX-generated code.
+Core/**
+Drivers/**
+USBX/**
+Middlewares/**
+
+# CubeMX-generated ThreadX application files.
+AZURE_RTOS/App/app_azure_rtos.c
+AZURE_RTOS/App/app_azure_rtos.h
+AZURE_RTOS/App/app_azure_rtos_config.h
+
+# Third-party code.
+ThirdParty/**
+
+# Generated startup source.
+startup_stm32g474xx.s

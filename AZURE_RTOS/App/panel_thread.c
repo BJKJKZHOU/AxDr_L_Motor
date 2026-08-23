@@ -5,12 +5,10 @@
 #include "RGB.h"
 #include "motor_thread.h"
 
-
-#define PANEL_STACK_SIZE    512U
-#define PANEL_THREAD_PRIO   10U
-#define KEY_SCAN_TICK       5U
-#define KEY_STABLE_CNT      3U
-
+#define PANEL_STACK_SIZE  512U
+#define PANEL_THREAD_PRIO 10U
+#define KEY_SCAN_TICK     5U
+#define KEY_STABLE_CNT    3U
 
 typedef struct
 {
@@ -20,9 +18,7 @@ typedef struct
 
 } Key_T;
 
-
 static TX_THREAD Panel_Thread;
-
 
 static uint32_t Key_Press(Key_T *Key, GPIO_TypeDef *Port, uint16_t Pin)
 {
@@ -49,7 +45,6 @@ static uint32_t Key_Press(Key_T *Key, GPIO_TypeDef *Port, uint16_t Pin)
     return 0U;
 }
 
-
 static void Panel_LED(Motor_State_e State)
 {
     switch (State)
@@ -72,11 +67,10 @@ static void Panel_LED(Motor_State_e State)
     }
 }
 
-
 static void Panel_Entry(ULONG thread_input)
 {
-    Key_T Key1 = {GPIO_PIN_SET, GPIO_PIN_SET, 0U};
-    Key_T Key2 = {GPIO_PIN_SET, GPIO_PIN_SET, 0U};
+    Key_T Key1 = { GPIO_PIN_SET, GPIO_PIN_SET, 0U };
+    Key_T Key2 = { GPIO_PIN_SET, GPIO_PIN_SET, 0U };
     Motor_State_e State;
     Motor_State_e State_Pre;
     ULONG Cmd;
@@ -116,7 +110,6 @@ static void Panel_Entry(ULONG thread_input)
     }
 }
 
-
 UINT Panel_Thread_Init(VOID *memory_ptr)
 {
     TX_BYTE_POOL *byte_pool;
@@ -124,15 +117,21 @@ UINT Panel_Thread_Init(VOID *memory_ptr)
 
     byte_pool = (TX_BYTE_POOL *)memory_ptr;
 
-    if (tx_byte_allocate(byte_pool, (VOID **)&pointer,
-                         PANEL_STACK_SIZE, TX_NO_WAIT) != TX_SUCCESS)
+    if (tx_byte_allocate(byte_pool, (VOID **)&pointer, PANEL_STACK_SIZE, TX_NO_WAIT) != TX_SUCCESS)
     {
         return TX_POOL_ERROR;
     }
 
-    if (tx_thread_create(&Panel_Thread, "Panel Thread", Panel_Entry, 0U, pointer,
-                         PANEL_STACK_SIZE, PANEL_THREAD_PRIO, PANEL_THREAD_PRIO,
-                         TX_NO_TIME_SLICE, TX_AUTO_START) != TX_SUCCESS)
+    if (tx_thread_create(&Panel_Thread,
+                         "Panel Thread",
+                         Panel_Entry,
+                         0U,
+                         pointer,
+                         PANEL_STACK_SIZE,
+                         PANEL_THREAD_PRIO,
+                         PANEL_THREAD_PRIO,
+                         TX_NO_TIME_SLICE,
+                         TX_AUTO_START) != TX_SUCCESS)
     {
         return TX_THREAD_ERROR;
     }

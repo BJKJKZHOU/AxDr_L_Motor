@@ -5,12 +5,11 @@
 #include "PID.h"
 #include "motor_params.h"
 
-
 /* Fast-loop timing source. Current control runs once per PWM period. */
-#define PWM_FREQ_HZ_DEFAULT    20000.0f
-#define CUR_FREQ_HZ_DEFAULT    PWM_FREQ_HZ_DEFAULT
-#define CUR_TS                 (1.0f / CUR_FREQ_HZ_DEFAULT)
-#define VOLT_MOD_MAX           0.95f
+#define PWM_FREQ_HZ_DEFAULT 20000.0f
+#define CUR_FREQ_HZ_DEFAULT PWM_FREQ_HZ_DEFAULT
+#define CUR_TS              (1.0f / CUR_FREQ_HZ_DEFAULT)
+#define VOLT_MOD_MAX        0.95f
 
 /*
  * TIM1 CH4/CH5 timing is expressed as physical time, not fixed CCR values.
@@ -28,9 +27,8 @@
  * Changing PWM_FREQ_HZ_DEFAULT therefore moves ARR/CCR4/CCR5 together while
  * preserving the measured peripheral timing in seconds.
  */
-#define ADC_TRIG_CENTER_S      2.09375e-6f
-#define ENC_TRIG_LEAD_S        8.90625e-6f
-
+#define ADC_TRIG_CENTER_S 2.09375e-6f
+#define ENC_TRIG_LEAD_S   8.90625e-6f
 
 /*
  * Current-loop PI design.
@@ -50,18 +48,17 @@
  *
  * Id uses Ld and Iq uses Lq.
  */
-#define CUR_BW_HZ_DEFAULT      1000.0f
-#define CUR_WC_DEFAULT         (TWO_PI_F * CUR_BW_HZ_DEFAULT)
+#define CUR_BW_HZ_DEFAULT 1000.0f
+#define CUR_WC_DEFAULT    (TWO_PI_F * CUR_BW_HZ_DEFAULT)
 
-#define ID_KP_DEFAULT          (MOTOR_LD_DEFAULT * CUR_WC_DEFAULT)
-#define ID_KI_DEFAULT          (MOTOR_RS_DEFAULT * CUR_WC_DEFAULT)
+#define ID_KP_DEFAULT (MOTOR_LD_DEFAULT * CUR_WC_DEFAULT)
+#define ID_KI_DEFAULT (MOTOR_RS_DEFAULT * CUR_WC_DEFAULT)
 
-#define IQ_KP_DEFAULT          (MOTOR_LQ_DEFAULT * CUR_WC_DEFAULT)
-#define IQ_KI_DEFAULT          (MOTOR_RS_DEFAULT * CUR_WC_DEFAULT)
+#define IQ_KP_DEFAULT (MOTOR_LQ_DEFAULT * CUR_WC_DEFAULT)
+#define IQ_KI_DEFAULT (MOTOR_RS_DEFAULT * CUR_WC_DEFAULT)
 
-
-#define ID_CTRL_DEFAULT                \
-{                                      \
+#define ID_CTRL_DEFAULT                                                                                                \
+    {                                      \
     .Para =                            \
     {                                  \
         .Kp = ID_KP_DEFAULT,           \
@@ -70,8 +67,8 @@
     },                                 \
 }
 
-#define IQ_CTRL_DEFAULT                \
-{                                      \
+#define IQ_CTRL_DEFAULT                                                                                                \
+    {                                      \
     .Para =                            \
     {                                  \
         .Kp = IQ_KP_DEFAULT,           \
@@ -80,26 +77,23 @@
     },                                 \
 }
 
-
 /* Open-loop electrical startup. */
-#define OPEN_ALIGN_ID_A         0.2f
-#define OPEN_ALIGN_TIME_S       0.5f
-#define OPEN_ALIGN_CNT          ((uint32_t)(OPEN_ALIGN_TIME_S / CUR_TS + 0.5f))
-#define OPEN_IQ_A               0.2f
-#define OPEN_WE_RAD_S           20.0f
-
+#define OPEN_ALIGN_ID_A   0.2f
+#define OPEN_ALIGN_TIME_S 0.5f
+#define OPEN_ALIGN_CNT    ((uint32_t)(OPEN_ALIGN_TIME_S / CUR_TS + 0.5f))
+#define OPEN_IQ_A         0.2f
+#define OPEN_WE_RAD_S     20.0f
 
 /* Sensorless I/F startup. Electrical speed and acceleration use rad/s. */
-#define IF_ALIGN_ID_A           1.0f
-#define IF_ALIGN_TIME_S         1.0f
-#define IF_ALIGN_CNT            ((uint32_t)(IF_ALIGN_TIME_S / CUR_TS + 0.5f))
-#define IF_IQ_START_A           1.0f
-#define IF_IQ_TARGET_A          1.6f
-#define IF_WE_TARGET_RAD_S      120.0f
-#define IF_ACC_RAD_S2           15.0f
-#define IF_HOLD_TIME_S          0.3f
-#define IF_HOLD_CNT             ((uint32_t)(IF_HOLD_TIME_S / CUR_TS + 0.5f))
-
+#define IF_ALIGN_ID_A      1.0f
+#define IF_ALIGN_TIME_S    1.0f
+#define IF_ALIGN_CNT       ((uint32_t)(IF_ALIGN_TIME_S / CUR_TS + 0.5f))
+#define IF_IQ_START_A      1.0f
+#define IF_IQ_TARGET_A     1.6f
+#define IF_WE_TARGET_RAD_S 120.0f
+#define IF_ACC_RAD_S2      15.0f
+#define IF_HOLD_TIME_S     0.3f
+#define IF_HOLD_CNT        ((uint32_t)(IF_HOLD_TIME_S / CUR_TS + 0.5f))
 
 /*
  * Speed-loop PI design.
@@ -128,26 +122,22 @@
  *
  * Speed PI output is Iq_Ref directly.
  */
-#define SPD_FREQ_HZ_DEFAULT    2000.0f
-#define SPD_TS                 (1.0f / SPD_FREQ_HZ_DEFAULT)
-#define SPD_FBK_ALPHA_DEFAULT  0.38586955f /* 200 Hz LPF at 2 kHz */
+#define SPD_FREQ_HZ_DEFAULT   2000.0f
+#define SPD_TS                (1.0f / SPD_FREQ_HZ_DEFAULT)
+#define SPD_FBK_ALPHA_DEFAULT 0.38586955f /* 200 Hz LPF at 2 kHz */
 
-#define SPD_BW_HZ_DEFAULT      50.0f
-#define SPD_WC_DEFAULT         (TWO_PI_F * SPD_BW_HZ_DEFAULT)
+#define SPD_BW_HZ_DEFAULT 50.0f
+#define SPD_WC_DEFAULT    (TWO_PI_F * SPD_BW_HZ_DEFAULT)
 
-#define SPD_KP_DEFAULT         (MOTOR_J_DEFAULT * SPD_WC_DEFAULT / \
-                                ((float)MOTOR_PP_DEFAULT * MOTOR_KT_DEFAULT))
-#define SPD_KI_DEFAULT         (MOTOR_B_DEFAULT * SPD_WC_DEFAULT / \
-                                ((float)MOTOR_PP_DEFAULT * MOTOR_KT_DEFAULT))
+#define SPD_KP_DEFAULT (MOTOR_J_DEFAULT * SPD_WC_DEFAULT / ((float)MOTOR_PP_DEFAULT * MOTOR_KT_DEFAULT))
+#define SPD_KI_DEFAULT (MOTOR_B_DEFAULT * SPD_WC_DEFAULT / ((float)MOTOR_PP_DEFAULT * MOTOR_KT_DEFAULT))
 
+#define POS_FREQ_HZ_DEFAULT 1000.0f
+#define POS_TS              (1.0f / POS_FREQ_HZ_DEFAULT)
+#define POS_KP_DEFAULT      5.0f /* (rad/s)/rad */
 
-#define POS_FREQ_HZ_DEFAULT    1000.0f
-#define POS_TS                 (1.0f / POS_FREQ_HZ_DEFAULT)
-#define POS_KP_DEFAULT         5.0f /* (rad/s)/rad */
-
-
-#define POSITION_CTRL_DEFAULT          \
-{                                      \
+#define POSITION_CTRL_DEFAULT                                                                                          \
+    {                                      \
     .Para =                            \
     {                                  \
         .Kp = POS_KP_DEFAULT,          \
@@ -156,9 +146,8 @@
     },                                 \
 }
 
-
-#define SPEED_CTRL_DEFAULT             \
-{                                      \
+#define SPEED_CTRL_DEFAULT                                                                                             \
+    {                                      \
     .Para =                            \
     {                                  \
         .Kp = SPD_KP_DEFAULT,          \
@@ -166,6 +155,5 @@
         .Kd = 0.0f,                    \
     },                                 \
 }
-
 
 #endif /* USER_CONTROL_PARAMS_H */

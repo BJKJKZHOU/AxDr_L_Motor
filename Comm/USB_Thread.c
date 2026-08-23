@@ -8,27 +8,23 @@
 #include "ux_api.h"
 #include "ux_device_class_cdc_acm.h"
 
-
-#define USB_TX_STACK_SIZE    1024U
-#define USB_TX_THREAD_PRIO   11U
-#define USB_RX_READ_SIZE     64U
-#define USB_RX_STREAM_SIZE   160U
-#define USB_FRAME_HEAD_SIZE  7U
-
+#define USB_TX_STACK_SIZE   1024U
+#define USB_TX_THREAD_PRIO  11U
+#define USB_RX_READ_SIZE    64U
+#define USB_RX_STREAM_SIZE  160U
+#define USB_FRAME_HEAD_SIZE 7U
 
 static TX_THREAD USB_Tx_Thread_Obj;
 static TX_EVENT_FLAGS_GROUP USB_Tx_Event;
-static UX_SLAVE_CLASS_CDC_ACM * volatile Cdc_Acm = UX_NULL;
+static UX_SLAVE_CLASS_CDC_ACM *volatile Cdc_Acm = UX_NULL;
 
 static uint8_t USB_Rx_Stream[USB_RX_STREAM_SIZE];
 static uint16_t USB_Rx_Len = 0U;
 static volatile ULONG USB_Tx_Pending = 0U;
 
-
 static VOID USB_Tx_Entry(ULONG thread_input);
 static void USB_Rx_Data(const uint8_t *Data, uint16_t Len);
 static UINT USB_Write(const AxDr_Msg_T *Msg);
-
 
 void USB_Activate(void *Cdc)
 {
@@ -36,13 +32,11 @@ void USB_Activate(void *Cdc)
     USB_Tx_Wake(USB_TX_ALL);
 }
 
-
 void USB_Deactivate(void)
 {
     Cdc_Acm = UX_NULL;
     USB_Rx_Len = 0U;
 }
-
 
 UINT USB_Tx_Thread_Init(TX_BYTE_POOL *Byte_Pool)
 {
@@ -53,23 +47,27 @@ UINT USB_Tx_Thread_Init(TX_BYTE_POOL *Byte_Pool)
         return TX_GROUP_ERROR;
     }
 
-    if (tx_byte_allocate(Byte_Pool, (VOID **)&Stack,
-                         USB_TX_STACK_SIZE, TX_NO_WAIT) != TX_SUCCESS)
+    if (tx_byte_allocate(Byte_Pool, (VOID **)&Stack, USB_TX_STACK_SIZE, TX_NO_WAIT) != TX_SUCCESS)
     {
         return TX_POOL_ERROR;
     }
 
-    if (tx_thread_create(&USB_Tx_Thread_Obj, "USB TX", USB_Tx_Entry, 0U,
-                         Stack, USB_TX_STACK_SIZE,
-                         USB_TX_THREAD_PRIO, USB_TX_THREAD_PRIO,
-                         TX_NO_TIME_SLICE, TX_AUTO_START) != TX_SUCCESS)
+    if (tx_thread_create(&USB_Tx_Thread_Obj,
+                         "USB TX",
+                         USB_Tx_Entry,
+                         0U,
+                         Stack,
+                         USB_TX_STACK_SIZE,
+                         USB_TX_THREAD_PRIO,
+                         USB_TX_THREAD_PRIO,
+                         TX_NO_TIME_SLICE,
+                         TX_AUTO_START) != TX_SUCCESS)
     {
         return TX_THREAD_ERROR;
     }
 
     return TX_SUCCESS;
 }
-
 
 void USB_Rx_Thread(void)
 {
@@ -89,8 +87,7 @@ void USB_Rx_Thread(void)
         }
 
         Len = 0U;
-        Status = ux_device_class_cdc_acm_read(Cdc, Buf,
-                                               USB_RX_READ_SIZE, &Len);
+        Status = ux_device_class_cdc_acm_read(Cdc, Buf, USB_RX_READ_SIZE, &Len);
 
         if ((Status == UX_SUCCESS) && (Len != 0U))
         {
@@ -102,7 +99,6 @@ void USB_Rx_Thread(void)
         }
     }
 }
-
 
 void USB_Tx_Wake(ULONG Flag)
 {
@@ -119,7 +115,6 @@ void USB_Tx_Wake(ULONG Flag)
     USB_Tx_Pending |= Flag;
     __set_PRIMASK(Primask);
 }
-
 
 void USB_Tx_Poll(void)
 {
@@ -138,7 +133,6 @@ void USB_Tx_Poll(void)
     }
 }
 
-
 static VOID USB_Tx_Entry(ULONG thread_input)
 {
     ULONG Flags;
@@ -149,11 +143,7 @@ static VOID USB_Tx_Entry(ULONG thread_input)
 
     while (1)
     {
-        if (tx_event_flags_get(&USB_Tx_Event,
-                               USB_TX_ALL,
-                               TX_OR_CLEAR,
-                               &Flags,
-                               TX_WAIT_FOREVER) != TX_SUCCESS)
+        if (tx_event_flags_get(&USB_Tx_Event, USB_TX_ALL, TX_OR_CLEAR, &Flags, TX_WAIT_FOREVER) != TX_SUCCESS)
         {
             continue;
         }
@@ -188,7 +178,6 @@ static VOID USB_Tx_Entry(ULONG thread_input)
         }
     }
 }
-
 
 static UINT USB_Write(const AxDr_Msg_T *Msg)
 {
@@ -228,7 +217,6 @@ static UINT USB_Write(const AxDr_Msg_T *Msg)
     return (Actual == Len) ? UX_SUCCESS : UX_ERROR;
 }
 
-
 static void USB_Rx_Data(const uint8_t *Data, uint16_t Len)
 {
     uint16_t Magic;
@@ -250,10 +238,8 @@ static void USB_Rx_Data(const uint8_t *Data, uint16_t Len)
 
         while ((Magic + 4U) <= USB_Rx_Len)
         {
-            if ((USB_Rx_Stream[Magic] == 'A') &&
-                (USB_Rx_Stream[Magic + 1U] == 'X') &&
-                (USB_Rx_Stream[Magic + 2U] == 'D') &&
-                (USB_Rx_Stream[Magic + 3U] == 'R'))
+            if ((USB_Rx_Stream[Magic] == 'A') && (USB_Rx_Stream[Magic + 1U] == 'X') &&
+                (USB_Rx_Stream[Magic + 2U] == 'D') && (USB_Rx_Stream[Magic + 3U] == 'R'))
             {
                 break;
             }
@@ -265,8 +251,7 @@ static void USB_Rx_Data(const uint8_t *Data, uint16_t Len)
         {
             if (USB_Rx_Len > 3U)
             {
-                memmove(USB_Rx_Stream,
-                        &USB_Rx_Stream[USB_Rx_Len - 3U], 3U);
+                memmove(USB_Rx_Stream, &USB_Rx_Stream[USB_Rx_Len - 3U], 3U);
                 USB_Rx_Len = 3U;
             }
             return;
@@ -274,8 +259,7 @@ static void USB_Rx_Data(const uint8_t *Data, uint16_t Len)
 
         if (Magic != 0U)
         {
-            memmove(USB_Rx_Stream, &USB_Rx_Stream[Magic],
-                    USB_Rx_Len - Magic);
+            memmove(USB_Rx_Stream, &USB_Rx_Stream[Magic], USB_Rx_Len - Magic);
             USB_Rx_Len = (uint16_t)(USB_Rx_Len - Magic);
         }
 
@@ -284,8 +268,7 @@ static void USB_Rx_Data(const uint8_t *Data, uint16_t Len)
             return;
         }
 
-        Can_ID = (uint16_t)USB_Rx_Stream[4]
-               | ((uint16_t)USB_Rx_Stream[5] << 8);
+        Can_ID = (uint16_t)USB_Rx_Stream[4] | ((uint16_t)USB_Rx_Stream[5] << 8);
         Data_Len = USB_Rx_Stream[6];
 
         if ((Can_ID > 0x07FFU) || (Data_Len > AXDR_MAX_DATA_LEN))

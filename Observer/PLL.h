@@ -1,14 +1,12 @@
 #ifndef PLL_H
 #define PLL_H
 
-
 typedef struct
 {
     float Kp;
     float Ki;
 
 } PLL_Para_T;
-
 
 typedef struct
 {
@@ -18,7 +16,6 @@ typedef struct
 
 } PLL_State_T;
 
-
 typedef struct
 {
     PLL_Para_T Para;
@@ -26,16 +23,8 @@ typedef struct
 
 } PLL_T;
 
+void PLL_Reset(PLL_T *Pll, float Theta, float We);
 
-void PLL_Reset(PLL_T *Pll,
-               float Theta,
-               float We);
-
-void PLL_Run(PLL_T *Pll,
-             float X,
-             float Y,
-             float Mag_Ref,
-             float Ts);
-
+void PLL_Run(PLL_T *Pll, float X, float Y, float Mag_Ref, float Ts);
 
 #endif /* PLL_H */

@@ -8,24 +8,21 @@
 #include "Sin_LUT.h"
 #include "control_params.h"
 
+#define FLUX_POINT_NUM               4U
+#define FLUX_IDENT_WE_1_RAD_S        120.0f
+#define FLUX_IDENT_WE_2_RAD_S        160.0f
+#define FLUX_IDENT_WE_3_RAD_S        200.0f
+#define FLUX_IDENT_WE_4_RAD_S        240.0f
+#define FLUX_IDENT_SETTLE_TIME_S     0.30f
+#define FLUX_IDENT_MEASURE_TIME_S    0.20f
+#define FLUX_IDENT_SETTLE_CNT        ((uint32_t)(FLUX_IDENT_SETTLE_TIME_S / CUR_TS + 0.5f))
+#define FLUX_IDENT_MEASURE_CNT       ((uint32_t)(FLUX_IDENT_MEASURE_TIME_S / CUR_TS + 0.5f))
+#define FLUX_IDENT_FINISH_IQ_DEC_A_S 20.0f
+#define FLUX_IDENT_FINISH_I_A        0.20f
+#define FLUX_IDENT_FINISH_TIME_S     0.002f
+#define FLUX_IDENT_FINISH_CNT        ((uint32_t)(FLUX_IDENT_FINISH_TIME_S / CUR_TS + 0.5f))
 
-#define FLUX_POINT_NUM                 4U
-#define FLUX_IDENT_WE_1_RAD_S          120.0f
-#define FLUX_IDENT_WE_2_RAD_S          160.0f
-#define FLUX_IDENT_WE_3_RAD_S          200.0f
-#define FLUX_IDENT_WE_4_RAD_S          240.0f
-#define FLUX_IDENT_SETTLE_TIME_S       0.30f
-#define FLUX_IDENT_MEASURE_TIME_S      0.20f
-#define FLUX_IDENT_SETTLE_CNT          ((uint32_t)(FLUX_IDENT_SETTLE_TIME_S / CUR_TS + 0.5f))
-#define FLUX_IDENT_MEASURE_CNT         ((uint32_t)(FLUX_IDENT_MEASURE_TIME_S / CUR_TS + 0.5f))
-#define FLUX_IDENT_FINISH_IQ_DEC_A_S   20.0f
-#define FLUX_IDENT_FINISH_I_A          0.20f
-#define FLUX_IDENT_FINISH_TIME_S       0.002f
-#define FLUX_IDENT_FINISH_CNT          ((uint32_t)(FLUX_IDENT_FINISH_TIME_S / CUR_TS + 0.5f))
-
-
-static const float Flux_We_Point[FLUX_POINT_NUM] =
-{
+static const float Flux_We_Point[FLUX_POINT_NUM] = {
     FLUX_IDENT_WE_1_RAD_S,
     FLUX_IDENT_WE_2_RAD_S,
     FLUX_IDENT_WE_3_RAD_S,
@@ -33,24 +30,22 @@ static const float Flux_We_Point[FLUX_POINT_NUM] =
 };
 
 static volatile Flux_State_e Flux_State = FLUX_IDLE;
-static Flux_Result_T Flux_Result = {0};
+static Flux_Result_T Flux_Result = { 0 };
 static uint8_t Flux_Point = 0U;
 static uint32_t Flux_Cnt = 0U;
 static uint32_t Flux_Meas_Cnt = 0U;
 static float Flux_E_Sum = 0.0f;
-static float Flux_We_Mean[FLUX_POINT_NUM] = {0};
-static float Flux_E_Mean[FLUX_POINT_NUM] = {0};
+static float Flux_We_Mean[FLUX_POINT_NUM] = { 0 };
+static float Flux_E_Mean[FLUX_POINT_NUM] = { 0 };
 static float Flux_Theta_Pre = 0.0f;
 static float Flux_Finish_Iq_Ref = 0.0f;
 static uint8_t Flux_U_Valid = 0U;
 static uint8_t Flux_Finish_Init = 0U;
 
-
 static float Abs_Value(float Value)
 {
     return (Value >= 0.0f) ? Value : -Value;
 }
-
 
 static void Flux_Measure(float Ia_A, float Ib_A)
 {
@@ -85,7 +80,6 @@ static void Flux_Measure(float Ia_A, float Ib_A)
     Flux_Meas_Cnt++;
 }
 
-
 void Flux_Start(void)
 {
     Flux_Reset();
@@ -93,7 +87,6 @@ void Flux_Start(void)
     Current_Loop_State_Reset();
     Flux_State = FLUX_ALIGN;
 }
-
 
 void Flux_Reset(void)
 {
@@ -118,13 +111,11 @@ void Flux_Reset(void)
     }
 }
 
-
 void Flux_Fail(void)
 {
     Flux_State = FLUX_FAILED;
     Flux_Result.Valid = false;
 }
-
 
 void Flux_Control(void)
 {
@@ -162,26 +153,19 @@ void Flux_Control(void)
         return;
     }
 
-    Flux_Result.Flux_Wb =
-        ((float)FLUX_POINT_NUM * Sum_XY - Sum_X * Sum_Y) / Den;
-    Flux_Result.V_Offset_V =
-        (Sum_Y - Flux_Result.Flux_Wb * Sum_X) / (float)FLUX_POINT_NUM;
+    Flux_Result.Flux_Wb = ((float)FLUX_POINT_NUM * Sum_XY - Sum_X * Sum_Y) / Den;
+    Flux_Result.V_Offset_V = (Sum_Y - Flux_Result.Flux_Wb * Sum_X) / (float)FLUX_POINT_NUM;
 
     Y_Mean = Sum_Y / (float)FLUX_POINT_NUM;
 
     for (uint8_t n = 0U; n < FLUX_POINT_NUM; n++)
     {
-        Y_Est = Flux_Result.Flux_Wb * Flux_We_Mean[n]
-              + Flux_Result.V_Offset_V;
-        SS_Tot += (Flux_E_Mean[n] - Y_Mean)
-                * (Flux_E_Mean[n] - Y_Mean);
-        SS_Err += (Flux_E_Mean[n] - Y_Est)
-                * (Flux_E_Mean[n] - Y_Est);
+        Y_Est = Flux_Result.Flux_Wb * Flux_We_Mean[n] + Flux_Result.V_Offset_V;
+        SS_Tot += (Flux_E_Mean[n] - Y_Mean) * (Flux_E_Mean[n] - Y_Mean);
+        SS_Err += (Flux_E_Mean[n] - Y_Est) * (Flux_E_Mean[n] - Y_Est);
     }
 
-    Flux_Result.Fit_R2 = (SS_Tot > 0.0f)
-                       ? (1.0f - SS_Err / SS_Tot)
-                       : 0.0f;
+    Flux_Result.Fit_R2 = (SS_Tot > 0.0f) ? (1.0f - SS_Err / SS_Tot) : 0.0f;
 
     /* First hardware version keeps validity deliberately minimal.
      * Fit_R2 is reported for tuning; a quality threshold will be set from data. */
@@ -191,20 +175,12 @@ void Flux_Control(void)
     Flux_State = FLUX_FINISH;
 }
 
-
 bool Flux_Active(void)
 {
-    return (Flux_State != FLUX_IDLE) &&
-           (Flux_State != FLUX_DONE) &&
-           (Flux_State != FLUX_FAILED);
+    return (Flux_State != FLUX_IDLE) && (Flux_State != FLUX_DONE) && (Flux_State != FLUX_FAILED);
 }
 
-
-Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A,
-                                float Ib_A,
-                                float Ic_A,
-                                float *Id_Ref,
-                                float *Iq_Ref)
+Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Id_Ref, float *Iq_Ref)
 {
     float Theta_e;
     float Iq_Step;
@@ -221,10 +197,7 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A,
     {
         Motor_Run.Theta_e = 0.0f;
 
-        if (Align_Current(IF_ALIGN_ID_A,
-                          IF_ALIGN_CNT,
-                          Id_Ref,
-                          Iq_Ref))
+        if (Align_Current(IF_ALIGN_ID_A, IF_ALIGN_CNT, Id_Ref, Iq_Ref))
         {
             Current_Loop_State_Reset();
             IF_Start_Reset(-0.5f * PI_F, 1);
@@ -264,10 +237,8 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A,
         *Id_Ref = 0.0f;
         *Iq_Ref = Flux_Finish_Iq_Ref;
 
-        if ((Flux_Finish_Iq_Ref == 0.0f) &&
-            (Abs_Value(Ia_A) <= FLUX_IDENT_FINISH_I_A) &&
-            (Abs_Value(Ib_A) <= FLUX_IDENT_FINISH_I_A) &&
-            (Abs_Value(Ic_A) <= FLUX_IDENT_FINISH_I_A))
+        if ((Flux_Finish_Iq_Ref == 0.0f) && (Abs_Value(Ia_A) <= FLUX_IDENT_FINISH_I_A) &&
+            (Abs_Value(Ib_A) <= FLUX_IDENT_FINISH_I_A) && (Abs_Value(Ic_A) <= FLUX_IDENT_FINISH_I_A))
         {
             if (++Flux_Cnt >= FLUX_IDENT_FINISH_CNT)
             {
@@ -335,12 +306,10 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A,
     return FAST_CURRENT;
 }
 
-
 Flux_State_e Flux_State_Get(void)
 {
     return Flux_State;
 }
-
 
 const Flux_Result_T *Flux_Result_Get(void)
 {

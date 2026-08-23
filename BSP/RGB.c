@@ -2,18 +2,15 @@
 
 #include "tim.h"
 
-
 /* TIM2 runs at 160 MHz: one bit is 2 us, T0H is 0.281 us and T1H is 0.9 us. */
-#define RGB_DATA_BITS      24U
-#define RGB_RESET_CNT      128U  /* 256 us low level */
-#define RGB_DATA_POS       RGB_RESET_CNT
-#define RGB_BUF_LEN        (RGB_RESET_CNT + RGB_DATA_BITS + RGB_RESET_CNT)
-#define RGB_T0H_CNT        45U
-#define RGB_T1H_CNT        144U
-
+#define RGB_DATA_BITS 24U
+#define RGB_RESET_CNT 128U /* 256 us low level */
+#define RGB_DATA_POS  RGB_RESET_CNT
+#define RGB_BUF_LEN   (RGB_RESET_CNT + RGB_DATA_BITS + RGB_RESET_CNT)
+#define RGB_T0H_CNT   45U
+#define RGB_T1H_CNT   144U
 
 static uint32_t RGB_Buf[RGB_BUF_LEN];
-
 
 static void RGB_DMA_Stop(DMA_HandleTypeDef *Dma)
 {
@@ -25,7 +22,6 @@ static void RGB_DMA_Stop(DMA_HandleTypeDef *Dma)
     (void)HAL_TIM_PWM_Stop(Tim, TIM_CHANNEL_1);
 }
 
-
 void RGB_Set(uint8_t R, uint8_t G, uint8_t B)
 {
     DMA_HandleTypeDef *Dma = htim2.hdma[TIM_DMA_ID_UPDATE];
@@ -33,8 +29,7 @@ void RGB_Set(uint8_t R, uint8_t G, uint8_t B)
     uint32_t Mask;
     uint32_t i;
 
-    if ((HAL_TIM_DMABurstState(&htim2) != HAL_DMA_BURST_STATE_READY) ||
-        (Dma->State != HAL_DMA_STATE_READY))
+    if ((HAL_TIM_DMABurstState(&htim2) != HAL_DMA_BURST_STATE_READY) || (Dma->State != HAL_DMA_STATE_READY))
     {
         return;
     }

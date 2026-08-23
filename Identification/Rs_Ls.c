@@ -7,43 +7,41 @@
 #include "Sin_LUT.h"
 #include "control_params.h"
 
+#define RS_LS_FREQ_HZ    100.0f
+#define RS_LS_PHASE_STEP (TWO_PI_F * RS_LS_FREQ_HZ * CUR_TS)
 
-#define RS_LS_FREQ_HZ                100.0f
-#define RS_LS_PHASE_STEP              (TWO_PI_F * RS_LS_FREQ_HZ * CUR_TS)
+#define RS_LS_PROBE_I_TARGET_A    0.2f
+#define RS_LS_PROBE_U_MAX_V       0.5f
+#define RS_LS_PROBE_U_STEP_V      0.01f
+#define RS_LS_PROBE_MEASURE_CYCLE 5U
 
-#define RS_LS_PROBE_I_TARGET_A        0.2f
-#define RS_LS_PROBE_U_MAX_V           0.5f
-#define RS_LS_PROBE_U_STEP_V          0.01f
-#define RS_LS_PROBE_MEASURE_CYCLE     5U
+#define RS_LS_ALIGN_I_TARGET_A 1.0f
+#define RS_LS_ALIGN_BW_HZ      200.0f
+#define RS_LS_ALIGN_TIME_S     0.5f
+#define RS_LS_ALIGN_CNT        ((uint32_t)(RS_LS_ALIGN_TIME_S / CUR_TS + 0.5f))
 
-#define RS_LS_ALIGN_I_TARGET_A        1.0f
-#define RS_LS_ALIGN_BW_HZ             200.0f
-#define RS_LS_ALIGN_TIME_S            0.5f
-#define RS_LS_ALIGN_CNT               ((uint32_t)(RS_LS_ALIGN_TIME_S / CUR_TS + 0.5f))
+#define RS_LS_AC_I_TARGET_A 0.4f
+#define RS_LS_AC_U_MAX_V    1.0f
+#define RS_LS_AC_U_STEP_V   0.005f
 
-#define RS_LS_AC_I_TARGET_A           0.4f
-#define RS_LS_AC_U_MAX_V              1.0f
-#define RS_LS_AC_U_STEP_V             0.005f
+#define RS_LS_SETTLE_TIME_S 0.2f
+#define RS_LS_SETTLE_CNT    ((uint32_t)(RS_LS_SETTLE_TIME_S / CUR_TS + 0.5f))
 
-#define RS_LS_SETTLE_TIME_S           0.2f
-#define RS_LS_SETTLE_CNT              ((uint32_t)(RS_LS_SETTLE_TIME_S / CUR_TS + 0.5f))
+#define RS_LS_SAMPLE_PER_CYCLE  ((uint32_t)(CUR_FREQ_HZ_DEFAULT / RS_LS_FREQ_HZ + 0.5f))
+#define RS_LS_PROBE_MEASURE_CNT (RS_LS_SAMPLE_PER_CYCLE * RS_LS_PROBE_MEASURE_CYCLE)
+#define RS_LS_MEASURE_CYCLE     10U
+#define RS_LS_MEASURE_CNT       (RS_LS_SAMPLE_PER_CYCLE * RS_LS_MEASURE_CYCLE)
 
-#define RS_LS_SAMPLE_PER_CYCLE        ((uint32_t)(CUR_FREQ_HZ_DEFAULT / RS_LS_FREQ_HZ + 0.5f))
-#define RS_LS_PROBE_MEASURE_CNT       (RS_LS_SAMPLE_PER_CYCLE * RS_LS_PROBE_MEASURE_CYCLE)
-#define RS_LS_MEASURE_CYCLE           10U
-#define RS_LS_MEASURE_CNT             (RS_LS_SAMPLE_PER_CYCLE * RS_LS_MEASURE_CYCLE)
-
-#define RS_LS_I_AC_MIN_A              0.05f
-#define RS_LS_RS_MIN_OHM              0.0001f
-#define RS_LS_RS_MAX_OHM              20.0f
-#define RS_LS_LS_MIN_H                1.0e-7f
-#define RS_LS_LS_MAX_H                0.1f
-#define RS_LS_RS_REPEAT_MAX           0.10f
-#define RS_LS_LS_REPEAT_MAX           0.15f
-
+#define RS_LS_I_AC_MIN_A    0.05f
+#define RS_LS_RS_MIN_OHM    0.0001f
+#define RS_LS_RS_MAX_OHM    20.0f
+#define RS_LS_LS_MIN_H      1.0e-7f
+#define RS_LS_LS_MAX_H      0.1f
+#define RS_LS_RS_REPEAT_MAX 0.10f
+#define RS_LS_LS_REPEAT_MAX 0.15f
 
 static Rs_Ls_State_e Rs_Ls_State = RS_LS_IDLE;
-static Rs_Ls_Result_T Rs_Ls_Result = {0};
+static Rs_Ls_Result_T Rs_Ls_Result = { 0 };
 
 static uint32_t Rs_Ls_Cnt = 0U;
 static float Rs_Ls_Phase = 0.0f;
@@ -72,14 +70,12 @@ static float Id_Ki_Save = 0.0f;
 static float Iq_Kp_Save = 0.0f;
 static float Iq_Ki_Save = 0.0f;
 
-
 static void Ramp_Reset(void)
 {
     Ramp_Cnt = 0U;
     Ramp_I_Re = 0.0f;
     Ramp_I_Im = 0.0f;
 }
-
 
 static void Measure_Reset(void)
 {
@@ -90,7 +86,6 @@ static void Measure_Reset(void)
     I_Im = 0.0f;
 }
 
-
 static void PI_State_Reset(void)
 {
     Id_Ctrl.State.Int = 0.0f;
@@ -98,7 +93,6 @@ static void PI_State_Reset(void)
     Id_Ctrl.Sig.Out = 0.0f;
     Iq_Ctrl.Sig.Out = 0.0f;
 }
-
 
 static void PI_Temporary_Set(float Rs_Ohm, float Ls_H)
 {
@@ -123,7 +117,6 @@ static void PI_Temporary_Set(float Rs_Ohm, float Ls_H)
     PI_State_Reset();
 }
 
-
 static void PI_Restore(void)
 {
     if (!PI_Saved)
@@ -140,10 +133,7 @@ static void PI_Restore(void)
     PI_Saved = false;
 }
 
-
-static bool Measure_Calc(uint32_t Sample_Cnt,
-                         float *Rs_Ohm,
-                         float *Ls_H)
+static bool Measure_Calc(uint32_t Sample_Cnt, float *Rs_Ohm, float *Ls_H)
 {
     float Den;
     float I_Amp;
@@ -175,15 +165,11 @@ static bool Measure_Calc(uint32_t Sample_Cnt,
     return true;
 }
 
-
 static bool Result_Valid(float Rs_Ohm, float Ls_H)
 {
-    return (Rs_Ohm > RS_LS_RS_MIN_OHM) &&
-           (Rs_Ohm < RS_LS_RS_MAX_OHM) &&
-           (Ls_H > RS_LS_LS_MIN_H) &&
+    return (Rs_Ohm > RS_LS_RS_MIN_OHM) && (Rs_Ohm < RS_LS_RS_MAX_OHM) && (Ls_H > RS_LS_LS_MIN_H) &&
            (Ls_H < RS_LS_LS_MAX_H);
 }
-
 
 static bool Repeat_Valid(float A, float B, float Max_Ratio)
 {
@@ -200,7 +186,6 @@ static bool Repeat_Valid(float A, float B, float Max_Ratio)
 
     return (Ref > 0.0f) && ((Diff / Ref) <= Max_Ratio);
 }
-
 
 void Rs_Ls_Reset(void)
 {
@@ -229,13 +214,11 @@ void Rs_Ls_Reset(void)
     Rs_Ls_State = RS_LS_IDLE;
 }
 
-
 void Rs_Ls_Start(void)
 {
     Rs_Ls_Reset();
     Rs_Ls_State = RS_LS_PROBE_RAMP;
 }
-
 
 void Rs_Ls_Fail(void)
 {
@@ -244,14 +227,10 @@ void Rs_Ls_Fail(void)
     Rs_Ls_State = RS_LS_FAILED;
 }
 
-
 bool Rs_Ls_Active(void)
 {
-    return (Rs_Ls_State != RS_LS_IDLE) &&
-           (Rs_Ls_State != RS_LS_DONE) &&
-           (Rs_Ls_State != RS_LS_FAILED);
+    return (Rs_Ls_State != RS_LS_IDLE) && (Rs_Ls_State != RS_LS_DONE) && (Rs_Ls_State != RS_LS_FAILED);
 }
-
 
 void Rs_Ls_Run(float Ialpha_A, float *Ualpha_V, float *Ubeta_V)
 {
@@ -265,9 +244,7 @@ void Rs_Ls_Run(float Ialpha_A, float *Ualpha_V, float *Ubeta_V)
     *Ualpha_V = 0.0f;
     *Ubeta_V = 0.0f;
 
-    if ((Rs_Ls_State == RS_LS_IDLE) ||
-        (Rs_Ls_State == RS_LS_DONE) ||
-        (Rs_Ls_State == RS_LS_FAILED))
+    if ((Rs_Ls_State == RS_LS_IDLE) || (Rs_Ls_State == RS_LS_DONE) || (Rs_Ls_State == RS_LS_FAILED))
     {
         return;
     }
@@ -275,10 +252,7 @@ void Rs_Ls_Run(float Ialpha_A, float *Ualpha_V, float *Ubeta_V)
     if (Rs_Ls_State == RS_LS_ALIGN)
     {
         Motor_Run.Theta_e = 0.0f;
-        Align_Done = Align_Current(RS_LS_ALIGN_I_TARGET_A,
-                                   RS_LS_ALIGN_CNT,
-                                   &Id_Ref,
-                                   &Iq_Ref);
+        Align_Done = Align_Current(RS_LS_ALIGN_I_TARGET_A, RS_LS_ALIGN_CNT, &Id_Ref, &Iq_Ref);
 
         Current_Loop(Id_Ref, Iq_Ref, Ualpha_V, Ubeta_V);
 
@@ -296,8 +270,7 @@ void Rs_Ls_Run(float Ialpha_A, float *Ualpha_V, float *Ubeta_V)
 
     SinCos(Rs_Ls_Phase, &Sin, &Cos);
 
-    if ((Rs_Ls_State == RS_LS_PROBE_RAMP) ||
-        (Rs_Ls_State == RS_LS_PROBE_MEASURE))
+    if ((Rs_Ls_State == RS_LS_PROBE_RAMP) || (Rs_Ls_State == RS_LS_PROBE_MEASURE))
     {
         *Ualpha_V = Rs_Ls_U_Ac_V * Sin;
     }
@@ -308,8 +281,7 @@ void Rs_Ls_Run(float Ialpha_A, float *Ualpha_V, float *Ubeta_V)
 
     *Ubeta_V = 0.0f;
 
-    if ((Rs_Ls_State == RS_LS_PROBE_RAMP) ||
-        (Rs_Ls_State == RS_LS_RAMP))
+    if ((Rs_Ls_State == RS_LS_PROBE_RAMP) || (Rs_Ls_State == RS_LS_RAMP))
     {
         Ramp_I_Re += Ialpha_A * Cos;
         Ramp_I_Im -= Ialpha_A * Sin;
@@ -317,9 +289,8 @@ void Rs_Ls_Run(float Ialpha_A, float *Ualpha_V, float *Ubeta_V)
 
         if (Ramp_Cnt >= RS_LS_SAMPLE_PER_CYCLE)
         {
-            Ramp_I_Amp = (2.0f / (float)RS_LS_SAMPLE_PER_CYCLE) *
-                         __builtin_sqrtf(Ramp_I_Re * Ramp_I_Re +
-                                         Ramp_I_Im * Ramp_I_Im);
+            Ramp_I_Amp =
+                (2.0f / (float)RS_LS_SAMPLE_PER_CYCLE) * __builtin_sqrtf(Ramp_I_Re * Ramp_I_Re + Ramp_I_Im * Ramp_I_Im);
 
             Ramp_Reset();
 
@@ -397,10 +368,7 @@ void Rs_Ls_Run(float Ialpha_A, float *Ualpha_V, float *Ubeta_V)
 
         if (Rs_Ls_Cnt >= RS_LS_PROBE_MEASURE_CNT)
         {
-            if (!Measure_Calc(RS_LS_PROBE_MEASURE_CNT,
-                              &Rs_Rough,
-                              &Ls_Rough) ||
-                !Result_Valid(Rs_Rough, Ls_Rough))
+            if (!Measure_Calc(RS_LS_PROBE_MEASURE_CNT, &Rs_Rough, &Ls_Rough) || !Result_Valid(Rs_Rough, Ls_Rough))
             {
                 Rs_Ls_Fail();
                 *Ualpha_V = 0.0f;
@@ -457,10 +425,8 @@ void Rs_Ls_Run(float Ialpha_A, float *Ualpha_V, float *Ubeta_V)
                     return;
                 }
 
-                if (Result_Valid(Rs_A, Ls_A) &&
-                    Result_Valid(Rs_B, Ls_B) &&
-                    Repeat_Valid(Rs_A, Rs_B, RS_LS_RS_REPEAT_MAX) &&
-                    Repeat_Valid(Ls_A, Ls_B, RS_LS_LS_REPEAT_MAX))
+                if (Result_Valid(Rs_A, Ls_A) && Result_Valid(Rs_B, Ls_B) &&
+                    Repeat_Valid(Rs_A, Rs_B, RS_LS_RS_REPEAT_MAX) && Repeat_Valid(Ls_A, Ls_B, RS_LS_LS_REPEAT_MAX))
                 {
                     Rs_Ls_Result.Rs_Ohm = 0.5f * (Rs_A + Rs_B);
                     Rs_Ls_Result.Ls_H = 0.5f * (Ls_A + Ls_B);
@@ -487,12 +453,10 @@ void Rs_Ls_Run(float Ialpha_A, float *Ualpha_V, float *Ubeta_V)
     }
 }
 
-
 Rs_Ls_State_e Rs_Ls_State_Get(void)
 {
     return Rs_Ls_State;
 }
-
 
 const Rs_Ls_Result_T *Rs_Ls_Result_Get(void)
 {

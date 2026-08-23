@@ -1,0 +1,198 @@
+BasedOnStyle: LLVM
+
+# ============================================================
+# 基础缩进
+# ============================================================
+
+IndentWidth: 4
+ContinuationIndentWidth: 4
+TabWidth: 4
+UseTab: Never
+
+ColumnLimit: 120
+LineEnding: LF
+
+# ============================================================
+# 大括号
+# ============================================================
+
+BreakBeforeBraces: Allman
+
+AllowShortBlocksOnASingleLine: Never
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+
+# ============================================================
+# switch / case
+# ============================================================
+
+IndentCaseLabels: true
+IndentCaseBlocks: true
+AllowShortCaseLabelsOnASingleLine: false
+
+# 目标：
+#
+# switch (State)
+# {
+#     case STATE_A:
+#         Run();
+#         break;
+#
+#     case STATE_B:
+#         Stop();
+#         break;
+#
+#     default:
+#         break;
+# }
+
+# ============================================================
+# 指针
+# ============================================================
+
+PointerAlignment: Right
+DerivePointerAlignment: false
+
+# 目标：
+#
+# float *Ptr;
+# Motor_T *Motor;
+
+# ============================================================
+# include
+# ============================================================
+
+SortIncludes: false
+IncludeBlocks: Preserve
+
+# ============================================================
+# 函数调用 / 函数定义参数
+# ============================================================
+
+AlignAfterOpenBracket: Align
+
+BinPackArguments: false
+BinPackParameters: OnePerLine
+
+AllowAllArgumentsOnNextLine: false
+AllowAllParametersOfDeclarationOnNextLine: false
+
+PenaltyBreakBeforeFirstCallParameter: 1000
+
+# 尽量保持“返回类型 + 函数名”在同一行。
+# 超过 ColumnLimit 时优先拆参数，而不是先拆返回类型。
+BreakAfterReturnType: Automatic
+PenaltyReturnTypeOnItsOwnLine: 1000000
+
+# 不强制在函数定义的 '(' 后立即换行。
+BreakFunctionDefinitionParameters: false
+
+# 目标：
+#
+# Motor_Fast_Mode_e Motor_Fast_Run(float Ia_A,
+#                                  float Ib_A,
+#                                  float Ic_A,
+#                                  float *Id_Ref,
+#                                  float *Iq_Ref,
+#                                  float *Ualpha,
+#                                  float *Ubeta)
+# {
+# }
+
+# 短调用能放下一行时：
+#
+# Speed_Loop(We_Ref, We_Fbk, Iq_Min, Iq_Max);
+#
+# 如果放不下：
+#
+# Some_Long_Function(Arg_1,
+#                    Arg_2,
+#                    Arg_3,
+#                    Arg_4);
+
+# ============================================================
+# 连续对齐
+# ============================================================
+
+# 普通赋值不做纵向对齐，避免变量名变化造成大量无意义 diff。
+AlignConsecutiveAssignments: None
+
+# 普通变量声明不强制纵向对齐。
+AlignConsecutiveDeclarations: None
+
+# 参数宏按组对齐。
+# 空行表示新的宏分组，不跨空行对齐。
+AlignConsecutiveMacros:
+  Enabled: true
+  AcrossEmptyLines: false
+  AcrossComments: false
+
+# 目标：
+#
+# #define SENSORLESS_PLL_BW_HZ       50.0f
+# #define SENSORLESS_PLL_DAMPING      0.707f
+# #define SENSORLESS_PLL_WN           (...)
+#
+# #define SENSORLESS_BLEND_TIME_S     0.15f
+# #define SENSORLESS_BLEND_CNT        (...)
+
+# ============================================================
+# 表达式
+# ============================================================
+
+BreakBeforeBinaryOperators: None
+AlignOperands: Align
+
+# 目标：
+#
+# Valid = State_A ||
+#         State_B ||
+#         State_C;
+
+# ============================================================
+# 括号 / 空格
+# ============================================================
+
+SpaceBeforeParens: ControlStatements
+
+# 目标：
+#
+# if (Run)
+# while (Active)
+# for (i = 0; i < N; i++)
+#
+# 但函数：
+#
+# Motor_Run();
+
+# ============================================================
+# C 风格初始化
+# ============================================================
+
+Cpp11BracedListStyle: false
+
+# ============================================================
+# 注释
+# ============================================================
+
+# 不自动重新折行长注释，避免修改控制公式、测试说明等文本。
+ReflowComments: Never
+
+# 普通行尾注释不纵向对齐，减少无意义空格 diff。
+AlignTrailingComments:
+  Kind: Never
+  OverEmptyLines: 0
+
+# ============================================================
+# 预处理器
+# ============================================================
+
+# #if / #define / #endif 保持从行首开始。
+IndentPPDirectives: None
+
+# ============================================================
+# 空行
+# ============================================================
+
+MaxEmptyLinesToKeep: 1

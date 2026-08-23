@@ -1,7 +1,6 @@
 #ifndef FLUX_OBSERVER_H
 #define FLUX_OBSERVER_H
 
-
 typedef struct
 {
     float Rs;
@@ -10,7 +9,6 @@ typedef struct
     float Gamma;
 
 } Flux_Observer_Para_T;
-
 
 typedef struct
 {
@@ -24,7 +22,6 @@ typedef struct
 
 } Flux_Observer_State_T;
 
-
 typedef struct
 {
     Flux_Observer_Para_T Para;
@@ -32,18 +29,8 @@ typedef struct
 
 } Flux_Observer_T;
 
+void Flux_Observer_Reset(Flux_Observer_T *Obs, float Theta_e, float Ialpha, float Ibeta);
 
-void Flux_Observer_Reset(Flux_Observer_T *Obs,
-                         float Theta_e,
-                         float Ialpha,
-                         float Ibeta);
-
-void Flux_Observer_Run(Flux_Observer_T *Obs,
-                       float Ualpha,
-                       float Ubeta,
-                       float Ialpha,
-                       float Ibeta,
-                       float Ts);
-
+void Flux_Observer_Run(Flux_Observer_T *Obs, float Ualpha, float Ubeta, float Ialpha, float Ibeta, float Ts);
 
 #endif /* FLUX_OBSERVER_H */

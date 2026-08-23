@@ -2,9 +2,7 @@
 
 #include <stdint.h>
 
-
-volatile Fast_Profile_T Fast_Profile = {0};
-
+volatile Fast_Profile_T Fast_Profile = { 0 };
 
 static void Fast_Profile_Stat_Reset(volatile Fast_Profile_Stat_T *Stat)
 {
@@ -13,7 +11,6 @@ static void Fast_Profile_Stat_Reset(volatile Fast_Profile_Stat_T *Stat)
     Stat->Min = UINT32_MAX;
     Stat->Max = 0U;
 }
-
 
 static void Fast_Profile_Reset(void)
 {
@@ -31,7 +28,6 @@ static void Fast_Profile_Reset(void)
     Fast_Profile_Stat_Reset(&Fast_Profile.ADC_Run);
 }
 
-
 void Fast_Profile_Request(void)
 {
     if (Fast_Profile.Run == 0U)
@@ -39,7 +35,6 @@ void Fast_Profile_Request(void)
         Fast_Profile.Request = 1U;
     }
 }
-
 
 void Fast_Profile_Begin_Cycle(void)
 {
@@ -53,7 +48,6 @@ void Fast_Profile_Begin_Cycle(void)
     Fast_Profile.Ready = 0U;
     Fast_Profile.Run = 1U;
 }
-
 
 void Fast_Profile_End_Cycle(void)
 {
@@ -70,7 +64,6 @@ void Fast_Profile_End_Cycle(void)
         Fast_Profile.Ready = 1U;
     }
 }
-
 
 void Fast_Profile_Add(volatile Fast_Profile_Stat_T *Stat, uint32_t Cyc)
 {

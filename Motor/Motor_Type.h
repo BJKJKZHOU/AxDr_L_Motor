@@ -3,7 +3,6 @@
 
 #include <stdint.h>
 
-
 typedef enum
 {
     DISABLED = 0,
@@ -11,7 +10,6 @@ typedef enum
     RUN,
 
 } Motor_State_e;
-
 
 typedef enum
 {
@@ -24,7 +22,6 @@ typedef enum
 
 } Motor_Mode_e;
 
-
 typedef enum
 {
     FAST_OFF = 0,
@@ -32,7 +29,6 @@ typedef enum
     FAST_VOLTAGE,
 
 } Motor_Fast_Mode_e;
-
 
 /*
  * User motion targets.
@@ -46,14 +42,13 @@ typedef enum
  */
 typedef struct
 {
-    float Te_Target;       /* N*m */
-    float Wm_Target;       /* rad/s */
+    float Te_Target; /* N*m */
+    float Wm_Target; /* rad/s */
 
-    int32_t Pos_Turn;      /* Mechanical turns */
-    float Pos_Theta;       /* rad, [0, 2pi) */
+    int32_t Pos_Turn; /* Mechanical turns */
+    float Pos_Theta; /* rad, [0, 2pi) */
 
 } Motor_Cmd_T;
-
 
 /*
  * Mechanical positive direction convention:
@@ -67,26 +62,24 @@ typedef struct
  */
 typedef struct
 {
-    int8_t Enc_Dir;       /* +1 / -1 */
-    float Theta_Off;      /* rad */
+    int8_t Enc_Dir; /* +1 / -1 */
+    float Theta_Off; /* rad */
 
 } Motor_Cal_T;
 
-
 typedef struct
 {
-    uint8_t Pp;        /* Pole pairs */
+    uint8_t Pp; /* Pole pairs */
 
-    float Rs;          /* Ohm */
-    float Ld;          /* H */
-    float Lq;          /* H */
-    float Flux;        /* Wb, Te = 1.5 * Pp * Flux * Iq */
+    float Rs; /* Ohm */
+    float Ld; /* H */
+    float Lq; /* H */
+    float Flux; /* Wb, Te = 1.5 * Pp * Flux * Iq */
 
-    float J;           /* kg*m^2 */
-    float B;           /* N*m/(rad/s) */
+    float J; /* kg*m^2 */
+    float B; /* N*m/(rad/s) */
 
 } Motor_Para_T;
-
 
 /*
  * Operating limits, not fault thresholds.
@@ -104,39 +97,37 @@ typedef struct
  */
 typedef struct
 {
-    float I_Max;       /* A */
-    float Te_Max;      /* N*m */
-    float Wm_Max;      /* rad/s */
+    float I_Max; /* A */
+    float Te_Max; /* N*m */
+    float Wm_Max; /* rad/s */
 
 } Motor_Limit_T;
 
-
 typedef struct
 {
-    int32_t Turn;      /* Software accumulated mechanical turns; +1 on positive 2pi->0 wrap, -1 on negative 0->2pi wrap; starts at 0 after power-up and is not retained across power loss */
+    int32_t
+        Turn; /* Software accumulated mechanical turns; +1 on positive 2pi->0 wrap, -1 on negative 0->2pi wrap; starts at 0 after power-up and is not retained across power loss */
 
-    float Theta_m;     /* rad, [0, 2pi) */
-    float Wm;          /* rad/s */
+    float Theta_m; /* rad, [0, 2pi) */
+    float Wm; /* rad/s */
 
-    float Theta_e;     /* rad, [0, 2pi), electrical angle currently used by FOC */
+    float Theta_e; /* rad, [0, 2pi), electrical angle currently used by FOC */
 
-    float Id;          /* A */
-    float Iq;          /* A */
+    float Id; /* A */
+    float Iq; /* A */
 
-    float Ud;          /* V */
-    float Uq;          /* V */
+    float Ud; /* V */
+    float Uq; /* V */
 
-    float Ualpha;      /* V, alpha-axis voltage command applied by the previous fast loop */
-    float Ubeta;       /* V, beta-axis voltage command applied by the previous fast loop */
+    float Ualpha; /* V, alpha-axis voltage command applied by the previous fast loop */
+    float Ubeta; /* V, beta-axis voltage command applied by the previous fast loop */
 
 } Motor_Run_T;
-
 
 extern Motor_Cal_T Motor_Cal;
 extern Motor_Para_T Motor_Para;
 extern const Motor_Limit_T Motor_Lim;
 extern Motor_Limit_T User_Lim;
 extern Motor_Run_T Motor_Run;
-
 
 #endif /* MOTOR_TYPE_H */

@@ -3,11 +3,7 @@
 #include "control_params.h"
 #include "tim.h"
 
-
-#define PWM_CCER_MASK  (TIM_CCER_CC1E  | TIM_CCER_CC1NE | \
-                        TIM_CCER_CC2E  | TIM_CCER_CC2NE | \
-                        TIM_CCER_CC3E  | TIM_CCER_CC3NE)
-
+#define PWM_CCER_MASK (TIM_CCER_CC1E | TIM_CCER_CC1NE | TIM_CCER_CC2E | TIM_CCER_CC2NE | TIM_CCER_CC3E | TIM_CCER_CC3NE)
 
 void PWM_Timing_Update(void)
 {
@@ -46,7 +42,6 @@ void PWM_Timing_Update(void)
     CLEAR_BIT(TIM1->SR, TIM_SR_UIF);
 }
 
-
 void PWM_Update(float DutyA, float DutyB, float DutyC)
 {
     float Arr;
@@ -62,7 +57,6 @@ void PWM_Update(float DutyA, float DutyB, float DutyC)
     TIM1->CCR2 = (uint32_t)(DutyB * Arr);
     TIM1->CCR3 = (uint32_t)(DutyC * Arr);
 }
-
 
 void PWM_Enable(void)
 {
@@ -86,7 +80,6 @@ void PWM_Enable(void)
 
     CLEAR_BIT(TIM1->BDTR, TIM_BDTR_AOE);
 }
-
 
 void PWM_Disable(void)
 {

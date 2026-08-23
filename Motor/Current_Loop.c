@@ -6,13 +6,10 @@
 #include "Sin_LUT.h"
 #include "control_params.h"
 
-
 PID_T Id_Ctrl = ID_CTRL_DEFAULT;
 PID_T Iq_Ctrl = IQ_CTRL_DEFAULT;
 
-
 extern Motor_Run_T Motor_Run;
-
 
 void Current_Loop_State_Reset(void)
 {
@@ -21,7 +18,6 @@ void Current_Loop_State_Reset(void)
     Id_Ctrl.Sig.Out = 0.0f;
     Iq_Ctrl.Sig.Out = 0.0f;
 }
-
 
 void Current_Loop_Para_Update(void)
 {
@@ -33,11 +29,7 @@ void Current_Loop_Para_Update(void)
     Current_Loop_State_Reset();
 }
 
-
-void Current_Loop(float Id_Ref,
-                  float Iq_Ref,
-                  float *Ualpha,
-                  float *Ubeta)
+void Current_Loop(float Id_Ref, float Iq_Ref, float *Ualpha, float *Ubeta)
 {
     float Ialpha;
     float Ibeta;

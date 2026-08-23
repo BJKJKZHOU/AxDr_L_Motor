@@ -3,7 +3,6 @@
 
 #include <stdint.h>
 
-
 typedef struct
 {
     uint16_t Raw;
@@ -15,13 +14,10 @@ typedef struct
     uint8_t Fault;
 } Encoder_T;
 
-
 extern volatile Encoder_T Encoder;
-
 
 void Encoder_DMA_Config(void);
 void Encoder_DMA_IRQHandler(void);
 void Encoder_Start(void);
-
 
 #endif

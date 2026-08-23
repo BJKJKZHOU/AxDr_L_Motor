@@ -3,7 +3,6 @@
 
 #include "tx_api.h"
 
-
 typedef enum
 {
     MOTOR_CMD_ENABLE = 0,
@@ -21,12 +20,10 @@ typedef enum
 
 } Motor_Cmd_e;
 
-
 extern TX_SEMAPHORE Motor_Sem;
 extern TX_QUEUE Motor_Cmd_Q;
 extern volatile ULONG Motor_Ready;
 
 UINT Motor_Thread_Init(VOID *memory_ptr);
-
 
 #endif /* MOTOR_THREAD_H */

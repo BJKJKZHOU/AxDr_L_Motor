@@ -7,23 +7,18 @@
 #include "Start.h"
 #include "USB_Thread.h"
 
-
-#define MOTOR_STACK_SIZE    512U
-#define MOTOR_THREAD_PRIO   5U
-#define MOTOR_CMD_Q_LEN     8U
-
+#define MOTOR_STACK_SIZE  512U
+#define MOTOR_THREAD_PRIO 5U
+#define MOTOR_CMD_Q_LEN   8U
 
 TX_SEMAPHORE Motor_Sem;
 TX_QUEUE Motor_Cmd_Q;
 volatile ULONG Motor_Ready = 0U;
 
-
 static TX_THREAD Motor_Thread;
 static uint8_t Normal_Div = 0U;
 
-
 static void Motor_Entry(ULONG thread_input);
-
 
 static void Motor_Cmd_Run(void)
 {
@@ -111,7 +106,6 @@ static void Motor_Cmd_Run(void)
     }
 }
 
-
 UINT Motor_Thread_Init(VOID *memory_ptr)
 {
     TX_BYTE_POOL *byte_pool;
@@ -124,34 +118,38 @@ UINT Motor_Thread_Init(VOID *memory_ptr)
         return TX_SEMAPHORE_ERROR;
     }
 
-    if (tx_byte_allocate(byte_pool, (VOID **)&pointer,
-                         MOTOR_CMD_Q_LEN * sizeof(ULONG), TX_NO_WAIT) != TX_SUCCESS)
+    if (tx_byte_allocate(byte_pool, (VOID **)&pointer, MOTOR_CMD_Q_LEN * sizeof(ULONG), TX_NO_WAIT) != TX_SUCCESS)
     {
         return TX_POOL_ERROR;
     }
 
-    if (tx_queue_create(&Motor_Cmd_Q, "Motor Command", TX_1_ULONG, pointer,
-                        MOTOR_CMD_Q_LEN * sizeof(ULONG)) != TX_SUCCESS)
+    if (tx_queue_create(&Motor_Cmd_Q, "Motor Command", TX_1_ULONG, pointer, MOTOR_CMD_Q_LEN * sizeof(ULONG)) !=
+        TX_SUCCESS)
     {
         return TX_QUEUE_ERROR;
     }
 
-    if (tx_byte_allocate(byte_pool, (VOID **)&pointer,
-                         MOTOR_STACK_SIZE, TX_NO_WAIT) != TX_SUCCESS)
+    if (tx_byte_allocate(byte_pool, (VOID **)&pointer, MOTOR_STACK_SIZE, TX_NO_WAIT) != TX_SUCCESS)
     {
         return TX_POOL_ERROR;
     }
 
-    if (tx_thread_create(&Motor_Thread, "Motor Thread", Motor_Entry, 0U, pointer,
-                         MOTOR_STACK_SIZE, MOTOR_THREAD_PRIO, MOTOR_THREAD_PRIO,
-                         TX_NO_TIME_SLICE, TX_AUTO_START) != TX_SUCCESS)
+    if (tx_thread_create(&Motor_Thread,
+                         "Motor Thread",
+                         Motor_Entry,
+                         0U,
+                         pointer,
+                         MOTOR_STACK_SIZE,
+                         MOTOR_THREAD_PRIO,
+                         MOTOR_THREAD_PRIO,
+                         TX_NO_TIME_SLICE,
+                         TX_AUTO_START) != TX_SUCCESS)
     {
         return TX_THREAD_ERROR;
     }
 
     return TX_SUCCESS;
 }
-
 
 static void Motor_Entry(ULONG thread_input)
 {

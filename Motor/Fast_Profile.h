@@ -3,9 +3,7 @@
 
 #include <stdint.h>
 
-
-#define FAST_PROFILE_SAMPLE_NUM    2048U
-
+#define FAST_PROFILE_SAMPLE_NUM 2048U
 
 typedef struct
 {
@@ -15,7 +13,6 @@ typedef struct
     uint32_t Max;
 
 } Fast_Profile_Stat_T;
-
 
 typedef struct
 {
@@ -37,14 +34,11 @@ typedef struct
 
 } Fast_Profile_T;
 
-
 extern volatile Fast_Profile_T Fast_Profile;
-
 
 void Fast_Profile_Request(void);
 void Fast_Profile_Begin_Cycle(void);
 void Fast_Profile_End_Cycle(void);
 void Fast_Profile_Add(volatile Fast_Profile_Stat_T *Stat, uint32_t Cyc);
-
 
 #endif /* FAST_PROFILE_H */

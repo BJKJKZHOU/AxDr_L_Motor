@@ -3,7 +3,6 @@
 
 #include <stdbool.h>
 
-
 typedef enum
 {
     RS_LS_IDLE = 0,
@@ -19,7 +18,6 @@ typedef enum
 
 } Rs_Ls_State_e;
 
-
 typedef struct
 {
     float Rs_Ohm;
@@ -28,7 +26,6 @@ typedef struct
 
 } Rs_Ls_Result_T;
 
-
 void Rs_Ls_Start(void);
 void Rs_Ls_Reset(void);
 void Rs_Ls_Fail(void);
@@ -36,6 +33,5 @@ bool Rs_Ls_Active(void);
 void Rs_Ls_Run(float Ialpha_A, float *Ualpha_V, float *Ubeta_V);
 Rs_Ls_State_e Rs_Ls_State_Get(void);
 const Rs_Ls_Result_T *Rs_Ls_Result_Get(void);
-
 
 #endif /* RS_LS_H */

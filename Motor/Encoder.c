@@ -5,29 +5,25 @@
 #include "control_params.h"
 #include "main.h"
 
+#define MT6816_REG_ANGLE_LSB 0x03U
+#define MT6816_REG_ANGLE_MSB 0x04U
+#define MT6816_CMD_READ      0x80U
+#define MT6816_NO_MAG_MASK   0x0002U
 
-#define MT6816_REG_ANGLE_LSB      0x03U
-#define MT6816_REG_ANGLE_MSB      0x04U
-#define MT6816_CMD_READ           0x80U
-#define MT6816_NO_MAG_MASK        0x0002U
-
-#define ENC_CPR                   16384.0f
-#define RAW_TO_RAD                (TWO_PI_F / ENC_CPR)
+#define ENC_CPR    16384.0f
+#define RAW_TO_RAD (TWO_PI_F / ENC_CPR)
 
 /* No-magnet must remain asserted for 2 ms before the fault is latched. */
-#define ENC_NOMAG_FAULT_MS        2U
-#define ENC_NOMAG_FAULT_CNT       \
-    ((uint16_t)((CUR_FREQ_HZ_DEFAULT * (float)ENC_NOMAG_FAULT_MS) / 1000.0f))
+#define ENC_NOMAG_FAULT_MS  2U
+#define ENC_NOMAG_FAULT_CNT ((uint16_t)((CUR_FREQ_HZ_DEFAULT * (float)ENC_NOMAG_FAULT_MS) / 1000.0f))
 
 /* MT6816 requires at least 100 ns from CSN low to the first SCK edge. */
-#define ENC_CSN_LOW_CYC           16U
+#define ENC_CSN_LOW_CYC 16U
 /* 200 ns CSN high time and 1 us SPI end timeout at 160 MHz. */
-#define ENC_CSN_HIGH_CYC          32U
-#define ENC_SPI_END_CYC           160U
+#define ENC_CSN_HIGH_CYC 32U
+#define ENC_SPI_END_CYC  160U
 
-
-volatile Encoder_T Encoder = {0};
-
+volatile Encoder_T Encoder = { 0 };
 
 static volatile uint16_t Rx[2];
 static float Theta_Pre = 0.0f;
@@ -36,7 +32,6 @@ static uint32_t Speed_Div_Cnt = 0U;
 static uint8_t Step = 0U;
 static uint8_t Busy = 0U;
 static uint8_t Pos_Valid = 0U;
-
 
 static uint8_t Parity_Check(uint16_t Data)
 {
@@ -47,7 +42,6 @@ static uint8_t Parity_Check(uint16_t Data)
 
     return (uint8_t)((~Data) & 1U);
 }
-
 
 static void DMA_Rearm(void)
 {
@@ -73,7 +67,6 @@ static void DMA_Rearm(void)
     SET_BIT(SPI1->CR2, SPI_CR2_RXDMAEN);
 }
 
-
 void Encoder_DMA_Config(void)
 {
     SPI1_CSN_GPIO_Port->BSRR = SPI1_CSN_Pin;
@@ -97,7 +90,6 @@ void Encoder_DMA_Config(void)
     SET_BIT(SPI1->CR1, SPI_CR1_SPE);
     DMA_Rearm();
 }
-
 
 void Encoder_Start(void)
 {
@@ -128,10 +120,8 @@ void Encoder_Start(void)
     {
     }
 
-    *(__IO uint16_t *)&SPI1->DR =
-        (uint16_t)((uint16_t)(MT6816_CMD_READ | MT6816_REG_ANGLE_LSB) << 8);
+    *(__IO uint16_t *)&SPI1->DR = (uint16_t)((uint16_t)(MT6816_CMD_READ | MT6816_REG_ANGLE_LSB) << 8);
 }
-
 
 void Encoder_DMA_IRQHandler(void)
 {
@@ -178,8 +168,7 @@ void Encoder_DMA_IRQHandler(void)
 
         Wait_T0 = DWT->CYCCNT;
 
-        while (((SPI1->SR & SPI_SR_BSY) != 0U) &&
-               ((DWT->CYCCNT - Wait_T0) < ENC_SPI_END_CYC))
+        while (((SPI1->SR & SPI_SR_BSY) != 0U) && ((DWT->CYCCNT - Wait_T0) < ENC_SPI_END_CYC))
         {
         }
 
@@ -209,8 +198,7 @@ void Encoder_DMA_IRQHandler(void)
         {
         }
 
-        *(__IO uint16_t *)&SPI1->DR =
-            (uint16_t)((uint16_t)(MT6816_CMD_READ | MT6816_REG_ANGLE_MSB) << 8);
+        *(__IO uint16_t *)&SPI1->DR = (uint16_t)((uint16_t)(MT6816_CMD_READ | MT6816_REG_ANGLE_MSB) << 8);
 
         Fast_Time.SPI_1_ISR_Cyc = DWT->CYCCNT - T0;
         return;
@@ -240,8 +228,7 @@ void Encoder_DMA_IRQHandler(void)
 
     Wait_T0 = DWT->CYCCNT;
 
-    while (((SPI1->SR & SPI_SR_BSY) != 0U) &&
-           ((DWT->CYCCNT - Wait_T0) < ENC_SPI_END_CYC))
+    while (((SPI1->SR & SPI_SR_BSY) != 0U) && ((DWT->CYCCNT - Wait_T0) < ENC_SPI_END_CYC))
     {
     }
 
@@ -314,15 +301,13 @@ void Encoder_DMA_IRQHandler(void)
 
         Delta_Sum += Delta;
 
-        if (++Speed_Div_Cnt >=
-            (uint32_t)(CUR_FREQ_HZ_DEFAULT / SPD_FREQ_HZ_DEFAULT))
+        if (++Speed_Div_Cnt >= (uint32_t)(CUR_FREQ_HZ_DEFAULT / SPD_FREQ_HZ_DEFAULT))
         {
             Speed_Div_Cnt = 0U;
             Wm_Raw = Delta_Sum / SPD_TS;
             Delta_Sum = 0.0f;
 
-            Motor_Run.Wm += SPD_FBK_ALPHA_DEFAULT
-                          * (Wm_Raw - Motor_Run.Wm);
+            Motor_Run.Wm += SPD_FBK_ALPHA_DEFAULT * (Wm_Raw - Motor_Run.Wm);
         }
     }
     else

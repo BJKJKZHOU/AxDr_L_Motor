@@ -10,27 +10,23 @@
 #include "main.h"
 #include "tim.h"
 
+#define ADC_SAMPLE_NUM 512U
+#define ADC_VREF_V     3.3f
+#define ADC_FULL_SCALE 4096.0f
 
-#define ADC_SAMPLE_NUM      512U
-#define ADC_VREF_V          3.3f
-#define ADC_FULL_SCALE      4096.0f
+#define CUR_SHUNT_OHM 0.001f
+#define CUR_AMP_GAIN  20.0f
 
-#define CUR_SHUNT_OHM       0.001f
-#define CUR_AMP_GAIN        20.0f
-
-#define VBUS_R1_OHM         20000.0f
-#define VBUS_R2_OHM         1000.0f
+#define VBUS_R1_OHM 20000.0f
+#define VBUS_R2_OHM 1000.0f
 
 #define CUR_RAW_TO_A (ADC_VREF_V / ADC_FULL_SCALE / CUR_SHUNT_OHM / CUR_AMP_GAIN)
 
 #define VBUS_RAW_TO_V (ADC_VREF_V / ADC_FULL_SCALE * ((VBUS_R1_OHM + VBUS_R2_OHM) / VBUS_R2_OHM))
 
-
-volatile ADC_T ADC = {0};
-
+volatile ADC_T ADC = { 0 };
 
 static void Iabc_Calib(void);
-
 
 void ADC_Calib(void)
 {
@@ -46,7 +42,6 @@ void ADC_Calib(void)
 
     Iabc_Calib();
 }
-
 
 static void Iabc_Calib(void)
 {
@@ -92,16 +87,12 @@ static void Iabc_Calib(void)
     HAL_ADCEx_InjectedStop(&hadc1);
     HAL_ADCEx_InjectedStop(&hadc2);
 
-    ADC.Ia_Off =
-        (uint16_t)((Ia_Sum + (ADC_SAMPLE_NUM / 2U)) / ADC_SAMPLE_NUM);
+    ADC.Ia_Off = (uint16_t)((Ia_Sum + (ADC_SAMPLE_NUM / 2U)) / ADC_SAMPLE_NUM);
 
-    ADC.Ib_Off =
-        (uint16_t)((Ib_Sum + (ADC_SAMPLE_NUM / 2U)) / ADC_SAMPLE_NUM);
+    ADC.Ib_Off = (uint16_t)((Ib_Sum + (ADC_SAMPLE_NUM / 2U)) / ADC_SAMPLE_NUM);
 
-    ADC.Ic_Off =
-        (uint16_t)((Ic_Sum + (ADC_SAMPLE_NUM / 2U)) / ADC_SAMPLE_NUM);
+    ADC.Ic_Off = (uint16_t)((Ic_Sum + (ADC_SAMPLE_NUM / 2U)) / ADC_SAMPLE_NUM);
 }
-
 
 void ADC_Sample(void)
 {
@@ -116,7 +107,6 @@ void ADC_Sample(void)
     ADC.Ic_A = ((float)ADC.Ic_Off - (float)ADC.Ic_Raw) * CUR_RAW_TO_A;
     ADC.Vbus_V = (float)ADC.Vbus_Raw * VBUS_RAW_TO_V;
 }
-
 
 void ADC_Run(void)
 {
@@ -147,23 +137,15 @@ void ADC_Run(void)
 
     if (Fast_Profile.Run != 0U)
     {
-        Fast_Profile_Add(&Fast_Profile.ADC_Sample,
-                         DWT->CYCCNT - Segment_T0);
+        Fast_Profile_Add(&Fast_Profile.ADC_Sample, DWT->CYCCNT - Segment_T0);
         Segment_T0 = DWT->CYCCNT;
     }
 
-    Fast_Mode = Motor_Fast_Run(ADC.Ia_A,
-                               ADC.Ib_A,
-                               ADC.Ic_A,
-                               &Id_Ref,
-                               &Iq_Ref,
-                               &Ualpha,
-                               &Ubeta);
+    Fast_Mode = Motor_Fast_Run(ADC.Ia_A, ADC.Ib_A, ADC.Ic_A, &Id_Ref, &Iq_Ref, &Ualpha, &Ubeta);
 
     if (Fast_Profile.Run != 0U)
     {
-        Fast_Profile_Add(&Fast_Profile.Motor_Fast,
-                         DWT->CYCCNT - Segment_T0);
+        Fast_Profile_Add(&Fast_Profile.Motor_Fast, DWT->CYCCNT - Segment_T0);
     }
 
     if (Fast_Mode == FAST_OFF)
@@ -185,8 +167,7 @@ void ADC_Run(void)
 
         if (Fast_Profile.Run != 0U)
         {
-            Fast_Profile_Add(&Fast_Profile.Plot_Fast,
-                             DWT->CYCCNT - Segment_T0);
+            Fast_Profile_Add(&Fast_Profile.Plot_Fast, DWT->CYCCNT - Segment_T0);
         }
 
         goto finish;
@@ -199,15 +180,11 @@ void ADC_Run(void)
             Segment_T0 = DWT->CYCCNT;
         }
 
-        Current_Loop(Id_Ref,
-                     Iq_Ref,
-                     &Ualpha,
-                     &Ubeta);
+        Current_Loop(Id_Ref, Iq_Ref, &Ualpha, &Ubeta);
 
         if (Fast_Profile.Run != 0U)
         {
-            Fast_Profile_Add(&Fast_Profile.Current_Loop,
-                             DWT->CYCCNT - Segment_T0);
+            Fast_Profile_Add(&Fast_Profile.Current_Loop, DWT->CYCCNT - Segment_T0);
         }
     }
 
@@ -219,17 +196,11 @@ void ADC_Run(void)
         Segment_T0 = DWT->CYCCNT;
     }
 
-    SVPWM_Calc(Ualpha,
-               Ubeta,
-               ADC.Vbus_V,
-               &DutyA,
-               &DutyB,
-               &DutyC);
+    SVPWM_Calc(Ualpha, Ubeta, ADC.Vbus_V, &DutyA, &DutyB, &DutyC);
 
     if (Fast_Profile.Run != 0U)
     {
-        Fast_Profile_Add(&Fast_Profile.SVPWM,
-                         DWT->CYCCNT - Segment_T0);
+        Fast_Profile_Add(&Fast_Profile.SVPWM, DWT->CYCCNT - Segment_T0);
         Segment_T0 = DWT->CYCCNT;
     }
 
@@ -237,8 +208,7 @@ void ADC_Run(void)
 
     if (Fast_Profile.Run != 0U)
     {
-        Fast_Profile_Add(&Fast_Profile.PWM_Update,
-                         DWT->CYCCNT - Segment_T0);
+        Fast_Profile_Add(&Fast_Profile.PWM_Update, DWT->CYCCNT - Segment_T0);
         Segment_T0 = DWT->CYCCNT;
     }
 
@@ -246,15 +216,13 @@ void ADC_Run(void)
 
     if (Fast_Profile.Run != 0U)
     {
-        Fast_Profile_Add(&Fast_Profile.Plot_Fast,
-                         DWT->CYCCNT - Segment_T0);
+        Fast_Profile_Add(&Fast_Profile.Plot_Fast, DWT->CYCCNT - Segment_T0);
     }
 
 finish:
     if (Fast_Profile.Run != 0U)
     {
-        Fast_Profile_Add(&Fast_Profile.ADC_Run,
-                         DWT->CYCCNT - Profile_T0);
+        Fast_Profile_Add(&Fast_Profile.ADC_Run, DWT->CYCCNT - Profile_T0);
         Fast_Profile_End_Cycle();
     }
 

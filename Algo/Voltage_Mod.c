@@ -2,13 +2,7 @@
 
 #include "Math.h"
 
-
-void SVPWM_Calc(float Ualpha,
-                 float Ubeta,
-                 float Vbus,
-                 float *DutyA,
-                 float *DutyB,
-                 float *DutyC)
+void SVPWM_Calc(float Ualpha, float Ubeta, float Vbus, float *DutyA, float *DutyB, float *DutyC)
 {
     float Ua;
     float Ub;
