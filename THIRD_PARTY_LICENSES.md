@@ -11,25 +11,30 @@ The following directories contain STM32Cube-provided components and retain their
 
 Refer to the `LICENSE.txt` files shipped in those component directories for the applicable terms.
 
-## Microsoft Azure RTOS ThreadX
+## Eclipse ThreadX
 
-`Middlewares/ST/threadx/` contains the STM32Cube-distributed Azure RTOS ThreadX 6.2.0 source currently used by this firmware. It retains the Microsoft Azure RTOS license text and source headers distributed with that version.
+`ThirdParty/Eclipse/threadx/` is a Git submodule that provides Eclipse ThreadX 6.5.1 used by this firmware.
 
-Relevant files include:
+The submodule points to the upstream Eclipse ThreadX repository and remains under the license distributed by that project. Refer to the license files and notices inside the submodule for the applicable terms.
 
-- `Middlewares/ST/threadx/LICENSE.txt`
-- `Middlewares/ST/threadx/LICENSED-HARDWARE.txt`
+## Eclipse USBX
 
-The current firmware targets the STM32G4 series, which is listed in the accompanying licensed-hardware file.
+`ThirdParty/Eclipse/usbx/` is a Git submodule that provides Eclipse USBX 6.5.0 portable core and CDC ACM device-class sources used by this firmware.
 
-## Microsoft Azure RTOS USBX
+The submodule points to the upstream Eclipse USBX repository and remains under the license distributed by that project. Refer to the license files and notices inside the submodule for the applicable terms.
 
-`Middlewares/ST/usbx/` contains the STM32Cube-distributed Azure RTOS USBX 6.2.0 source currently used by this firmware. It retains the Microsoft Azure RTOS license text and source headers distributed with that version.
+## STMicroelectronics USBX STM32 device controller adaptation
 
-Relevant files include:
+`ThirdParty/ST/usbx_stm32_dcd/` contains the STM32 USBX device-controller adaptation retained from the STM32Cube distribution.
 
-- `Middlewares/ST/usbx/LICENSE.txt`
-- `Middlewares/ST/usbx/LICENSED-HARDWARE.txt`
+This code is separate from the Eclipse USBX portable sources and retains its original source headers and accompanying license files, including:
+
+- `ThirdParty/ST/usbx_stm32_dcd/LICENSE.txt`
+- `ThirdParty/ST/usbx_stm32_dcd/LICENSED-HARDWARE.txt`
+
+## Generated middleware copies
+
+STM32CubeMX may regenerate dependency copies under `Middlewares/`. Those generated copies are ignored by Git and are not used by the project build. The firmware build uses the dependencies under `ThirdParty/` described above.
 
 ## Project-owned code
 
