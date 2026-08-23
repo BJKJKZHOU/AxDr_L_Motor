@@ -2,6 +2,7 @@
 
 #include "Math.h"
 #include "Current_Loop.h"
+#include "Flux.h"
 #include "Motor_ADC.h"
 #include "Motor_PWM.h"
 #include "Motion_Loop.h"
@@ -439,6 +440,7 @@ void Motor_Sensorless_Dir_Set(int8_t Dir)
     if (Motor_State == DISABLED)
     {
         Sensorless_Dir = (Dir >= 0) ? 1 : -1;
+        Flux_Dir_Set(Sensorless_Dir);
     }
 }
 

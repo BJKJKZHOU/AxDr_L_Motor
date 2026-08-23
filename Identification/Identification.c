@@ -4,7 +4,7 @@
 #include "Flux.h"
 #include "Rs_Ls.h"
 
-#define IDENT_I_MAX_A 2.0f
+#define IDENT_I_MAX_A 2.2f
 
 static volatile Ident_Mode_e Ident_Mode = IDENT_NONE;
 static volatile Ident_State_e Ident_State = IDENT_IDLE;

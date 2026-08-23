@@ -41,6 +41,7 @@ static float Flux_Theta_Pre = 0.0f;
 static float Flux_Finish_Iq_Ref = 0.0f;
 static uint8_t Flux_U_Valid = 0U;
 static uint8_t Flux_Finish_Init = 0U;
+static int8_t Flux_Dir = 1;
 
 static float Abs_Value(float Value)
 {
@@ -86,6 +87,11 @@ void Flux_Start(void)
     Align_Reset();
     Current_Loop_State_Reset();
     Flux_State = FLUX_ALIGN;
+}
+
+void Flux_Dir_Set(int8_t Dir)
+{
+    Flux_Dir = (Dir >= 0) ? 1 : -1;
 }
 
 void Flux_Reset(void)
@@ -200,7 +206,7 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Id_Re
         if (Align_Current(IF_ALIGN_ID_A, IF_ALIGN_CNT, Id_Ref, Iq_Ref))
         {
             Current_Loop_State_Reset();
-            IF_Start_Reset(-0.5f * PI_F, 1);
+            IF_Start_Reset(-0.5f * PI_F * (float)Flux_Dir, Flux_Dir);
             IF_Start_Target_Set(Flux_We_Point[0]);
             Flux_State = FLUX_ACCEL;
         }
@@ -259,7 +265,8 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Id_Re
 
         if (Flux_Meas_Cnt >= FLUX_IDENT_MEASURE_CNT)
         {
-            Flux_We_Mean[Flux_Point] = IF_Start_We_Get();
+            /* Back-EMF magnitude is fitted against electrical-speed magnitude. */
+            Flux_We_Mean[Flux_Point] = Abs_Value(IF_Start_We_Get());
             Flux_E_Mean[Flux_Point] = Flux_E_Sum / (float)Flux_Meas_Cnt;
 
             Flux_Point++;
