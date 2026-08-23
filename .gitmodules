@@ -1,0 +1,6 @@
+[submodule "ThirdParty/Eclipse/threadx"]
+	path = ThirdParty/Eclipse/threadx
+	url = https://github.com/eclipse-threadx/threadx.git
+[submodule "ThirdParty/Eclipse/usbx"]
+	path = ThirdParty/Eclipse/usbx
+	url = https://github.com/eclipse-threadx/usbx.git
