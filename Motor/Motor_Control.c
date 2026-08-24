@@ -12,7 +12,7 @@
 #include "Motor_PWM.h"
 #include "Motion_Loop.h"
 #include "Open_Loop.h"
-#include "Start.h"
+#include "Sensorless.h"
 #include "control_params.h"
 #include "motor_params.h"
 
@@ -297,7 +297,7 @@ Motor_Fast_Mode_e Motor_Fast_Run(float Ia_A,
             return Identification_Fast_Run(Ia_A, Ib_A, Ic_A, Id_Ref, Iq_Ref, Ualpha, Ubeta);
 
         case SENSORLESS_SPEED:
-            (void)Sensorless_Start_Run(Ia_A, Ib_A, We_Ref, Id_Ref, Iq_Ref);
+            (void)Sensorless_Run(Ia_A, Ib_A, We_Ref, Id_Ref, Iq_Ref);
             return FAST_CURRENT;
 
         default:
@@ -365,7 +365,7 @@ void Motor_Start(void)
     }
     else if (Motor_Mode == SENSORLESS_SPEED)
     {
-        Sensorless_Start_Begin();
+        Sensorless_Begin();
     }
 
     if (!Motion_Mode_Active())
@@ -393,7 +393,7 @@ void Motor_Stop(void)
     }
     else if (Motor_Mode == SENSORLESS_SPEED)
     {
-        Sensorless_Start_Stop();
+        Sensorless_Stop();
     }
     else if (Motor_Mode == POSITION)
     {

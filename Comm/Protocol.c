@@ -13,7 +13,7 @@
 #include "Motor_Control.h"
 #include "Plot.h"
 #include "Rs_Ls.h"
-#include "Start.h"
+#include "Sensorless.h"
 #include "USB_Thread.h"
 #include "motor_thread.h"
 
@@ -381,9 +381,9 @@ static void Sensorless_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
         else
         {
             We = IF_Start_We_Get();
-            Resp[0] = Sensorless_Start_Active() ? 1U : 0U;
-            Resp[1] = Sensorless_Start_Ready() ? 1U : 0U;
-            Resp[2] = (uint8_t)Sensorless_Start_State_Get();
+            Resp[0] = Sensorless_Active() ? 1U : 0U;
+            Resp[1] = Sensorless_Ready() ? 1U : 0U;
+            Resp[2] = (uint8_t)Sensorless_State_Get();
             Resp[3] = (uint8_t)IF_Start_State_Get();
             memcpy(&Resp[4], &We, sizeof(float));
 

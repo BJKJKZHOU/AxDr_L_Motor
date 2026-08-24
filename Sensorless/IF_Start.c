@@ -13,6 +13,7 @@ static uint32_t Hold_Cnt = 0U;
 static float Theta_e = 0.0f;
 static float We = 0.0f;
 static float We_Target = IF_WE_TARGET_RAD_S;
+static float Iq = 0.0f;
 
 static float Abs_F(float X)
 {
@@ -26,10 +27,16 @@ void IF_Start_Reset(float Theta_Start, float We_Start)
     Theta_e = Angle_Wrap(Theta_Start);
     We = We_Start;
     We_Target = We_Start;
+    Iq = 0.0f;
 }
 
 void IF_Start_Target_Set(float We_Target_In)
 {
+    if (We_Target == We_Target_In)
+    {
+        return;
+    }
+
     We_Target = We_Target_In;
     Hold_Cnt = 0U;
 
@@ -47,7 +54,8 @@ bool IF_Start_Run(float *Theta_e_Out, float *Id_Ref, float *Iq_Ref)
 {
     float Ratio;
     float Iq_Abs;
-    float Iq_Sign;
+    float Iq_Target;
+    float Iq_Step;
     float We_Step;
 
     Ratio = Abs_F(We) / IF_WE_TARGET_RAD_S;
@@ -58,11 +66,7 @@ bool IF_Start_Run(float *Theta_e_Out, float *Id_Ref, float *Iq_Ref)
     }
 
     Iq_Abs = IF_IQ_START_A + (IF_IQ_TARGET_A - IF_IQ_START_A) * Ratio;
-    Iq_Sign = (We_Target < 0.0f) ? -1.0f : 1.0f;
-
-    *Theta_e_Out = Theta_e;
-    *Id_Ref = 0.0f;
-    *Iq_Ref = Iq_Sign * Iq_Abs;
+    Iq_Target = 0.0f;
 
     if (State == IF_RAMP)
     {
@@ -70,6 +74,7 @@ bool IF_Start_Run(float *Theta_e_Out, float *Id_Ref, float *Iq_Ref)
 
         if (We < We_Target)
         {
+            Iq_Target = Iq_Abs;
             We += We_Step;
 
             if (We >= We_Target)
@@ -81,6 +86,7 @@ bool IF_Start_Run(float *Theta_e_Out, float *Id_Ref, float *Iq_Ref)
         }
         else
         {
+            Iq_Target = -Iq_Abs;
             We -= We_Step;
 
             if (We <= We_Target)
@@ -91,10 +97,47 @@ bool IF_Start_Run(float *Theta_e_Out, float *Id_Ref, float *Iq_Ref)
             }
         }
     }
-    else if (Hold_Cnt < IF_HOLD_CNT)
+    else
     {
-        Hold_Cnt++;
+        if (We_Target > 0.0f)
+        {
+            Iq_Target = Iq_Abs;
+        }
+        else if (We_Target < 0.0f)
+        {
+            Iq_Target = -Iq_Abs;
+        }
+
+        if (Hold_Cnt < IF_HOLD_CNT)
+        {
+            Hold_Cnt++;
+        }
     }
+
+    Iq_Step = IF_IQ_SLEW_A_S * CUR_TS;
+
+    if (Iq < Iq_Target)
+    {
+        Iq += Iq_Step;
+
+        if (Iq > Iq_Target)
+        {
+            Iq = Iq_Target;
+        }
+    }
+    else if (Iq > Iq_Target)
+    {
+        Iq -= Iq_Step;
+
+        if (Iq < Iq_Target)
+        {
+            Iq = Iq_Target;
+        }
+    }
+
+    *Theta_e_Out = Theta_e;
+    *Id_Ref = 0.0f;
+    *Iq_Ref = Iq;
 
     Theta_e += We * CUR_TS;
     Theta_e = Angle_Wrap(Theta_e);

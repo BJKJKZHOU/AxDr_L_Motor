@@ -3,7 +3,7 @@
  * Copyright (c) 2026 ZHOUHENG
  */
 
-#include "Start.h"
+#include "Sensorless.h"
 
 #include "Align.h"
 #include "Current_Loop.h"
@@ -39,6 +39,10 @@
 #define FLUX_MIN_RATIO2 0.64f
 #define FLUX_MAX_RATIO2 1.44f
 
+/* Temporary handover boundary. Replace with motor-dependent observer-quality
+ * criteria after low-speed hardware characterization. */
+#define OBS_TO_IF_WE_RAD_S (0.75f * IF_WE_TARGET_RAD_S)
+
 #define SPD_DIV 10U
 #define IQ_MAX  2.0f
 
@@ -50,9 +54,10 @@ typedef enum
 
 } To_Obs_State_e;
 
-static Sensorless_State_e Start_State = SL_ALIGN;
+static Sensorless_State_e State = SL_ALIGN;
 static To_Obs_State_e To_Obs_State = TO_OBS_WAIT;
-static volatile bool Start_Active = false;
+static volatile bool Active = false;
+static bool Initial_IF = true;
 
 Flux_Observer_T Flux_Obs = { 0 };
 PLL_T Flux_PLL = { 0 };
@@ -196,10 +201,30 @@ static void Speed_Run(float We_Ref)
     }
 }
 
-void Sensorless_Start_Begin(void)
+static float IF_Target(float We_Ref)
 {
-    Start_State = SL_ALIGN;
+    float Target;
+
+    if (!Initial_IF)
+    {
+        return We_Ref;
+    }
+
+    Target = Abs_F(We_Ref);
+    if (Target < IF_WE_TARGET_RAD_S)
+    {
+        Target = IF_WE_TARGET_RAD_S;
+    }
+
+    return (We_Ref < 0.0f) ? -Target : Target;
+}
+
+void Sensorless_Begin(void)
+{
+    State = SL_ALIGN;
     To_Obs_State = TO_OBS_WAIT;
+    Active = true;
+    Initial_IF = true;
     Flux_Obs_U_Valid = false;
     Profile_Requested = false;
     Obs_Wait_Cnt = 0U;
@@ -217,12 +242,11 @@ void Sensorless_Start_Begin(void)
 
     Align_Reset();
     Current_Loop_State_Reset();
-    Start_Active = true;
 }
 
-void Sensorless_Start_Stop(void)
+void Sensorless_Stop(void)
 {
-    Start_Active = false;
+    Active = false;
     Flux_Obs_U_Valid = false;
     Profile_Requested = false;
     Obs_Wait_Cnt = 0U;
@@ -233,17 +257,17 @@ void Sensorless_Start_Stop(void)
     Sensorless_Blend = 0.0f;
 }
 
-bool Sensorless_Start_Active(void)
+bool Sensorless_Active(void)
 {
-    return Start_Active;
+    return Active;
 }
 
-bool Sensorless_Start_Ready(void)
+bool Sensorless_Ready(void)
 {
-    return Start_Active && (Start_State == SL_OBS);
+    return Active && !Initial_IF;
 }
 
-bool Sensorless_Start_Run(float Ia_A, float Ib_A, float We_Ref, float *Id_Ref, float *Iq_Ref)
+bool Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Id_Ref, float *Iq_Ref)
 {
     float Ialpha;
     float Ibeta;
@@ -261,7 +285,7 @@ bool Sensorless_Start_Run(float Ia_A, float Ib_A, float We_Ref, float *Id_Ref, f
     bool Profile_Run;
     uint32_t T0;
 
-    if (!Start_Active)
+    if (!Active)
     {
         *Id_Ref = 0.0f;
         *Iq_Ref = 0.0f;
@@ -275,7 +299,7 @@ bool Sensorless_Start_Run(float Ia_A, float Ib_A, float We_Ref, float *Id_Ref, f
     Iq_IF = 0.0f;
     IF_Ready = false;
 
-    if (Start_State == SL_ALIGN)
+    if (State == SL_ALIGN)
     {
         Motor_Run.Theta_e = 0.0f;
 
@@ -284,14 +308,9 @@ bool Sensorless_Start_Run(float Ia_A, float Ib_A, float We_Ref, float *Id_Ref, f
             Current_Loop_State_Reset();
 
             Dir = (We_Ref < 0.0f) ? -1 : 1;
-            We_IF_Target = Abs_F(We_Ref);
-            if (We_IF_Target < IF_WE_TARGET_RAD_S)
-            {
-                We_IF_Target = IF_WE_TARGET_RAD_S;
-            }
-            We_IF_Target *= (float)Dir;
-
+            We_IF_Target = IF_Target(We_Ref);
             Theta_Start = -(float)Dir * (0.5f * PI_F);
+
             IF_Start_Reset(Theta_Start, 0.0f);
             IF_Start_Target_Set(We_IF_Target);
 
@@ -315,7 +334,7 @@ bool Sensorless_Start_Run(float Ia_A, float Ib_A, float We_Ref, float *Id_Ref, f
             PLL_Reset(&Flux_PLL, Theta_Start, 0.0f);
             Flux_Obs_U_Valid = false;
 
-            Start_State = SL_IF;
+            State = SL_IF;
         }
 
         return false;
@@ -346,8 +365,10 @@ bool Sensorless_Start_Run(float Ia_A, float Ib_A, float We_Ref, float *Id_Ref, f
         }
     }
 
-    if (Start_State != SL_OBS)
+    if (State != SL_OBS)
     {
+        IF_Start_Target_Set(IF_Target(We_Ref));
+
         if (Profile_Run)
         {
             T0 = DWT->CYCCNT;
@@ -372,21 +393,22 @@ bool Sensorless_Start_Run(float Ia_A, float Ib_A, float We_Ref, float *Id_Ref, f
         Profile_Requested = true;
     }
 
-    if (Start_State == SL_IF)
+    if (State == SL_IF)
     {
         Theta_Use = Theta_IF;
         *Id_Ref = Id_IF;
         *Iq_Ref = Iq_IF;
+        Sensorless_Blend = 0.0f;
 
-        if (IF_Ready)
+        if (Abs_F(IF_Start_We_Get()) >= IF_WE_TARGET_RAD_S)
         {
             Obs_Wait_Cnt = 0U;
             Sensorless_We_Obs_F = Flux_PLL.State.We;
             To_Obs_State = TO_OBS_WAIT;
-            Start_State = SL_IF_TO_OBS;
+            State = SL_IF_TO_OBS;
         }
     }
-    else if (Start_State == SL_IF_TO_OBS)
+    else if (State == SL_IF_TO_OBS)
     {
         if (To_Obs_State == TO_OBS_WAIT)
         {
@@ -460,17 +482,59 @@ bool Sensorless_Start_Run(float Ia_A, float Ib_A, float We_Ref, float *Id_Ref, f
 
             if (Obs_Id_Ref == 0.0f)
             {
-                Start_State = SL_OBS;
+                Initial_IF = false;
+                State = SL_OBS;
             }
         }
     }
-    else
+    else if (State == SL_OBS)
     {
         Theta_Use = Theta_Obs;
         Speed_Run(We_Ref);
         *Id_Ref = 0.0f;
         *Iq_Ref = Obs_Iq_Ref;
         Sensorless_Blend = 1.0f;
+
+        if (Abs_F(Flux_PLL.State.We) <= OBS_TO_IF_WE_RAD_S)
+        {
+            IF_Start_Reset(Theta_Obs, Flux_PLL.State.We);
+            IF_Start_Target_Set(We_Ref);
+            Sensorless_Theta_IF = Theta_Obs;
+            Blend_Cnt = 0U;
+            State = SL_OBS_TO_IF;
+        }
+    }
+    else
+    {
+        if (BLEND_CNT > 0U)
+        {
+            Blend = (float)(Blend_Cnt + 1U) / (float)BLEND_CNT;
+        }
+        else
+        {
+            Blend = 1.0f;
+        }
+
+        if (Blend > 1.0f)
+        {
+            Blend = 1.0f;
+        }
+
+        Theta_Use = Theta_IF;
+        *Id_Ref = Id_IF;
+        *Iq_Ref = Obs_Iq_Ref + Blend * (Iq_IF - Obs_Iq_Ref);
+        Sensorless_Blend = 1.0f - Blend;
+
+        if (Blend_Cnt < BLEND_CNT)
+        {
+            Blend_Cnt++;
+        }
+
+        if (Blend_Cnt >= BLEND_CNT)
+        {
+            Sensorless_Blend = 0.0f;
+            State = SL_IF;
+        }
     }
 
     Motor_Run.Theta_e = Theta_Use;
@@ -479,10 +543,10 @@ bool Sensorless_Start_Run(float Ia_A, float Ib_A, float We_Ref, float *Id_Ref, f
     Sensorless_Id_Ref = *Id_Ref;
     Sensorless_Iq_Ref = *Iq_Ref;
 
-    return Sensorless_Start_Ready();
+    return Sensorless_Ready();
 }
 
-Sensorless_State_e Sensorless_Start_State_Get(void)
+Sensorless_State_e Sensorless_State_Get(void)
 {
-    return Start_State;
+    return State;
 }

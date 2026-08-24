@@ -88,12 +88,13 @@
 #define OPEN_ALIGN_CNT    ((uint32_t)(OPEN_ALIGN_TIME_S / CUR_TS + 0.5f))
 #define OPEN_IQ_A         0.2f
 
-/* Sensorless I/F startup. Electrical speed and acceleration use rad/s. */
+/* Sensorless I/F startup and low-speed operation. */
 #define IF_ALIGN_ID_A      1.0f
 #define IF_ALIGN_TIME_S    1.0f
 #define IF_ALIGN_CNT       ((uint32_t)(IF_ALIGN_TIME_S / CUR_TS + 0.5f))
 #define IF_IQ_START_A      1.0f
 #define IF_IQ_TARGET_A     1.6f
+#define IF_IQ_SLEW_A_S     20.0f
 #define IF_WE_TARGET_RAD_S 120.0f
 #define IF_ACC_RAD_S2      15.0f
 #define IF_HOLD_TIME_S     0.3f
