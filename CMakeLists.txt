@@ -62,6 +62,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Motor/Fast_Profile.c
     Motor/Motor_ADC.c
     Motor/Encoder.c
+    Motor/Motor_Para.c
     Motor/Current_Loop.c
     Motor/Motion_Loop.c
     Motor/Align.c

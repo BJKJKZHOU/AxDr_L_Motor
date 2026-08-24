@@ -24,7 +24,6 @@ typedef struct
 } Current_Ref_T;
 
 Motor_Cal_T Motor_Cal = MOTOR_CAL_DEFAULT;
-Motor_Para_T Motor_Para = MOTOR_PARA_DEFAULT;
 const Motor_Limit_T Motor_Lim = MOTOR_LIM_DEFAULT;
 Motor_Limit_T User_Lim = USER_LIM_DEFAULT;
 Motor_Run_T Motor_Run = { 0 };

@@ -5,8 +5,8 @@
 
 #include "Identification.h"
 
-#include "Current_Loop.h"
 #include "Flux.h"
+#include "Motor_Para.h"
 #include "Rs_Ls.h"
 
 #define IDENT_I_MAX_A 2.2f
@@ -116,7 +116,7 @@ bool Identification_Apply(void)
         Motor_Para.Rs = Rs_Ls_Result->Rs_Ohm;
         Motor_Para.Ld = Rs_Ls_Result->Ls_H;
         Motor_Para.Lq = Rs_Ls_Result->Ls_H;
-        Current_Loop_Para_Update();
+        Motor_Para_Changed(MOTOR_PARA_RL);
         return true;
     }
 
@@ -130,6 +130,7 @@ bool Identification_Apply(void)
         }
 
         Motor_Para.Flux = Flux_Result->Flux_Wb;
+        Motor_Para_Changed(MOTOR_PARA_FLUX);
         return true;
     }
 
