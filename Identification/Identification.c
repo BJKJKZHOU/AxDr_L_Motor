@@ -6,17 +6,74 @@
 #include "Identification.h"
 
 #include "Flux.h"
+#include "Math.h"
+#include "Motor_ADC.h"
 #include "Motor_Para.h"
 #include "Rs_Ls.h"
+#include "control_params.h"
 
-#define IDENT_I_MAX_A 2.2f
+#define IDENT_PROBE_I_RATIO       0.10f
+#define IDENT_MEASURE_I_RATIO     0.15f
+#define IDENT_MEASURE_I_MAX_RATIO 0.20f
+#define IDENT_ALIGN_I_RATIO       0.20f
+#define IDENT_ALIGN_I_MAX_RATIO   0.50f
+#define IDENT_I_HARD_RATIO        0.25f
+#define IDENT_I_MIN_RATIO         0.02f
+
+#define IDENT_U_SOFT_RATIO 0.25f
+#define IDENT_U_HARD_RATIO 0.80f
+
+#define IDENT_FLUX_I_MAX_A 2.2f
 
 static volatile Ident_Mode_e Ident_Mode = IDENT_NONE;
 static volatile Ident_State_e Ident_State = IDENT_IDLE;
+static Ident_Envelope_T Ident_Envelope = { 0 };
 
 static float Abs_Value(float Value)
 {
     return (Value >= 0.0f) ? Value : -Value;
+}
+
+static float Current_Limit_Get(void)
+{
+    float I_Max;
+
+    I_Max = (Motor_Lim.I_Max < User_Lim.I_Max) ? Motor_Lim.I_Max : User_Lim.I_Max;
+
+    return (I_Max > 0.0f) ? I_Max : 0.0f;
+}
+
+static void Envelope_Voltage_Update(void)
+{
+    Ident_Envelope.U_Available_V = ADC.Vbus_V * INV_SQRT3_F * VOLT_MOD_MAX;
+
+    if (Ident_Envelope.U_Available_V < 0.0f)
+    {
+        Ident_Envelope.U_Available_V = 0.0f;
+    }
+
+    Ident_Envelope.U_Soft_V = IDENT_U_SOFT_RATIO * Ident_Envelope.U_Available_V;
+    Ident_Envelope.U_Hard_V = IDENT_U_HARD_RATIO * Ident_Envelope.U_Available_V;
+}
+
+static bool Envelope_Build(void)
+{
+    Ident_Envelope.I_Safe_A = Current_Limit_Get();
+    Ident_Envelope.I_Probe_A = IDENT_PROBE_I_RATIO * Ident_Envelope.I_Safe_A;
+    Ident_Envelope.I_Measure_A = IDENT_MEASURE_I_RATIO * Ident_Envelope.I_Safe_A;
+    Ident_Envelope.I_Measure_Max_A = IDENT_MEASURE_I_MAX_RATIO * Ident_Envelope.I_Safe_A;
+    Ident_Envelope.I_Align_A = IDENT_ALIGN_I_RATIO * Ident_Envelope.I_Safe_A;
+    Ident_Envelope.I_Align_Max_A = IDENT_ALIGN_I_MAX_RATIO * Ident_Envelope.I_Safe_A;
+    Ident_Envelope.I_Hard_A = IDENT_I_HARD_RATIO * Ident_Envelope.I_Safe_A;
+
+    /* ADC noise RMS is not published yet. Use the confirmed 2% floor until
+     * the measurement layer can provide max(2% I_safe, 8 * noise_rms). */
+    Ident_Envelope.I_Min_A = IDENT_I_MIN_RATIO * Ident_Envelope.I_Safe_A;
+
+    Envelope_Voltage_Update();
+
+    Ident_Envelope.Valid = (Ident_Envelope.I_Safe_A > 0.0f) && (Ident_Envelope.U_Hard_V > 0.0f);
+    return Ident_Envelope.Valid;
 }
 
 bool Identification_Start(Ident_Mode_e Mode, float Wm_Target)
@@ -28,6 +85,11 @@ bool Identification_Start(Ident_Mode_e Mode, float Wm_Target)
 
     if (Mode == IDENT_RS_LS)
     {
+        if (!Envelope_Build())
+        {
+            return false;
+        }
+
         Rs_Ls_Start();
     }
     else if (Mode == IDENT_FLUX)
@@ -151,6 +213,9 @@ Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
                                           float *Ualpha_V,
                                           float *Ubeta_V)
 {
+    Rs_Ls_State_e Rs_Ls_State;
+    float I_Max;
+
     *Theta_e = 0.0f;
     *Id_Ref = 0.0f;
     *Iq_Ref = 0.0f;
@@ -162,7 +227,29 @@ Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
         return FAST_OFF;
     }
 
-    if ((Abs_Value(Ia_A) > IDENT_I_MAX_A) || (Abs_Value(Ib_A) > IDENT_I_MAX_A) || (Abs_Value(Ic_A) > IDENT_I_MAX_A))
+    if (Ident_Mode == IDENT_RS_LS)
+    {
+        Envelope_Voltage_Update();
+        Rs_Ls_State = Rs_Ls_State_Get();
+
+        if ((Rs_Ls_State == RS_LS_PROBE_RAMP) || (Rs_Ls_State == RS_LS_PROBE_MEASURE))
+        {
+            I_Max = Ident_Envelope.I_Hard_A;
+        }
+        else
+        {
+            /* Formal RL measurement keeps the rotor aligned with a DC hold
+             * while superimposing AC excitation. Allow the combined current
+             * inside the confirmed alignment ceiling. */
+            I_Max = Ident_Envelope.I_Align_Max_A;
+        }
+    }
+    else
+    {
+        I_Max = IDENT_FLUX_I_MAX_A;
+    }
+
+    if ((Abs_Value(Ia_A) > I_Max) || (Abs_Value(Ib_A) > I_Max) || (Abs_Value(Ic_A) > I_Max))
     {
         if (Ident_Mode == IDENT_RS_LS)
         {
@@ -212,4 +299,9 @@ uint8_t Identification_Stage_Get(void)
     }
 
     return 0U;
+}
+
+const Ident_Envelope_T *Identification_Envelope_Get(void)
+{
+    return &Ident_Envelope;
 }
