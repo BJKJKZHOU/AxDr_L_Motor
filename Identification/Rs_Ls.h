@@ -8,6 +8,8 @@
 
 #include <stdbool.h>
 
+#include "Motor_Type.h"
+
 typedef enum
 {
     RS_LS_IDLE = 0,
@@ -35,7 +37,12 @@ void Rs_Ls_Start(void);
 void Rs_Ls_Reset(void);
 void Rs_Ls_Fail(void);
 bool Rs_Ls_Active(void);
-void Rs_Ls_Run(float Ialpha_A, float *Ualpha_V, float *Ubeta_V);
+Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
+                            float *Theta_e,
+                            float *Id_Ref,
+                            float *Iq_Ref,
+                            float *Ualpha_V,
+                            float *Ubeta_V);
 Rs_Ls_State_e Rs_Ls_State_Get(void);
 const Rs_Ls_Result_T *Rs_Ls_Result_Get(void);
 

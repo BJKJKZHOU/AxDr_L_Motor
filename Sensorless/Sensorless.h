@@ -37,7 +37,7 @@ void Sensorless_Stop(void);
 bool Sensorless_Active(void);
 bool Sensorless_Ready(void);
 
-bool Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Id_Ref, float *Iq_Ref);
+bool Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float *Id_Ref, float *Iq_Ref);
 Sensorless_State_e Sensorless_State_Get(void);
 
 #endif /* SENSORLESS_H */

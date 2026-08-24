@@ -122,6 +122,11 @@ static bool Motion_Mode_Active(void)
     return (Motor_Mode == TORQUE) || (Motor_Mode == SPEED) || (Motor_Mode == POSITION);
 }
 
+static float Encoder_Theta_e(void)
+{
+    return Angle_Wrap((float)Motor_Para.Pp * Motor_Run.Theta_m + Motor_Cal.Theta_Off);
+}
+
 void Motor_Control(void)
 {
     float Kt;
@@ -254,11 +259,13 @@ void Motor_Control(void)
 Motor_Fast_Mode_e Motor_Fast_Run(float Ia_A,
                                  float Ib_A,
                                  float Ic_A,
+                                 float *Theta_e,
                                  float *Id_Ref,
                                  float *Iq_Ref,
                                  float *Ualpha,
                                  float *Ubeta)
 {
+    *Theta_e = 0.0f;
     *Id_Ref = 0.0f;
     *Iq_Ref = 0.0f;
     *Ualpha = 0.0f;
@@ -273,6 +280,7 @@ Motor_Fast_Mode_e Motor_Fast_Run(float Ia_A,
     {
         if (Motion_Mode_Active())
         {
+            *Theta_e = Encoder_Theta_e();
             *Id_Ref = Current_Ref.Id;
             *Iq_Ref = Current_Ref.Iq;
             return FAST_CURRENT;
@@ -286,19 +294,20 @@ Motor_Fast_Mode_e Motor_Fast_Run(float Ia_A,
         case TORQUE:
         case SPEED:
         case POSITION:
+            *Theta_e = Encoder_Theta_e();
             *Id_Ref = Current_Ref.Id;
             *Iq_Ref = Current_Ref.Iq;
             return FAST_CURRENT;
 
         case OPEN_LOOP:
-            Open_Loop(We_Ref, Id_Ref, Iq_Ref);
+            Open_Loop(We_Ref, Theta_e, Id_Ref, Iq_Ref);
             return FAST_CURRENT;
 
         case IDENT:
-            return Identification_Fast_Run(Ia_A, Ib_A, Ic_A, Id_Ref, Iq_Ref, Ualpha, Ubeta);
+            return Identification_Fast_Run(Ia_A, Ib_A, Ic_A, Theta_e, Id_Ref, Iq_Ref, Ualpha, Ubeta);
 
         case SENSORLESS_SPEED:
-            (void)Sensorless_Run(Ia_A, Ib_A, We_Ref, Id_Ref, Iq_Ref);
+            (void)Sensorless_Run(Ia_A, Ib_A, We_Ref, Theta_e, Id_Ref, Iq_Ref);
             return FAST_CURRENT;
 
         default:

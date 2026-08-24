@@ -190,12 +190,13 @@ bool Flux_Active(void)
     return (State != FLUX_IDLE) && (State != FLUX_DONE) && (State != FLUX_FAILED);
 }
 
-Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Id_Ref, float *Iq_Ref)
+Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta_e, float *Id_Ref, float *Iq_Ref)
 {
-    float Theta_e;
+    float Theta_IF;
     float Iq_Step;
     int8_t Dir;
 
+    *Theta_e = 0.0f;
     *Id_Ref = 0.0f;
     *Iq_Ref = 0.0f;
 
@@ -206,8 +207,6 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Id_Re
 
     if (State == FLUX_ALIGN)
     {
-        Motor_Run.Theta_e = 0.0f;
-
         if (Align_Current(IF_ALIGN_ID_A, IF_ALIGN_CNT, Id_Ref, Iq_Ref))
         {
             Current_Loop_State_Reset();
@@ -222,8 +221,8 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Id_Re
 
     if (State == FLUX_FINISH)
     {
-        (void)IF_Start_Run(&Theta_e, Id_Ref, Iq_Ref);
-        Motor_Run.Theta_e = Theta_e;
+        (void)IF_Start_Run(&Theta_IF, Id_Ref, Iq_Ref);
+        *Theta_e = Theta_IF;
 
         if (Finish_Init == 0U)
         {
@@ -292,9 +291,9 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Id_Re
         }
     }
 
-    (void)IF_Start_Run(&Theta_e, Id_Ref, Iq_Ref);
-    Motor_Run.Theta_e = Theta_e;
-    Theta_Pre = Theta_e;
+    (void)IF_Start_Run(&Theta_IF, Id_Ref, Iq_Ref);
+    *Theta_e = Theta_IF;
+    Theta_Pre = Theta_IF;
     U_Valid = 1U;
 
     if (State == FLUX_ACCEL)

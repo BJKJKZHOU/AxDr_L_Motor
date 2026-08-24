@@ -267,7 +267,7 @@ bool Sensorless_Ready(void)
     return Active && !Initial_IF;
 }
 
-bool Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Id_Ref, float *Iq_Ref)
+bool Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float *Id_Ref, float *Iq_Ref)
 {
     float Ialpha;
     float Ibeta;
@@ -287,6 +287,7 @@ bool Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Id_Ref, float *
 
     if (!Active)
     {
+        *Theta_e = Sensorless_Theta_Use;
         *Id_Ref = 0.0f;
         *Iq_Ref = 0.0f;
         return false;
@@ -301,7 +302,8 @@ bool Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Id_Ref, float *
 
     if (State == SL_ALIGN)
     {
-        Motor_Run.Theta_e = 0.0f;
+        *Theta_e = 0.0f;
+        Sensorless_Theta_Use = 0.0f;
 
         if (Align_Current(IF_ALIGN_ID_A, IF_ALIGN_CNT, Id_Ref, Iq_Ref))
         {
@@ -537,8 +539,7 @@ bool Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Id_Ref, float *
         }
     }
 
-    Motor_Run.Theta_e = Theta_Use;
-
+    *Theta_e = Theta_Use;
     Sensorless_Theta_Use = Theta_Use;
     Sensorless_Id_Ref = *Id_Ref;
     Sensorless_Iq_Ref = *Iq_Ref;

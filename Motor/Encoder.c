@@ -324,7 +324,6 @@ void Encoder_DMA_IRQHandler(void)
 
     Encoder.Theta_m = Theta;
     Motor_Run.Theta_m = Theta;
-    Motor_Run.Theta_e = Angle_Wrap((float)Motor_Para.Pp * Theta + Motor_Cal.Theta_Off);
     Fast_Time.Enc_Cyc = DWT->CYCCNT - Fast_Time.T0;
 
     Step = 0U;

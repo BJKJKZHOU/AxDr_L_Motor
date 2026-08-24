@@ -145,11 +145,13 @@ bool Identification_Active(void)
 Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
                                           float Ib_A,
                                           float Ic_A,
+                                          float *Theta_e,
                                           float *Id_Ref,
                                           float *Iq_Ref,
                                           float *Ualpha_V,
                                           float *Ubeta_V)
 {
+    *Theta_e = 0.0f;
     *Id_Ref = 0.0f;
     *Iq_Ref = 0.0f;
     *Ualpha_V = 0.0f;
@@ -176,13 +178,12 @@ Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
 
     if (Ident_Mode == IDENT_RS_LS)
     {
-        Rs_Ls_Run(Ia_A, Ualpha_V, Ubeta_V);
-        return FAST_VOLTAGE;
+        return Rs_Ls_Run(Ia_A, Theta_e, Id_Ref, Iq_Ref, Ualpha_V, Ubeta_V);
     }
 
     if (Ident_Mode == IDENT_FLUX)
     {
-        return Flux_Fast_Run(Ia_A, Ib_A, Ic_A, Id_Ref, Iq_Ref);
+        return Flux_Fast_Run(Ia_A, Ib_A, Ic_A, Theta_e, Id_Ref, Iq_Ref);
     }
 
     return FAST_OFF;
