@@ -3,18 +3,19 @@
 
 The workflow is fixed intentionally:
 
-1. Run Rs/Ls identification five times.
-2. Check repeatability and ask whether the fifth result may be applied to RAM.
-3. Run Flux identification twice forward and twice reverse.
-4. Check repeatability and ask whether the fourth result may be applied to RAM.
-5. Ramp to the requested sensorless test speed and run until Ctrl+C by default.
+1. Apply the user-declared commissioning current limit to firmware RAM.
+2. Run Rs/Ls identification five times.
+3. Check repeatability and ask whether the fifth result may be applied to RAM.
+4. Run Flux identification twice forward and twice reverse.
+5. Check repeatability and ask whether the fourth result may be applied to RAM.
+6. Ramp to the requested sensorless test speed and run until Ctrl+C by default.
 
-Declining either RAM update stops the workflow. Applied values are not saved to
-nonvolatile memory and are lost after a firmware reset.
+Declining either RAM update stops the workflow. Applied values and the user current
+limit are not saved to nonvolatile memory and are lost after a firmware reset.
 
 Example:
     python3 tools/new_motor_commission.py \
-        --port /dev/ttyACM0 --run
+        --port /dev/ttyACM0 --current-limit 2.0 --run
 """
 
 import argparse
@@ -34,6 +35,7 @@ import sensorless_test as base
 MSG_IDENTIFICATION = 0x05
 
 MODE_IDENT = 4
+CTRL_I_LIMIT_SET = 0x07
 
 IDENT_MODE_SET = 0x01
 IDENT_STATUS = 0x02
@@ -43,6 +45,8 @@ IDENT_FLUX = 0x02
 
 IDENT_DONE = 2
 IDENT_FAILED = 3
+
+HOST_CURRENT_GUARD_RATIO = 1.10
 
 FAST_CONFIG_ID = 13
 NORMAL_CONFIG_ID = 14
@@ -154,6 +158,17 @@ class Commission(base.SensorlessTest):
                 self.request(msg_type, op, data)
             except (TimeoutError, RuntimeError):
                 pass
+
+    def current_limit_set(self):
+        self.request(
+            base.MSG_CONTROL,
+            CTRL_I_LIMIT_SET,
+            struct.pack("<f", self.args.current_limit),
+        )
+        print(
+            f"Commission current limit={self.args.current_limit:.3f} A; "
+            f"host guard={self.args.ident_current_limit:.3f} A"
+        )
 
     def configure_plot(self):
         self.fast_last = None
@@ -282,7 +297,7 @@ class Commission(base.SensorlessTest):
 
                 if self.run_trip:
                     failure = RuntimeError(
-                        "identification phase current exceeded "
+                        "identification phase current exceeded host guard "
                         f"{self.args.ident_current_limit:.3f} A"
                     )
                     break
@@ -486,8 +501,10 @@ def parse_args():
                         default="forward")
     parser.add_argument("--duration", type=float, default=0.0,
                         help="final hold seconds; 0 runs until Ctrl+C")
-    parser.add_argument("--ident-current-limit", type=float, default=2.2)
-    parser.add_argument("--current-limit", type=float, default=2.6)
+    parser.add_argument(
+        "--current-limit", type=float, required=True,
+        help="maximum phase current allowed for this motor during commissioning",
+    )
     parser.add_argument("--rl-repeat-limit", type=float, default=0.10)
     parser.add_argument("--flux-repeat-limit", type=float, default=0.05)
     parser.add_argument("--flux-r2-min", type=float, default=0.99)
@@ -524,10 +541,10 @@ def parse_args():
     if args.duration < 0.0:
         parser.error("--duration must be non-negative")
     for name in (
-            "ident_current_limit", "current_limit", "rl_repeat_limit",
-            "flux_repeat_limit", "flux_r2_min", "vbus_min", "vbus_max",
-            "vbus_seconds", "ident_timeout", "poll_interval", "ramp_step",
-            "ramp_interval", "pll_rms_limit", "pll_window", "we_tolerance",
+            "current_limit", "rl_repeat_limit", "flux_repeat_limit",
+            "flux_r2_min", "vbus_min", "vbus_max", "vbus_seconds",
+            "ident_timeout", "poll_interval", "ramp_step", "ramp_interval",
+            "pll_rms_limit", "pll_window", "we_tolerance",
             "we_relative_tolerance", "speed_error_time",
             "voltage_util_limit", "ready_timeout", "target_timeout",
             "settle_seconds", "status_interval", "timeout"):
@@ -542,6 +559,7 @@ def parse_args():
     if args.max_lost < 0:
         parser.error("max-lost must be non-negative")
 
+    args.ident_current_limit = HOST_CURRENT_GUARD_RATIO * args.current_limit
     sign = 1.0 if args.direction == "forward" else -1.0
     args.target_wm = sign * args.target_we / args.pole_pairs
     args.rpm = abs(args.target_wm) * 60.0 / (2.0 * math.pi)
@@ -552,6 +570,8 @@ def main():
     args = parse_args()
     record = {
         "started": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "current_limit_a": args.current_limit,
+        "host_current_guard_a": args.ident_current_limit,
         "target_we_rad_s": args.target_we,
         "target_wm_rad_s": args.target_wm,
         "pole_pairs": args.pole_pairs,
@@ -588,6 +608,7 @@ def main():
                 ident.prepare()
                 ident.configure_plot()
                 ident.check_vbus()
+                ident.current_limit_set()
 
                 for run in range(1, 6):
                     print(f"\nRs/Ls identification {run}/5")

@@ -80,7 +80,7 @@ static void Control_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
     uint8_t Op;
     uint8_t Mode;
     uint32_t Arg;
-    float Wm;
+    float Value;
     Motor_Cmd_e Cmd;
     AxDr_Status_e Status;
 
@@ -167,7 +167,7 @@ static void Control_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
         }
         return;
     }
-    else if (Op == AXDR_CTRL_SPEED_SET)
+    else if ((Op == AXDR_CTRL_SPEED_SET) || (Op == AXDR_CTRL_I_LIMIT_SET))
     {
         if (Len != 6U)
         {
@@ -175,15 +175,30 @@ static void Control_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
         }
         else
         {
-            memcpy(&Wm, &Data[2], sizeof(Wm));
+            memcpy(&Value, &Data[2], sizeof(Value));
 
-            if (!__builtin_isfinite(Wm))
+            if (!__builtin_isfinite(Value))
             {
                 Status = AXDR_ERR_VALUE;
             }
+            else if (Op == AXDR_CTRL_I_LIMIT_SET)
+            {
+                if ((Motor_State_Get() != DISABLED) || (Value <= 0.0f) || (Value > Motor_Lim.I_Max))
+                {
+                    Status = (Motor_State_Get() != DISABLED) ? AXDR_ERR_STATE : AXDR_ERR_VALUE;
+                }
+                else
+                {
+                    memcpy(&Arg, &Value, sizeof(Arg));
+                    if (!Motor_Cmd_Send(MOTOR_CMD_I_LIMIT_SET, Arg))
+                    {
+                        Status = AXDR_ERR_CONFIG;
+                    }
+                }
+            }
             else
             {
-                memcpy(&Arg, &Wm, sizeof(Arg));
+                memcpy(&Arg, &Value, sizeof(Arg));
                 if (!Motor_Cmd_Send(MOTOR_CMD_SPEED_SET, Arg))
                 {
                     Status = AXDR_ERR_CONFIG;

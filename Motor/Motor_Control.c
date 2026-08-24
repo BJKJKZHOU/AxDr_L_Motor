@@ -577,6 +577,17 @@ bool Motor_Ident_Apply(void)
     return Identification_Apply();
 }
 
+bool User_I_Limit_Set(float I_Max)
+{
+    if ((Motor_State != DISABLED) || !__builtin_isfinite(I_Max) || (I_Max <= 0.0f) || (I_Max > Motor_Lim.I_Max))
+    {
+        return false;
+    }
+
+    User_Lim.I_Max = I_Max;
+    return true;
+}
+
 void Torque_Target_Set(float Te)
 {
     Motor_Cmd.Te_Target = Te;

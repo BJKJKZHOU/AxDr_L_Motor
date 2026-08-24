@@ -20,6 +20,7 @@ typedef enum
     MOTOR_CMD_IDENT_SET,
     MOTOR_CMD_SPEED_SET,
     MOTOR_CMD_IDENT_APPLY,
+    MOTOR_CMD_I_LIMIT_SET,
 
 } Motor_Cmd_e;
 
