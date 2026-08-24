@@ -17,7 +17,6 @@
 #define IDENT_MEASURE_I_MAX_RATIO 0.20f
 #define IDENT_ALIGN_I_RATIO       0.20f
 #define IDENT_ALIGN_I_MAX_RATIO   0.50f
-#define IDENT_I_HARD_RATIO        0.25f
 #define IDENT_I_MIN_RATIO         0.02f
 
 #define IDENT_U_SOFT_RATIO 0.25f
@@ -59,20 +58,31 @@ static void Envelope_Voltage_Update(void)
 static bool Envelope_Build(void)
 {
     Ident_Envelope.I_Safe_A = Current_Limit_Get();
+    Ident_Envelope.I_Min_A = IDENT_I_MIN_RATIO * Ident_Envelope.I_Safe_A;
+
     Ident_Envelope.I_Probe_A = IDENT_PROBE_I_RATIO * Ident_Envelope.I_Safe_A;
+    if (Ident_Envelope.I_Probe_A < Ident_Envelope.I_Min_A)
+    {
+        Ident_Envelope.I_Probe_A = Ident_Envelope.I_Min_A;
+    }
+
     Ident_Envelope.I_Measure_A = IDENT_MEASURE_I_RATIO * Ident_Envelope.I_Safe_A;
+    if (Ident_Envelope.I_Measure_A < Ident_Envelope.I_Min_A)
+    {
+        Ident_Envelope.I_Measure_A = Ident_Envelope.I_Min_A;
+    }
+
     Ident_Envelope.I_Measure_Max_A = IDENT_MEASURE_I_MAX_RATIO * Ident_Envelope.I_Safe_A;
     Ident_Envelope.I_Align_A = IDENT_ALIGN_I_RATIO * Ident_Envelope.I_Safe_A;
     Ident_Envelope.I_Align_Max_A = IDENT_ALIGN_I_MAX_RATIO * Ident_Envelope.I_Safe_A;
-    Ident_Envelope.I_Hard_A = IDENT_I_HARD_RATIO * Ident_Envelope.I_Safe_A;
 
     /* ADC noise RMS is not published yet. Use the confirmed 2% floor until
      * the measurement layer can provide max(2% I_safe, 8 * noise_rms). */
-    Ident_Envelope.I_Min_A = IDENT_I_MIN_RATIO * Ident_Envelope.I_Safe_A;
 
     Envelope_Voltage_Update();
 
-    Ident_Envelope.Valid = (Ident_Envelope.I_Safe_A > 0.0f) && (Ident_Envelope.U_Hard_V > 0.0f);
+    Ident_Envelope.Valid = (Ident_Envelope.I_Safe_A > 0.0f) && (Ident_Envelope.U_Hard_V > 0.0f) &&
+                           (Ident_Envelope.I_Probe_A <= Ident_Envelope.I_Measure_Max_A);
     return Ident_Envelope.Valid;
 }
 
@@ -213,7 +223,6 @@ Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
                                           float *Ualpha_V,
                                           float *Ubeta_V)
 {
-    Rs_Ls_State_e Rs_Ls_State;
     float I_Max;
 
     *Theta_e = 0.0f;
@@ -230,19 +239,7 @@ Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
     if (Ident_Mode == IDENT_RS_LS)
     {
         Envelope_Voltage_Update();
-        Rs_Ls_State = Rs_Ls_State_Get();
-
-        if ((Rs_Ls_State == RS_LS_PROBE_RAMP) || (Rs_Ls_State == RS_LS_PROBE_MEASURE))
-        {
-            I_Max = Ident_Envelope.I_Hard_A;
-        }
-        else
-        {
-            /* Formal RL measurement keeps the rotor aligned with a DC hold
-             * while superimposing AC excitation. Allow the combined current
-             * inside the confirmed alignment ceiling. */
-            I_Max = Ident_Envelope.I_Align_Max_A;
-        }
+        I_Max = Ident_Envelope.I_Safe_A;
     }
     else
     {

@@ -36,7 +36,6 @@ typedef struct
     float I_Measure_Max_A;
     float I_Align_A;
     float I_Align_Max_A;
-    float I_Hard_A;
     float I_Min_A;
 
     float U_Available_V;

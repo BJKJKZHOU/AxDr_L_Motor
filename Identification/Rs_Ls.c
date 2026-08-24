@@ -128,6 +128,24 @@ static void Voltage_Ramp(float U_Max_V)
     }
 }
 
+static void Voltage_Backoff(float U_Max_V)
+{
+    float U_Step_V;
+
+    if ((U_Max_V <= 0.0f) || (Rs_Ls_U_Ac_V <= 0.0f))
+    {
+        return;
+    }
+
+    U_Step_V = U_Max_V * CUR_TS / RS_LS_U_RAMP_TIME_S;
+    Rs_Ls_U_Ac_V -= U_Step_V;
+
+    if (Rs_Ls_U_Ac_V < 0.0f)
+    {
+        Rs_Ls_U_Ac_V = 0.0f;
+    }
+}
+
 static void PI_State_Reset(void)
 {
     Id_Ctrl.State.Int = 0.0f;
@@ -292,6 +310,8 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
     float Ramp_I_Amp;
     float Freq_Target_Hz;
     float I_Target_A;
+    float I_Soft_A;
+    float I_Abs;
     float U_Ac_Max_V;
     float U_Hold_Abs_V;
     bool Align_Done;
@@ -342,6 +362,7 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
     if ((Rs_Ls_State == RS_LS_PROBE_RAMP) || (Rs_Ls_State == RS_LS_PROBE_MEASURE))
     {
         U_Ac_Max_V = Envelope->U_Hard_V;
+        I_Soft_A = Envelope->I_Measure_Max_A;
     }
     else
     {
@@ -354,6 +375,7 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
         }
 
         U_Ac_Max_V = Envelope->U_Hard_V - U_Hold_Abs_V;
+        I_Soft_A = Envelope->I_Align_Max_A;
     }
 
     if (Rs_Ls_U_Ac_V > U_Ac_Max_V)
@@ -361,6 +383,7 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
         Rs_Ls_U_Ac_V = U_Ac_Max_V;
     }
 
+    I_Abs = (Ialpha_A >= 0.0f) ? Ialpha_A : -Ialpha_A;
     SinCos(Rs_Ls_Phase, &Sin, &Cos);
 
     if ((Rs_Ls_State == RS_LS_PROBE_RAMP) || (Rs_Ls_State == RS_LS_PROBE_MEASURE))
@@ -377,7 +400,15 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
         Ramp_I_Re += Ialpha_A * Cos;
         Ramp_I_Im -= Ialpha_A * Sin;
         Ramp_Cnt++;
-        Voltage_Ramp(U_Ac_Max_V);
+
+        if (I_Abs < I_Soft_A)
+        {
+            Voltage_Ramp(U_Ac_Max_V);
+        }
+        else
+        {
+            Voltage_Backoff(U_Ac_Max_V);
+        }
 
         if (Ramp_Cnt >= Rs_Ls_Sample_Per_Cycle)
         {
@@ -389,12 +420,12 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
 
             if (Ramp_I_Amp > Envelope->I_Measure_Max_A)
             {
-                Rs_Ls_Fail();
-                *Ualpha_V = 0.0f;
-                return FAST_OFF;
+                if (Ramp_I_Amp > 0.0f)
+                {
+                    Rs_Ls_U_Ac_V *= I_Target_A / Ramp_I_Amp;
+                }
             }
-
-            if (Ramp_I_Amp >= I_Target_A)
+            else if (Ramp_I_Amp >= I_Target_A)
             {
                 if (Rs_Ls_State == RS_LS_PROBE_RAMP)
                 {
