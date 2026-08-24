@@ -28,7 +28,7 @@ void Open_Loop_Reset(void)
     Align_Reset();
 }
 
-void Open_Loop(float *Id_Ref, float *Iq_Ref)
+void Open_Loop(float We_Ref, float *Id_Ref, float *Iq_Ref)
 {
     if ((Motor_State_Get() != RUN) || (Motor_Mode_Get() != OPEN_LOOP))
     {
@@ -51,7 +51,7 @@ void Open_Loop(float *Id_Ref, float *Iq_Ref)
     }
     else
     {
-        Theta_Open += OPEN_WE_RAD_S * CUR_TS;
+        Theta_Open += We_Ref * CUR_TS;
         Theta_Open = Angle_Wrap(Theta_Open);
 
         *Id_Ref = 0.0f;

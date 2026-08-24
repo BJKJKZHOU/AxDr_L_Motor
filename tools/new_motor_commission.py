@@ -7,7 +7,7 @@ The workflow is fixed intentionally:
 2. Check repeatability and ask whether the fifth result may be applied to RAM.
 3. Run Flux identification twice forward and twice reverse.
 4. Check repeatability and ask whether the fourth result may be applied to RAM.
-5. Ramp to 1000 electrical rad/s and run until Ctrl+C by default.
+5. Ramp to the requested sensorless test speed and run until Ctrl+C by default.
 
 Declining either RAM update stops the workflow. Applied values are not saved to
 nonvolatile memory and are lost after a firmware reset.
@@ -238,12 +238,9 @@ class Commission(base.SensorlessTest):
 
     def run_ident(self, mode, run_number, direction=None):
         if direction is not None:
-            direction_value = 1 if direction == "forward" else 2
-            self.request(
-                base.MSG_SENSORLESS,
-                base.SENSORLESS_DIR_SET,
-                bytes([direction_value]),
-            )
+            sign = 1.0 if direction == "forward" else -1.0
+            wm_test = sign * base.IF_WE_RAD_S / self.args.pole_pairs
+            self.speed_set(wm_test)
 
         self.request(base.MSG_CONTROL, base.CTRL_MODE_SET, bytes([MODE_IDENT]))
         self.request(MSG_IDENTIFICATION, IDENT_MODE_SET, bytes([mode]))
@@ -482,9 +479,9 @@ def parse_args():
     parser.add_argument("--run", action="store_true",
                         help="required confirmation to energize the motor")
     parser.add_argument("--target-we", type=int, default=1000,
-                        help="final electrical speed in rad/s")
+                        help="final sensorless test point in electrical rad/s")
     parser.add_argument("--pole-pairs", type=int, default=16,
-                        help="known pole pairs, used for RPM display")
+                        help="known pole pairs, used to convert commands to mechanical speed")
     parser.add_argument("--direction", choices=("forward", "reverse"),
                         default="forward")
     parser.add_argument("--duration", type=float, default=0.0,
@@ -499,7 +496,8 @@ def parse_args():
     parser.add_argument("--vbus-seconds", type=float, default=0.2)
     parser.add_argument("--ident-timeout", type=float, default=25.0)
     parser.add_argument("--poll-interval", type=float, default=0.05)
-    parser.add_argument("--ramp-step", type=int, default=5)
+    parser.add_argument("--ramp-step", type=float, default=0.5,
+                        help="mechanical rad/s per final-run ramp step")
     parser.add_argument("--ramp-interval", type=float, default=0.02)
     parser.add_argument("--pll-rms-limit", type=float, default=0.08)
     parser.add_argument("--pll-window", type=float, default=0.2)
@@ -544,8 +542,9 @@ def parse_args():
     if args.max_lost < 0:
         parser.error("max-lost must be non-negative")
 
-    args.rpm = (args.target_we / args.pole_pairs * 60.0 /
-                (2.0 * math.pi))
+    sign = 1.0 if args.direction == "forward" else -1.0
+    args.target_wm = sign * args.target_we / args.pole_pairs
+    args.rpm = abs(args.target_wm) * 60.0 / (2.0 * math.pi)
     return args
 
 
@@ -554,6 +553,7 @@ def main():
     record = {
         "started": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "target_we_rad_s": args.target_we,
+        "target_wm_rad_s": args.target_wm,
         "pole_pairs": args.pole_pairs,
         "direction": args.direction,
         "status": "started",
@@ -571,8 +571,8 @@ def main():
         "2 x forward Flux, 2 x reverse Flux"
     )
     print(
-        f"Final target: {args.target_we} electrical rad/s "
-        f"({args.rpm:.2f} mechanical RPM at Pp={args.pole_pairs})"
+        f"Final target: {args.target_wm:.3f} mechanical rad/s "
+        f"({args.target_we} electrical rad/s, {args.rpm:.2f} RPM at Pp={args.pole_pairs})"
     )
     print("RAM updates are temporary; reset restores compiled parameters.")
 
@@ -650,7 +650,7 @@ def main():
                 runner.prepare()
                 runner.configure_plot()
                 runner.check_vbus()
-                runner.run_motor(args.target_we)
+                runner.run_motor(args.target_wm)
                 graceful = True
                 record["status"] = "completed"
             finally:

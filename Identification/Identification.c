@@ -19,7 +19,7 @@ static float Abs_Value(float Value)
     return (Value >= 0.0f) ? Value : -Value;
 }
 
-bool Identification_Start(Ident_Mode_e Mode)
+bool Identification_Start(Ident_Mode_e Mode, float Wm_Target)
 {
     if (Ident_State == IDENT_RUNNING)
     {
@@ -32,7 +32,7 @@ bool Identification_Start(Ident_Mode_e Mode)
     }
     else if (Mode == IDENT_FLUX)
     {
-        Flux_Start();
+        Flux_Start(Wm_Target);
     }
     else
     {

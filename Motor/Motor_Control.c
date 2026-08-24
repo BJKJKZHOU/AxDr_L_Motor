@@ -33,10 +33,10 @@ static Motor_Cmd_T Motor_Cmd = { 0 };
 static volatile Motor_State_e Motor_State = DISABLED;
 static Motor_Mode_e Motor_Mode = TORQUE;
 static Ident_Mode_e Ident_Mode = IDENT_RS_LS;
-static int8_t Sensorless_Dir = 1;
 
 static Current_Ref_T Current_Ref = { 0 };
 static float Wm_Ref = 0.0f;
+static float We_Ref = 0.0f;
 static int32_t Pos_Ref_Turn = 0;
 static float Pos_Ref_Theta = 0.0f;
 static uint32_t Pos_Div = 0U;
@@ -112,6 +112,7 @@ static void Motion_State_Reset(void)
     Speed_Ctrl.State.Int = 0.0f;
     Speed_Ctrl.State.Fbk_Pre = (float)Motor_Para.Pp * Motor_Run.Wm;
     Wm_Ref = 0.0f;
+    We_Ref = 0.0f;
     Pos_Ref_Turn = Motor_Run.Turn;
     Pos_Ref_Theta = Motor_Run.Theta_m;
     Pos_Div = 0U;
@@ -126,7 +127,6 @@ void Motor_Control(void)
 {
     float Kt;
     float Te_Ref;
-    float We_Ref;
     float We_Fbk;
     float Iq_Min;
     float Iq_Max;
@@ -136,6 +136,8 @@ void Motor_Control(void)
     {
         Current_Ref.Id = 0.0f;
         Current_Ref.Iq = 0.0f;
+        Wm_Ref = 0.0f;
+        We_Ref = 0.0f;
         return;
     }
 
@@ -157,6 +159,23 @@ void Motor_Control(void)
         return;
     }
 
+    Motor_Limit_Get(&Lim);
+
+    if ((Motor_Mode == SPEED) || (Motor_Mode == OPEN_LOOP) || (Motor_Mode == SENSORLESS_SPEED))
+    {
+        if (Motor_State == RUN)
+        {
+            Wm_Ref = Motor_Cmd.Wm_Target;
+            Limit_Value(&Wm_Ref, -Lim.Wm_Max, Lim.Wm_Max);
+        }
+        else
+        {
+            Wm_Ref = 0.0f;
+        }
+
+        We_Ref = (float)Motor_Para.Pp * Wm_Ref;
+    }
+
     if ((Motor_Mode == OPEN_LOOP) || (Motor_Mode == SENSORLESS_SPEED))
     {
         Current_Ref.Id = 0.0f;
@@ -166,7 +185,6 @@ void Motor_Control(void)
 
     Current_Ref.Id = 0.0f;
 
-    Motor_Limit_Get(&Lim);
     Iq_Limit_Calc(&Iq_Min, &Iq_Max);
 
     if (Iq_Min < -Lim.I_Max)
@@ -204,17 +222,6 @@ void Motor_Control(void)
             break;
 
         case SPEED:
-            if (Motor_State == RUN)
-            {
-                Wm_Ref = Motor_Cmd.Wm_Target;
-                Limit_Value(&Wm_Ref, -Lim.Wm_Max, Lim.Wm_Max);
-            }
-            else
-            {
-                Wm_Ref = 0.0f;
-            }
-
-            We_Ref = (float)Motor_Para.Pp * Wm_Ref;
             Current_Ref.Iq = Speed_Loop(We_Ref, We_Fbk, Iq_Min, Iq_Max);
             break;
 
@@ -283,14 +290,14 @@ Motor_Fast_Mode_e Motor_Fast_Run(float Ia_A,
             return FAST_CURRENT;
 
         case OPEN_LOOP:
-            Open_Loop(Id_Ref, Iq_Ref);
+            Open_Loop(We_Ref, Id_Ref, Iq_Ref);
             return FAST_CURRENT;
 
         case IDENT:
             return Identification_Fast_Run(Ia_A, Ib_A, Ic_A, Id_Ref, Iq_Ref, Ualpha, Ubeta);
 
         case SENSORLESS_SPEED:
-            (void)Sensorless_Start_Run(Ia_A, Ib_A, Id_Ref, Iq_Ref);
+            (void)Sensorless_Start_Run(Ia_A, Ib_A, We_Ref, Id_Ref, Iq_Ref);
             return FAST_CURRENT;
 
         default:
@@ -351,15 +358,14 @@ void Motor_Start(void)
     }
     else if (Motor_Mode == IDENT)
     {
-        if (!Identification_Start(Ident_Mode))
+        if (!Identification_Start(Ident_Mode, Motor_Cmd.Wm_Target))
         {
             return;
         }
     }
     else if (Motor_Mode == SENSORLESS_SPEED)
     {
-        Sensorless_Speed_Target_Set((float)Motor_Para.Pp * Motor_Cmd.Wm_Target);
-        Sensorless_Start_Begin(Sensorless_Dir);
+        Sensorless_Start_Begin();
     }
 
     if (!Motion_Mode_Active())
@@ -421,6 +427,8 @@ void Motor_Disable(void)
     PWM_Disable();
     Current_Ref.Id = 0.0f;
     Current_Ref.Iq = 0.0f;
+    Wm_Ref = 0.0f;
+    We_Ref = 0.0f;
     Motor_State = DISABLED;
 }
 
@@ -437,15 +445,6 @@ void Motor_Ident_Mode_Set(Ident_Mode_e Mode)
     if ((Motor_State == DISABLED) && (Mode >= IDENT_RS_LS) && (Mode <= IDENT_FLUX))
     {
         Ident_Mode = Mode;
-    }
-}
-
-void Motor_Sensorless_Dir_Set(int8_t Dir)
-{
-    if (Motor_State == DISABLED)
-    {
-        Sensorless_Dir = (Dir >= 0) ? 1 : -1;
-        Flux_Dir_Set(Sensorless_Dir);
     }
 }
 
@@ -467,7 +466,6 @@ void Torque_Target_Set(float Te)
 void Speed_Target_Set(float Wm)
 {
     Motor_Cmd.Wm_Target = Wm;
-    Sensorless_Speed_Target_Set((float)Motor_Para.Pp * Wm);
 }
 
 void Position_Target_Set(int32_t Turn, float Theta)

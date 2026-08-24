@@ -67,10 +67,11 @@ static void Response(uint8_t Txn,
 
 static bool Motor_Cmd_Send(Motor_Cmd_e Cmd_Id, uint32_t Arg)
 {
-    ULONG Cmd;
+    Motor_Cmd_Msg_T Msg;
 
-    Cmd = (ULONG)Cmd_Id | ((ULONG)Arg << 8);
-    return tx_queue_send(&Motor_Cmd_Q, &Cmd, TX_NO_WAIT) == TX_SUCCESS;
+    Msg.Cmd = (ULONG)Cmd_Id;
+    Msg.Arg = (ULONG)Arg;
+    return tx_queue_send(&Motor_Cmd_Q, &Msg, TX_NO_WAIT) == TX_SUCCESS;
 }
 
 static void Control_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
@@ -78,6 +79,8 @@ static void Control_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
     uint8_t Txn;
     uint8_t Op;
     uint8_t Mode;
+    uint32_t Arg;
+    float Wm;
     Motor_Cmd_e Cmd;
     AxDr_Status_e Status;
 
@@ -155,6 +158,36 @@ static void Control_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
             else if (!Motor_Cmd_Send(MOTOR_CMD_MODE_SET, Mode))
             {
                 Status = AXDR_ERR_CONFIG;
+            }
+        }
+
+        if (Broadcast == 0U)
+        {
+            Response(Txn, AXDR_MSG_CONTROL, Op, Status, 0, 0U);
+        }
+        return;
+    }
+    else if (Op == AXDR_CTRL_SPEED_SET)
+    {
+        if (Len != 6U)
+        {
+            Status = AXDR_ERR_LENGTH;
+        }
+        else
+        {
+            memcpy(&Wm, &Data[2], sizeof(Wm));
+
+            if (!__builtin_isfinite(Wm))
+            {
+                Status = AXDR_ERR_VALUE;
+            }
+            else
+            {
+                memcpy(&Arg, &Wm, sizeof(Arg));
+                if (!Motor_Cmd_Send(MOTOR_CMD_SPEED_SET, Arg))
+                {
+                    Status = AXDR_ERR_CONFIG;
+                }
             }
         }
 
@@ -321,8 +354,6 @@ static void Sensorless_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
 {
     uint8_t Txn;
     uint8_t Op;
-    uint8_t Dir;
-    uint16_t We_Target;
     AxDr_Status_e Status;
 
     Txn = (Len > 0U) ? Data[0] : 0U;
@@ -337,30 +368,6 @@ static void Sensorless_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
     if (Len < 2U)
     {
         Status = AXDR_ERR_LENGTH;
-    }
-    else if (Op == AXDR_SENSORLESS_DIR_SET)
-    {
-        if (Len != 3U)
-        {
-            Status = AXDR_ERR_LENGTH;
-        }
-        else
-        {
-            Dir = Data[2];
-
-            if ((Dir != AXDR_SENSORLESS_FORWARD) && (Dir != AXDR_SENSORLESS_REVERSE))
-            {
-                Status = AXDR_ERR_VALUE;
-            }
-            else if (Motor_State_Get() != DISABLED)
-            {
-                Status = AXDR_ERR_STATE;
-            }
-            else if (!Motor_Cmd_Send(MOTOR_CMD_SENSORLESS_DIR_SET, Dir))
-            {
-                Status = AXDR_ERR_CONFIG;
-            }
-        }
     }
     else if (Op == AXDR_SENSORLESS_STATUS)
     {
@@ -382,56 +389,6 @@ static void Sensorless_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
 
             Response(Txn, AXDR_MSG_SENSORLESS, Op, AXDR_OK, Resp, sizeof(Resp));
             return;
-        }
-    }
-    else if (Op == AXDR_SENSORLESS_TARGET_SET)
-    {
-        if (Len != 4U)
-        {
-            Status = AXDR_ERR_LENGTH;
-        }
-        else
-        {
-            memcpy(&We_Target, &Data[2], sizeof(We_Target));
-
-            if ((We_Target == 0U) || (We_Target > 400U))
-            {
-                Status = AXDR_ERR_VALUE;
-            }
-            else if ((Motor_State_Get() != RUN) || (Motor_Mode_Get() != SENSORLESS_SPEED) ||
-                     !Sensorless_Start_Active() || (Sensorless_Start_State_Get() != SENSORLESS_IF))
-            {
-                Status = AXDR_ERR_STATE;
-            }
-            else if (!Motor_Cmd_Send(MOTOR_CMD_SENSORLESS_TARGET_SET, We_Target))
-            {
-                Status = AXDR_ERR_CONFIG;
-            }
-        }
-    }
-    else if (Op == AXDR_SENSORLESS_SPEED_SET)
-    {
-        if (Len != 4U)
-        {
-            Status = AXDR_ERR_LENGTH;
-        }
-        else
-        {
-            memcpy(&We_Target, &Data[2], sizeof(We_Target));
-
-            if ((We_Target < 120U) || (We_Target > 3000U))
-            {
-                Status = AXDR_ERR_VALUE;
-            }
-            else if ((Motor_State_Get() != RUN) || (Motor_Mode_Get() != SENSORLESS_SPEED) ||
-                     !Sensorless_Start_Active() || (Sensorless_Start_State_Get() != SENSORLESS_RUN))
-            {
-                Status = AXDR_ERR_STATE;
-            }
-            else if (!Motor_Cmd_Send(MOTOR_CMD_SENSORLESS_SPEED_SET, We_Target))
-            {
-                Status = AXDR_ERR_CONFIG;
-            }
         }
     }
     else if (Op == AXDR_SENSORLESS_STOP)

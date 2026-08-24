@@ -34,8 +34,7 @@ typedef struct
 
 } Flux_Result_T;
 
-void Flux_Start(void);
-void Flux_Dir_Set(int8_t Dir);
+void Flux_Start(float Wm_Target);
 void Flux_Reset(void);
 void Flux_Fail(void);
 void Flux_Control(void);

@@ -5,11 +5,11 @@
 
 #include "motor_thread.h"
 
-#include "IF_Start.h"
+#include <string.h>
+
 #include "Motor_ADC.h"
 #include "Motor_Control.h"
 #include "Plot.h"
-#include "Start.h"
 #include "USB_Thread.h"
 
 #define MOTOR_STACK_SIZE  512U
@@ -28,16 +28,12 @@ static void Motor_Entry(ULONG thread_input);
 static void Motor_Cmd_Run(void)
 {
     Motor_State_e State;
-    ULONG Cmd;
-    uint32_t Arg;
-    uint8_t Cmd_Id;
+    Motor_Cmd_Msg_T Msg;
+    float Wm;
 
-    while (tx_queue_receive(&Motor_Cmd_Q, &Cmd, TX_NO_WAIT) == TX_SUCCESS)
+    while (tx_queue_receive(&Motor_Cmd_Q, &Msg, TX_NO_WAIT) == TX_SUCCESS)
     {
-        Cmd_Id = (uint8_t)Cmd;
-        Arg = (uint32_t)(Cmd >> 8);
-
-        switch ((Motor_Cmd_e)Cmd_Id)
+        switch ((Motor_Cmd_e)Msg.Cmd)
         {
             case MOTOR_CMD_ENABLE:
                 Motor_Enable();
@@ -82,23 +78,16 @@ static void Motor_Cmd_Run(void)
                 break;
 
             case MOTOR_CMD_MODE_SET:
-                Motor_Mode_Set((Motor_Mode_e)Arg);
+                Motor_Mode_Set((Motor_Mode_e)Msg.Arg);
                 break;
 
             case MOTOR_CMD_IDENT_SET:
-                Motor_Ident_Mode_Set((Ident_Mode_e)Arg);
+                Motor_Ident_Mode_Set((Ident_Mode_e)Msg.Arg);
                 break;
 
-            case MOTOR_CMD_SENSORLESS_DIR_SET:
-                Motor_Sensorless_Dir_Set((Arg == 2U) ? -1 : 1);
-                break;
-
-            case MOTOR_CMD_SENSORLESS_TARGET_SET:
-                IF_Start_Target_Set((float)Arg);
-                break;
-
-            case MOTOR_CMD_SENSORLESS_SPEED_SET:
-                Sensorless_Speed_Target_Set((float)Arg);
+            case MOTOR_CMD_SPEED_SET:
+                memcpy(&Wm, &Msg.Arg, sizeof(Wm));
+                Speed_Target_Set(Wm);
                 break;
 
             case MOTOR_CMD_IDENT_APPLY:
@@ -123,13 +112,16 @@ UINT Motor_Thread_Init(VOID *memory_ptr)
         return TX_SEMAPHORE_ERROR;
     }
 
-    if (tx_byte_allocate(byte_pool, (VOID **)&pointer, MOTOR_CMD_Q_LEN * sizeof(ULONG), TX_NO_WAIT) != TX_SUCCESS)
+    if (tx_byte_allocate(byte_pool, (VOID **)&pointer, MOTOR_CMD_Q_LEN * sizeof(Motor_Cmd_Msg_T), TX_NO_WAIT) != TX_SUCCESS)
     {
         return TX_POOL_ERROR;
     }
 
-    if (tx_queue_create(&Motor_Cmd_Q, "Motor Command", TX_1_ULONG, pointer, MOTOR_CMD_Q_LEN * sizeof(ULONG)) !=
-        TX_SUCCESS)
+    if (tx_queue_create(&Motor_Cmd_Q,
+                        "Motor Command",
+                        TX_2_ULONG,
+                        pointer,
+                        MOTOR_CMD_Q_LEN * sizeof(Motor_Cmd_Msg_T)) != TX_SUCCESS)
     {
         return TX_QUEUE_ERROR;
     }

@@ -28,7 +28,6 @@ void Motor_Disable(void);
 
 void Motor_Mode_Set(Motor_Mode_e Mode);
 void Motor_Ident_Mode_Set(Ident_Mode_e Mode);
-void Motor_Sensorless_Dir_Set(int8_t Dir);
 bool Motor_Ident_Apply(void);
 
 void Torque_Target_Set(float Te);

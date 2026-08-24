@@ -8,15 +8,14 @@ import json
 import math
 from pathlib import Path
 import struct
+import subprocess
 import sys
 import time
 
-import observer_if_sweep_test as sweep
 import sensorless_test as base
 
 
 CUR_TS = 50.0e-6
-SENSORLESS_SPEED_SET = 0x05
 SENSORLESS_RUN = 6
 FAST_CONFIG_ID = 9
 NORMAL_CONFIG_ID = 10
@@ -35,6 +34,19 @@ FAST_INDEX = {name: index for index, (name, _, _) in enumerate(FAST_VARS)}
 VBUS_ID = 0x0004
 
 
+def rms(values):
+    return math.sqrt(sum(value * value for value in values) / len(values))
+
+
+def git_head(repo):
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+        ).strip()
+    except (OSError, subprocess.CalledProcessError):
+        return "unknown"
+
+
 class CurrentSpikeTest(base.SensorlessTest):
     def __init__(self, ser, args):
         super().__init__(ser, args)
@@ -45,7 +57,7 @@ class CurrentSpikeTest(base.SensorlessTest):
         self.capture_done = False
         self.latest_we = 0.0
         self.latest_pll = 0.0
-        self.command_target = 120
+        self.command_target = base.IF_WE_RAD_S
 
     def configure_plot(self):
         fast_data = bytes([base.FAST_GROUP, FAST_CONFIG_ID, len(FAST_VARS)])
@@ -120,13 +132,9 @@ class CurrentSpikeTest(base.SensorlessTest):
         value, = struct.unpack_from("<f", payload, 4)
         self.vbus.append(value)
 
-    def speed_set(self, target):
-        self.command_target = target
-        self.request(
-            base.MSG_SENSORLESS,
-            SENSORLESS_SPEED_SET,
-            struct.pack("<H", target),
-        )
+    def speed_set(self, we_target):
+        self.command_target = float(we_target)
+        super().speed_set(self.command_target / self.args.pole_pairs)
 
     def read_stage(self):
         data = self.request(base.MSG_SENSORLESS, base.SENSORLESS_STATUS)
@@ -183,14 +191,14 @@ class CurrentSpikeTest(base.SensorlessTest):
     def run_forward(self):
         self.request(base.MSG_CONTROL, base.CTRL_MODE_SET,
                      bytes([base.MODE_SENSORLESS_SPEED]))
-        self.request(base.MSG_SENSORLESS, base.SENSORLESS_DIR_SET, b"\x01")
+        self.speed_set(base.IF_WE_RAD_S)
         self.request(base.MSG_CONTROL, base.CTRL_ENABLE)
         self.request(base.MSG_CONTROL, base.CTRL_RUN)
         print("ALIGN -> I/F 120 rad/s -> Observer takeover")
         self.wait_run()
         print("SENSORLESS_RUN reached")
 
-        target = 120
+        target = int(base.IF_WE_RAD_S)
         while target < self.args.current_target and not self.capture_done:
             target = min(target + self.args.ramp_step,
                          self.args.current_target)
@@ -252,11 +260,15 @@ class CurrentSpikeTest(base.SensorlessTest):
             names[index]: max_row[offset + index]
             for index in range(len(names))
         }
-        sum_rms_pre = sweep.rms([row[-2] for row in pre])
+        sum_rms_pre = rms([row[-2] for row in pre])
         result = {
             "triggered": self.trigger_index is not None,
             "trigger_sample": self.trigger_index,
-            "trigger_target_rad_s": self.trigger_target,
+            "trigger_target_we_rad_s": self.trigger_target,
+            "trigger_target_wm_rad_s": (
+                self.trigger_target / self.args.pole_pairs
+                if self.trigger_target is not None else None
+            ),
             "current_limit_a": self.args.current_limit,
             "max_i_mag_a": max_row[-1],
             "max_i_mag_sample": max_row[0],
@@ -296,7 +308,8 @@ class CurrentSpikeTest(base.SensorlessTest):
                                  *row[1:]))
 
         record = {
-            "head": sweep.git_info(Path(__file__).resolve().parents[1])[0],
+            "head": git_head(Path(__file__).resolve().parents[1]),
+            "pole_pairs": self.args.pole_pairs,
             "result": result,
         }
         json_path.write_text(json.dumps(record, indent=2) + "\n",
@@ -310,9 +323,12 @@ def parse_args():
     )
     parser.add_argument("--port", required=True)
     parser.add_argument("--run", action="store_true")
-    parser.add_argument("--current-target", type=int, default=2300)
+    parser.add_argument("--pole-pairs", type=int, default=16)
+    parser.add_argument("--current-target", type=int, default=2300,
+                        help="electrical rad/s test point; command is converted to Wm")
     parser.add_argument("--current-limit", type=float, default=2.6)
-    parser.add_argument("--ramp-step", type=int, default=5)
+    parser.add_argument("--ramp-step", type=int, default=5,
+                        help="electrical rad/s test increment")
     parser.add_argument("--ramp-interval", type=float, default=0.02)
     parser.add_argument("--hold-seconds", type=float, default=2.0)
     parser.add_argument("--pre-samples", type=int, default=4000)
@@ -328,8 +344,10 @@ def parse_args():
 
     if not args.run:
         parser.error("--run is required to energize the motor")
+    if args.pole_pairs <= 0:
+        parser.error("--pole-pairs must be positive")
     if not 120 <= args.current_target <= 3000:
-        parser.error("current target must be in 120..3000 rad/s")
+        parser.error("current target must be in 120..3000 electrical rad/s")
     if (args.current_limit <= 0.0 or args.ramp_step <= 0 or
             args.ramp_interval <= 0.0 or args.hold_seconds <= 0.0 or
             args.pre_samples < 100):

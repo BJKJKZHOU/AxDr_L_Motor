@@ -28,7 +28,7 @@ typedef enum
 
 } Ident_State_e;
 
-bool Identification_Start(Ident_Mode_e Mode);
+bool Identification_Start(Ident_Mode_e Mode, float Wm_Target);
 void Identification_Abort(void);
 void Identification_Control(void);
 bool Identification_Apply(void);
