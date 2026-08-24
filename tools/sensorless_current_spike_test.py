@@ -16,7 +16,7 @@ import sensorless_test as base
 
 
 CUR_TS = 50.0e-6
-SENSORLESS_RUN = 6
+SENSORLESS_RUN = 3
 FAST_CONFIG_ID = 9
 NORMAL_CONFIG_ID = 10
 

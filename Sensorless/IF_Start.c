@@ -8,30 +8,28 @@
 #include "Math.h"
 #include "control_params.h"
 
-static IF_State_e State = IF_ACCEL;
-static int8_t Dir = 1;
+static IF_State_e State = IF_RAMP;
 static uint32_t Hold_Cnt = 0U;
 static float Theta_e = 0.0f;
 static float We = 0.0f;
 static float We_Target = IF_WE_TARGET_RAD_S;
 
-void IF_Start_Reset(float Theta_Start, int8_t Dir_In)
+static float Abs_F(float X)
 {
-    State = IF_ACCEL;
-    Dir = (Dir_In >= 0) ? 1 : -1;
+    return (X >= 0.0f) ? X : -X;
+}
+
+void IF_Start_Reset(float Theta_Start, float We_Start)
+{
+    State = IF_RAMP;
     Hold_Cnt = 0U;
     Theta_e = Angle_Wrap(Theta_Start);
-    We = 0.0f;
-    We_Target = IF_WE_TARGET_RAD_S;
+    We = We_Start;
+    We_Target = We_Start;
 }
 
 void IF_Start_Target_Set(float We_Target_In)
 {
-    if (We_Target_In < 0.0f)
-    {
-        We_Target_In = -We_Target_In;
-    }
-
     We_Target = We_Target_In;
     Hold_Cnt = 0U;
 
@@ -41,7 +39,7 @@ void IF_Start_Target_Set(float We_Target_In)
     }
     else
     {
-        State = IF_ACCEL;
+        State = IF_RAMP;
     }
 }
 
@@ -49,9 +47,10 @@ bool IF_Start_Run(float *Theta_e_Out, float *Id_Ref, float *Iq_Ref)
 {
     float Ratio;
     float Iq_Abs;
+    float Iq_Sign;
     float We_Step;
 
-    Ratio = We / IF_WE_TARGET_RAD_S;
+    Ratio = Abs_F(We) / IF_WE_TARGET_RAD_S;
 
     if (Ratio > 1.0f)
     {
@@ -59,12 +58,13 @@ bool IF_Start_Run(float *Theta_e_Out, float *Id_Ref, float *Iq_Ref)
     }
 
     Iq_Abs = IF_IQ_START_A + (IF_IQ_TARGET_A - IF_IQ_START_A) * Ratio;
+    Iq_Sign = (We_Target < 0.0f) ? -1.0f : 1.0f;
 
     *Theta_e_Out = Theta_e;
     *Id_Ref = 0.0f;
-    *Iq_Ref = (float)Dir * Iq_Abs;
+    *Iq_Ref = Iq_Sign * Iq_Abs;
 
-    if (State == IF_ACCEL)
+    if (State == IF_RAMP)
     {
         We_Step = IF_ACC_RAD_S2 * CUR_TS;
 
@@ -96,7 +96,7 @@ bool IF_Start_Run(float *Theta_e_Out, float *Id_Ref, float *Iq_Ref)
         Hold_Cnt++;
     }
 
-    Theta_e += (float)Dir * We * CUR_TS;
+    Theta_e += We * CUR_TS;
     Theta_e = Angle_Wrap(Theta_e);
 
     return (State == IF_HOLD) && (Hold_Cnt >= IF_HOLD_CNT);
@@ -109,5 +109,5 @@ IF_State_e IF_Start_State_Get(void)
 
 float IF_Start_We_Get(void)
 {
-    return (float)Dir * We;
+    return We;
 }

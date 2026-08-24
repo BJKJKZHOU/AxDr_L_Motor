@@ -89,11 +89,8 @@ FLUX_STAGE = {
 SENSORLESS_STAGE = {
     0: "ALIGN",
     1: "IF",
-    2: "OBS_WAIT",
-    3: "BLEND",
-    4: "OBS_HOLD",
-    5: "CURRENT_TRANS",
-    6: "RUN",
+    2: "IF_TO_OBS",
+    3: "OBS",
 }
 
 IF_STAGE = {

@@ -212,7 +212,7 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Id_Re
         {
             Current_Loop_State_Reset();
             Dir = (We_Point[0] < 0.0f) ? -1 : 1;
-            IF_Start_Reset(-0.5f * PI_F * (float)Dir, Dir);
+            IF_Start_Reset(-0.5f * PI_F * (float)Dir, 0.0f);
             IF_Start_Target_Set(We_Point[0]);
             State = FLUX_ACCEL;
         }

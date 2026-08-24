@@ -25,7 +25,7 @@ import time
 import sensorless_test as base
 
 
-SENSORLESS_RUN = 6
+SENSORLESS_RUN = 3
 IF_WE_RAD_S = 120.0
 FAST_CONFIG_ID = 11
 NORMAL_CONFIG_ID = 12
@@ -48,11 +48,8 @@ VBUS_ID = 0x0004
 STAGE_NAME = {
     0: "ALIGN",
     1: "IF",
-    2: "OBS_WAIT",
-    3: "BLEND",
-    4: "OBS_HOLD",
-    5: "CURRENT_TRANS",
-    6: "RUN",
+    2: "IF_TO_OBS",
+    3: "OBS",
 }
 
 
