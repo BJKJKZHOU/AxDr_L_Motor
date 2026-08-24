@@ -127,6 +127,7 @@ void Motor_Control(void)
 {
     float Kt;
     float Te_Ref;
+    float Wm_Target;
     float We_Fbk;
     float Iq_Min;
     float Iq_Max;
@@ -165,8 +166,9 @@ void Motor_Control(void)
     {
         if (Motor_State == RUN)
         {
-            Wm_Ref = Motor_Cmd.Wm_Target;
-            Limit_Value(&Wm_Ref, -Lim.Wm_Max, Lim.Wm_Max);
+            Wm_Target = Motor_Cmd.Wm_Target;
+            Limit_Value(&Wm_Target, -Lim.Wm_Max, Lim.Wm_Max);
+            Wm_Ref = Speed_Profile(Wm_Target, Wm_Ref, MOTION_ACC_RAD_S2, MOTION_DEC_RAD_S2);
         }
         else
         {

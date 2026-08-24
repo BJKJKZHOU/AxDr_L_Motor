@@ -66,7 +66,6 @@ bool IF_Start_Run(float *Theta_e_Out, float *Id_Ref, float *Iq_Ref)
     }
 
     Iq_Abs = IF_IQ_START_A + (IF_IQ_TARGET_A - IF_IQ_START_A) * Ratio;
-    Iq_Target = 0.0f;
 
     if (State == IF_RAMP)
     {
@@ -74,7 +73,6 @@ bool IF_Start_Run(float *Theta_e_Out, float *Id_Ref, float *Iq_Ref)
 
         if (We < We_Target)
         {
-            Iq_Target = Iq_Abs;
             We += We_Step;
 
             if (We >= We_Target)
@@ -86,7 +84,6 @@ bool IF_Start_Run(float *Theta_e_Out, float *Id_Ref, float *Iq_Ref)
         }
         else
         {
-            Iq_Target = -Iq_Abs;
             We -= We_Step;
 
             if (We <= We_Target)
@@ -97,21 +94,30 @@ bool IF_Start_Run(float *Theta_e_Out, float *Id_Ref, float *Iq_Ref)
             }
         }
     }
+    else if (Hold_Cnt < IF_HOLD_CNT)
+    {
+        Hold_Cnt++;
+    }
+
+    if (We > 0.0f)
+    {
+        Iq_Target = Iq_Abs;
+    }
+    else if (We < 0.0f)
+    {
+        Iq_Target = -Iq_Abs;
+    }
+    else if (We_Target > 0.0f)
+    {
+        Iq_Target = Iq_Abs;
+    }
+    else if (We_Target < 0.0f)
+    {
+        Iq_Target = -Iq_Abs;
+    }
     else
     {
-        if (We_Target > 0.0f)
-        {
-            Iq_Target = Iq_Abs;
-        }
-        else if (We_Target < 0.0f)
-        {
-            Iq_Target = -Iq_Abs;
-        }
-
-        if (Hold_Cnt < IF_HOLD_CNT)
-        {
-            Hold_Cnt++;
-        }
+        Iq_Target = 0.0f;
     }
 
     Iq_Step = IF_IQ_SLEW_A_S * CUR_TS;

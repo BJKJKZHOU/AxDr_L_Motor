@@ -101,6 +101,15 @@
 #define IF_HOLD_CNT        ((uint32_t)(IF_HOLD_TIME_S / CUR_TS + 0.5f))
 
 /*
+ * Mechanical-speed reference profile.
+ * Acc/Dec are positive magnitudes in mechanical rad/s^2. Reversal always
+ * decelerates Wm_Ref to zero before accelerating in the opposite direction.
+ * These are first-version motion-policy defaults and require hardware tuning.
+ */
+#define MOTION_ACC_RAD_S2 100.0f
+#define MOTION_DEC_RAD_S2 100.0f
+
+/*
  * Speed-loop PI design.
  *
  * Controller input is electrical speed We. User/communication speed remains

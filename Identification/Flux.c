@@ -13,19 +13,19 @@
 #include "Sin_LUT.h"
 #include "control_params.h"
 
-#define FLUX_POINT_NUM     4U
-#define FLUX_WE_1          120.0f
-#define FLUX_WE_2          160.0f
-#define FLUX_WE_3          200.0f
-#define FLUX_WE_4          240.0f
-#define FLUX_SETTLE_S      0.30f
-#define FLUX_MEASURE_S     0.20f
-#define FLUX_SETTLE_CNT    ((uint32_t)(FLUX_SETTLE_S / CUR_TS + 0.5f))
-#define FLUX_MEASURE_CNT   ((uint32_t)(FLUX_MEASURE_S / CUR_TS + 0.5f))
-#define FLUX_FINISH_IQ_DEC 20.0f
-#define FLUX_FINISH_I      0.20f
-#define FLUX_FINISH_S      0.002f
-#define FLUX_FINISH_CNT    ((uint32_t)(FLUX_FINISH_S / CUR_TS + 0.5f))
+#define FLUX_POINT_NUM            4U
+#define FLUX_WE_1                 120.0f
+#define FLUX_WE_2                 160.0f
+#define FLUX_WE_3                 200.0f
+#define FLUX_WE_4                 240.0f
+#define FLUX_SETTLE_S             0.30f
+#define FLUX_MEASURE_S            0.20f
+#define FLUX_SETTLE_CNT           ((uint32_t)(FLUX_SETTLE_S / CUR_TS + 0.5f))
+#define FLUX_MEASURE_CNT          ((uint32_t)(FLUX_MEASURE_S / CUR_TS + 0.5f))
+#define FLUX_FINISH_IQ_SLEW_A_S   20.0f
+#define FLUX_FINISH_I             0.20f
+#define FLUX_FINISH_S             0.002f
+#define FLUX_FINISH_CNT           ((uint32_t)(FLUX_FINISH_S / CUR_TS + 0.5f))
 
 static float We_Point[FLUX_POINT_NUM] = { 0 };
 
@@ -231,7 +231,7 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Id_Re
             Finish_Init = 1U;
         }
 
-        Iq_Step = FLUX_FINISH_IQ_DEC * CUR_TS;
+        Iq_Step = FLUX_FINISH_IQ_SLEW_A_S * CUR_TS;
 
         if (Finish_Iq > Iq_Step)
         {

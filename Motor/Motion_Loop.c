@@ -12,6 +12,56 @@
 PID_T Pos_Ctrl = POSITION_CTRL_DEFAULT;
 PID_T Speed_Ctrl = SPEED_CTRL_DEFAULT;
 
+static float Approach(float Target, float Ref, float Step)
+{
+    if (Step <= 0.0f)
+    {
+        return Ref;
+    }
+
+    if (Ref < Target)
+    {
+        Ref += Step;
+
+        if (Ref > Target)
+        {
+            Ref = Target;
+        }
+    }
+    else if (Ref > Target)
+    {
+        Ref -= Step;
+
+        if (Ref < Target)
+        {
+            Ref = Target;
+        }
+    }
+
+    return Ref;
+}
+
+float Speed_Profile(float Wm_Target, float Wm_Ref, float Acc, float Dec)
+{
+    float Acc_Step;
+    float Dec_Step;
+
+    Acc_Step = Acc * SPD_TS;
+    Dec_Step = Dec * SPD_TS;
+
+    if (((Wm_Ref > 0.0f) && (Wm_Target < 0.0f)) || ((Wm_Ref < 0.0f) && (Wm_Target > 0.0f)))
+    {
+        return Approach(0.0f, Wm_Ref, Dec_Step);
+    }
+
+    if (((Wm_Ref >= 0.0f) && (Wm_Target > Wm_Ref)) || ((Wm_Ref <= 0.0f) && (Wm_Target < Wm_Ref)))
+    {
+        return Approach(Wm_Target, Wm_Ref, Acc_Step);
+    }
+
+    return Approach(Wm_Target, Wm_Ref, Dec_Step);
+}
+
 float Position_Loop(int32_t Turn_Ref, float Theta_Ref, float Wm_Min, float Wm_Max)
 {
     int32_t Turn_Err;
