@@ -46,6 +46,17 @@ typedef struct
 
 } Ident_Envelope_T;
 
+typedef struct
+{
+    float Iq_Start_A;
+    float Iq_Max_A;
+    float We_Base;
+    float Acc;
+    float U_Budget_V;
+    bool Valid;
+
+} Ident_PreFlux_T;
+
 bool Identification_Start(Ident_Mode_e Mode, float Wm_Target);
 void Identification_Abort(void);
 void Identification_Control(void);
@@ -65,5 +76,6 @@ Ident_Mode_e Identification_Mode_Get(void);
 Ident_State_e Identification_State_Get(void);
 uint8_t Identification_Stage_Get(void);
 const Ident_Envelope_T *Identification_Envelope_Get(void);
+const Ident_PreFlux_T *Identification_PreFlux_Get(void);
 
 #endif /* IDENTIFICATION_H */
