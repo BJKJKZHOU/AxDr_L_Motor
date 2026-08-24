@@ -10,9 +10,7 @@
 #include "Identification.h"
 
 void Motor_Control(void);
-Motor_Fast_Mode_e Motor_Fast_Run(float Ia_A,
-                                 float Ib_A,
-                                 float Ic_A,
+Motor_Fast_Mode_e Motor_Fast_Run(float *Theta_e,
                                  float *Id_Ref,
                                  float *Iq_Ref,
                                  float *Ualpha,
@@ -28,7 +26,6 @@ void Motor_Disable(void);
 
 void Motor_Mode_Set(Motor_Mode_e Mode);
 void Motor_Ident_Mode_Set(Ident_Mode_e Mode);
-void Motor_Sensorless_Dir_Set(int8_t Dir);
 bool Motor_Ident_Apply(void);
 
 void Torque_Target_Set(float Te);

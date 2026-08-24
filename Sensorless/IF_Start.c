@@ -8,50 +8,57 @@
 #include "Math.h"
 #include "control_params.h"
 
-static IF_State_e IF_State = IF_ACCEL;
-static int8_t IF_Dir = 1;
-static uint32_t IF_Hold_Cnt = 0U;
-static float IF_Theta_e = 0.0f;
-static float IF_We_Abs = 0.0f;
-static float IF_We_Target = IF_WE_TARGET_RAD_S;
+static IF_State_e State = IF_RAMP;
+static uint32_t Hold_Cnt = 0U;
+static float Theta_e = 0.0f;
+static float We = 0.0f;
+static float We_Target = IF_WE_TARGET_RAD_S;
+static float Iq = 0.0f;
 
-void IF_Start_Reset(float Theta_Start, int8_t Dir)
+static float Abs_F(float X)
 {
-    IF_State = IF_ACCEL;
-    IF_Dir = (Dir >= 0) ? 1 : -1;
-    IF_Hold_Cnt = 0U;
-    IF_Theta_e = Angle_Wrap(Theta_Start);
-    IF_We_Abs = 0.0f;
-    IF_We_Target = IF_WE_TARGET_RAD_S;
+    return (X >= 0.0f) ? X : -X;
 }
 
-void IF_Start_Target_Set(float We_Target)
+void IF_Start_Reset(float Theta_Start, float We_Start)
 {
-    if (We_Target < 0.0f)
+    State = IF_RAMP;
+    Hold_Cnt = 0U;
+    Theta_e = Angle_Wrap(Theta_Start);
+    We = We_Start;
+    We_Target = We_Start;
+    Iq = 0.0f;
+}
+
+void IF_Start_Target_Set(float We_Target_In)
+{
+    if (We_Target == We_Target_In)
     {
-        We_Target = -We_Target;
+        return;
     }
 
-    IF_We_Target = We_Target;
-    IF_Hold_Cnt = 0U;
+    We_Target = We_Target_In;
+    Hold_Cnt = 0U;
 
-    if (IF_We_Abs == IF_We_Target)
+    if (We == We_Target)
     {
-        IF_State = IF_HOLD;
+        State = IF_HOLD;
     }
     else
     {
-        IF_State = IF_ACCEL;
+        State = IF_RAMP;
     }
 }
 
-bool IF_Start_Run(float *Theta_e, float *Id_Ref, float *Iq_Ref)
+bool IF_Start_Run(float *Theta_e_Out, float *Id_Ref, float *Iq_Ref)
 {
     float Ratio;
     float Iq_Abs;
+    float Iq_Target;
+    float Iq_Step;
     float We_Step;
 
-    Ratio = IF_We_Abs / IF_WE_TARGET_RAD_S;
+    Ratio = Abs_F(We) / IF_WE_TARGET_RAD_S;
 
     if (Ratio > 1.0f)
     {
@@ -60,54 +67,96 @@ bool IF_Start_Run(float *Theta_e, float *Id_Ref, float *Iq_Ref)
 
     Iq_Abs = IF_IQ_START_A + (IF_IQ_TARGET_A - IF_IQ_START_A) * Ratio;
 
-    *Theta_e = IF_Theta_e;
-    *Id_Ref = 0.0f;
-    *Iq_Ref = (float)IF_Dir * Iq_Abs;
-
-    if (IF_State == IF_ACCEL)
+    if (State == IF_RAMP)
     {
         We_Step = IF_ACC_RAD_S2 * CUR_TS;
 
-        if (IF_We_Abs < IF_We_Target)
+        if (We < We_Target)
         {
-            IF_We_Abs += We_Step;
+            We += We_Step;
 
-            if (IF_We_Abs >= IF_We_Target)
+            if (We >= We_Target)
             {
-                IF_We_Abs = IF_We_Target;
-                IF_Hold_Cnt = 0U;
-                IF_State = IF_HOLD;
+                We = We_Target;
+                Hold_Cnt = 0U;
+                State = IF_HOLD;
             }
         }
         else
         {
-            IF_We_Abs -= We_Step;
+            We -= We_Step;
 
-            if (IF_We_Abs <= IF_We_Target)
+            if (We <= We_Target)
             {
-                IF_We_Abs = IF_We_Target;
-                IF_Hold_Cnt = 0U;
-                IF_State = IF_HOLD;
+                We = We_Target;
+                Hold_Cnt = 0U;
+                State = IF_HOLD;
             }
         }
     }
-    else if (IF_Hold_Cnt < IF_HOLD_CNT)
+    else if (Hold_Cnt < IF_HOLD_CNT)
     {
-        IF_Hold_Cnt++;
+        Hold_Cnt++;
     }
 
-    IF_Theta_e += (float)IF_Dir * IF_We_Abs * CUR_TS;
-    IF_Theta_e = Angle_Wrap(IF_Theta_e);
+    if (We > 0.0f)
+    {
+        Iq_Target = Iq_Abs;
+    }
+    else if (We < 0.0f)
+    {
+        Iq_Target = -Iq_Abs;
+    }
+    else if (We_Target > 0.0f)
+    {
+        Iq_Target = Iq_Abs;
+    }
+    else if (We_Target < 0.0f)
+    {
+        Iq_Target = -Iq_Abs;
+    }
+    else
+    {
+        Iq_Target = 0.0f;
+    }
 
-    return (IF_State == IF_HOLD) && (IF_Hold_Cnt >= IF_HOLD_CNT);
+    Iq_Step = IF_IQ_SLEW_A_S * CUR_TS;
+
+    if (Iq < Iq_Target)
+    {
+        Iq += Iq_Step;
+
+        if (Iq > Iq_Target)
+        {
+            Iq = Iq_Target;
+        }
+    }
+    else if (Iq > Iq_Target)
+    {
+        Iq -= Iq_Step;
+
+        if (Iq < Iq_Target)
+        {
+            Iq = Iq_Target;
+        }
+    }
+
+    *Theta_e_Out = Theta_e;
+    *Id_Ref = 0.0f;
+    *Iq_Ref = Iq;
+
+    Theta_e += We * CUR_TS;
+    Theta_e = Angle_Wrap(Theta_e);
+
+    return (State == IF_HOLD) && (Hold_Cnt >= IF_HOLD_CNT);
 }
 
 IF_State_e IF_Start_State_Get(void)
 {
-    return IF_State;
+    return State;
 }
 
 float IF_Start_We_Get(void)
 {
-    return (float)IF_Dir * IF_We_Abs;
+    return We;
 }

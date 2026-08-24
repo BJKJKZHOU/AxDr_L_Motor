@@ -82,23 +82,32 @@
     },                                 \
 }
 
-/* Open-loop electrical startup. */
+/* Open-loop current strategy. Speed comes from the signed mechanical command. */
 #define OPEN_ALIGN_ID_A   0.2f
 #define OPEN_ALIGN_TIME_S 0.5f
 #define OPEN_ALIGN_CNT    ((uint32_t)(OPEN_ALIGN_TIME_S / CUR_TS + 0.5f))
 #define OPEN_IQ_A         0.2f
-#define OPEN_WE_RAD_S     20.0f
 
-/* Sensorless I/F startup. Electrical speed and acceleration use rad/s. */
+/* Sensorless I/F startup and low-speed operation. */
 #define IF_ALIGN_ID_A      1.0f
 #define IF_ALIGN_TIME_S    1.0f
 #define IF_ALIGN_CNT       ((uint32_t)(IF_ALIGN_TIME_S / CUR_TS + 0.5f))
 #define IF_IQ_START_A      1.0f
 #define IF_IQ_TARGET_A     1.6f
+#define IF_IQ_SLEW_A_S     20.0f
 #define IF_WE_TARGET_RAD_S 120.0f
 #define IF_ACC_RAD_S2      15.0f
 #define IF_HOLD_TIME_S     0.3f
 #define IF_HOLD_CNT        ((uint32_t)(IF_HOLD_TIME_S / CUR_TS + 0.5f))
+
+/*
+ * Mechanical-speed reference profile.
+ * Acc/Dec are positive magnitudes in mechanical rad/s^2. Reversal always
+ * decelerates Wm_Ref to zero before accelerating in the opposite direction.
+ * These are first-version motion-policy defaults and require hardware tuning.
+ */
+#define MOTION_ACC_RAD_S2 100.0f
+#define MOTION_DEC_RAD_S2 100.0f
 
 /*
  * Speed-loop PI design.

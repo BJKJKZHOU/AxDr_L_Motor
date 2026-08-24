@@ -5,16 +5,11 @@ Requires pyserial:
     python -m pip install pyserial
 
 Examples:
-    python tools/control_test.py --port /dev/ttyACM0 --mode open_loop
-    python tools/control_test.py --port /dev/ttyACM0 --open-loop-run --seconds 3
+    python tools/control_test.py --port /dev/ttyACM0 --mode open_loop --wm 8
+    python tools/control_test.py --port /dev/ttyACM0 --open-loop-run --wm 8 --seconds 3
     python tools/control_test.py --port /dev/ttyACM0 --identify rs_ls
-    python tools/control_test.py --port /dev/ttyACM0 --identify flux
-    python tools/control_test.py --port /dev/ttyACM0 --ident-status
-    python tools/control_test.py --port /dev/ttyACM0 --ident-abort
-    python tools/control_test.py --port /dev/ttyACM0 --ident-apply
+    python tools/control_test.py --port /dev/ttyACM0 --identify flux --wm -8
     python tools/control_test.py --port /dev/ttyACM0 --sensorless-start forward
-    python tools/control_test.py --port /dev/ttyACM0 --sensorless-status
-    python tools/control_test.py --port /dev/ttyACM0 --sensorless-stop
 """
 
 import argparse
@@ -42,20 +37,17 @@ CTRL_RUN = 0x02
 CTRL_STOP = 0x03
 CTRL_DISABLE = 0x04
 CTRL_MODE_SET = 0x05
+CTRL_SPEED_SET = 0x06
 
 IDENT_MODE_SET = 0x01
 IDENT_STATUS = 0x02
 IDENT_ABORT = 0x03
 IDENT_APPLY = 0x04
 
-SENSORLESS_DIR_SET = 0x01
 SENSORLESS_STATUS = 0x02
 SENSORLESS_STOP = 0x03
 
-SENSORLESS_DIR = {
-    "forward": 1,
-    "reverse": 2,
-}
+IF_WE_RAD_S = 120.0
 
 IDENT_TYPE = {
     "rs_ls": 1,
@@ -91,11 +83,14 @@ FLUX_STAGE = {
     5: "CALC",
     6: "DONE",
     7: "FAILED",
+    8: "FINISH",
 }
 
 SENSORLESS_STAGE = {
     0: "ALIGN",
     1: "IF",
+    2: "IF_TO_OBS",
+    3: "OBS",
 }
 
 IF_STAGE = {
@@ -205,6 +200,14 @@ def control(ser, parser, txn, op, value=None, timeout=1.0):
     return txn
 
 
+def speed_set(ser, parser, txn, wm, timeout=1.0):
+    txn, _ = request(
+        ser, parser, txn, MSG_CONTROL, CTRL_SPEED_SET,
+        struct.pack("<f", wm), timeout,
+    )
+    return txn
+
+
 def ident_status(ser, parser, txn, timeout=1.0):
     txn, data = request(ser, parser, txn,
                         MSG_IDENTIFICATION, IDENT_STATUS,
@@ -290,12 +293,15 @@ def main():
     ap.add_argument("--port", required=True, help="CDC serial port")
     ap.add_argument("--baud", type=int, default=115200)
     ap.add_argument("--mode", choices=MODE)
+    ap.add_argument("--wm", type=float,
+                    help="signed mechanical speed target in rad/s")
+    ap.add_argument("--pole-pairs", type=int, default=16)
     ap.add_argument("--enable", action="store_true")
     ap.add_argument("--run", action="store_true")
     ap.add_argument("--stop", action="store_true")
     ap.add_argument("--disable", action="store_true")
     ap.add_argument("--open-loop-run", action="store_true",
-                    help="MODE_SET OPEN_LOOP -> ENABLE -> RUN")
+                    help="MODE_SET OPEN_LOOP -> SPEED_SET Wm -> ENABLE -> RUN")
     ap.add_argument("--seconds", type=float, default=0.0,
                     help="with --open-loop-run, hold before STOP -> DISABLE")
     ap.add_argument("--identify", choices=IDENT_TYPE,
@@ -306,8 +312,8 @@ def main():
                     help="STOP active IDENT mode")
     ap.add_argument("--ident-apply", action="store_true",
                     help="apply valid identification result to RAM parameters")
-    ap.add_argument("--sensorless-start", choices=SENSORLESS_DIR,
-                    help="MODE SENSORLESS_SPEED -> set direction -> ENABLE -> RUN")
+    ap.add_argument("--sensorless-start", choices=("forward", "reverse"),
+                    help="host shorthand; sets signed Wm then starts SENSORLESS_SPEED")
     ap.add_argument("--sensorless-status", action="store_true",
                     help="read sensorless startup status")
     ap.add_argument("--sensorless-stop", action="store_true",
@@ -316,6 +322,11 @@ def main():
                     help="identification status polling interval in seconds")
     ap.add_argument("--timeout", type=float, default=1.0)
     args = ap.parse_args()
+
+    if args.pole_pairs <= 0:
+        ap.error("--pole-pairs must be positive")
+    if args.open_loop_run and (args.wm is None or args.wm == 0.0):
+        ap.error("--open-loop-run requires non-zero --wm")
 
     parser = StreamParser()
     txn = 1
@@ -329,6 +340,11 @@ def main():
 
             if args.identify is not None:
                 ident = IDENT_TYPE[args.identify]
+                if args.identify == "flux":
+                    wm = args.wm if args.wm is not None else IF_WE_RAD_S / args.pole_pairs
+                    txn = speed_set(ser, parser, txn, wm, args.timeout)
+                    print(f"SPEED_SET Wm={wm:+.3f} rad/s OK")
+
                 txn = control(ser, parser, txn, CTRL_MODE_SET,
                               MODE["ident"], args.timeout)
                 print("MODE_SET IDENT OK")
@@ -376,14 +392,14 @@ def main():
                 print("IDENT_APPLY OK")
 
             if args.sensorless_start is not None:
-                direction = SENSORLESS_DIR[args.sensorless_start]
+                sign = 1.0 if args.sensorless_start == "forward" else -1.0
+                wm_mag = abs(args.wm) if args.wm is not None else IF_WE_RAD_S / args.pole_pairs
+                wm = sign * wm_mag
                 txn = control(ser, parser, txn, CTRL_MODE_SET,
                               MODE["sensorless_speed"], args.timeout)
                 print("MODE_SET SENSORLESS_SPEED OK")
-                txn, _ = request(ser, parser, txn,
-                                 MSG_SENSORLESS, SENSORLESS_DIR_SET,
-                                 bytes([direction]), args.timeout)
-                print(f"SENSORLESS_DIR_SET {args.sensorless_start.upper()} OK")
+                txn = speed_set(ser, parser, txn, wm, args.timeout)
+                print(f"SPEED_SET Wm={wm:+.3f} rad/s OK")
                 txn = control(ser, parser, txn, CTRL_ENABLE,
                               timeout=args.timeout)
                 print("ENABLE OK")
@@ -404,6 +420,8 @@ def main():
                 txn = control(ser, parser, txn, CTRL_MODE_SET,
                               MODE["open_loop"], args.timeout)
                 print("MODE_SET OPEN_LOOP OK")
+                txn = speed_set(ser, parser, txn, args.wm, args.timeout)
+                print(f"SPEED_SET Wm={args.wm:+.3f} rad/s OK")
                 txn = control(ser, parser, txn, CTRL_ENABLE,
                               timeout=args.timeout)
                 print("ENABLE OK")
@@ -425,6 +443,10 @@ def main():
                 txn = control(ser, parser, txn, CTRL_MODE_SET,
                               MODE[args.mode], args.timeout)
                 print(f"MODE_SET {args.mode.upper()} OK")
+
+            if args.wm is not None:
+                txn = speed_set(ser, parser, txn, args.wm, args.timeout)
+                print(f"SPEED_SET Wm={args.wm:+.3f} rad/s OK")
 
             if args.enable:
                 txn = control(ser, parser, txn, CTRL_ENABLE,

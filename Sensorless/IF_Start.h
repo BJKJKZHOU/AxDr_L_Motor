@@ -11,12 +11,12 @@
 
 typedef enum
 {
-    IF_ACCEL = 0,
+    IF_RAMP = 0,
     IF_HOLD,
 
 } IF_State_e;
 
-void IF_Start_Reset(float Theta_Start, int8_t Dir);
+void IF_Start_Reset(float Theta_Start, float We_Start);
 void IF_Start_Target_Set(float We_Target);
 bool IF_Start_Run(float *Theta_e, float *Id_Ref, float *Iq_Ref);
 IF_State_e IF_Start_State_Get(void);

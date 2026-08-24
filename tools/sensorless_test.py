@@ -36,6 +36,7 @@ CTRL_RUN = 0x02
 CTRL_STOP = 0x03
 CTRL_DISABLE = 0x04
 CTRL_MODE_SET = 0x05
+CTRL_SPEED_SET = 0x06
 
 MODE_SENSORLESS_SPEED = 5
 
@@ -43,13 +44,14 @@ PLOT_CONFIG = 0x01
 PLOT_START = 0x02
 PLOT_STOP = 0x03
 
-SENSORLESS_DIR_SET = 0x01
 SENSORLESS_STATUS = 0x02
 
 FAST_GROUP = 0
 NORMAL_GROUP = 1
 FAST_MASK = 1 << FAST_GROUP
 NORMAL_MASK = 1 << NORMAL_GROUP
+
+IF_WE_RAD_S = 120.0
 
 FAST_VARS = (
     ("Id", 0x0010),
@@ -282,6 +284,9 @@ class SensorlessTest:
 
         raise TimeoutError(f"request {msg_type}/{op} timeout")
 
+    def speed_set(self, wm):
+        self.request(MSG_CONTROL, CTRL_SPEED_SET, struct.pack("<f", wm))
+
     def configure_plot(self):
         fast_data = bytes([FAST_GROUP, 1, len(FAST_VARS)])
         fast_data += b"".join(struct.pack("<H", var_id)
@@ -344,9 +349,9 @@ class SensorlessTest:
         if not active:
             raise RuntimeError("Sensorless stopped before test completion")
 
-    def run(self, direction):
+    def run(self, wm_target):
         self.request(MSG_CONTROL, CTRL_MODE_SET, bytes([MODE_SENSORLESS_SPEED]))
-        self.request(MSG_SENSORLESS, SENSORLESS_DIR_SET, bytes([direction]))
+        self.speed_set(wm_target)
         self.request(MSG_CONTROL, CTRL_ENABLE)
 
         self.start_time = time.monotonic()
@@ -435,6 +440,7 @@ def parse_args():
                         help="required confirmation to energize the motor")
     parser.add_argument("--direction", choices=("forward", "reverse"),
                         default="forward")
+    parser.add_argument("--pole-pairs", type=int, default=16)
     parser.add_argument("--hold-seconds", type=float, default=3.0,
                         help="time to hold after Sensorless Ready")
     parser.add_argument("--phase-limit", type=float, default=2.2,
@@ -449,6 +455,8 @@ def parse_args():
 
     if not args.run:
         parser.error("--run is required to energize the motor")
+    if args.pole_pairs <= 0:
+        parser.error("--pole-pairs must be positive")
     if args.hold_seconds < 0.0:
         parser.error("--hold-seconds must be non-negative")
     if args.phase_limit <= 0.0:
@@ -465,7 +473,8 @@ def parse_args():
 
 def main():
     args = parse_args()
-    direction = 1 if args.direction == "forward" else 2
+    sign = 1.0 if args.direction == "forward" else -1.0
+    wm_target = sign * IF_WE_RAD_S / args.pole_pairs
 
     try:
         with serial.Serial(args.port, args.baud, timeout=0.003,
@@ -479,7 +488,7 @@ def main():
             try:
                 test.configure_plot()
                 test.check_vbus()
-                test.run(direction)
+                test.run(wm_target)
             except (TimeoutError, RuntimeError) as exc:
                 error = exc
             finally:

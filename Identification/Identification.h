@@ -28,7 +28,7 @@ typedef enum
 
 } Ident_State_e;
 
-bool Identification_Start(Ident_Mode_e Mode);
+bool Identification_Start(Ident_Mode_e Mode, float Wm_Target);
 void Identification_Abort(void);
 void Identification_Control(void);
 bool Identification_Apply(void);
@@ -37,6 +37,7 @@ bool Identification_Active(void);
 Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
                                           float Ib_A,
                                           float Ic_A,
+                                          float *Theta_e,
                                           float *Id_Ref,
                                           float *Iq_Ref,
                                           float *Ualpha_V,

@@ -70,6 +70,7 @@ static float Rs_B = 0.0f;
 static float Ls_B = 0.0f;
 
 static bool PI_Saved = false;
+static bool Align_Pending = false;
 static float Id_Kp_Save = 0.0f;
 static float Id_Ki_Save = 0.0f;
 static float Iq_Kp_Save = 0.0f;
@@ -204,6 +205,7 @@ void Rs_Ls_Reset(void)
     Rs_Ls_Phase = 0.0f;
     Rs_Ls_U_Hold_V = 0.0f;
     Rs_Ls_U_Ac_V = 0.0f;
+    Align_Pending = false;
 
     Ramp_Reset();
     Measure_Reset();
@@ -228,6 +230,7 @@ void Rs_Ls_Start(void)
 void Rs_Ls_Fail(void)
 {
     PI_Restore();
+    Align_Pending = false;
     Rs_Ls_Result.Valid = false;
     Rs_Ls_State = RS_LS_FAILED;
 }
@@ -237,40 +240,50 @@ bool Rs_Ls_Active(void)
     return (Rs_Ls_State != RS_LS_IDLE) && (Rs_Ls_State != RS_LS_DONE) && (Rs_Ls_State != RS_LS_FAILED);
 }
 
-void Rs_Ls_Run(float Ialpha_A, float *Ualpha_V, float *Ubeta_V)
+Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
+                            float *Theta_e,
+                            float *Id_Ref,
+                            float *Iq_Ref,
+                            float *Ualpha_V,
+                            float *Ubeta_V)
 {
     float Sin;
     float Cos;
     float Ramp_I_Amp;
-    float Id_Ref;
-    float Iq_Ref;
     bool Align_Done;
 
+    *Theta_e = 0.0f;
+    *Id_Ref = 0.0f;
+    *Iq_Ref = 0.0f;
     *Ualpha_V = 0.0f;
     *Ubeta_V = 0.0f;
 
     if ((Rs_Ls_State == RS_LS_IDLE) || (Rs_Ls_State == RS_LS_DONE) || (Rs_Ls_State == RS_LS_FAILED))
     {
-        return;
+        return FAST_OFF;
     }
 
     if (Rs_Ls_State == RS_LS_ALIGN)
     {
-        Motor_Run.Theta_e = 0.0f;
-        Align_Done = Align_Current(RS_LS_ALIGN_I_TARGET_A, RS_LS_ALIGN_CNT, &Id_Ref, &Iq_Ref);
-
-        Current_Loop(Id_Ref, Iq_Ref, Ualpha_V, Ubeta_V);
-
-        if (Align_Done)
+        if (!Align_Pending)
         {
-            Rs_Ls_U_Hold_V = Motor_Run.Ud;
-            PI_Restore();
-            Rs_Ls_U_Ac_V = 0.0f;
-            Ramp_Reset();
-            Rs_Ls_State = RS_LS_RAMP;
+            Align_Done = Align_Current(RS_LS_ALIGN_I_TARGET_A, RS_LS_ALIGN_CNT, Id_Ref, Iq_Ref);
+
+            if (Align_Done)
+            {
+                Align_Pending = true;
+            }
+
+            return FAST_CURRENT;
         }
 
-        return;
+        /* Previous FAST_CURRENT cycle has now produced the final align Ud. */
+        Rs_Ls_U_Hold_V = Motor_Run.Ud;
+        PI_Restore();
+        Rs_Ls_U_Ac_V = 0.0f;
+        Ramp_Reset();
+        Align_Pending = false;
+        Rs_Ls_State = RS_LS_RAMP;
     }
 
     SinCos(Rs_Ls_Phase, &Sin, &Cos);
@@ -283,8 +296,6 @@ void Rs_Ls_Run(float Ialpha_A, float *Ualpha_V, float *Ubeta_V)
     {
         *Ualpha_V = Rs_Ls_U_Hold_V + Rs_Ls_U_Ac_V * Sin;
     }
-
-    *Ubeta_V = 0.0f;
 
     if ((Rs_Ls_State == RS_LS_PROBE_RAMP) || (Rs_Ls_State == RS_LS_RAMP))
     {
@@ -317,7 +328,7 @@ void Rs_Ls_Run(float Ialpha_A, float *Ualpha_V, float *Ubeta_V)
                     {
                         Rs_Ls_Fail();
                         *Ualpha_V = 0.0f;
-                        return;
+                        return FAST_OFF;
                     }
                 }
                 else
@@ -348,7 +359,7 @@ void Rs_Ls_Run(float Ialpha_A, float *Ualpha_V, float *Ubeta_V)
                     {
                         Rs_Ls_Fail();
                         *Ualpha_V = 0.0f;
-                        return;
+                        return FAST_OFF;
                     }
                 }
                 else
@@ -377,15 +388,15 @@ void Rs_Ls_Run(float Ialpha_A, float *Ualpha_V, float *Ubeta_V)
             {
                 Rs_Ls_Fail();
                 *Ualpha_V = 0.0f;
-                return;
+                return FAST_OFF;
             }
 
             PI_Temporary_Set(Rs_Rough, Ls_Rough);
             Align_Reset();
+            Align_Pending = false;
             Rs_Ls_State = RS_LS_ALIGN;
             *Ualpha_V = 0.0f;
-            *Ubeta_V = 0.0f;
-            return;
+            return FAST_VOLTAGE;
         }
     }
     else if (Rs_Ls_State == RS_LS_SETTLE)
@@ -404,7 +415,6 @@ void Rs_Ls_Run(float Ialpha_A, float *Ualpha_V, float *Ubeta_V)
         U_Im -= *Ualpha_V * Sin;
         I_Re += Ialpha_A * Cos;
         I_Im -= Ialpha_A * Sin;
-
         Rs_Ls_Cnt++;
 
         if (Rs_Ls_Cnt >= RS_LS_MEASURE_CNT)
@@ -415,7 +425,7 @@ void Rs_Ls_Run(float Ialpha_A, float *Ualpha_V, float *Ubeta_V)
                 {
                     Rs_Ls_Fail();
                     *Ualpha_V = 0.0f;
-                    return;
+                    return FAST_OFF;
                 }
 
                 Measure_Reset();
@@ -427,7 +437,7 @@ void Rs_Ls_Run(float Ialpha_A, float *Ualpha_V, float *Ubeta_V)
                 {
                     Rs_Ls_Fail();
                     *Ualpha_V = 0.0f;
-                    return;
+                    return FAST_OFF;
                 }
 
                 if (Result_Valid(Rs_A, Ls_A) && Result_Valid(Rs_B, Ls_B) &&
@@ -444,8 +454,7 @@ void Rs_Ls_Run(float Ialpha_A, float *Ualpha_V, float *Ubeta_V)
                 }
 
                 *Ualpha_V = 0.0f;
-                *Ubeta_V = 0.0f;
-                return;
+                return FAST_OFF;
             }
         }
     }
@@ -456,6 +465,8 @@ void Rs_Ls_Run(float Ialpha_A, float *Ualpha_V, float *Ubeta_V)
     {
         Rs_Ls_Phase -= TWO_PI_F;
     }
+
+    return FAST_VOLTAGE;
 }
 
 Rs_Ls_State_e Rs_Ls_State_Get(void)

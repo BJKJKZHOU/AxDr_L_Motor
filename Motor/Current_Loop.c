@@ -24,16 +24,6 @@ void Current_Loop_State_Reset(void)
     Iq_Ctrl.Sig.Out = 0.0f;
 }
 
-void Current_Loop_Para_Update(void)
-{
-    Id_Ctrl.Para.Kp = Motor_Para.Ld * CUR_WC_DEFAULT;
-    Id_Ctrl.Para.Ki = Motor_Para.Rs * CUR_WC_DEFAULT;
-    Iq_Ctrl.Para.Kp = Motor_Para.Lq * CUR_WC_DEFAULT;
-    Iq_Ctrl.Para.Ki = Motor_Para.Rs * CUR_WC_DEFAULT;
-
-    Current_Loop_State_Reset();
-}
-
 void Current_Loop(float Id_Ref, float Iq_Ref, float *Ualpha, float *Ubeta)
 {
     float Ialpha;

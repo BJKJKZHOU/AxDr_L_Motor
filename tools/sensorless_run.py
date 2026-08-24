@@ -2,8 +2,8 @@
 """Run SENSORLESS_SPEED continuously at a mechanical RPM target.
 
 The command remains active until Ctrl+C, SIGTERM, a configured duration, or a
-guard trip. A normal exit ramps the electrical-speed command back to 120 rad/s
-before STOP and DISABLE. A guard trip stops immediately.
+guard trip. A normal exit ramps the mechanical-speed command back to the I/F
+handover speed before STOP and DISABLE. A guard trip stops immediately.
 
 This host-side guard cannot stop the motor after host power loss, USB loss, or
 SIGKILL. Unattended operation still requires a hardware stop or a firmware
@@ -25,9 +25,8 @@ import time
 import sensorless_test as base
 
 
-SENSORLESS_SPEED_SET = 0x05
-SENSORLESS_RUN = 6
-IF_WE_RAD_S = 120
+SENSORLESS_RUN = 3
+IF_WE_RAD_S = 120.0
 FAST_CONFIG_ID = 11
 NORMAL_CONFIG_ID = 12
 FAST_BLOCK_SAMPLES = 20
@@ -49,11 +48,8 @@ VBUS_ID = 0x0004
 STAGE_NAME = {
     0: "ALIGN",
     1: "IF",
-    2: "OBS_WAIT",
-    3: "BLEND",
-    4: "OBS_HOLD",
-    5: "CURRENT_TRANS",
-    6: "RUN",
+    2: "IF_TO_OBS",
+    3: "OBS",
 }
 
 
@@ -107,8 +103,8 @@ class SensorlessRun(base.SensorlessTest):
         self.last_fast_rx = None
         self.last_normal_rx = None
         self.monitor_started = None
-        self.command_target = IF_WE_RAD_S
-        self.target_signed = 0.0
+        self.command_wm = 0.0
+        self.target_we = 0.0
 
     def prepare(self):
         for msg_type, op, data in (
@@ -219,13 +215,9 @@ class SensorlessRun(base.SensorlessTest):
             raise RuntimeError("Sensorless stopped while running")
         return stage
 
-    def speed_set(self, target):
-        self.command_target = target
-        self.request(
-            base.MSG_SENSORLESS,
-            SENSORLESS_SPEED_SET,
-            struct.pack("<H", target),
-        )
+    def speed_set(self, wm):
+        self.command_wm = float(wm)
+        super().speed_set(self.command_wm)
 
     def recent(self, seconds):
         count = max(1, int(math.ceil(seconds * MONITOR_HZ)))
@@ -336,7 +328,6 @@ class SensorlessRun(base.SensorlessTest):
                     print(f"  Sensorless stage={name}")
                     last_stage = stage
                 if stage == SENSORLESS_RUN:
-                    self.speed_set(IF_WE_RAD_S)
                     return True
                 next_status = now + 0.05
             else:
@@ -345,17 +336,16 @@ class SensorlessRun(base.SensorlessTest):
 
         raise TimeoutError("Sensorless did not enter SENSORLESS_RUN")
 
-    def ramp_to(self, target, honor_stop=True):
-        target = int(target)
-        while self.command_target != target:
+    def ramp_to(self, wm_target, honor_stop=True):
+        while abs(self.command_wm - wm_target) > 1e-6:
             if honor_stop and self.stop_request.requested:
                 return False
             if not honor_stop and self.stop_request.force:
                 return False
 
-            delta = target - self.command_target
+            delta = wm_target - self.command_wm
             step = min(abs(delta), self.args.ramp_step)
-            command = self.command_target + (step if delta > 0 else -step)
+            command = self.command_wm + (step if delta > 0.0 else -step)
             self.speed_set(command)
             if not self.pump(
                     self.args.ramp_interval,
@@ -369,7 +359,7 @@ class SensorlessRun(base.SensorlessTest):
         stable_since = None
         tolerance = max(
             self.args.we_tolerance,
-            abs(self.target_signed) * self.args.we_relative_tolerance,
+            abs(self.target_we) * self.args.we_relative_tolerance,
         )
 
         while time.monotonic() < deadline:
@@ -381,7 +371,7 @@ class SensorlessRun(base.SensorlessTest):
             values = self.snapshot()
             if values is None:
                 continue
-            if abs(values["We_obs"] - self.target_signed) <= tolerance:
+            if abs(values["We_obs"] - self.target_we) <= tolerance:
                 if stable_since is None:
                     stable_since = time.monotonic()
                 elif time.monotonic() - stable_since >= self.args.settle_seconds:
@@ -390,7 +380,7 @@ class SensorlessRun(base.SensorlessTest):
                 stable_since = None
 
         raise TimeoutError(
-            f"speed target {self.target_signed:.1f} rad/s was not reached"
+            f"speed target {self.target_we:.1f} electrical rad/s was not reached"
         )
 
     def print_status(self, elapsed):
@@ -413,7 +403,7 @@ class SensorlessRun(base.SensorlessTest):
         speed_bad_since = None
         tolerance = max(
             self.args.we_tolerance,
-            abs(self.target_signed) * self.args.we_relative_tolerance,
+            abs(self.target_we) * self.args.we_relative_tolerance,
         )
 
         while not self.stop_request.requested:
@@ -426,7 +416,7 @@ class SensorlessRun(base.SensorlessTest):
             values = self.snapshot()
             if values is None:
                 continue
-            if abs(values["We_obs"] - self.target_signed) > tolerance:
+            if abs(values["We_obs"] - self.target_we) > tolerance:
                 if speed_bad_since is None:
                     speed_bad_since = now
                 elif now - speed_bad_since >= self.args.speed_error_time:
@@ -441,25 +431,23 @@ class SensorlessRun(base.SensorlessTest):
                 self.print_status(now - start)
                 next_status = now + self.args.status_interval
 
-    def run_motor(self, target):
-        direction = 1 if self.args.direction == "forward" else 2
-        sign = 1.0 if direction == 1 else -1.0
-        self.target_signed = sign * float(target)
+    def run_motor(self, wm_target):
+        sign = 1.0 if wm_target >= 0.0 else -1.0
+        wm_if = sign * IF_WE_RAD_S / self.args.pole_pairs
+        self.target_we = wm_target * self.args.pole_pairs
 
         self.request(base.MSG_CONTROL, base.CTRL_MODE_SET,
                      bytes([base.MODE_SENSORLESS_SPEED]))
-        self.request(base.MSG_SENSORLESS, base.SENSORLESS_DIR_SET,
-                     bytes([direction]))
+        self.speed_set(wm_if)
         self.request(base.MSG_CONTROL, base.CTRL_ENABLE)
         self.request(base.MSG_CONTROL, base.CTRL_RUN)
         print("ALIGN -> I/F 120 rad/s -> Observer takeover")
 
         if not self.wait_run():
             return
-        print("SENSORLESS_RUN reached; target reset to 120 rad/s")
-        if not self.ramp_to(target):
+        if not self.ramp_to(wm_target):
             return
-        print(f"Command ramp complete: {target} electrical rad/s")
+        print(f"Command ramp complete: {wm_target:.3f} mechanical rad/s")
         if not self.wait_target():
             return
         print(f"Target stable: {self.args.rpm:.2f} mechanical RPM")
@@ -468,8 +456,10 @@ class SensorlessRun(base.SensorlessTest):
     def stop_all(self, graceful):
         if graceful and self.stage == SENSORLESS_RUN and not self.stop_request.force:
             try:
-                print("Ramping down to 120 electrical rad/s...")
-                self.ramp_to(IF_WE_RAD_S, honor_stop=False)
+                sign = 1.0 if self.command_wm >= 0.0 else -1.0
+                wm_if = sign * IF_WE_RAD_S / self.args.pole_pairs
+                print(f"Ramping down to {wm_if:.3f} mechanical rad/s...")
+                self.ramp_to(wm_if, honor_stop=False)
             except (TimeoutError, RuntimeError) as exc:
                 print(f"Ramp-down warning: {exc}", file=sys.stderr)
 
@@ -499,7 +489,8 @@ def parse_args():
                         default="forward")
     parser.add_argument("--duration", type=float, default=0.0,
                         help="hold time in seconds; 0 runs until interrupted")
-    parser.add_argument("--ramp-step", type=int, default=5)
+    parser.add_argument("--ramp-step", type=float, default=0.5,
+                        help="mechanical rad/s per ramp step")
     parser.add_argument("--ramp-interval", type=float, default=0.02)
     parser.add_argument("--current-limit", type=float, default=2.6)
     parser.add_argument("--pll-rms-limit", type=float, default=0.08)
@@ -541,29 +532,31 @@ def parse_args():
     if args.max_lost < 0:
         parser.error("max-lost must be non-negative")
 
-    target = int(round(
-        args.rpm * 2.0 * math.pi / 60.0 * args.pole_pairs
-    ))
-    if not IF_WE_RAD_S <= target <= 3000:
+    wm_target = args.rpm * 2.0 * math.pi / 60.0
+    if args.direction == "reverse":
+        wm_target = -wm_target
+
+    we_target = abs(wm_target) * args.pole_pairs
+    if not IF_WE_RAD_S <= we_target <= 3000.0:
         rpm_min = IF_WE_RAD_S / args.pole_pairs * 60.0 / (2.0 * math.pi)
         rpm_max = 3000.0 / args.pole_pairs * 60.0 / (2.0 * math.pi)
         parser.error(
-            f"rpm maps to {target} electrical rad/s; valid mechanical range "
-            f"is {rpm_min:.2f} .. {rpm_max:.2f} RPM"
+            f"rpm maps to {we_target:.1f} electrical rad/s; valid mechanical "
+            f"range is {rpm_min:.2f} .. {rpm_max:.2f} RPM"
         )
-    return args, target
+    return args, wm_target
 
 
 def main():
-    args, target = parse_args()
+    args, wm_target = parse_args()
     stop = StopRequest()
     signal.signal(signal.SIGINT, stop.handle)
     signal.signal(signal.SIGTERM, stop.handle)
 
-    actual_rpm = target / args.pole_pairs * 60.0 / (2.0 * math.pi)
     print(
-        f"Target: {args.rpm:.2f} RPM -> {target} electrical rad/s "
-        f"({actual_rpm:.2f} RPM quantized), direction={args.direction}"
+        f"Target: {wm_target:.3f} mechanical rad/s "
+        f"({wm_target * args.pole_pairs:.1f} electrical rad/s), "
+        f"direction={args.direction}"
     )
 
     test = None
@@ -580,7 +573,7 @@ def main():
                 test.prepare()
                 test.configure_plot()
                 test.check_vbus()
-                test.run_motor(target)
+                test.run_motor(wm_target)
                 graceful = True
             except (TimeoutError, RuntimeError) as exc:
                 error = exc

@@ -18,12 +18,17 @@ typedef enum
     MOTOR_CMD_RUN_TOGGLE,
     MOTOR_CMD_MODE_SET,
     MOTOR_CMD_IDENT_SET,
-    MOTOR_CMD_SENSORLESS_DIR_SET,
-    MOTOR_CMD_SENSORLESS_TARGET_SET,
-    MOTOR_CMD_SENSORLESS_SPEED_SET,
+    MOTOR_CMD_SPEED_SET,
     MOTOR_CMD_IDENT_APPLY,
 
 } Motor_Cmd_e;
+
+typedef struct
+{
+    ULONG Cmd;
+    ULONG Arg;
+
+} Motor_Cmd_Msg_T;
 
 extern TX_SEMAPHORE Motor_Sem;
 extern TX_QUEUE Motor_Cmd_Q;

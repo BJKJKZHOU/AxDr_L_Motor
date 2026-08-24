@@ -5,8 +5,8 @@
 
 #include "Identification.h"
 
-#include "Current_Loop.h"
 #include "Flux.h"
+#include "Motor_Para.h"
 #include "Rs_Ls.h"
 
 #define IDENT_I_MAX_A 2.2f
@@ -19,7 +19,7 @@ static float Abs_Value(float Value)
     return (Value >= 0.0f) ? Value : -Value;
 }
 
-bool Identification_Start(Ident_Mode_e Mode)
+bool Identification_Start(Ident_Mode_e Mode, float Wm_Target)
 {
     if (Ident_State == IDENT_RUNNING)
     {
@@ -32,7 +32,7 @@ bool Identification_Start(Ident_Mode_e Mode)
     }
     else if (Mode == IDENT_FLUX)
     {
-        Flux_Start();
+        Flux_Start(Wm_Target);
     }
     else
     {
@@ -116,7 +116,7 @@ bool Identification_Apply(void)
         Motor_Para.Rs = Rs_Ls_Result->Rs_Ohm;
         Motor_Para.Ld = Rs_Ls_Result->Ls_H;
         Motor_Para.Lq = Rs_Ls_Result->Ls_H;
-        Current_Loop_Para_Update();
+        Motor_Para_Changed(MOTOR_PARA_RL);
         return true;
     }
 
@@ -130,6 +130,7 @@ bool Identification_Apply(void)
         }
 
         Motor_Para.Flux = Flux_Result->Flux_Wb;
+        Motor_Para_Changed(MOTOR_PARA_FLUX);
         return true;
     }
 
@@ -144,11 +145,13 @@ bool Identification_Active(void)
 Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
                                           float Ib_A,
                                           float Ic_A,
+                                          float *Theta_e,
                                           float *Id_Ref,
                                           float *Iq_Ref,
                                           float *Ualpha_V,
                                           float *Ubeta_V)
 {
+    *Theta_e = 0.0f;
     *Id_Ref = 0.0f;
     *Iq_Ref = 0.0f;
     *Ualpha_V = 0.0f;
@@ -175,13 +178,12 @@ Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
 
     if (Ident_Mode == IDENT_RS_LS)
     {
-        Rs_Ls_Run(Ia_A, Ualpha_V, Ubeta_V);
-        return FAST_VOLTAGE;
+        return Rs_Ls_Run(Ia_A, Theta_e, Id_Ref, Iq_Ref, Ualpha_V, Ubeta_V);
     }
 
     if (Ident_Mode == IDENT_FLUX)
     {
-        return Flux_Fast_Run(Ia_A, Ib_A, Ic_A, Id_Ref, Iq_Ref);
+        return Flux_Fast_Run(Ia_A, Ib_A, Ic_A, Theta_e, Id_Ref, Iq_Ref);
     }
 
     return FAST_OFF;

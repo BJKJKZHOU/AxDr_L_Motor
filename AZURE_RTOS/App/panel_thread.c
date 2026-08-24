@@ -78,7 +78,7 @@ static void Panel_Entry(ULONG thread_input)
     Key_T Key2 = { GPIO_PIN_SET, GPIO_PIN_SET, 0U };
     Motor_State_e State;
     Motor_State_e State_Pre;
-    ULONG Cmd;
+    Motor_Cmd_Msg_T Msg = { 0 };
     uint32_t Key1_Press;
     uint32_t Key2_Press;
 
@@ -94,13 +94,15 @@ static void Panel_Entry(ULONG thread_input)
 
         if (Key1_Press != 0U)
         {
-            Cmd = (ULONG)MOTOR_CMD_EN_TOGGLE;
-            (void)tx_queue_send(&Motor_Cmd_Q, &Cmd, TX_NO_WAIT);
+            Msg.Cmd = (ULONG)MOTOR_CMD_EN_TOGGLE;
+            Msg.Arg = 0U;
+            (void)tx_queue_send(&Motor_Cmd_Q, &Msg, TX_NO_WAIT);
         }
         else if (Key2_Press != 0U)
         {
-            Cmd = (ULONG)MOTOR_CMD_RUN_TOGGLE;
-            (void)tx_queue_send(&Motor_Cmd_Q, &Cmd, TX_NO_WAIT);
+            Msg.Cmd = (ULONG)MOTOR_CMD_RUN_TOGGLE;
+            Msg.Arg = 0U;
+            (void)tx_queue_send(&Motor_Cmd_Q, &Msg, TX_NO_WAIT);
         }
 
         State = Motor_State_Get();

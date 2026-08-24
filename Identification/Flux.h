@@ -34,13 +34,12 @@ typedef struct
 
 } Flux_Result_T;
 
-void Flux_Start(void);
-void Flux_Dir_Set(int8_t Dir);
+void Flux_Start(float Wm_Target);
 void Flux_Reset(void);
 void Flux_Fail(void);
 void Flux_Control(void);
 bool Flux_Active(void);
-Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Id_Ref, float *Iq_Ref);
+Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta_e, float *Id_Ref, float *Iq_Ref);
 Flux_State_e Flux_State_Get(void);
 const Flux_Result_T *Flux_Result_Get(void);
 
