@@ -97,20 +97,7 @@ static void Iabc_Calib(void)
     ADC.Ic_Off = (uint16_t)((Ic_Sum + (ADC_SAMPLE_NUM / 2U)) / ADC_SAMPLE_NUM);
 }
 
-void ADC_Sample(void)
-{
-    ADC.Ia_Raw = (uint16_t)ADC1->JDR3;
-    ADC.Ib_Raw = (uint16_t)ADC1->JDR2;
-    ADC.Ic_Raw = (uint16_t)ADC1->JDR1;
-    ADC.Vbus_Raw = (uint16_t)ADC2->JDR1;
-
-    ADC.Ia_A = ((float)ADC.Ia_Off - (float)ADC.Ia_Raw) * CUR_RAW_TO_A;
-    ADC.Ib_A = ((float)ADC.Ib_Off - (float)ADC.Ib_Raw) * CUR_RAW_TO_A;
-    ADC.Ic_A = ((float)ADC.Ic_Off - (float)ADC.Ic_Raw) * CUR_RAW_TO_A;
-    ADC.Vbus_V = (float)ADC.Vbus_Raw * VBUS_RAW_TO_V;
-}
-
-void ADC_Run(void)
+void Fast_Loop(void)
 {
     Motor_Fast_Mode_e Fast_Mode;
     float Theta_e;
@@ -135,7 +122,15 @@ void ADC_Run(void)
         Segment_T0 = Profile_T0;
     }
 
-    ADC_Sample();
+    ADC.Ia_Raw = (uint16_t)ADC1->JDR3;
+    ADC.Ib_Raw = (uint16_t)ADC1->JDR2;
+    ADC.Ic_Raw = (uint16_t)ADC1->JDR1;
+    ADC.Vbus_Raw = (uint16_t)ADC2->JDR1;
+
+    ADC.Ia_A = ((float)ADC.Ia_Off - (float)ADC.Ia_Raw) * CUR_RAW_TO_A;
+    ADC.Ib_A = ((float)ADC.Ib_Off - (float)ADC.Ib_Raw) * CUR_RAW_TO_A;
+    ADC.Ic_A = ((float)ADC.Ic_Off - (float)ADC.Ic_Raw) * CUR_RAW_TO_A;
+    ADC.Vbus_V = (float)ADC.Vbus_Raw * VBUS_RAW_TO_V;
 
     if (Fast_Profile.Run != 0U)
     {
@@ -143,7 +138,7 @@ void ADC_Run(void)
         Segment_T0 = DWT->CYCCNT;
     }
 
-    Fast_Mode = Motor_Fast_Run(ADC.Ia_A, ADC.Ib_A, ADC.Ic_A, &Theta_e, &Id_Ref, &Iq_Ref, &Ualpha, &Ubeta);
+    Fast_Mode = Motor_Fast_Run(&Theta_e, &Id_Ref, &Iq_Ref, &Ualpha, &Ubeta);
 
     if (Fast_Profile.Run != 0U)
     {

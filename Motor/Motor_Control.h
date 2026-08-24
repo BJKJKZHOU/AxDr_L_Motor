@@ -10,10 +10,7 @@
 #include "Identification.h"
 
 void Motor_Control(void);
-Motor_Fast_Mode_e Motor_Fast_Run(float Ia_A,
-                                 float Ib_A,
-                                 float Ic_A,
-                                 float *Theta_e,
+Motor_Fast_Mode_e Motor_Fast_Run(float *Theta_e,
                                  float *Id_Ref,
                                  float *Iq_Ref,
                                  float *Ualpha,

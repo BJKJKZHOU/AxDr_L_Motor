@@ -7,8 +7,6 @@
 
 #include "Align.h"
 #include "Math.h"
-#include "Motor_Control.h"
-#include "Motor_Type.h"
 #include "control_params.h"
 
 typedef enum
@@ -30,18 +28,10 @@ void Open_Loop_Reset(void)
 
 void Open_Loop(float We_Ref, float *Theta_e, float *Id_Ref, float *Iq_Ref)
 {
-    if ((Motor_State_Get() != RUN) || (Motor_Mode_Get() != OPEN_LOOP))
-    {
-        Open_Loop_Reset();
-        *Theta_e = Theta_Open;
-        *Id_Ref = 0.0f;
-        *Iq_Ref = 0.0f;
-        return;
-    }
-
     if (Open_State == OPEN_ALIGN)
     {
         Theta_Open = 0.0f;
+
         if (Align_Current(OPEN_ALIGN_ID_A, OPEN_ALIGN_CNT, Id_Ref, Iq_Ref))
         {
             Open_State = OPEN_RUN;

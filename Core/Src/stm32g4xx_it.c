@@ -299,7 +299,7 @@ void ADC1_2_IRQHandler(void)
     }
   }
 
-  ADC_Run();
+  Fast_Loop();
 
   Cyc = DWT->CYCCNT - T0;
   Fast_Time.ADC_ISR_Cyc = Cyc;
