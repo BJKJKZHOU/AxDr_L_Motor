@@ -11,7 +11,6 @@
 #include "Identification.h"
 #include "Math.h"
 #include "Motor_Type.h"
-#include "PLL.h"
 #include "control_params.h"
 
 #define FLUX_POINT_NUM          4U
@@ -19,23 +18,13 @@
 #define FLUX_MEASURE_S          0.20f
 #define FLUX_SETTLE_CNT         ((uint32_t)(FLUX_SETTLE_S / CUR_TS + 0.5f))
 #define FLUX_MEASURE_CNT        ((uint32_t)(FLUX_MEASURE_S / CUR_TS + 0.5f))
-#define FLUX_SYNC_S             0.10f
-#define FLUX_SYNC_CNT           ((uint32_t)(FLUX_SYNC_S / CUR_TS + 0.5f))
 #define FLUX_FINISH_IQ_SLEW_A_S 20.0f
 #define FLUX_FINISH_I           0.20f
 #define FLUX_FINISH_S           0.002f
 #define FLUX_FINISH_CNT         ((uint32_t)(FLUX_FINISH_S / CUR_TS + 0.5f))
 
-#define FLUX_PSI_MIN_RATIO      0.02f
-#define FLUX_VM_LEAK_RATIO      0.05f
-#define FLUX_PLL_POLE_RATIO     0.05f
-#define FLUX_PLL_WN_MIN         (TWO_PI_F * 5.0f)
-#define FLUX_PLL_WN_MAX         (TWO_PI_F * 100.0f)
-#define FLUX_PLL_DAMP           0.707f
-#define FLUX_SYNC_WE_RATIO      0.25f
-#define FLUX_SYNC_ERR_MAX       0.25f
-#define FLUX_WE_MARGIN_RATIO    0.80f
-#define FLUX_WE_SPAN_MIN_RATIO  1.50f
+#define FLUX_WE_MARGIN_RATIO   0.80f
+#define FLUX_WE_SPAN_MIN_RATIO 1.50f
 
 static float We_Point[FLUX_POINT_NUM] = { 0 };
 
@@ -44,7 +33,6 @@ static Flux_Result_T Result = { 0 };
 static uint8_t Point = 0U;
 static uint32_t Cnt = 0U;
 static uint32_t Meas_Cnt = 0U;
-static uint32_t Sync_Cnt = 0U;
 static float E_Sum = 0.0f;
 static float We_Sum = 0.0f;
 static float We_Mean[FLUX_POINT_NUM] = { 0 };
@@ -52,128 +40,9 @@ static float E_Mean[FLUX_POINT_NUM] = { 0 };
 static float Finish_Iq = 0.0f;
 static uint8_t Finish_Init = 0U;
 
-static PLL_T Vm_PLL = { 0 };
-static float LambdaAlpha = 0.0f;
-static float LambdaBeta = 0.0f;
-static float PsiAlpha = 0.0f;
-static float PsiBeta = 0.0f;
-static float Psi_Mag = 0.0f;
-
 static float Abs_Value(float Value)
 {
     return (Value >= 0.0f) ? Value : -Value;
-}
-
-static float Psi_Min(void)
-{
-    const Ident_PreFlux_T *PreFlux;
-
-    PreFlux = Identification_PreFlux_Get();
-
-    if ((PreFlux->We_Base <= 0.0f) || (PreFlux->U_Budget_V <= 0.0f))
-    {
-        return 0.0f;
-    }
-
-    return FLUX_PSI_MIN_RATIO * PreFlux->U_Budget_V / PreFlux->We_Base;
-}
-
-static void Vm_Reset(float Theta, int8_t Dir)
-{
-    float Wn;
-
-    LambdaAlpha = 0.0f;
-    LambdaBeta = 0.0f;
-    PsiAlpha = 0.0f;
-    PsiBeta = 0.0f;
-    Psi_Mag = 0.0f;
-    Sync_Cnt = 0U;
-
-    Wn = FLUX_PLL_POLE_RATIO * Motor_Para.Rs / Motor_Para.Ld;
-    if (Wn < FLUX_PLL_WN_MIN)
-    {
-        Wn = FLUX_PLL_WN_MIN;
-    }
-    else if (Wn > FLUX_PLL_WN_MAX)
-    {
-        Wn = FLUX_PLL_WN_MAX;
-    }
-
-    Vm_PLL.Para.Kp = 2.0f * FLUX_PLL_DAMP * Wn;
-    Vm_PLL.Para.Ki = Wn * Wn;
-
-    /* IF starts 90 electrical degrees behind the aligned current vector so
-     * the first q-axis command is continuous with ALIGN. The aligned rotor
-     * flux direction is therefore Theta + Dir*pi/2 at the handoff. */
-    PLL_Reset(&Vm_PLL, Angle_Wrap(Theta + (float)Dir * 0.5f * PI_F), 0.0f);
-}
-
-static void Vm_Update(float Ia_A, float Ib_A)
-{
-    const Ident_PreFlux_T *PreFlux;
-    float Ialpha;
-    float Ibeta;
-    float Leak;
-    float LambdaAlpha_Dot;
-    float LambdaBeta_Dot;
-    float Mag;
-    float Mag_Min;
-
-    PreFlux = Identification_PreFlux_Get();
-    Ialpha = Ia_A;
-    Ibeta = (Ia_A + 2.0f * Ib_A) * INV_SQRT3_F;
-
-    /* Short-time leaky voltage model used only during commissioning.
-     * It avoids the 20 kHz current derivative in u-Ri-Ldi/dt while the
-     * leakage removes the unknown integration constant and DC drift. */
-    Leak = FLUX_VM_LEAK_RATIO * PreFlux->We_Base;
-    LambdaAlpha_Dot = Motor_Run.Ualpha - Motor_Para.Rs * Ialpha - Leak * LambdaAlpha;
-    LambdaBeta_Dot = Motor_Run.Ubeta - Motor_Para.Rs * Ibeta - Leak * LambdaBeta;
-
-    LambdaAlpha += LambdaAlpha_Dot * CUR_TS;
-    LambdaBeta += LambdaBeta_Dot * CUR_TS;
-
-    PsiAlpha = LambdaAlpha - Motor_Para.Ld * Ialpha;
-    PsiBeta = LambdaBeta - Motor_Para.Ld * Ibeta;
-    Mag = __builtin_sqrtf(PsiAlpha * PsiAlpha + PsiBeta * PsiBeta);
-    Psi_Mag = Mag;
-    Mag_Min = Psi_Min();
-
-    if ((Mag_Min > 0.0f) && (Mag >= Mag_Min))
-    {
-        PLL_Run(&Vm_PLL, PsiAlpha, PsiBeta, Mag, CUR_TS);
-    }
-}
-
-static bool Vm_Sync(void)
-{
-    float We_IF;
-    float We_Err;
-    float Mag_Min;
-
-    We_IF = IF_Start_We_Get();
-    We_Err = Vm_PLL.State.We - We_IF;
-    Mag_Min = Psi_Min();
-
-    if ((Mag_Min <= 0.0f) || (Psi_Mag < Mag_Min) || (Abs_Value(We_IF) <= 0.0f))
-    {
-        Sync_Cnt = 0U;
-        return false;
-    }
-
-    if ((Abs_Value(We_Err) > FLUX_SYNC_WE_RATIO * Abs_Value(We_IF)) ||
-        (Abs_Value(Vm_PLL.State.Err) > FLUX_SYNC_ERR_MAX))
-    {
-        Sync_Cnt = 0U;
-        return false;
-    }
-
-    if (Sync_Cnt < FLUX_SYNC_CNT)
-    {
-        Sync_Cnt++;
-    }
-
-    return Sync_Cnt >= FLUX_SYNC_CNT;
 }
 
 static bool Work_Points_Build(int8_t Dir)
@@ -187,7 +56,7 @@ static bool Work_Points_Build(int8_t Dir)
 
     PreFlux = Identification_PreFlux_Get();
 
-    if ((We_Mean[0] <= 0.0f) || (E_Mean[0] <= 0.0f))
+    if ((Abs_Value(We_Mean[0]) <= 0.0f) || (We_Mean[0] * E_Mean[0] <= 0.0f))
     {
         return false;
     }
@@ -221,9 +90,17 @@ static bool Work_Points_Build(int8_t Dir)
 static void Measure(void)
 {
     float We;
+    float E;
 
-    We = Abs_Value(Vm_PLL.State.We);
-    E_Sum += We * Psi_Mag;
+    We = IF_Start_We_Get();
+
+    /* At constant I/F speed after settling, the dq voltage model reduces to:
+     *   Uq - Rs*Iq - We*Ld*Id = We*Flux + Voffset
+     * The signed quantities are retained so the same fit works in both
+     * rotation directions without an observer or a current derivative. */
+    E = Motor_Run.Uq - Motor_Para.Rs * Motor_Run.Iq - We * Motor_Para.Ld * Motor_Run.Id;
+
+    E_Sum += E;
     We_Sum += We;
     Meas_Cnt++;
 }
@@ -254,16 +131,10 @@ void Flux_Reset(void)
     Point = 0U;
     Cnt = 0U;
     Meas_Cnt = 0U;
-    Sync_Cnt = 0U;
     E_Sum = 0.0f;
     We_Sum = 0.0f;
     Finish_Iq = 0.0f;
     Finish_Init = 0U;
-    LambdaAlpha = 0.0f;
-    LambdaBeta = 0.0f;
-    PsiAlpha = 0.0f;
-    PsiBeta = 0.0f;
-    Psi_Mag = 0.0f;
 
     for (uint8_t n = 0U; n < FLUX_POINT_NUM; n++)
     {
@@ -366,14 +237,11 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
             IF_Start_Reset(-0.5f * PI_F * (float)Dir, 0.0f);
             IF_Start_Para_Set(PreFlux->Iq_Start_A, PreFlux->Iq_Max_A, PreFlux->We_Base, PreFlux->Acc);
             IF_Start_Target_Set(We_Point[0]);
-            Vm_Reset(-0.5f * PI_F * (float)Dir, Dir);
             State = FLUX_ACCEL;
         }
 
         return FAST_CURRENT;
     }
-
-    Vm_Update(Ia_A, Ib_A);
 
     if (State == FLUX_FINISH)
     {
@@ -447,7 +315,6 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
                 We_Sum = 0.0f;
                 Meas_Cnt = 0U;
                 Cnt = 0U;
-                Sync_Cnt = 0U;
                 IF_Start_Target_Set(We_Point[Point]);
                 State = FLUX_ACCEL;
             }
@@ -459,7 +326,7 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
 
     if (State == FLUX_ACCEL)
     {
-        if ((IF_Start_State_Get() == IF_HOLD) && Vm_Sync())
+        if (IF_Start_State_Get() == IF_HOLD)
         {
             Cnt = 0U;
             State = FLUX_SETTLE;
@@ -467,12 +334,7 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
     }
     else if (State == FLUX_SETTLE)
     {
-        if (!Vm_Sync())
-        {
-            Cnt = 0U;
-            State = FLUX_ACCEL;
-        }
-        else if (++Cnt >= FLUX_SETTLE_CNT)
+        if (++Cnt >= FLUX_SETTLE_CNT)
         {
             Cnt = 0U;
             E_Sum = 0.0f;
