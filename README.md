@@ -1,92 +1,131 @@
 # AxDr_L_Motor
 
-基于 AxDrive-L 开发板的 PMSM/FOC 控制工程，运行于 STM32G474RET6。
+[![Firmware Build](https://github.com/BJKJKZHOU/AxDr_L_Motor/actions/workflows/ci.yml/badge.svg)](https://github.com/BJKJKZHOU/AxDr_L_Motor/actions/workflows/ci.yml)
 
-## 当前功能
+基于 **STM32G474 + AxDrive-L** 的 PMSM/FOC 电机控制工程。
 
-- 20 kHz 三相电流采样、dq 电流环与 SVPWM
-- Rs/Ls 和永磁体磁链辨识
-- 磁链 Observer 与 PLL 转速/角度估计
-- `ALIGN → I/F → Observer` 无感启动接管
+当前包含电流/速度/位置控制、电机参数辨识、I/F 启动、磁链 Observer、PLL 和无感控制相关实现。部分功能仍处于实验和调整阶段。
 
-## 硬件
+## 主要内容
 
-本工程基于 AxDr_L(AxDrive-L) 硬件平台进行开发和实机验证。
+- **20 kHz FOC 快环**：三相电流采样、Clarke/Park、dq 电流环、SVPWM 与 PWM 更新
+- **Servo 控制**：Torque / Speed / Position 控制路径
+- **电机参数辨识**：Rs / Ls 与永磁体磁链辨识
+- **无感控制**：`ALIGN → I/F → Observer` 启动与接管
+- **Observer**：磁链 Observer + PLL 电角度 / 电角速度估计
+- **Open Loop**：用于 bring-up、测试和部分辨识流程
+- **上位机通信**：USB CDC 承载 AxDr CAN-FD 风格应用层消息
+- **Python 工具**：测试、数据采集、参数辨识和新电机 commissioning
+- **双工具链构建**：ST Arm Clang 本地开发 + GNU Arm GCC GitHub CI
 
-相关硬件开源与参考工程：
+## 硬件平台
 
-- [AxDr_L 硬件](https://oshwhub.com/lylssy/foc_driver) (GPL 3.0)
-- [AxDr_L 软件参考](https://github.com/disnox/AxDr_L)
+当前固件运行于 **STM32G474RET6**，主要基于 AxDrive-L 硬件进行开发和测试。
 
-本仓库并非上述硬件项目的官方固件仓库。
+相关硬件和参考工程：
 
-## 上位机与通信协议
+- [AxDrive-L 硬件](https://oshwhub.com/lylssy/foc_driver)
+- [AxDrive-L 软件参考](https://github.com/disnox/AxDr_L)
 
-本工程使用 AxDr CAN-FD 应用层协议，USB CDC 同样承载 CAN-FD 风格的消息帧。
+本仓库并非上述项目的官方固件仓库。
 
-VOFA+ 上位机的 JustCANFD 协议支持与协议说明维护在：
+## 快速开始
 
-- [Vodka / JustCANFD](https://github.com/BJKJKZHOU/Vodka/tree/master/dataengines/justcanfd)
+### 1. 克隆
 
-`tools/` 下的 Python 脚本使用同一套协议，主要用于自动测试、参数辨识和新电机 commissioning。
+推荐直接初始化 Git 子模块：
 
-## 依赖
+```bash
+git clone --recursive https://github.com/BJKJKZHOU/AxDr_L_Motor.git
+cd AxDr_L_Motor
+```
 
-ThreadX 与 USBX 使用 Git 子模块管理：
-
-- `ThirdParty/Eclipse/threadx/`：Eclipse ThreadX 6.5.1
-- `ThirdParty/Eclipse/usbx/`：Eclipse USBX 6.5.0 portable core 与 CDC ACM device class
-- `ThirdParty/ST/usbx_stm32_dcd/`：STM32 USBX device-controller adaptation
-
-克隆后需要初始化子模块：
+如果已经完成普通 clone：
 
 ```bash
 git submodule update --init --recursive
 ```
 
-STM32CubeMX 重新生成工程时可能会在 `Middlewares/` 下产生中间件副本。该目录不参与实际构建，项目通过 CMake 重映射使用 `ThirdParty/` 下的依赖。
+### 2. GNU Arm GCC 构建
 
-## 构建
-
-工程同时支持 ST Arm Clang 与 GNU Arm GCC。日常开发主要使用 ST Arm Clang；GitHub CI 使用 GNU Arm GCC 检查同一份固件源码的编译兼容性。
-
-ST Arm Clang（默认开发路径）：
-
-```bash
-cmake --preset Release
-cmake --build --preset Release
-```
-
-GNU Arm GCC：
+需要 CMake、Ninja 和 `arm-none-eabi-gcc`：
 
 ```bash
 cmake --preset gcc-release
 cmake --build --preset gcc-release
 ```
 
-CubeMX 负责生成 `.ioc` 对应的 MCU/HAL/RTOS glue 与 `cmake/stm32cubemx/`。根目录 `CMakeLists.txt`、`CMakePresets.json` 以及 `cmake/` 下的工具链和中间件重映射文件属于项目构建层，不应由 CubeMX 重新生成结果覆盖。CubeMX 重新生成后应分别用 ST Arm Clang 与 GNU Arm GCC 重新编译确认兼容性。
+GitHub Actions 使用同一套 GCC 构建路径，并生成 ELF / BIN / HEX / MAP 产物。
 
-## 目录
+### 3. ST Arm Clang 构建
 
-- `Motor/`：PWM、采样、电流环和运动控制
-- `Identification/`：Rs/Ls 与磁链辨识
-- `Observer/`：磁链 Observer 和 PLL
-- `Sensorless/`：I/F 启动与 Observer 接管
-- `Comm/`：USB 控制协议和 Plot
-- `User/`：电机与控制参数
-- `ThirdParty/`：外部依赖与 STM32 USBX DCD 适配层
-- `tools/`：构建、辨识和实机测试脚本
+本地主要开发工具链为 ST Arm Clang：
 
-## Project status
+```bash
+cmake --preset Release
+cmake --build --preset Release
+```
 
-This project is under active development. Some functions have been validated on hardware, while other control paths and operating ranges remain experimental.
+## 工程与 CubeMX
+
+`AxDr_L_Motor.ioc` 由 STM32CubeMX 维护 MCU、HAL、ThreadX 和 USBX 基础配置。
+
+CubeMX 重新生成后，需要注意：
+
+- `Core/`、`AZURE_RTOS/`、`USBX/` 和 `cmake/stm32cubemx/` 中包含 CubeMX 生成或维护的 glue code
+- `Middlewares/` 下可能重新生成中间件副本，但该目录不参与实际构建
+- 实际 ThreadX / USBX portable code 使用 `ThirdParty/` 下的依赖
+- 根目录 `CMakeLists.txt`、`CMakePresets.json` 和项目级 `cmake/` 配置不应被 CubeMX 结果覆盖
+
+重新生成工程后建议重新执行 ST Arm Clang 和 GNU Arm GCC 构建。
+
+## 上位机与通信
+
+固件使用 AxDr CAN-FD 风格的应用层协议，USB CDC 使用同一套消息结构。
+
+VOFA+ 的 JustCANFD 协议支持和相关上位机代码维护在：
+
+- [Vodka / JustCANFD](https://github.com/BJKJKZHOU/Vodka/tree/master/dataengines/justcanfd)
+
+`tools/` 下的 Python 脚本也使用同一套协议与固件通信。
+
+## 目录结构
+
+```text
+Algo/            基础数学、PID、Sin LUT、SVPWM
+Motor/           ADC、PWM、Encoder、电流环和运动控制
+Identification/  Rs/Ls 与磁链辨识
+Observer/        Flux Observer 与 PLL
+Sensorless/      I/F 启动与无感控制集成
+Comm/            USB、Protocol 与 Plot
+User/            电机和控制参数
+BSP/             板级外设
+ThirdParty/      ThreadX / USBX / STM32 USBX DCD 等外部依赖
+tools/           实机测试、数据采集和 commissioning 脚本
+docs/            实机测试记录、设计记录和代码风格说明
+```
+
+## 第三方依赖
+
+主要外部依赖包括：
+
+- Eclipse ThreadX
+- Eclipse USBX
+- STM32Cube HAL / CMSIS
+- STM32 USBX device-controller adaptation
+
+ThreadX 与 USBX portable code 使用 Git 子模块管理。各第三方组件继续遵循其原始许可证，不受本项目 Apache-2.0 许可证覆盖。
+
+详细说明见 [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md)。
 
 ## Safety
 
-This firmware can directly drive a motor power stage. Verify the target hardware, current limits, PWM configuration, motor parameters, and protection settings before energizing the inverter. Hardware test scripts are not a substitute for independent protection and safe test procedures.
+该固件可以直接驱动电机功率级。上电测试前必须确认目标硬件、电流限制、PWM 配置、电机参数和独立保护措施。
+
+仓库中的参数、测试脚本和自动 commissioning 流程不能替代实际硬件保护与安全测试流程。
 
 ## License
 
-Project-owned source code and documentation are licensed under the Apache License 2.0 unless a file states otherwise.
+项目自有源码和文档采用 [Apache License 2.0](LICENSE)。
 
-Third-party components, including STM32Cube, Eclipse ThreadX, Eclipse USBX, and the STM32 USBX device-controller adaptation, remain under their respective licenses. See `THIRD_PARTY_LICENSES.md` and the license files shipped with those components.
+STM32Cube、Eclipse ThreadX、Eclipse USBX、STM32 USBX DCD 等第三方组件继续遵循各自的许可证和版权声明，详见 [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md)。
