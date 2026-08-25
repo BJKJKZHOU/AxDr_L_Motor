@@ -20,6 +20,16 @@
 
 本仓库并非上述硬件项目的官方固件仓库。
 
+## 上位机与通信协议
+
+本工程使用 AxDr CAN-FD 应用层协议，USB CDC 同样承载 CAN-FD 风格的消息帧。
+
+VOFA+ 上位机的 JustCANFD 协议支持与协议说明维护在：
+
+- [Vodka / JustCANFD](https://github.com/BJKJKZHOU/Vodka/tree/master/dataengines/justcanfd)
+
+`tools/` 下的 Python 脚本使用同一套协议，主要用于自动测试、参数辨识和新电机 commissioning。
+
 ## 依赖
 
 ThreadX 与 USBX 使用 Git 子模块管理：
