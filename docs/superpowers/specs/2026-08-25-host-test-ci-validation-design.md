@@ -1,44 +1,45 @@
-# Host Test / CI Validation Design
+# Host Test / CI 验证体系设计
 
-Date: 2026-08-25
+日期：2026-08-25
 
-## 1. Goal
+## 1. 目标
 
-Establish a permanent host-side validation system for the motor-control algorithms in `AxDr_L_Motor` using Unity + Ceedling.
+使用 Unity + Ceedling 为 `AxDr_L_Motor` 建立长期维护的 Host 端算法验证体系。
 
-The tests define expected behavior from control theory, mathematical equations and physical invariants. They must not mirror the current C implementation line by line, and they must not create hardware mocks merely to raise coverage.
+测试的期望行为必须来源于控制理论、数学公式和物理不变量，而不是逐行复刻当前 C 实现。测试体系也不能为了提高覆盖率而人为构造大量硬件 Mock。
 
-The resulting validation model is:
+最终验证体系分为三类彼此独立的证据：
 
 ```text
 Firmware Build
-    GNU Arm GCC compile/link
+    GNU Arm GCC 编译 / 链接
 
 Host Algorithm Test
-    Unity + Ceedling on native host compiler
-    theory/reference-model based
+    Unity + Ceedling
+    native host compiler
+    基于理论公式 / 独立参考模型
 
 Hardware Validation
-    AxDrive-L + STM32G474 + real motor
+    AxDrive-L + STM32G474 + 实际电机
 ```
 
-These three kinds of evidence remain separate. A Host Test pass never upgrades a hardware validation state by itself.
+这三类证据必须保持语义分离。Host Test 通过不能单独把某项功能提升为 Hardware `VALIDATED`。
 
-## 2. Scope
+## 2. 初始范围
 
-The first Host Test system covers the deterministic algorithm modules that have meaningful platform-independent theory or state equations:
+第一阶段 Host Test 覆盖具有明确平台无关理论、数学关系或状态方程的确定性算法：
 
 ```text
 Algo/Math.c
 Algo/PID.c
 Algo/Voltage_Mod.c
-Motor/Motion_Loop.c       -> Speed_Profile only
+Motor/Motion_Loop.c       -> 仅 Speed_Profile
 Sensorless/IF_Start.c
 Observer/PLL.c
 Observer/Flux_Observer.c
 ```
 
-The initial Host Test system does not attempt whole-module tests for:
+第一阶段不对以下模块做整模块 Host Test：
 
 ```text
 Motor/Motor_Control.c
@@ -50,13 +51,13 @@ Motor/Encoder.c
 ThreadX / USBX / HAL / DMA / peripheral IRQ paths
 ```
 
-Those modules are integration or hardware-reference layers. They must not be refactored only to satisfy Host Test coverage.
+这些模块属于系统集成层或硬件参考实现层，不因为 Host Test 覆盖率而强行重构。
 
-## 3. Test framework
+## 3. 测试框架
 
-Use Unity + Ceedling as the formal C Host Test framework.
+正式 Host Test 框架使用 Unity + Ceedling。
 
-Repository layout:
+仓库结构：
 
 ```text
 project.yml
@@ -77,85 +78,100 @@ test/
     └── motor_model.h
 ```
 
-`test/support/` contains independent test mathematics and reference models. It is not a general-purpose production library and is not compiled into firmware.
+`test/support/` 只保存独立的测试数学工具和参考模型，不作为生产代码，也不参与固件构建。
 
-The `Gemfile` must pin the exact Ceedling-related Ruby dependencies used by CI so local and CI test environments remain reproducible.
+`Gemfile` 必须固定 CI 使用的 Ceedling 相关 Ruby 依赖版本，使本地和 CI 的测试环境可复现。
 
-CMock may be available through Ceedling, but it is not the basis of the initial suite. The initial suite should call real algorithm code with theory-generated inputs.
+Ceedling 自带的 CMock 可以保留，但第一阶段测试不以 Mock 为核心。优先直接调用真实算法代码，并使用理论生成的输入进行验证。
 
-## 4. Oracle rule
+## 4. 测试 Oracle 原则
 
-Expected results are derived from equations, mathematical properties or independently written reference models:
+测试期望值必须来自数学定义、控制规范或独立参考模型：
 
 ```text
-Theory / control specification / physical model
-                    ↓
-              expected behavior
-                    ↓
-          production implementation
+理论 / 控制规范 / 物理模型
+            ↓
+        期望行为
+            ↓
+     生产代码实现结果
 ```
 
-Tests must not copy the implementation structure into the expected-value calculation. If production code changes implementation while preserving the same control law, the tests should remain valid.
+测试代码不能把生产实现的 if/else、状态切换和中间变量结构原样复制成“参考结果”。
 
-## 5. Numerical comparison rules
+如果未来生产代码更换实现方法但保持相同控制律，测试应继续成立。
 
-Host tests use shared helpers for numerical comparison.
+## 5. 数值比较规则
 
-### 5.1 Scalar comparison
+Host Test 使用共享的数值比较辅助函数。
 
-Use both absolute and relative tolerance where appropriate:
+### 5.1 标量比较
+
+根据算法的量纲和数值敏感度，同时使用绝对误差与相对误差：
 
 ```text
 |a - b| <= abs_tol + rel_tol * max(|a|, |b|)
 ```
 
-Tests choose tolerances based on the scale and numerical sensitivity of the algorithm, not on a single global epsilon.
+不使用一个全局固定 epsilon 覆盖所有算法。
 
-### 5.2 Angle comparison
+### 5.2 角度比较
 
-Angle error must use wrapped difference:
+角度误差必须使用 `[-π, π]` 范围内的包角差：
 
 ```text
 angle_error = wrap_to_pi(a - b)
 ```
 
-and compare `|angle_error|` against an angle tolerance. Raw subtraction across `0 / 2π` is not a valid angle comparison.
+再判断：
 
-### 5.3 Dynamic tests
+```text
+|angle_error| <= angle_tol
+```
 
-Dynamic algorithms are evaluated over sequences. Tests may assert transient bounds, convergence, final error and physical invariants; they should not require bit-identical trajectories across different host compilers.
+不能直接比较跨越 `0 / 2π` 边界的原始角度差。
 
-## 6. Math tests
+### 5.3 动态测试
+
+动态算法通过序列输入验证。允许检查：
+
+- 瞬态边界；
+- 收敛时间窗口；
+- 最终稳态误差；
+- 物理不变量。
+
+不要求不同 Host 编译器得到逐采样点 bit-identical 的浮点轨迹。
+
+## 6. Math 测试
 
 ### 6.1 `Angle_Wrap`
 
-The mathematical definition is:
+数学定义：
 
 ```text
 theta_out = theta mod 2π
 0 <= theta_out < 2π
 ```
 
-Coverage includes:
+覆盖：
 
-- `0`, `2π`, `-2π`;
-- values immediately above and below wrap boundaries;
-- multiple positive and negative revolutions;
-- invariant that input and output differ by an integer multiple of `2π` within numerical tolerance.
+- `0`、`2π`、`-2π`；
+- wrap 边界上下的小偏移；
+- 多圈正角度和负角度；
+- 输入与输出只相差整数个 `2π` 的不变量。
 
 ### 6.2 `Limit_Value`
 
-Reference equation:
+参考公式：
 
 ```text
 y = min(max(x, min), max)
 ```
 
-Verify below-range, in-range and above-range values together with the function's direction return value.
+覆盖低于范围、范围内、高于范围三种情况，并验证函数返回的限幅方向。
 
 ### 6.3 `Vector2_Limit`
 
-For limit `L > 0`:
+当 `L > 0`：
 
 ```text
 if sqrt(x² + y²) <= L:
@@ -164,11 +180,16 @@ else:
     output = input * L / sqrt(x² + y²)
 ```
 
-Verify magnitude bound, direction preservation, in-limit identity and zero output for non-positive limits.
+验证：
 
-## 7. PID tests
+- 模长上限；
+- 超限后方向保持不变；
+- 未超限时输出不变；
+- `L <= 0` 时输出为零。
 
-The test specification follows the implemented discrete control law, expressed independently as equations:
+## 7. PID 测试
+
+PID 测试规范直接来自离散控制律：
 
 ```text
 e[k] = r[k] - y[k]
@@ -177,24 +198,28 @@ D[k] = -Kd * (y[k] - y[k-1]) / Ts
 u*[k] = Kp * e[k] + I[k] + D[k]
 ```
 
-The controller also applies integrator limits, output limits and conditional anti-windup.
+控制器还包含：
 
-Tests cover:
+- Integrator saturation；
+- Output saturation；
+- conditional anti-windup。
 
-- proportional-only response;
-- integral accumulation from a constant error sequence;
-- positive and negative integral saturation;
-- output saturation;
-- derivative-on-measurement sign and magnitude;
-- prevention of further integral growth into an active output saturation;
-- release from saturation when error direction changes;
-- zero-error steady state.
+测试覆盖：
 
-The test oracle is calculated from these equations, not by duplicating `PID_Run()` control flow.
+- 纯比例响应；
+- 恒定误差下的积分累积；
+- 正负积分限幅；
+- 输出饱和；
+- derivative-on-measurement 的符号和幅值；
+- 输出饱和时积分不能继续向错误方向增长；
+- 误差反向后能退出饱和；
+- 零误差稳态。
 
-## 8. SVPWM tests
+测试 Oracle 由上述离散方程计算，不复制 `PID_Run()` 内部控制流。
 
-For input voltage vector `(Ualpha, Ubeta)`:
+## 8. SVPWM 测试
+
+对输入电压矢量 `(Ualpha, Ubeta)`：
 
 ```text
 Ua = Ualpha
@@ -206,77 +231,77 @@ Db = 0.5 + (Ub + Uoff) / Vbus
 Dc = 0.5 + (Uc + Uoff) / Vbus
 ```
 
-The reference model clamps duty to `[0, 1]` only at the final step.
+参考模型只在最后一步将 Duty 限制到 `[0, 1]`。
 
-Tests cover:
+测试覆盖：
 
-- zero vector -> `0.5 / 0.5 / 0.5`;
-- non-positive bus voltage -> neutral `0.5` duties;
-- representative alpha/beta axes and sextants;
-- output duty always in `[0, 1]`;
-- symmetry for opposite vectors;
-- agreement with the independent formula over a grid of in-range input vectors.
+- 零矢量 -> `0.5 / 0.5 / 0.5`；
+- `Vbus <= 0` -> 三相中性 Duty `0.5`；
+- 代表性的 alpha/beta 轴方向和六个扇区；
+- 三相 Duty 始终位于 `[0, 1]`；
+- 相反电压矢量的对称性；
+- 在一组网格化输入点上与独立公式一致。
 
-Host SVPWM tests validate modulation mathematics, not timer preload, dead time or physical gate timing.
+Host SVPWM 测试只验证调制数学，不验证定时器 preload、Dead Time 或实际 Gate 时序。
 
-## 9. Speed profile tests
+## 9. Speed Profile 测试
 
-`Speed_Profile` is specified by mechanical acceleration and deceleration limits.
+`Speed_Profile` 按机械加速度和减速度约束定义。
 
-For same-direction acceleration:
+同方向加速：
 
 ```text
 |Wm_ref[k+1] - Wm_ref[k]| <= Acc * SPD_TS
 ```
 
-For same-direction deceleration:
+同方向减速：
 
 ```text
 |Wm_ref[k+1] - Wm_ref[k]| <= Dec * SPD_TS
 ```
 
-For a target with opposite sign, the reference must first approach zero using the deceleration limit. Only after reaching zero may it accelerate into the opposite direction.
+当目标与当前参考异号时，参考速度必须先按照 `Dec` 接近零，达到零后才能按照 `Acc` 加速进入反方向。
 
-Tests cover:
+测试覆盖：
 
-- `0 -> positive`;
-- `0 -> negative`;
-- positive/negative acceleration symmetry;
-- same-direction deceleration;
-- positive-to-negative reversal;
-- negative-to-positive reversal;
-- no overshoot of target;
-- exact settling to target when the remaining delta is smaller than one step.
+- `0 -> positive`；
+- `0 -> negative`；
+- 正负方向加速对称性；
+- 同方向减速；
+- 正转到反转；
+- 反转到正转；
+- 不允许越过目标值；
+- 剩余差值小于一个 step 时准确停在目标。
 
-Tests assert motion-law properties over sequences rather than internal helper behavior.
+测试只验证运动规律，不依赖内部 helper 的具体实现。
 
-## 10. I/F start tests
+## 10. I/F Start 测试
 
-I/F testing is based on its commanded electrical-speed and current trajectories rather than primarily on enum values.
+I/F 测试以电角速度、电角度和电流轨迹为主要验证对象，不以 enum 状态本身作为核心 Oracle。
 
-### 10.1 Electrical speed
+### 10.1 电角速度
 
-Per cycle:
+每周期满足：
 
 ```text
 |We[k+1] - We[k]| <= IF_ACC_RAD_S2 * CUR_TS
 ```
 
-The speed must not overshoot the target.
+速度不能越过目标值。
 
-### 10.2 Electrical angle
+### 10.2 电角度
 
-The angle integration law is:
+积分规律：
 
 ```text
 Theta[k+1] = wrap(Theta[k] + We[k] * CUR_TS)
 ```
 
-Tests include multiple positive and negative wraps.
+测试覆盖多次正向和反向跨越 `0 / 2π`。
 
-### 10.3 Current magnitude and direction
+### 10.3 电流幅值与方向
 
-The nominal current magnitude is:
+额定电流幅值：
 
 ```text
 ratio = min(|We| / IF_WE_TARGET_RAD_S, 1)
@@ -284,30 +309,30 @@ Iq_abs = IF_IQ_START_A +
          (IF_IQ_TARGET_A - IF_IQ_START_A) * ratio
 ```
 
-The current slew constraint is:
+电流 slew 约束：
 
 ```text
 |Iq[k+1] - Iq[k]| <= IF_IQ_SLEW_A_S * CUR_TS
 ```
 
-Current sign follows the active rotation direction, with the target direction used at exact zero where needed to start moving.
+`Iq` 符号跟随当前实际旋转方向；在精确零速处，如果需要启动，则允许使用目标方向确定起步电流符号。
 
-Tests cover:
+测试覆盖：
 
-- `0 -> positive`;
-- `0 -> negative`;
-- positive/negative acceleration;
-- same-sign target changes;
-- positive-to-negative reversal through zero;
-- negative-to-positive reversal through zero;
-- current slew bound;
-- current sign around zero crossing;
-- hold readiness after the configured hold duration;
-- target changes resetting hold readiness.
+- `0 -> positive`；
+- `0 -> negative`；
+- 正负方向加速；
+- 同号目标变化；
+- 正转到反转并穿零；
+- 反转到正转并穿零；
+- 电流 slew 上限；
+- 过零附近的电流方向；
+- 达到目标后保持配置时间才 Ready；
+- 修改目标后 Hold readiness 被清除。
 
-## 11. PLL tests
+## 11. PLL 测试
 
-PLL test input uses an analytically generated rotating vector:
+PLL 输入由解析旋转矢量生成：
 
 ```text
 X = Mag * cos(theta)
@@ -315,24 +340,24 @@ Y = Mag * sin(theta)
 theta(t) = theta0 + we * t
 ```
 
-Tests cover:
+测试覆盖：
 
-- reset angle wrapping;
-- no update when `Mag_Ref <= 0` or `Ts <= 0`;
-- zero-speed lock;
-- positive constant speed tracking;
-- negative constant speed tracking;
-- repeated `0 / 2π` wrap crossings;
-- non-zero initial angle error;
-- non-zero initial speed error.
+- Reset 时角度包络；
+- `Mag_Ref <= 0` 或 `Ts <= 0` 时不更新；
+- 零速锁定；
+- 正恒速跟踪；
+- 负恒速跟踪；
+- 多次跨越 `0 / 2π`；
+- 非零初始角度误差；
+- 非零初始速度误差。
 
-Dynamic assertions use wrapped angle error and speed error. The test defines convergence windows and steady-state bounds based on the configured PLL gains used by that test case; it does not require identical transient samples to a copied implementation.
+动态断言使用包角误差和速度误差。收敛时间窗口和稳态误差边界由测试使用的 PLL 参数决定，不要求瞬态逐采样点复制生产实现。
 
-## 12. Flux observer tests
+## 12. Flux Observer 测试
 
-The Flux Observer oracle uses an independent ideal surface-PMSM alpha/beta model in `test/support/motor_model.c`.
+Flux Observer 的 Oracle 使用 `test/support/motor_model.c` 中独立实现的理想表贴式 PMSM alpha/beta 模型。
 
-For a selected electrical angle:
+给定电角度：
 
 ```text
 Psi_alpha = Flux * cos(theta)
@@ -345,25 +370,45 @@ Ualpha = Rs * Ialpha + d(Lambda_alpha)/dt
 Ubeta  = Rs * Ibeta  + d(Lambda_beta)/dt
 ```
 
-The model generates synthetic `Ialpha/Ibeta/Ualpha/Ubeta` sequences independently of `Flux_Observer_Run()`.
+参考模型独立产生：
 
-Tests cover:
+```text
+Ialpha / Ibeta / Ualpha / Ubeta
+```
 
-- reset state from known flux angle and current;
-- stationary known-flux cases;
-- positive rotating flux;
-- negative rotating flux;
-- flux magnitude convergence;
-- estimated flux angle agreement using wrapped angle error;
-- symmetry between alpha/beta orientations.
+并将其输入真实 `Flux_Observer_Run()`。
 
-A combined reference test may feed the observer output into the production PLL and verify estimated angle/speed against the known synthetic trajectory. This remains a Host Algorithm test, not a Sensorless hardware validation.
+测试覆盖：
 
-## 13. Hardware boundary
+- 已知磁链角和电流下的 Reset；
+- 静止已知磁链；
+- 正向旋转磁链；
+- 反向旋转磁链；
+- 磁链幅值收敛；
+- 估算磁链角与理论角度的包角误差；
+- alpha/beta 方向对称性。
 
-Do not add host mocks for STM32 peripheral behavior solely for coverage.
+可以增加组合测试：
 
-The following remain outside Host Test truth claims:
+```text
+理想 PMSM 模型
+    ↓
+Flux Observer
+    ↓
+生产 PLL
+    ↓
+Theta / We estimate
+```
+
+再与已知合成轨迹比较。
+
+这仍然属于 Host Algorithm Test，不能等价为完整 Sensorless 实机验证。
+
+## 13. 硬件边界
+
+不为了覆盖率给 STM32 外设行为增加 Host Mock。
+
+以下内容不属于 Host Test 的真实性范围：
 
 ```text
 ADC injected trigger timing
@@ -379,13 +424,13 @@ power-stage safety behavior
 real motor startup and observer robustness
 ```
 
-These are validated by firmware build plus existing or future hardware tests.
+这些内容由 Firmware Build 与已有/后续 Hardware Validation 覆盖。
 
-## 14. CI integration
+## 14. CI 集成
 
-Keep the existing GNU Arm GCC firmware-build job as an independent compile/link compatibility check.
+保留现有 GNU Arm GCC Firmware Build job，作为独立的嵌入式编译/链接兼容性检查。
 
-Add a separate Host Test job on Ubuntu:
+增加独立的 Host Test job：
 
 ```text
 checkout
@@ -394,41 +439,43 @@ bundle install
 bundle exec ceedling test:all
 ```
 
-The Host Test job must not require the ARM toolchain or STM32 submodules that are unrelated to the selected algorithm sources.
+Host Test job 使用 Ubuntu native compiler，不要求 ARM toolchain，也不依赖与这些纯算法无关的 STM32 middleware 子模块。
 
-Ceedling gcov support should be configured from the beginning so coverage reports are available for inspection. Coverage percentage is informational and is not a CI pass/fail threshold.
+从第一版开始配置 Ceedling gcov，使覆盖率报告可查看，但覆盖率百分比不作为 CI pass/fail 门槛。
 
-The CI meaning remains explicit:
+CI 语义必须保持明确：
 
 ```text
 Firmware Build PASS
-    -> embedded project compiles and links with GNU Arm GCC
+    -> 固件能被 GNU Arm GCC 完整编译和链接
 
 Host Test PASS
-    -> tested mathematical/control behavior matches its specification
+    -> 被覆盖的数学 / 控制行为符合测试规范
 
 Hardware VALIDATED
-    -> current firmware revision passed corresponding real-hardware tests
+    -> 当前固件版本已经通过对应实机测试
 ```
 
-## 15. Production-code change policy
+## 15. 生产代码修改原则
 
-Host Test introduction must not trigger broad production refactoring.
+引入 Host Test 不能成为大规模重构生产代码的理由。
 
-Allowed changes are limited to what is required to compile deterministic algorithm sources natively while preserving firmware behavior. If a module requires extensive HAL, register, RTOS or global-state mocking, it is excluded from the initial Host Test scope instead of being abstracted for testability.
+只允许为了 native 编译确定性算法源码而进行必要且行为保持的最小修改。
 
-`Sensorless.c`, `Motor_Control.c` and hardware modules remain integration/reference-platform code unless future maintenance problems create an independent reason to extract a pure algorithm boundary.
+如果某个模块需要大量 HAL、寄存器、RTOS 或全局状态 Mock 才能测试，则第一阶段直接排除该模块，而不是为测试强行增加 abstraction layer。
 
-## 16. Success criteria
+`Sensorless.c`、`Motor_Control.c` 和硬件模块继续作为系统集成 / 参考平台代码。只有未来真实维护问题需要时，才考虑进一步抽出纯算法边界。
 
-The first implementation is complete when:
+## 16. 完成标准
 
-- Unity + Ceedling can run locally through the pinned Ruby environment;
-- CI has a separate Host Test job;
-- the seven scoped algorithm areas have theory/reference-model based tests;
-- shared scalar and angle comparison helpers exist;
-- the ideal PMSM alpha/beta reference model exists only under `test/support/`;
-- gcov reporting is available but non-gating;
-- no STM32 peripheral mock layer is introduced;
-- existing firmware build behavior and GCC CI remain intact;
-- `docs/VALIDATION.md` continues to distinguish Host Test evidence from hardware validation.
+第一阶段实现完成时必须满足：
+
+- Unity + Ceedling 可以通过固定的 Ruby 环境在本地运行；
+- CI 增加独立 Host Test job；
+- 七个初始算法区域都有基于理论 / 独立参考模型的测试；
+- 有统一的标量和角度比较辅助函数；
+- 理想 PMSM alpha/beta 参考模型只存在于 `test/support/`；
+- gcov 可生成报告，但不作为门禁阈值；
+- 不引入 STM32 外设 Mock 层；
+- 现有 firmware build 行为和 GCC CI 保持不变；
+- `docs/VALIDATION.md` 继续明确区分 Host Test 证据与 Hardware Validation。
