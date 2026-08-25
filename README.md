@@ -48,12 +48,23 @@ STM32CubeMX 重新生成工程时可能会在 `Middlewares/` 下产生中间件�
 
 ## 构建
 
-使用 VS Code 的 `STMicroelectronics.stm32-vscode-extension` 工具链：
+工程同时支持 ST Arm Clang 与 GNU Arm GCC。日常开发主要使用 ST Arm Clang；GitHub CI 使用 GNU Arm GCC 检查同一份固件源码的编译兼容性。
+
+ST Arm Clang（默认开发路径）：
 
 ```bash
 cmake --preset Release
 cmake --build --preset Release
 ```
+
+GNU Arm GCC：
+
+```bash
+cmake --preset gcc-release
+cmake --build --preset gcc-release
+```
+
+CubeMX 负责生成 `.ioc` 对应的 MCU/HAL/RTOS glue 与 `cmake/stm32cubemx/`。根目录 `CMakeLists.txt`、`CMakePresets.json` 以及 `cmake/` 下的工具链和中间件重映射文件属于项目构建层，不应由 CubeMX 重新生成结果覆盖。CubeMX 重新生成后应分别用 ST Arm Clang 与 GNU Arm GCC 重新编译确认兼容性。
 
 ## 目录
 
