@@ -27,10 +27,14 @@ The submodule points to the upstream Eclipse USBX repository and remains under t
 
 `ThirdParty/ST/usbx_stm32_dcd/` contains the STM32 USBX device-controller adaptation retained from the STM32Cube distribution.
 
-This code is separate from the Eclipse USBX portable sources and retains its original source headers and accompanying license files, including:
+This directory is **not** licensed under the repository-level Apache License 2.0. It remains subject to the license terms shipped with that component, including:
 
 - `ThirdParty/ST/usbx_stm32_dcd/LICENSE.txt`
 - `ThirdParty/ST/usbx_stm32_dcd/LICENSED-HARDWARE.txt`
+
+The bundled `LICENSED-HARDWARE.txt` explicitly lists the STM32G4 Series. Redistribution and production-use rights for this component therefore depend on the conditions in the bundled Microsoft Azure RTOS license and apply only as permitted for licensed hardware. The original copyright notices, license files, and applicable restrictions must be preserved.
+
+This STM32 device-controller adaptation is separate from the Eclipse USBX portable core provided through the `ThirdParty/Eclipse/usbx/` submodule.
 
 ## Generated middleware copies
 
