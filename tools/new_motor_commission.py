@@ -7,8 +7,9 @@ The workflow is fixed intentionally:
 2. Run Rs/Ls identification five times.
 3. Check repeatability and ask whether the fifth result may be applied to RAM.
 4. Run Flux identification twice forward and twice reverse.
-5. Check repeatability and ask whether the fourth result may be applied to RAM.
-6. Ramp to the requested sensorless test speed and run until Ctrl+C by default.
+5. Check per-run point consistency, repeatability and direction consistency.
+6. Ask whether the fourth Flux result may be applied to RAM.
+7. Ramp to the requested sensorless test speed and run until Ctrl+C by default.
 
 Declining either RAM update stops the workflow. Applied values and the user current
 limit are not saved to nonvolatile memory and are lost after a firmware reset.
@@ -247,8 +248,10 @@ class Commission(base.SensorlessTest):
                 "<ff", data, 4
             )
         else:
-            (result["flux_wb"], result["v_offset_v"],
-             result["fit_r2"]) = struct.unpack_from("<fff", data, 4)
+            (result["flux_wb"], result["point_max_relative_deviation"],
+             result["voltage_utilization_max"]) = struct.unpack_from(
+                 "<fff", data, 4
+             )
         return result
 
     def run_ident(self, mode, run_number, direction=None):
@@ -404,7 +407,12 @@ def evaluate_flux(results, args):
         "flux_median_wb": median,
         "flux_max_relative_deviation": max_relative_deviation(flux),
         "direction_relative_difference": direction_error,
-        "fit_r2_min": min(item["fit_r2"] for item in results),
+        "point_max_relative_deviation": max(
+            item["point_max_relative_deviation"] for item in results
+        ),
+        "voltage_utilization_max": max(
+            item["voltage_utilization_max"] for item in results
+        ),
     }
     reasons = []
     if not all(item["valid"] for item in results):
@@ -415,8 +423,10 @@ def evaluate_flux(results, args):
         reasons.append("Flux repeatability exceeds limit")
     if direction_error > args.flux_repeat_limit:
         reasons.append("forward/reverse Flux difference exceeds limit")
-    if summary["fit_r2_min"] < args.flux_r2_min:
-        reasons.append("Flux fit R2 is below limit")
+    if summary["point_max_relative_deviation"] > args.flux_point_limit:
+        reasons.append("Flux work-point consistency exceeds limit")
+    if summary["voltage_utilization_max"] > args.flux_voltage_util_limit:
+        reasons.append("Flux voltage utilization exceeds limit")
     if any(item["fast_lost"] > args.max_lost or
            item["normal_lost"] > args.max_lost for item in results):
         reasons.append("telemetry loss exceeds limit")
@@ -446,19 +456,22 @@ def print_rs_ls(results, summary):
 
 def print_flux(results, summary):
     print("\nFlux results")
-    print(" run  direction     Flux (Wb)      Voff (V)       R2  peak (A)  lost F/N")
+    print(" run  direction     Flux (Wb)  point dev    U util  peak (A)  lost F/N")
     for item in results:
         print(
             f" {item['run']:>3d}  {item['direction']:<9}  "
-            f"{item['flux_wb']:>12.7g}  {item['v_offset_v']:>11.6g}  "
-            f"{item['fit_r2']:>7.5f}  {item['phase_peak_a']:>8.3f}  "
+            f"{item['flux_wb']:>12.7g}  "
+            f"{100.0 * item['point_max_relative_deviation']:>8.2f}%  "
+            f"{100.0 * item['voltage_utilization_max']:>7.2f}%  "
+            f"{item['phase_peak_a']:>8.3f}  "
             f"{item['fast_lost']}/{item['normal_lost']}"
         )
     print(
         f" median: Flux={summary['flux_median_wb']:.7g} Wb; "
-        f"max deviation={100.0 * summary['flux_max_relative_deviation']:.2f}%, "
+        f"run deviation={100.0 * summary['flux_max_relative_deviation']:.2f}%, "
         f"forward/reverse={100.0 * summary['direction_relative_difference']:.2f}%, "
-        f"min R2={summary['fit_r2_min']:.5f}"
+        f"point deviation={100.0 * summary['point_max_relative_deviation']:.2f}%, "
+        f"max U util={100.0 * summary['voltage_utilization_max']:.2f}%"
     )
 
 
@@ -507,7 +520,8 @@ def parse_args():
     )
     parser.add_argument("--rl-repeat-limit", type=float, default=0.10)
     parser.add_argument("--flux-repeat-limit", type=float, default=0.05)
-    parser.add_argument("--flux-r2-min", type=float, default=0.99)
+    parser.add_argument("--flux-point-limit", type=float, default=0.05)
+    parser.add_argument("--flux-voltage-util-limit", type=float, default=0.80)
     parser.add_argument("--vbus-min", type=float, default=10.0)
     parser.add_argument("--vbus-max", type=float, default=20.0)
     parser.add_argument("--vbus-seconds", type=float, default=0.2)
@@ -542,18 +556,20 @@ def parse_args():
         parser.error("--duration must be non-negative")
     for name in (
             "current_limit", "rl_repeat_limit", "flux_repeat_limit",
-            "flux_r2_min", "vbus_min", "vbus_max", "vbus_seconds",
-            "ident_timeout", "poll_interval", "ramp_step", "ramp_interval",
-            "pll_rms_limit", "pll_window", "we_tolerance",
-            "we_relative_tolerance", "speed_error_time",
+            "flux_point_limit", "flux_voltage_util_limit", "vbus_min",
+            "vbus_max", "vbus_seconds", "ident_timeout", "poll_interval",
+            "ramp_step", "ramp_interval", "pll_rms_limit", "pll_window",
+            "we_tolerance", "we_relative_tolerance", "speed_error_time",
             "voltage_util_limit", "ready_timeout", "target_timeout",
             "settle_seconds", "status_interval", "timeout"):
         if getattr(args, name) <= 0:
             parser.error(f"--{name.replace('_', '-')} must be positive")
     if args.vbus_min >= args.vbus_max:
         parser.error("vbus-min must be less than vbus-max")
-    if args.flux_r2_min > 1.0:
-        parser.error("flux-r2-min must not exceed 1")
+    if args.flux_point_limit > 1.0:
+        parser.error("flux-point-limit must not exceed 1")
+    if args.flux_voltage_util_limit > 1.0:
+        parser.error("flux-voltage-util-limit must not exceed 1")
     if args.voltage_util_limit > 1.0:
         parser.error("voltage-util-limit must not exceed 1")
     if args.max_lost < 0:

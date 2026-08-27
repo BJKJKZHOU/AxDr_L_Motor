@@ -317,7 +317,7 @@ class FluxCapture:
             raise RuntimeError(f"invalid Flux status length: {len(data)}")
 
         mode, state, stage, valid = data[:4]
-        flux, v_offset, fit_r2 = struct.unpack_from("<fff", data, 4)
+        flux, point_dev, u_util = struct.unpack_from("<fff", data, 4)
         if mode != IDENT_FLUX:
             raise RuntimeError(f"unexpected identification mode: {mode}")
 
@@ -329,8 +329,8 @@ class FluxCapture:
             "stage": stage,
             "valid": bool(valid),
             "flux_wb": flux,
-            "v_offset_v": v_offset,
-            "fit_r2": fit_r2,
+            "point_max_relative_deviation": point_dev,
+            "voltage_utilization_max": u_util,
         }
         previous = self.status_log[-1] if self.status_log else None
         self.status_log.append(status)
@@ -348,7 +348,8 @@ class FluxCapture:
             print(f"t={elapsed:.3f} s sample={self.fast_samples} "
                   f"state={state_name} stage={stage_name} "
                   f"valid={valid} Flux={flux:.8g} Wb "
-                  f"Voff={v_offset:.7g} V R2={fit_r2:.5f}")
+                  f"point_dev={100.0 * point_dev:.2f}% "
+                  f"U_util={100.0 * u_util:.2f}%")
 
         return state
 

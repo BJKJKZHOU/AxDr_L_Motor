@@ -28,8 +28,8 @@ typedef enum
 typedef struct
 {
     float Flux_Wb;
-    float V_Offset_V;
-    float Fit_R2;
+    float Point_Max_Rel_Dev;
+    float U_Util_Max;
     bool Valid;
 
 } Flux_Result_T;

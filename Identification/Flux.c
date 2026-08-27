@@ -23,28 +23,30 @@
 #define FLUX_FINISH_S           0.002f
 #define FLUX_FINISH_CNT         ((uint32_t)(FLUX_FINISH_S / CUR_TS + 0.5f))
 
-/* Search uses back-EMF relative to the identification voltage budget. Search
- * samples are not all fit samples: once the first useful EMF point is found,
- * one more proven point defines the safe fit window. Four fit points are then
- * placed inside that already-tested window. */
-#define FLUX_E_TARGET_RATIO    0.35f
-#define FLUX_E_MIN_RATIO       0.08f
-#define FLUX_WE_STEP_MIN_RATIO 1.15f
-#define FLUX_WE_STEP_MAX_RATIO 1.60f
-#define FLUX_WE_MARGIN_RATIO   0.80f
-#define FLUX_WE_SPAN_MIN_RATIO 1.05f
+/* Search controls electrical speed from measured two-axis PM back-EMF while
+ * the actual dq voltage magnitude provides the hard safety feedback. */
+#define FLUX_EMF_TARGET_RATIO    0.35f
+#define FLUX_EMF_MIN_RATIO       0.20f
+#define FLUX_WE_STEP_MIN_RATIO   1.15f
+#define FLUX_WE_STEP_MAX_RATIO   1.60f
+#define FLUX_U_SEARCH_RATIO      0.90f
+#define FLUX_WE_SPAN_MIN_RATIO   1.05f
 
 static float We_Point[FLUX_POINT_NUM] = { 0 };
+static float Flux_Point[FLUX_POINT_NUM] = { 0 };
+static float U_Util_Point[FLUX_POINT_NUM] = { 0 };
 
 static volatile Flux_State_e State = FLUX_IDLE;
 static Flux_Result_T Result = { 0 };
 static uint8_t Point = 0U;
 static uint32_t Cnt = 0U;
 static uint32_t Meas_Cnt = 0U;
-static float E_Sum = 0.0f;
 static float We_Sum = 0.0f;
-static float We_Mean[FLUX_POINT_NUM] = { 0 };
-static float E_Mean[FLUX_POINT_NUM] = { 0 };
+static float Id_Sum = 0.0f;
+static float Iq_Sum = 0.0f;
+static float Ud_Sum = 0.0f;
+static float Uq_Sum = 0.0f;
+static float U_Mag_Max = 0.0f;
 static float Finish_Iq = 0.0f;
 static uint8_t Finish_Init = 0U;
 static bool Search_Mode = true;
@@ -55,49 +57,120 @@ static float Abs_Value(float Value)
     return (Value >= 0.0f) ? Value : -Value;
 }
 
-static void Measure_Reset(void)
+static float Max_Value(float A, float B)
 {
-    E_Sum = 0.0f;
-    We_Sum = 0.0f;
-    Meas_Cnt = 0U;
-    Cnt = 0U;
+    return (A > B) ? A : B;
 }
 
-static bool Search_Next_Build(float We_Meas, float E_Meas, int8_t Dir, float *We_Next_Out)
+static void Measure_Reset(void)
 {
-    const Ident_PreFlux_T *PreFlux;
-    float We_Abs;
-    float E_Abs;
-    float E_Ratio;
-    float Step_Ratio;
-    float Flux_Rough;
-    float U_Margin;
-    float Den;
-    float We_Voltage_Max;
-    float We_Next;
+    Cnt = 0U;
+    Meas_Cnt = 0U;
+    We_Sum = 0.0f;
+    Id_Sum = 0.0f;
+    Iq_Sum = 0.0f;
+    Ud_Sum = 0.0f;
+    Uq_Sum = 0.0f;
+    U_Mag_Max = 0.0f;
+}
 
-    if ((We_Next_Out == NULL) || (Abs_Value(We_Meas) <= 0.0f) || (We_Meas * E_Meas <= 0.0f))
+static void Measure(void)
+{
+    float U_Mag;
+
+    We_Sum += IF_Start_We_Get();
+    Id_Sum += Motor_Run.Id;
+    Iq_Sum += Motor_Run.Iq;
+    Ud_Sum += Motor_Run.Ud;
+    Uq_Sum += Motor_Run.Uq;
+
+    U_Mag = __builtin_sqrtf(Motor_Run.Ud * Motor_Run.Ud + Motor_Run.Uq * Motor_Run.Uq);
+    U_Mag_Max = Max_Value(U_Mag_Max, U_Mag);
+    Meas_Cnt++;
+}
+
+static bool Flux_Point_Calc(float *We_Mean_Out, float *Flux_Out, float *U_Util_Out)
+{
+    const Ident_Envelope_T *Envelope;
+    float We;
+    float Id;
+    float Iq;
+    float Ud;
+    float Uq;
+    float Psi_d;
+    float Psi_q;
+
+    if ((Meas_Cnt == 0U) || (We_Mean_Out == NULL) || (Flux_Out == NULL) || (U_Util_Out == NULL))
     {
         return false;
     }
 
+    Envelope = Identification_Envelope_Get();
+    if (!Envelope->Valid || (Envelope->U_Available_V <= 0.0f))
+    {
+        return false;
+    }
+
+    We = We_Sum / (float)Meas_Cnt;
+    Id = Id_Sum / (float)Meas_Cnt;
+    Iq = Iq_Sum / (float)Meas_Cnt;
+    Ud = Ud_Sum / (float)Meas_Cnt;
+    Uq = Uq_Sum / (float)Meas_Cnt;
+
+    if (Abs_Value(We) <= 0.0f)
+    {
+        return false;
+    }
+
+    /* In the I/F rotating frame, steady-state stator-flux equations are:
+     *   Uq - Rs*Iq = We*(Ld*Id + Psi_d)
+     *   Ud - Rs*Id = -We*(Lq*Iq + Psi_q)
+     * Psi_d/Psi_q are the permanent-magnet flux components in the I/F frame.
+     * Their vector magnitude is invariant to the I/F load angle. */
+    Psi_d = (Uq - Motor_Para.Rs * Iq) / We - Motor_Para.Ld * Id;
+    Psi_q = -(Ud - Motor_Para.Rs * Id) / We - Motor_Para.Lq * Iq;
+
+    *We_Mean_Out = We;
+    *Flux_Out = __builtin_sqrtf(Psi_d * Psi_d + Psi_q * Psi_q);
+    *U_Util_Out = U_Mag_Max / Envelope->U_Available_V;
+
+    return __builtin_isfinite(*Flux_Out) && (*Flux_Out > 0.0f) && __builtin_isfinite(*U_Util_Out);
+}
+
+static bool Search_Next_Build(float We_Meas, float Flux_Meas, float U_Util, int8_t Dir, float *We_Next_Out)
+{
+    const Ident_Envelope_T *Envelope;
+    const Ident_PreFlux_T *PreFlux;
+    float We_Abs;
+    float Emf_Ratio;
+    float Step_Ratio;
+    float U_Search_Max;
+    float U_Mag;
+    float Voltage_Step_Ratio;
+
+    if ((We_Next_Out == NULL) || (Abs_Value(We_Meas) <= 0.0f) || (Flux_Meas <= 0.0f))
+    {
+        return false;
+    }
+
+    Envelope = Identification_Envelope_Get();
     PreFlux = Identification_PreFlux_Get();
-    if ((PreFlux->U_Budget_V <= 0.0f) || (PreFlux->Iq_Max_A <= 0.0f))
+    if (!Envelope->Valid || (Envelope->U_Available_V <= 0.0f) || (Envelope->U_Hard_V <= 0.0f) ||
+        (PreFlux->U_Budget_V <= 0.0f))
     {
         return false;
     }
 
     We_Abs = Abs_Value(We_Meas);
-    E_Abs = Abs_Value(E_Meas);
-    E_Ratio = E_Abs / PreFlux->U_Budget_V;
+    Emf_Ratio = We_Abs * Flux_Meas / PreFlux->U_Budget_V;
 
-    if (E_Ratio < FLUX_E_MIN_RATIO)
+    if (Emf_Ratio < FLUX_EMF_MIN_RATIO)
     {
         Step_Ratio = FLUX_WE_STEP_MAX_RATIO;
     }
     else
     {
-        Step_Ratio = FLUX_E_TARGET_RATIO / E_Ratio;
+        Step_Ratio = FLUX_EMF_TARGET_RATIO / Emf_Ratio;
         if (Step_Ratio < FLUX_WE_STEP_MIN_RATIO)
         {
             Step_Ratio = FLUX_WE_STEP_MIN_RATIO;
@@ -108,31 +181,26 @@ static bool Search_Next_Build(float We_Meas, float E_Meas, int8_t Dir, float *We
         }
     }
 
-    We_Next = We_Abs * Step_Ratio;
+    /* Actual dq voltage, not a q-axis flux projection, limits the next speed.
+     * Scaling total voltage with speed is intentionally conservative because
+     * the resistive part does not grow with speed. */
+    U_Mag = U_Util * Envelope->U_Available_V;
+    U_Search_Max = FLUX_U_SEARCH_RATIO * Envelope->U_Hard_V;
+    if (U_Mag > 0.0f)
+    {
+        Voltage_Step_Ratio = U_Search_Max / U_Mag;
+        if (Step_Ratio > Voltage_Step_Ratio)
+        {
+            Step_Ratio = Voltage_Step_Ratio;
+        }
+    }
 
-    /* The latest EMF estimate only limits the next search step. It never plans
-     * all remaining points from one low-speed sample. */
-    Flux_Rough = E_Abs / We_Abs;
-    U_Margin = PreFlux->U_Budget_V - Motor_Para.Rs * PreFlux->Iq_Max_A;
-    Den = Flux_Rough + Motor_Para.Ld * PreFlux->Iq_Max_A;
-
-    if ((U_Margin <= 0.0f) || (Den <= 0.0f))
+    if (Step_Ratio < FLUX_WE_SPAN_MIN_RATIO)
     {
         return false;
     }
 
-    We_Voltage_Max = FLUX_WE_MARGIN_RATIO * U_Margin / Den;
-    if (We_Next > We_Voltage_Max)
-    {
-        We_Next = We_Voltage_Max;
-    }
-
-    if (We_Next < FLUX_WE_SPAN_MIN_RATIO * We_Abs)
-    {
-        return false;
-    }
-
-    *We_Next_Out = (float)Dir * We_Next;
+    *We_Next_Out = (float)Dir * We_Abs * Step_Ratio;
     return true;
 }
 
@@ -155,26 +223,33 @@ static bool Fit_Window_Build(float We_Low, float We_High, int8_t Dir)
     We_Point[1] = (float)Dir * (Low_Abs + Span);
     We_Point[2] = (float)Dir * (Low_Abs + 2.0f * Span);
     We_Point[3] = (float)Dir * High_Abs;
-
     return true;
 }
 
-static void Measure(void)
+static float Median_4(const float Value[FLUX_POINT_NUM])
 {
-    float We;
-    float E;
+    float Sort[FLUX_POINT_NUM];
+    float Tmp;
 
-    We = IF_Start_We_Get();
+    for (uint8_t n = 0U; n < FLUX_POINT_NUM; n++)
+    {
+        Sort[n] = Value[n];
+    }
 
-    /* At constant I/F speed after settling, the dq voltage model reduces to:
-     *   Uq - Rs*Iq - We*Ld*Id = We*Flux + Voffset
-     * The signed quantities are retained so the same fit works in both
-     * rotation directions without an observer or a current derivative. */
-    E = Motor_Run.Uq - Motor_Para.Rs * Motor_Run.Iq - We * Motor_Para.Ld * Motor_Run.Id;
+    for (uint8_t i = 0U; i < (FLUX_POINT_NUM - 1U); i++)
+    {
+        for (uint8_t j = (uint8_t)(i + 1U); j < FLUX_POINT_NUM; j++)
+        {
+            if (Sort[j] < Sort[i])
+            {
+                Tmp = Sort[i];
+                Sort[i] = Sort[j];
+                Sort[j] = Tmp;
+            }
+        }
+    }
 
-    E_Sum += E;
-    We_Sum += We;
-    Meas_Cnt++;
+    return 0.5f * (Sort[1] + Sort[2]);
 }
 
 void Flux_Start(float Wm_Target)
@@ -197,24 +272,21 @@ void Flux_Reset(void)
 {
     State = FLUX_IDLE;
     Result.Flux_Wb = 0.0f;
-    Result.V_Offset_V = 0.0f;
-    Result.Fit_R2 = 0.0f;
+    Result.Point_Max_Rel_Dev = 0.0f;
+    Result.U_Util_Max = 0.0f;
     Result.Valid = false;
     Point = 0U;
-    Cnt = 0U;
-    Meas_Cnt = 0U;
-    E_Sum = 0.0f;
-    We_Sum = 0.0f;
     Finish_Iq = 0.0f;
     Finish_Init = 0U;
     Search_Mode = true;
     Search_Have_Low = false;
+    Measure_Reset();
 
     for (uint8_t n = 0U; n < FLUX_POINT_NUM; n++)
     {
         We_Point[n] = 0.0f;
-        We_Mean[n] = 0.0f;
-        E_Mean[n] = 0.0f;
+        Flux_Point[n] = 0.0f;
+        U_Util_Point[n] = 0.0f;
     }
 }
 
@@ -226,32 +298,18 @@ void Flux_Fail(void)
 
 void Flux_Control(void)
 {
-    float Sum_X = 0.0f;
-    float Sum_Y = 0.0f;
-    float Sum_XX = 0.0f;
-    float Sum_XY = 0.0f;
-    float Y_Mean;
-    float SS_Tot = 0.0f;
-    float SS_Err = 0.0f;
-    float Den;
-    float Y_Est;
+    float Median;
+    float Max_Dev = 0.0f;
+    float Dev;
+    float U_Max = 0.0f;
 
     if (State != FLUX_CALC)
     {
         return;
     }
 
-    for (uint8_t n = 0U; n < FLUX_POINT_NUM; n++)
-    {
-        Sum_X += We_Mean[n];
-        Sum_Y += E_Mean[n];
-        Sum_XX += We_Mean[n] * We_Mean[n];
-        Sum_XY += We_Mean[n] * E_Mean[n];
-    }
-
-    Den = (float)FLUX_POINT_NUM * Sum_XX - Sum_X * Sum_X;
-
-    if (Den <= 0.0f)
+    Median = Median_4(Flux_Point);
+    if (Median <= 0.0f)
     {
         Result.Valid = false;
         Cnt = 0U;
@@ -260,20 +318,19 @@ void Flux_Control(void)
         return;
     }
 
-    Result.Flux_Wb = ((float)FLUX_POINT_NUM * Sum_XY - Sum_X * Sum_Y) / Den;
-    Result.V_Offset_V = (Sum_Y - Result.Flux_Wb * Sum_X) / (float)FLUX_POINT_NUM;
-
-    Y_Mean = Sum_Y / (float)FLUX_POINT_NUM;
-
     for (uint8_t n = 0U; n < FLUX_POINT_NUM; n++)
     {
-        Y_Est = Result.Flux_Wb * We_Mean[n] + Result.V_Offset_V;
-        SS_Tot += (E_Mean[n] - Y_Mean) * (E_Mean[n] - Y_Mean);
-        SS_Err += (E_Mean[n] - Y_Est) * (E_Mean[n] - Y_Est);
+        Dev = Abs_Value(Flux_Point[n] - Median) / Median;
+        Max_Dev = Max_Value(Max_Dev, Dev);
+        U_Max = Max_Value(U_Max, U_Util_Point[n]);
     }
 
-    Result.Fit_R2 = (SS_Tot > 0.0f) ? (1.0f - SS_Err / SS_Tot) : 0.0f;
-    Result.Valid = (Result.Flux_Wb > 0.0f);
+    Result.Flux_Wb = Median;
+    Result.Point_Max_Rel_Dev = Max_Dev;
+    Result.U_Util_Max = U_Max;
+    Result.Valid = __builtin_isfinite(Result.Flux_Wb) && (Result.Flux_Wb > 0.0f) &&
+                   __builtin_isfinite(Result.Point_Max_Rel_Dev) && __builtin_isfinite(Result.U_Util_Max);
+
     Cnt = 0U;
     Finish_Init = 0U;
     State = FLUX_FINISH;
@@ -286,13 +343,16 @@ bool Flux_Active(void)
 
 Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta_e, float *Id_Ref, float *Iq_Ref)
 {
+    const Ident_Envelope_T *Envelope;
     const Ident_PreFlux_T *PreFlux;
     float Theta_IF;
     float Iq_Step;
     float We_Meas;
-    float E_Meas;
-    float E_Ratio;
+    float Flux_Meas;
+    float U_Util;
+    float Emf_Ratio;
     float We_Next;
+    float U_Mag;
     int8_t Dir;
 
     *Theta_e = 0.0f;
@@ -304,6 +364,7 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
         return FAST_OFF;
     }
 
+    Envelope = Identification_Envelope_Get();
     PreFlux = Identification_PreFlux_Get();
     Dir = (We_Point[0] < 0.0f) ? -1 : 1;
 
@@ -366,16 +427,27 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
         return FAST_CURRENT;
     }
 
+    if (!Envelope->Valid || (Envelope->U_Hard_V <= 0.0f) || (Envelope->U_Available_V <= 0.0f))
+    {
+        Flux_Fail();
+        return FAST_OFF;
+    }
+
+    U_Mag = __builtin_sqrtf(Motor_Run.Ud * Motor_Run.Ud + Motor_Run.Uq * Motor_Run.Uq);
+    if (((State == FLUX_ACCEL) || (State == FLUX_SETTLE) || (State == FLUX_MEASURE)) &&
+        (U_Mag > Envelope->U_Hard_V))
+    {
+        Flux_Fail();
+        return FAST_OFF;
+    }
+
     if (State == FLUX_MEASURE)
     {
         Measure();
 
         if (Meas_Cnt >= FLUX_MEASURE_CNT)
         {
-            We_Meas = We_Sum / (float)Meas_Cnt;
-            E_Meas = E_Sum / (float)Meas_Cnt;
-
-            if ((Abs_Value(We_Meas) <= 0.0f) || (We_Meas * E_Meas <= 0.0f) || (PreFlux->U_Budget_V <= 0.0f))
+            if (!Flux_Point_Calc(&We_Meas, &Flux_Meas, &U_Util))
             {
                 Flux_Fail();
                 return FAST_OFF;
@@ -383,18 +455,19 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
 
             if (Search_Mode)
             {
-                E_Ratio = Abs_Value(E_Meas) / PreFlux->U_Budget_V;
+                Emf_Ratio = Abs_Value(We_Meas) * Flux_Meas / PreFlux->U_Budget_V;
 
                 if (!Search_Have_Low)
                 {
-                    if (E_Ratio >= FLUX_E_MIN_RATIO)
+                    if (Emf_Ratio >= FLUX_EMF_MIN_RATIO)
                     {
-                        We_Mean[0] = We_Meas;
-                        E_Mean[0] = E_Meas;
+                        We_Point[0] = We_Meas;
+                        Flux_Point[0] = Flux_Meas;
+                        U_Util_Point[0] = U_Util;
                         Search_Have_Low = true;
                     }
 
-                    if (!Search_Next_Build(We_Meas, E_Meas, Dir, &We_Next))
+                    if (!Search_Next_Build(We_Meas, Flux_Meas, U_Util, Dir, &We_Next))
                     {
                         Flux_Fail();
                         return FAST_OFF;
@@ -406,19 +479,13 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
                 }
                 else
                 {
-                    /* The first point after the useful low point is the proven
-                     * high bound. Do not keep searching upward just to reach the
-                     * target EMF ratio. Reuse both bounds in the final fit. */
-                    if (E_Ratio < FLUX_E_MIN_RATIO)
-                    {
-                        Flux_Fail();
-                        return FAST_OFF;
-                    }
+                    /* The first safe point above the useful low point defines
+                     * the high end. Do not keep accelerating to chase a target. */
+                    We_Point[3] = We_Meas;
+                    Flux_Point[3] = Flux_Meas;
+                    U_Util_Point[3] = U_Util;
 
-                    We_Mean[3] = We_Meas;
-                    E_Mean[3] = E_Meas;
-
-                    if (!Fit_Window_Build(We_Mean[0], We_Mean[3], Dir))
+                    if (!Fit_Window_Build(We_Point[0], We_Point[3], Dir))
                     {
                         Flux_Fail();
                         return FAST_OFF;
@@ -433,8 +500,8 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
             }
             else
             {
-                We_Mean[Point] = We_Meas;
-                E_Mean[Point] = E_Meas;
+                Flux_Point[Point] = Flux_Meas;
+                U_Util_Point[Point] = U_Util;
 
                 if (Point == 1U)
                 {

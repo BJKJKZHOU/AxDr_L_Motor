@@ -290,8 +290,8 @@ static void Identification_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcas
                 Result = Flux_Result_Get();
                 Resp[3] = Result->Valid ? 1U : 0U;
                 memcpy(&Resp[4], &Result->Flux_Wb, sizeof(float));
-                memcpy(&Resp[8], &Result->V_Offset_V, sizeof(float));
-                memcpy(&Resp[12], &Result->Fit_R2, sizeof(float));
+                memcpy(&Resp[8], &Result->Point_Max_Rel_Dev, sizeof(float));
+                memcpy(&Resp[12], &Result->U_Util_Max, sizeof(float));
                 Resp_Len = 16U;
             }
             else
