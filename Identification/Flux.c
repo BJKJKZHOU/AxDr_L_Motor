@@ -25,7 +25,7 @@
 #define FLUX_FINISH_CNT         ((uint32_t)(FLUX_FINISH_S / CUR_TS + 0.5f))
 
 /* Search controls electrical speed from measured two-axis PM back-EMF while
- * the actual dq voltage magnitude provides the hard safety feedback. */
+ * measured dq voltage constrains the next search point. */
 #define FLUX_EMF_TARGET_RATIO    0.35f
 #define FLUX_EMF_MIN_RATIO       0.20f
 #define FLUX_WE_STEP_MIN_RATIO   1.15f
@@ -361,7 +361,6 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
     float U_Util;
     float Emf_Ratio;
     float We_Next;
-    float U_Mag;
     Flux_Point_T Point_Meas;
     int8_t Dir;
 
@@ -438,14 +437,6 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
     }
 
     if (!Envelope->Valid || (Envelope->U_Hard_V <= 0.0f) || (Envelope->U_Available_V <= 0.0f))
-    {
-        Flux_Fail();
-        return FAST_OFF;
-    }
-
-    U_Mag = __builtin_sqrtf(Motor_Run.Ud * Motor_Run.Ud + Motor_Run.Uq * Motor_Run.Uq);
-    if (((State == FLUX_ACCEL) || (State == FLUX_SETTLE) || (State == FLUX_MEASURE)) &&
-        (U_Mag > Envelope->U_Hard_V))
     {
         Flux_Fail();
         return FAST_OFF;
