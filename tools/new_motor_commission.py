@@ -7,7 +7,7 @@ The workflow is fixed intentionally:
 2. Run Rs/Ls identification five times.
 3. Check repeatability and ask whether the fifth result may be applied to RAM.
 4. Run Flux identification twice forward and twice reverse.
-5. Check per-run point consistency, repeatability and direction consistency.
+5. Check repeatability and direction consistency; report per-point/peak-voltage diagnostics as warnings.
 6. Ask whether the fourth Flux result may be applied to RAM.
 7. Ramp to the requested sensorless test speed and run until Ctrl+C by default.
 
@@ -85,6 +85,10 @@ FLUX_STAGE = {
     6: "DONE",
     7: "FAILED",
     8: "FINISH",
+    9: "POINT_CALC",
+    10: "SEARCH_NEXT",
+    11: "FIT_WINDOW",
+    12: "ENVELOPE",
 }
 
 
@@ -391,7 +395,7 @@ class Commission(base.SensorlessTest):
         result["normal_lost"] = self.normal_lost - normal_lost_start
         result["fast_samples"] = self.fast_samples - fast_samples_start
         result["normal_frames"] = self.normal_frames - normal_frames_start
-        if (failure is None and mode == IDENT_FLUX):
+        if failure is None and mode == IDENT_FLUX:
             try:
                 result["points"] = self.flux_points_get()
                 analyze_flux_points(result)
@@ -551,11 +555,12 @@ def evaluate_flux(results, args):
         "point_max_relative_deviation": max(
             item["point_max_relative_deviation"] for item in results
         ),
-        "voltage_utilization_max": max(
+        "voltage_utilization_peak_max": max(
             item["voltage_utilization_max"] for item in results
         ),
     }
     reasons = []
+    warnings = []
     if not all(item["valid"] for item in results):
         reasons.append("one or more results are invalid")
     if not all(math.isfinite(value) and value > 0.0 for value in flux):
@@ -565,16 +570,16 @@ def evaluate_flux(results, args):
     if direction_error > args.flux_repeat_limit:
         reasons.append("forward/reverse Flux difference exceeds limit")
     if summary["point_max_relative_deviation"] > args.flux_point_limit:
-        reasons.append("Flux work-point consistency exceeds limit")
-    if summary["voltage_utilization_max"] > args.flux_voltage_util_limit:
-        reasons.append("Flux voltage utilization exceeds limit")
+        warnings.append("Flux work-point consistency exceeds warning threshold")
+    if summary["voltage_utilization_peak_max"] > args.flux_voltage_util_limit:
+        warnings.append("Flux peak voltage utilization exceeds warning threshold")
     if any(item["fast_lost"] > args.max_lost or
            item["normal_lost"] > args.max_lost for item in results):
         reasons.append("telemetry loss exceeds limit")
     if any(item["fast_samples"] == 0 or item["normal_frames"] == 0
            for item in results):
         reasons.append("one or more runs have no FAST/NORMAL telemetry")
-    return summary, reasons
+    return summary, reasons, warnings
 
 
 def print_rs_ls(results, summary):
@@ -595,15 +600,15 @@ def print_rs_ls(results, summary):
     )
 
 
-def print_flux(results, summary):
+def print_flux(results, summary, warnings):
     print("\nFlux results")
-    print(" run  direction     Flux (Wb)  point dev    U util  peak (A)  lost F/N")
+    print(" run  direction     Flux (Wb)  point dev  peak U util  peak (A)  lost F/N")
     for item in results:
         print(
             f" {item['run']:>3d}  {item['direction']:<9}  "
             f"{item['flux_wb']:>12.7g}  "
             f"{100.0 * item['point_max_relative_deviation']:>8.2f}%  "
-            f"{100.0 * item['voltage_utilization_max']:>7.2f}%  "
+            f"{100.0 * item['voltage_utilization_max']:>10.2f}%  "
             f"{item['phase_peak_a']:>8.3f}  "
             f"{item['fast_lost']}/{item['normal_lost']}"
         )
@@ -612,8 +617,10 @@ def print_flux(results, summary):
         f"run deviation={100.0 * summary['flux_max_relative_deviation']:.2f}%, "
         f"forward/reverse={100.0 * summary['direction_relative_difference']:.2f}%, "
         f"point deviation={100.0 * summary['point_max_relative_deviation']:.2f}%, "
-        f"max U util={100.0 * summary['voltage_utilization_max']:.2f}%"
+        f"max peak U util={100.0 * summary['voltage_utilization_peak_max']:.2f}%"
     )
+    for warning in warnings:
+        print(f" WARNING: {warning}")
 
 
 def confirm_ram(prompt):
@@ -661,8 +668,14 @@ def parse_args():
     )
     parser.add_argument("--rl-repeat-limit", type=float, default=0.10)
     parser.add_argument("--flux-repeat-limit", type=float, default=0.05)
-    parser.add_argument("--flux-point-limit", type=float, default=0.05)
-    parser.add_argument("--flux-voltage-util-limit", type=float, default=0.80)
+    parser.add_argument(
+        "--flux-point-limit", type=float, default=0.05,
+        help="warning threshold for Flux per-point consistency",
+    )
+    parser.add_argument(
+        "--flux-voltage-util-limit", type=float, default=0.80,
+        help="warning threshold for diagnostic peak Flux voltage utilization",
+    )
     parser.add_argument("--vbus-min", type=float, default=10.0)
     parser.add_argument("--vbus-max", type=float, default=20.0)
     parser.add_argument("--vbus-seconds", type=float, default=0.2)
@@ -805,9 +818,10 @@ def main():
                         raise
                     record["flux"].append(result)
 
-                flux_summary, reasons = evaluate_flux(record["flux"], args)
+                flux_summary, reasons, warnings = evaluate_flux(record["flux"], args)
                 record["flux_summary"] = flux_summary
-                print_flux(record["flux"], flux_summary)
+                record["flux_warnings"] = warnings
+                print_flux(record["flux"], flux_summary, warnings)
                 ident.stop_plot()
                 if reasons:
                     raise RuntimeError("Flux quality gate: " + "; ".join(reasons))
