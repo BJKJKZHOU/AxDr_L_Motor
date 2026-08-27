@@ -33,11 +33,18 @@
 #define FLUX_U_SEARCH_RATIO      0.90f
 #define FLUX_WE_SPAN_MIN_RATIO   1.05f
 
+/* Diagnostic-only terminal stage values returned after FLUX_FAILED. */
+#define FLUX_FAIL_STAGE_POINT_CALC  9U
+#define FLUX_FAIL_STAGE_SEARCH_NEXT 10U
+#define FLUX_FAIL_STAGE_FIT_WINDOW  11U
+#define FLUX_FAIL_STAGE_ENVELOPE    12U
+
 static float We_Point[FLUX_POINT_NUM] = { 0 };
 static float Flux_Point[FLUX_POINT_NUM] = { 0 };
 static float U_Util_Point[FLUX_POINT_NUM] = { 0 };
 
 static volatile Flux_State_e State = FLUX_IDLE;
+static volatile uint8_t Fail_Stage = (uint8_t)FLUX_FAILED;
 static Flux_Result_T Result = { 0 };
 static uint8_t Point = 0U;
 static uint32_t Cnt = 0U;
@@ -277,6 +284,7 @@ void Flux_Start(float Wm_Target)
 void Flux_Reset(void)
 {
     State = FLUX_IDLE;
+    Fail_Stage = (uint8_t)FLUX_FAILED;
     Result.Flux_Wb = 0.0f;
     Result.Point_Max_Rel_Dev = 0.0f;
     Result.U_Util_Max = 0.0f;
@@ -302,6 +310,12 @@ void Flux_Fail(void)
 {
     State = FLUX_FAILED;
     Result.Valid = false;
+}
+
+static void Flux_Fail_Stage(uint8_t Stage)
+{
+    Fail_Stage = Stage;
+    Flux_Fail();
 }
 
 void Flux_Control(void)
@@ -438,7 +452,7 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
 
     if (!Envelope->Valid || (Envelope->U_Hard_V <= 0.0f) || (Envelope->U_Available_V <= 0.0f))
     {
-        Flux_Fail();
+        Flux_Fail_Stage(FLUX_FAIL_STAGE_ENVELOPE);
         return FAST_OFF;
     }
 
@@ -450,15 +464,18 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
         {
             if (!Flux_Point_Calc(&Point_Meas, &Flux_Meas, &U_Util))
             {
-                Flux_Fail();
+                Flux_Fail_Stage(FLUX_FAIL_STAGE_POINT_CALC);
                 return FAST_OFF;
             }
 
             We_Meas = Point_Meas.We;
+            Result.Flux_Wb = Flux_Meas;
+            Result.U_Util_Max = U_Util;
 
             if (Search_Mode)
             {
                 Emf_Ratio = Abs_Value(We_Meas) * Flux_Meas / PreFlux->U_Budget_V;
+                Result.Point_Max_Rel_Dev = Emf_Ratio;
 
                 if (!Search_Have_Low)
                 {
@@ -473,7 +490,7 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
 
                     if (!Search_Next_Build(We_Meas, Flux_Meas, U_Util, Dir, &We_Next))
                     {
-                        Flux_Fail();
+                        Flux_Fail_Stage(FLUX_FAIL_STAGE_SEARCH_NEXT);
                         return FAST_OFF;
                     }
 
@@ -492,7 +509,7 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
 
                     if (!Fit_Window_Build(We_Point[0], We_Point[3], Dir))
                     {
-                        Flux_Fail();
+                        Flux_Fail_Stage(FLUX_FAIL_STAGE_FIT_WINDOW);
                         return FAST_OFF;
                     }
 
@@ -549,6 +566,11 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
 
 Flux_State_e Flux_State_Get(void)
 {
+    if (State == FLUX_FAILED)
+    {
+        return (Flux_State_e)Fail_Stage;
+    }
+
     return State;
 }
 
