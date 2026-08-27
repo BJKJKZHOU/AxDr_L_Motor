@@ -9,6 +9,7 @@
 #include "Current_Loop.h"
 #include "Flux.h"
 #include "Motor_ADC.h"
+#include "Motor_Para.h"
 #include "Motor_PWM.h"
 #include "Motion_Loop.h"
 #include "Open_Loop.h"
@@ -585,6 +586,18 @@ bool User_I_Limit_Set(float I_Max)
     }
 
     User_Lim.I_Max = I_Max;
+    return true;
+}
+
+bool Motor_Pp_Set(uint8_t Pp)
+{
+    if ((Motor_State != DISABLED) || (Pp == 0U))
+    {
+        return false;
+    }
+
+    Motor_Para.Pp = Pp;
+    Motor_Para_Changed(MOTOR_PARA_PP);
     return true;
 }
 

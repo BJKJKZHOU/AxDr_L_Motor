@@ -28,6 +28,7 @@ void Motor_Mode_Set(Motor_Mode_e Mode);
 void Motor_Ident_Mode_Set(Ident_Mode_e Mode);
 bool Motor_Ident_Apply(void);
 bool User_I_Limit_Set(float I_Max);
+bool Motor_Pp_Set(uint8_t Pp);
 
 void Torque_Target_Set(float Te);
 void Speed_Target_Set(float Wm);

@@ -5,6 +5,8 @@
 
 #include "Flux.h"
 
+#include <stddef.h>
+
 #include "Align.h"
 #include "Current_Loop.h"
 #include "IF_Start.h"
@@ -13,7 +15,6 @@
 #include "Motor_Type.h"
 #include "control_params.h"
 
-#define FLUX_POINT_NUM          4U
 #define FLUX_SETTLE_S           0.30f
 #define FLUX_MEASURE_S          0.20f
 #define FLUX_SETTLE_CNT         ((uint32_t)(FLUX_SETTLE_S / CUR_TS + 0.5f))
@@ -89,7 +90,7 @@ static void Measure(void)
     Meas_Cnt++;
 }
 
-static bool Flux_Point_Calc(float *We_Mean_Out, float *Flux_Out, float *U_Util_Out)
+static bool Flux_Point_Calc(Flux_Point_T *Point_Out, float *Flux_Out, float *U_Util_Out)
 {
     const Ident_Envelope_T *Envelope;
     float We;
@@ -100,7 +101,7 @@ static bool Flux_Point_Calc(float *We_Mean_Out, float *Flux_Out, float *U_Util_O
     float Psi_d;
     float Psi_q;
 
-    if ((Meas_Cnt == 0U) || (We_Mean_Out == NULL) || (Flux_Out == NULL) || (U_Util_Out == NULL))
+    if ((Meas_Cnt == 0U) || (Point_Out == NULL) || (Flux_Out == NULL) || (U_Util_Out == NULL))
     {
         return false;
     }
@@ -130,7 +131,12 @@ static bool Flux_Point_Calc(float *We_Mean_Out, float *Flux_Out, float *U_Util_O
     Psi_d = (Uq - Motor_Para.Rs * Iq) / We - Motor_Para.Ld * Id;
     Psi_q = -(Ud - Motor_Para.Rs * Id) / We - Motor_Para.Lq * Iq;
 
-    *We_Mean_Out = We;
+    Point_Out->We = We;
+    Point_Out->E = Uq - Motor_Para.Rs * Iq - We * Motor_Para.Ld * Id;
+    Point_Out->Id = Id;
+    Point_Out->Iq = Iq;
+    Point_Out->Ud = Ud;
+    Point_Out->Uq = Uq;
     *Flux_Out = __builtin_sqrtf(Psi_d * Psi_d + Psi_q * Psi_q);
     *U_Util_Out = U_Mag_Max / Envelope->U_Available_V;
 
@@ -274,6 +280,7 @@ void Flux_Reset(void)
     Result.Flux_Wb = 0.0f;
     Result.Point_Max_Rel_Dev = 0.0f;
     Result.U_Util_Max = 0.0f;
+    Result.Point_Num = 0U;
     Result.Valid = false;
     Point = 0U;
     Finish_Iq = 0.0f;
@@ -287,6 +294,7 @@ void Flux_Reset(void)
         We_Point[n] = 0.0f;
         Flux_Point[n] = 0.0f;
         U_Util_Point[n] = 0.0f;
+        Result.Point[n] = (Flux_Point_T){ 0 };
     }
 }
 
@@ -330,6 +338,7 @@ void Flux_Control(void)
     Result.U_Util_Max = U_Max;
     Result.Valid = __builtin_isfinite(Result.Flux_Wb) && (Result.Flux_Wb > 0.0f) &&
                    __builtin_isfinite(Result.Point_Max_Rel_Dev) && __builtin_isfinite(Result.U_Util_Max);
+    Result.Point_Num = Result.Valid ? FLUX_POINT_NUM : 0U;
 
     Cnt = 0U;
     Finish_Init = 0U;
@@ -353,6 +362,7 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
     float Emf_Ratio;
     float We_Next;
     float U_Mag;
+    Flux_Point_T Point_Meas;
     int8_t Dir;
 
     *Theta_e = 0.0f;
@@ -447,11 +457,13 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
 
         if (Meas_Cnt >= FLUX_MEASURE_CNT)
         {
-            if (!Flux_Point_Calc(&We_Meas, &Flux_Meas, &U_Util))
+            if (!Flux_Point_Calc(&Point_Meas, &Flux_Meas, &U_Util))
             {
                 Flux_Fail();
                 return FAST_OFF;
             }
+
+            We_Meas = Point_Meas.We;
 
             if (Search_Mode)
             {
@@ -464,6 +476,7 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
                         We_Point[0] = We_Meas;
                         Flux_Point[0] = Flux_Meas;
                         U_Util_Point[0] = U_Util;
+                        Result.Point[0] = Point_Meas;
                         Search_Have_Low = true;
                     }
 
@@ -484,6 +497,7 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
                     We_Point[3] = We_Meas;
                     Flux_Point[3] = Flux_Meas;
                     U_Util_Point[3] = U_Util;
+                    Result.Point[3] = Point_Meas;
 
                     if (!Fit_Window_Build(We_Point[0], We_Point[3], Dir))
                     {
@@ -502,6 +516,7 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
             {
                 Flux_Point[Point] = Flux_Meas;
                 U_Util_Point[Point] = U_Util;
+                Result.Point[Point] = Point_Meas;
 
                 if (Point == 1U)
                 {

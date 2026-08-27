@@ -99,6 +99,10 @@ static void Motor_Cmd_Run(void)
                 (void)User_I_Limit_Set(Value);
                 break;
 
+            case MOTOR_CMD_PP_SET:
+                (void)Motor_Pp_Set((uint8_t)Msg.Arg);
+                break;
+
             default:
                 break;
         }

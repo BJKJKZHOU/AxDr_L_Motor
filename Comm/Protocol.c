@@ -212,6 +212,51 @@ static void Control_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
         }
         return;
     }
+    else if (Op == AXDR_CTRL_PP_SET)
+    {
+        if (Len != 3U)
+        {
+            Status = AXDR_ERR_LENGTH;
+        }
+        else if (Motor_State_Get() != DISABLED)
+        {
+            Status = AXDR_ERR_STATE;
+        }
+        else if (Data[2] == 0U)
+        {
+            Status = AXDR_ERR_VALUE;
+        }
+        else if (!Motor_Cmd_Send(MOTOR_CMD_PP_SET, Data[2]))
+        {
+            Status = AXDR_ERR_CONFIG;
+        }
+
+        if (Broadcast == 0U)
+        {
+            Response(Txn, AXDR_MSG_CONTROL, Op, Status, 0, 0U);
+        }
+        return;
+    }
+    else if (Op == AXDR_CTRL_PP_GET)
+    {
+        if (Len != 2U)
+        {
+            Status = AXDR_ERR_LENGTH;
+        }
+
+        if (Broadcast == 0U)
+        {
+            if (Status == AXDR_OK)
+            {
+                Response(Txn, AXDR_MSG_CONTROL, Op, Status, &Motor_Para.Pp, 1U);
+            }
+            else
+            {
+                Response(Txn, AXDR_MSG_CONTROL, Op, Status, 0, 0U);
+            }
+        }
+        return;
+    }
     else
     {
         Status = AXDR_ERR_OP;
@@ -307,6 +352,49 @@ static void Identification_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcas
 
             Response(Txn, AXDR_MSG_IDENTIFICATION, Op, AXDR_OK, Resp, Resp_Len);
             return;
+        }
+    }
+    else if (Op == AXDR_IDENT_FLUX_POINT_GET)
+    {
+        uint8_t Resp[25];
+        const Flux_Result_T *Result;
+        const Flux_Point_T *Point_Result;
+        uint8_t Point_Index;
+
+        if (Len != 3U)
+        {
+            Status = AXDR_ERR_LENGTH;
+        }
+        else if (Identification_Mode_Get() != IDENT_FLUX)
+        {
+            Status = AXDR_ERR_STATE;
+        }
+        else
+        {
+            Point_Index = Data[2];
+            Result = Flux_Result_Get();
+
+            if (Point_Index >= FLUX_POINT_NUM)
+            {
+                Status = AXDR_ERR_VALUE;
+            }
+            else if (Point_Index >= Result->Point_Num)
+            {
+                Status = AXDR_ERR_STATE;
+            }
+            else
+            {
+                Point_Result = &Result->Point[Point_Index];
+                Resp[0] = Point_Index;
+                memcpy(&Resp[1], &Point_Result->We, sizeof(float));
+                memcpy(&Resp[5], &Point_Result->E, sizeof(float));
+                memcpy(&Resp[9], &Point_Result->Id, sizeof(float));
+                memcpy(&Resp[13], &Point_Result->Iq, sizeof(float));
+                memcpy(&Resp[17], &Point_Result->Ud, sizeof(float));
+                memcpy(&Resp[21], &Point_Result->Uq, sizeof(float));
+                Response(Txn, AXDR_MSG_IDENTIFICATION, Op, AXDR_OK, Resp, sizeof(Resp));
+                return;
+            }
         }
     }
     else if (Op == AXDR_IDENT_ABORT)
