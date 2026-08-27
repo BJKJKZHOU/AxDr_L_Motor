@@ -23,8 +23,15 @@
 #define FLUX_FINISH_S           0.002f
 #define FLUX_FINISH_CNT         ((uint32_t)(FLUX_FINISH_S / CUR_TS + 0.5f))
 
-#define FLUX_WE_MARGIN_RATIO   0.80f
-#define FLUX_WE_SPAN_MIN_RATIO 1.50f
+/* Flux work points are generated one-by-one from measured steady-state EMF.
+ * Speed is only the excitation variable: the desired signal level is the
+ * measured back-EMF relative to the available identification voltage budget. */
+#define FLUX_E_TARGET_RATIO       0.35f
+#define FLUX_E_MIN_RATIO          0.08f
+#define FLUX_WE_STEP_MIN_RATIO    1.15f
+#define FLUX_WE_STEP_MAX_RATIO    1.60f
+#define FLUX_WE_MARGIN_RATIO      0.80f
+#define FLUX_WE_SPAN_MIN_RATIO    1.05f
 
 static float We_Point[FLUX_POINT_NUM] = { 0 };
 
@@ -45,23 +52,62 @@ static float Abs_Value(float Value)
     return (Value >= 0.0f) ? Value : -Value;
 }
 
-static bool Work_Points_Build(int8_t Dir)
+static bool Next_Work_Point_Build(uint8_t Current_Point, int8_t Dir)
 {
     const Ident_PreFlux_T *PreFlux;
+    float We_Abs;
+    float E_Abs;
+    float E_Ratio;
+    float Step_Ratio;
     float Flux_Rough;
     float U_Margin;
     float Den;
-    float We_Max;
-    float Span;
+    float We_Voltage_Max;
+    float We_Next;
 
-    PreFlux = Identification_PreFlux_Get();
-
-    if ((Abs_Value(We_Mean[0]) <= 0.0f) || (We_Mean[0] * E_Mean[0] <= 0.0f))
+    if ((Current_Point >= (FLUX_POINT_NUM - 1U)) || (Abs_Value(We_Mean[Current_Point]) <= 0.0f) ||
+        (We_Mean[Current_Point] * E_Mean[Current_Point] <= 0.0f))
     {
         return false;
     }
 
-    Flux_Rough = E_Mean[0] / We_Mean[0];
+    PreFlux = Identification_PreFlux_Get();
+    if ((PreFlux->U_Budget_V <= 0.0f) || (PreFlux->Iq_Max_A <= 0.0f))
+    {
+        return false;
+    }
+
+    We_Abs = Abs_Value(We_Mean[Current_Point]);
+    E_Abs = Abs_Value(E_Mean[Current_Point]);
+    E_Ratio = E_Abs / PreFlux->U_Budget_V;
+
+    /* Drive the next point toward a useful EMF window. A very small EMF asks
+     * for the largest allowed step, while an already useful point expands the
+     * span only modestly so one noisy low-speed estimate cannot launch I/F far
+     * beyond the proven operating region. */
+    if (E_Ratio < FLUX_E_MIN_RATIO)
+    {
+        Step_Ratio = FLUX_WE_STEP_MAX_RATIO;
+    }
+    else
+    {
+        Step_Ratio = FLUX_E_TARGET_RATIO / E_Ratio;
+        if (Step_Ratio < FLUX_WE_STEP_MIN_RATIO)
+        {
+            Step_Ratio = FLUX_WE_STEP_MIN_RATIO;
+        }
+        else if (Step_Ratio > FLUX_WE_STEP_MAX_RATIO)
+        {
+            Step_Ratio = FLUX_WE_STEP_MAX_RATIO;
+        }
+    }
+
+    We_Next = We_Abs * Step_Ratio;
+
+    /* Use the latest measured EMF only as a voltage-safety estimate, not as a
+     * one-shot planner for all remaining points. The per-point step limit above
+     * keeps offset/error at the first point from producing a large speed jump. */
+    Flux_Rough = E_Abs / We_Abs;
     U_Margin = PreFlux->U_Budget_V - Motor_Para.Rs * PreFlux->Iq_Max_A;
     Den = Flux_Rough + Motor_Para.Ld * PreFlux->Iq_Max_A;
 
@@ -70,20 +116,18 @@ static bool Work_Points_Build(int8_t Dir)
         return false;
     }
 
-    We_Max = FLUX_WE_MARGIN_RATIO * U_Margin / Den;
+    We_Voltage_Max = FLUX_WE_MARGIN_RATIO * U_Margin / Den;
+    if (We_Next > We_Voltage_Max)
+    {
+        We_Next = We_Voltage_Max;
+    }
 
-    if (We_Max < FLUX_WE_SPAN_MIN_RATIO * PreFlux->We_Base)
+    if (We_Next < FLUX_WE_SPAN_MIN_RATIO * We_Abs)
     {
         return false;
     }
 
-    Span = (We_Max - PreFlux->We_Base) / (float)(FLUX_POINT_NUM - 1U);
-
-    for (uint8_t n = 1U; n < FLUX_POINT_NUM; n++)
-    {
-        We_Point[n] = (float)Dir * (PreFlux->We_Base + Span * (float)n);
-    }
-
+    We_Point[Current_Point + 1U] = (float)Dir * We_Next;
     return true;
 }
 
@@ -297,10 +341,13 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
             We_Mean[Point] = We_Sum / (float)Meas_Cnt;
             E_Mean[Point] = E_Sum / (float)Meas_Cnt;
 
-            if ((Point == 0U) && !Work_Points_Build(Dir))
+            if (Point < (FLUX_POINT_NUM - 1U))
             {
-                Flux_Fail();
-                return FAST_OFF;
+                if (!Next_Work_Point_Build(Point, Dir))
+                {
+                    Flux_Fail();
+                    return FAST_OFF;
+                }
             }
 
             Point++;
