@@ -54,6 +54,7 @@ static float Id_Sum = 0.0f;
 static float Iq_Sum = 0.0f;
 static float Ud_Sum = 0.0f;
 static float Uq_Sum = 0.0f;
+static float U_Mag_Sum = 0.0f;
 static float U_Mag_Max = 0.0f;
 static float Finish_Iq = 0.0f;
 static uint8_t Finish_Init = 0U;
@@ -79,6 +80,7 @@ static void Measure_Reset(void)
     Iq_Sum = 0.0f;
     Ud_Sum = 0.0f;
     Uq_Sum = 0.0f;
+    U_Mag_Sum = 0.0f;
     U_Mag_Max = 0.0f;
 }
 
@@ -93,11 +95,15 @@ static void Measure(void)
     Uq_Sum += Motor_Run.Uq;
 
     U_Mag = __builtin_sqrtf(Motor_Run.Ud * Motor_Run.Ud + Motor_Run.Uq * Motor_Run.Uq);
+    U_Mag_Sum += U_Mag;
     U_Mag_Max = Max_Value(U_Mag_Max, U_Mag);
     Meas_Cnt++;
 }
 
-static bool Flux_Point_Calc(Flux_Point_T *Point_Out, float *Flux_Out, float *U_Util_Out)
+static bool Flux_Point_Calc(Flux_Point_T *Point_Out,
+                            float *Flux_Out,
+                            float *U_Util_Avg_Out,
+                            float *U_Util_Peak_Out)
 {
     const Ident_Envelope_T *Envelope;
     float We;
@@ -108,7 +114,8 @@ static bool Flux_Point_Calc(Flux_Point_T *Point_Out, float *Flux_Out, float *U_U
     float Psi_d;
     float Psi_q;
 
-    if ((Meas_Cnt == 0U) || (Point_Out == NULL) || (Flux_Out == NULL) || (U_Util_Out == NULL))
+    if ((Meas_Cnt == 0U) || (Point_Out == NULL) || (Flux_Out == NULL) || (U_Util_Avg_Out == NULL) ||
+        (U_Util_Peak_Out == NULL))
     {
         return false;
     }
@@ -145,9 +152,11 @@ static bool Flux_Point_Calc(Flux_Point_T *Point_Out, float *Flux_Out, float *U_U
     Point_Out->Ud = Ud;
     Point_Out->Uq = Uq;
     *Flux_Out = __builtin_sqrtf(Psi_d * Psi_d + Psi_q * Psi_q);
-    *U_Util_Out = U_Mag_Max / Envelope->U_Available_V;
+    *U_Util_Avg_Out = (U_Mag_Sum / (float)Meas_Cnt) / Envelope->U_Available_V;
+    *U_Util_Peak_Out = U_Mag_Max / Envelope->U_Available_V;
 
-    return __builtin_isfinite(*Flux_Out) && (*Flux_Out > 0.0f) && __builtin_isfinite(*U_Util_Out);
+    return __builtin_isfinite(*Flux_Out) && (*Flux_Out > 0.0f) && __builtin_isfinite(*U_Util_Avg_Out) &&
+           __builtin_isfinite(*U_Util_Peak_Out);
 }
 
 static bool Search_Next_Build(float We_Meas, float Flux_Meas, float U_Util, int8_t Dir, float *We_Next_Out)
@@ -194,9 +203,9 @@ static bool Search_Next_Build(float We_Meas, float Flux_Meas, float U_Util, int8
         }
     }
 
-    /* Actual dq voltage, not a q-axis flux projection, limits the next speed.
-     * Scaling total voltage with speed is intentionally conservative because
-     * the resistive part does not grow with speed. */
+    /* Average steady-state dq voltage constrains the next speed. Peak voltage
+     * remains diagnostic-only so a single control sample cannot collapse the
+     * search span. Scaling total voltage with speed remains conservative. */
     U_Mag = U_Util * Envelope->U_Available_V;
     U_Search_Max = FLUX_U_SEARCH_RATIO * Envelope->U_Hard_V;
     if (U_Mag > 0.0f)
@@ -373,6 +382,7 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
     float We_Meas;
     float Flux_Meas;
     float U_Util;
+    float U_Util_Peak;
     float Emf_Ratio;
     float We_Next;
     Flux_Point_T Point_Meas;
@@ -462,7 +472,7 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
 
         if (Meas_Cnt >= FLUX_MEASURE_CNT)
         {
-            if (!Flux_Point_Calc(&Point_Meas, &Flux_Meas, &U_Util))
+            if (!Flux_Point_Calc(&Point_Meas, &Flux_Meas, &U_Util, &U_Util_Peak))
             {
                 Flux_Fail_Stage(FLUX_FAIL_STAGE_POINT_CALC);
                 return FAST_OFF;
@@ -470,7 +480,7 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
 
             We_Meas = Point_Meas.We;
             Result.Flux_Wb = Flux_Meas;
-            Result.U_Util_Max = U_Util;
+            Result.U_Util_Max = U_Util_Peak;
 
             if (Search_Mode)
             {
@@ -483,7 +493,7 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
                     {
                         We_Point[0] = We_Meas;
                         Flux_Point[0] = Flux_Meas;
-                        U_Util_Point[0] = U_Util;
+                        U_Util_Point[0] = U_Util_Peak;
                         Result.Point[0] = Point_Meas;
                         Search_Have_Low = true;
                     }
@@ -504,7 +514,7 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
                      * the high end. Do not keep accelerating to chase a target. */
                     We_Point[3] = We_Meas;
                     Flux_Point[3] = Flux_Meas;
-                    U_Util_Point[3] = U_Util;
+                    U_Util_Point[3] = U_Util_Peak;
                     Result.Point[3] = Point_Meas;
 
                     if (!Fit_Window_Build(We_Point[0], We_Point[3], Dir))
@@ -523,7 +533,7 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
             else
             {
                 Flux_Point[Point] = Flux_Meas;
-                U_Util_Point[Point] = U_Util;
+                U_Util_Point[Point] = U_Util_Peak;
                 Result.Point[Point] = Point_Meas;
 
                 if (Point == 1U)
