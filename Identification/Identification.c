@@ -22,15 +22,6 @@
 #define IDENT_U_SOFT_RATIO 0.25f
 #define IDENT_U_HARD_RATIO 0.80f
 
-#define PREFLUX_U_BUDGET_RATIO  0.65f
-#define PREFLUX_I_START_RATIO   0.15f
-#define PREFLUX_I_MAX_RATIO     0.35f
-#define PREFLUX_R_START_RATIO   0.40f
-#define PREFLUX_R_MAX_RATIO     0.60f
-#define PREFLUX_WE_RL_RATIO     0.02f
-#define PREFLUX_WE_MARGIN_RATIO 0.25f
-#define PREFLUX_RAMP_TIME_S     6.0f
-
 static volatile Ident_Mode_e Ident_Mode = IDENT_NONE;
 static volatile Ident_State_e Ident_State = IDENT_IDLE;
 static Ident_Envelope_T Ident_Envelope = { 0 };
@@ -94,70 +85,6 @@ static bool Envelope_Build(void)
     return Ident_Envelope.Valid;
 }
 
-static bool PreFlux_Build(void)
-{
-    float I_R_Start;
-    float I_R_Max;
-    float U_Per_I;
-    float We_RL_Max;
-    float We_Base;
-
-    Ident_PreFlux = (Ident_PreFlux_T){ 0 };
-
-    if (!Ident_Envelope.Valid || (Motor_Para.Rs <= 0.0f) || (Motor_Para.Ld <= 0.0f))
-    {
-        return false;
-    }
-
-    Ident_PreFlux.U_Budget_V = PREFLUX_U_BUDGET_RATIO * Ident_Envelope.U_Available_V;
-
-    I_R_Start = PREFLUX_R_START_RATIO * Ident_PreFlux.U_Budget_V / Motor_Para.Rs;
-    I_R_Max = PREFLUX_R_MAX_RATIO * Ident_PreFlux.U_Budget_V / Motor_Para.Rs;
-
-    Ident_PreFlux.Iq_Start_A = PREFLUX_I_START_RATIO * Ident_Envelope.I_Safe_A;
-    if (Ident_PreFlux.Iq_Start_A > I_R_Start)
-    {
-        Ident_PreFlux.Iq_Start_A = I_R_Start;
-    }
-
-    Ident_PreFlux.Iq_Max_A = PREFLUX_I_MAX_RATIO * Ident_Envelope.I_Safe_A;
-    if (Ident_PreFlux.Iq_Max_A > I_R_Max)
-    {
-        Ident_PreFlux.Iq_Max_A = I_R_Max;
-    }
-
-    if ((Ident_PreFlux.Iq_Start_A <= 0.0f) || (Ident_PreFlux.Iq_Max_A < Ident_PreFlux.Iq_Start_A))
-    {
-        return false;
-    }
-
-    We_Base = PREFLUX_WE_RL_RATIO * Motor_Para.Rs / Motor_Para.Ld;
-    U_Per_I = Ident_PreFlux.U_Budget_V / Ident_PreFlux.Iq_Max_A;
-
-    if (U_Per_I <= Motor_Para.Rs)
-    {
-        return false;
-    }
-
-    We_RL_Max = __builtin_sqrtf(U_Per_I * U_Per_I - Motor_Para.Rs * Motor_Para.Rs) / Motor_Para.Ld;
-
-    if (We_Base > PREFLUX_WE_MARGIN_RATIO * We_RL_Max)
-    {
-        We_Base = PREFLUX_WE_MARGIN_RATIO * We_RL_Max;
-    }
-
-    if (We_Base < 1.0f)
-    {
-        We_Base = 1.0f;
-    }
-
-    Ident_PreFlux.We_Base = We_Base;
-    Ident_PreFlux.Acc = We_Base / PREFLUX_RAMP_TIME_S;
-    Ident_PreFlux.Valid = Ident_PreFlux.Acc > 0.0f;
-
-    return Ident_PreFlux.Valid;
-}
-
 bool Identification_Start(Ident_Mode_e Mode, float Wm_Target)
 {
     if (Ident_State == IDENT_RUNNING)
@@ -176,7 +103,8 @@ bool Identification_Start(Ident_Mode_e Mode, float Wm_Target)
     }
     else if (Mode == IDENT_FLUX)
     {
-        if (!Envelope_Build() || !PreFlux_Build())
+        if (!Envelope_Build() ||
+            !Motor_IF_Para_Build(ADC.Vbus_V, Ident_Envelope.I_Safe_A, &Ident_PreFlux))
         {
             return false;
         }
