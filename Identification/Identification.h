@@ -9,6 +9,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "Motor_Para.h"
 #include "Motor_Type.h"
 
 typedef enum
@@ -46,16 +47,7 @@ typedef struct
 
 } Ident_Envelope_T;
 
-typedef struct
-{
-    float Iq_Start_A;
-    float Iq_Max_A;
-    float We_Base;
-    float Acc;
-    float U_Budget_V;
-    bool Valid;
-
-} Ident_PreFlux_T;
+typedef Motor_IF_Para_T Ident_PreFlux_T;
 
 bool Identification_Start(Ident_Mode_e Mode, float Wm_Target);
 void Identification_Abort(void);
