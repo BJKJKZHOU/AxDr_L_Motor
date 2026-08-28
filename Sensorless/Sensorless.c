@@ -12,6 +12,8 @@
 #include "IF_Start.h"
 #include "Math.h"
 #include "Motion_Loop.h"
+#include "Motor_ADC.h"
+#include "Motor_Para.h"
 #include "Motor_Type.h"
 #include "PLL.h"
 #include "Sin_LUT.h"
@@ -44,7 +46,6 @@
 #define OBS_TO_IF_WE_RAD_S (0.75f * IF_WE_TARGET_RAD_S)
 
 #define SPD_DIV 10U
-#define IQ_MAX  2.0f
 
 typedef enum
 {
@@ -71,6 +72,8 @@ volatile float Sensorless_We_Obs_F = 0.0f;
 
 static bool Flux_Obs_U_Valid = false;
 static bool Profile_Requested = false;
+static bool IF_Para_Ready = false;
+static Motor_IF_Para_T IF_Para = { 0 };
 static uint32_t Obs_Wait_Cnt = 0U;
 static uint32_t Blend_Cnt = 0U;
 static uint32_t Speed_Div = 0U;
@@ -99,6 +102,14 @@ static float Angle_Diff(float A, float B)
 static float Abs_F(float X)
 {
     return (X >= 0.0f) ? X : -X;
+}
+
+static float Current_Limit_Get(void)
+{
+    float I_Max;
+
+    I_Max = (Motor_Lim.I_Max < User_Lim.I_Max) ? Motor_Lim.I_Max : User_Lim.I_Max;
+    return (I_Max > 0.0f) ? I_Max : 0.0f;
 }
 
 static bool Obs_Stable(void)
@@ -165,13 +176,15 @@ static float Ramp_Zero(float X, float Step)
 
 static void Speed_Track(float We_Ref, float Iq)
 {
+    float I_Max;
     float Err;
     float Int;
 
-    Speed_Ctrl.Para.Out_Min = -IQ_MAX;
-    Speed_Ctrl.Para.Out_Max = IQ_MAX;
-    Speed_Ctrl.Para.Int_Min = -IQ_MAX;
-    Speed_Ctrl.Para.Int_Max = IQ_MAX;
+    I_Max = Current_Limit_Get();
+    Speed_Ctrl.Para.Out_Min = -I_Max;
+    Speed_Ctrl.Para.Out_Max = I_Max;
+    Speed_Ctrl.Para.Int_Min = -I_Max;
+    Speed_Ctrl.Para.Int_Max = I_Max;
 
     Speed_Ctrl.Sig.Ref = We_Ref;
     Speed_Ctrl.Sig.Fbk = Flux_PLL.State.We;
@@ -188,9 +201,12 @@ static void Speed_Track(float We_Ref, float Iq)
 
 static void Speed_Run(float We_Ref)
 {
+    float I_Max;
+
     if (Speed_Div == 0U)
     {
-        Obs_Iq_Ref = Speed_Loop(We_Ref, Flux_PLL.State.We, -IQ_MAX, IQ_MAX);
+        I_Max = Current_Limit_Get();
+        Obs_Iq_Ref = Speed_Loop(We_Ref, Flux_PLL.State.We, -I_Max, I_Max);
     }
 
     Speed_Div++;
@@ -227,6 +243,8 @@ void Sensorless_Begin(void)
     Initial_IF = true;
     Flux_Obs_U_Valid = false;
     Profile_Requested = false;
+    IF_Para_Ready = false;
+    IF_Para = (Motor_IF_Para_T){ 0 };
     Obs_Wait_Cnt = 0U;
     Blend_Cnt = 0U;
     Speed_Div = 0U;
@@ -249,6 +267,7 @@ void Sensorless_Stop(void)
     Active = false;
     Flux_Obs_U_Valid = false;
     Profile_Requested = false;
+    IF_Para_Ready = false;
     Obs_Wait_Cnt = 0U;
     Blend_Cnt = 0U;
     Speed_Div = 0U;
@@ -305,7 +324,18 @@ bool Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float 
         *Theta_e = 0.0f;
         Sensorless_Theta_Use = 0.0f;
 
-        if (Align_Current(IF_ALIGN_ID_A, IF_ALIGN_CNT, Id_Ref, Iq_Ref))
+        if (!IF_Para_Ready)
+        {
+            IF_Para_Ready = Motor_IF_Para_Build(ADC.Vbus_V, Current_Limit_Get(), &IF_Para);
+            if (!IF_Para_Ready)
+            {
+                *Id_Ref = 0.0f;
+                *Iq_Ref = 0.0f;
+                return false;
+            }
+        }
+
+        if (Align_Current(IF_Para.Iq_Start_A, IF_ALIGN_CNT, Id_Ref, Iq_Ref))
         {
             Current_Loop_State_Reset();
 
@@ -314,6 +344,7 @@ bool Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float 
             Theta_Start = -(float)Dir * (0.5f * PI_F);
 
             IF_Start_Reset(Theta_Start, 0.0f);
+            IF_Start_Para_Set(IF_Para.Iq_Start_A, IF_Para.Iq_Max_A, IF_Para.We_Base, IF_Para.Acc);
             IF_Start_Target_Set(We_IF_Target);
 
             Flux_Obs.Para.Rs = Motor_Para.Rs;
@@ -500,6 +531,7 @@ bool Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float 
         if (Abs_F(Flux_PLL.State.We) <= OBS_TO_IF_WE_RAD_S)
         {
             IF_Start_Reset(Theta_Obs, Flux_PLL.State.We);
+            IF_Start_Para_Set(IF_Para.Iq_Start_A, IF_Para.Iq_Max_A, IF_Para.We_Base, IF_Para.Acc);
             IF_Start_Target_Set(We_Ref);
             Sensorless_Theta_IF = Theta_Obs;
             Blend_Cnt = 0U;
