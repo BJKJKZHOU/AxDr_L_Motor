@@ -543,6 +543,11 @@ void Motor_Disable(void)
         Motor_Stop();
     }
 
+    if ((Motor_Mode == IDENT) && (Identification_State_Get() == IDENT_FAILED))
+    {
+        Identification_Abort();
+    }
+
     PWM_Disable();
     Fast_Run = Fast_Off_Run;
     Current_Ref.Id = 0.0f;
