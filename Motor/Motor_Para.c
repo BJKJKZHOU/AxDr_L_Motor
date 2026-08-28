@@ -24,7 +24,7 @@
 
 Motor_Para_T Motor_Para = MOTOR_PARA_DEFAULT;
 
-static float IF_We_RL_Base = MOTOR_IF_WE_RL_RATIO * MOTOR_RS_DEFAULT / MOTOR_LD_DEFAULT;
+static float IF_We_RL_Base = MOTOR_IF_WE_RL_RATIO * MOTOR_RS_DEFAULT / MOTOR_LQ_DEFAULT;
 
 void Motor_Para_Changed(uint32_t Changed)
 {
@@ -38,7 +38,7 @@ void Motor_Para_Changed(uint32_t Changed)
         Iq_Ctrl.Para.Kp = Motor_Para.Lq * CUR_WC_DEFAULT;
         Iq_Ctrl.Para.Ki = Motor_Para.Rs * CUR_WC_DEFAULT;
 
-        IF_We_RL_Base = (Motor_Para.Ld > 0.0f) ? MOTOR_IF_WE_RL_RATIO * Motor_Para.Rs / Motor_Para.Ld : 0.0f;
+        IF_We_RL_Base = (Motor_Para.Lq > 0.0f) ? MOTOR_IF_WE_RL_RATIO * Motor_Para.Rs / Motor_Para.Lq : 0.0f;
     }
 
     if ((Changed & (MOTOR_PARA_PP | MOTOR_PARA_FLUX | MOTOR_PARA_JB)) != 0U)
@@ -75,7 +75,7 @@ bool Motor_IF_Para_Build(float Vbus_V, float I_Max_A, Motor_IF_Para_T *Para)
 
     *Para = (Motor_IF_Para_T){ 0 };
 
-    if ((Vbus_V <= 0.0f) || (I_Max_A <= 0.0f) || (Motor_Para.Rs <= 0.0f) || (Motor_Para.Ld <= 0.0f) ||
+    if ((Vbus_V <= 0.0f) || (I_Max_A <= 0.0f) || (Motor_Para.Rs <= 0.0f) || (Motor_Para.Lq <= 0.0f) ||
         (IF_We_RL_Base <= 0.0f))
     {
         return false;
@@ -112,7 +112,7 @@ bool Motor_IF_Para_Build(float Vbus_V, float I_Max_A, Motor_IF_Para_T *Para)
         return false;
     }
 
-    We_RL_Max = __builtin_sqrtf(U_Per_I * U_Per_I - Motor_Para.Rs * Motor_Para.Rs) / Motor_Para.Ld;
+    We_RL_Max = __builtin_sqrtf(U_Per_I * U_Per_I - Motor_Para.Rs * Motor_Para.Rs) / Motor_Para.Lq;
     if (We_Base > MOTOR_IF_WE_MARGIN_RATIO * We_RL_Max)
     {
         We_Base = MOTOR_IF_WE_MARGIN_RATIO * We_RL_Max;
