@@ -484,7 +484,10 @@ void Motor_Start(void)
     }
     else if (Motor_Mode == SENSORLESS_SPEED)
     {
-        Sensorless_Begin();
+        if (!Sensorless_Begin())
+        {
+            return;
+        }
     }
 
     if (!Motion_Mode_Active())
