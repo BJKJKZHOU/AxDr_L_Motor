@@ -72,7 +72,6 @@ volatile float Sensorless_We_Obs_F = 0.0f;
 
 static bool Flux_Obs_U_Valid = false;
 static bool Profile_Requested = false;
-static bool IF_Para_Ready = false;
 static Motor_IF_Para_T IF_Para = { 0 };
 static uint32_t Obs_Wait_Cnt = 0U;
 static uint32_t Blend_Cnt = 0U;
@@ -235,15 +234,14 @@ static float IF_Target(float We_Ref)
     return (We_Ref < 0.0f) ? -Target : Target;
 }
 
-void Sensorless_Begin(void)
+bool Sensorless_Begin(void)
 {
     State = SL_ALIGN;
     To_Obs_State = TO_OBS_WAIT;
-    Active = true;
+    Active = false;
     Initial_IF = true;
     Flux_Obs_U_Valid = false;
     Profile_Requested = false;
-    IF_Para_Ready = false;
     IF_Para = (Motor_IF_Para_T){ 0 };
     Obs_Wait_Cnt = 0U;
     Blend_Cnt = 0U;
@@ -260,6 +258,15 @@ void Sensorless_Begin(void)
 
     Align_Reset();
     Current_Loop_State_Reset();
+
+    if (!Motor_IF_Para_Build(ADC.Vbus_V, Current_Limit_Get(), &IF_Para))
+    {
+        State = SL_FAILED;
+        return false;
+    }
+
+    Active = true;
+    return true;
 }
 
 void Sensorless_Stop(void)
@@ -267,7 +274,6 @@ void Sensorless_Stop(void)
     Active = false;
     Flux_Obs_U_Valid = false;
     Profile_Requested = false;
-    IF_Para_Ready = false;
     Obs_Wait_Cnt = 0U;
     Blend_Cnt = 0U;
     Speed_Div = 0U;
@@ -323,17 +329,6 @@ bool Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float 
     {
         *Theta_e = 0.0f;
         Sensorless_Theta_Use = 0.0f;
-
-        if (!IF_Para_Ready)
-        {
-            IF_Para_Ready = Motor_IF_Para_Build(ADC.Vbus_V, Current_Limit_Get(), &IF_Para);
-            if (!IF_Para_Ready)
-            {
-                *Id_Ref = 0.0f;
-                *Iq_Ref = 0.0f;
-                return false;
-            }
-        }
 
         if (Align_Current(IF_Para.Iq_Start_A, IF_ALIGN_CNT, Id_Ref, Iq_Ref))
         {
