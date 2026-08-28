@@ -6,6 +6,7 @@
 #ifndef MOTOR_PARA_H
 #define MOTOR_PARA_H
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "Motor_Type.h"
@@ -19,6 +20,18 @@ typedef enum
 
 } Motor_Para_Change_e;
 
+typedef struct
+{
+    float Iq_Start_A;
+    float Iq_Max_A;
+    float We_Base;
+    float Acc;
+    float U_Budget_V;
+    bool Valid;
+
+} Motor_IF_Para_T;
+
 void Motor_Para_Changed(uint32_t Changed);
+bool Motor_IF_Para_Build(float Vbus_V, float I_Max_A, Motor_IF_Para_T *Para);
 
 #endif /* MOTOR_PARA_H */
