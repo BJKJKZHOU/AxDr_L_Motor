@@ -239,12 +239,6 @@ static bool Measure_Calc(uint32_t Sample_Cnt, float *Rs_Ohm, float *Ls_H)
     return true;
 }
 
-static bool Result_Valid(float Rs_Ohm, float Ls_H)
-{
-    return (Rs_Ohm > RS_LS_RS_MIN_OHM) && (Rs_Ohm < RS_LS_RS_MAX_OHM) && (Ls_H > RS_LS_LS_MIN_H) &&
-           (Ls_H < RS_LS_LS_MAX_H);
-}
-
 static bool Repeat_Valid(float A, float B, float Max_Ratio)
 {
     float Ref;
@@ -265,6 +259,23 @@ static void Rs_Ls_Fail_Stage(uint8_t Stage)
 {
     Fail_Stage = Stage;
     Rs_Ls_Fail();
+}
+
+static bool Result_Range_Check(float Rs_Ohm, float Ls_H)
+{
+    if ((Rs_Ohm <= RS_LS_RS_MIN_OHM) || (Rs_Ohm >= RS_LS_RS_MAX_OHM))
+    {
+        Rs_Ls_Fail_Stage(RS_LS_FAIL_STAGE_INVALID_RS);
+        return false;
+    }
+
+    if ((Ls_H <= RS_LS_LS_MIN_H) || (Ls_H >= RS_LS_LS_MAX_H))
+    {
+        Rs_Ls_Fail_Stage(RS_LS_FAIL_STAGE_INVALID_LS);
+        return false;
+    }
+
+    return true;
 }
 
 void Rs_Ls_Reset(void)
@@ -498,16 +509,8 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
                 return FAST_OFF;
             }
 
-            if ((Rs_Rough <= RS_LS_RS_MIN_OHM) || (Rs_Rough >= RS_LS_RS_MAX_OHM))
+            if (!Result_Range_Check(Rs_Rough, Ls_Rough))
             {
-                Rs_Ls_Fail_Stage(RS_LS_FAIL_STAGE_INVALID_RS);
-                *Ualpha_V = 0.0f;
-                return FAST_OFF;
-            }
-
-            if ((Ls_Rough <= RS_LS_LS_MIN_H) || (Ls_Rough >= RS_LS_LS_MAX_H))
-            {
-                Rs_Ls_Fail_Stage(RS_LS_FAIL_STAGE_INVALID_LS);
                 *Ualpha_V = 0.0f;
                 return FAST_OFF;
             }
@@ -551,6 +554,12 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
                     return FAST_OFF;
                 }
 
+                if (!Result_Range_Check(Rs_A, Ls_A))
+                {
+                    *Ualpha_V = 0.0f;
+                    return FAST_OFF;
+                }
+
                 Measure_Reset();
                 Rs_Ls_State = RS_LS_MEASURE_B;
             }
@@ -563,8 +572,13 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
                     return FAST_OFF;
                 }
 
-                if (Result_Valid(Rs_A, Ls_A) && Result_Valid(Rs_B, Ls_B) &&
-                    Repeat_Valid(Rs_A, Rs_B, RS_LS_RS_REPEAT_MAX) && Repeat_Valid(Ls_A, Ls_B, RS_LS_LS_REPEAT_MAX))
+                if (!Result_Range_Check(Rs_B, Ls_B))
+                {
+                    *Ualpha_V = 0.0f;
+                    return FAST_OFF;
+                }
+
+                if (Repeat_Valid(Rs_A, Rs_B, RS_LS_RS_REPEAT_MAX) && Repeat_Valid(Ls_A, Ls_B, RS_LS_LS_REPEAT_MAX))
                 {
                     Rs_Ls_Result.Rs_Ohm = 0.5f * (Rs_A + Rs_B);
                     Rs_Ls_Result.Ls_H = 0.5f * (Ls_A + Ls_B);
