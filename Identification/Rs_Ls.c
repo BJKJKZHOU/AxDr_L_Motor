@@ -34,7 +34,17 @@
 #define RS_LS_RS_REPEAT_MAX 0.10f
 #define RS_LS_LS_REPEAT_MAX 0.15f
 
+/* Diagnostic-only terminal stage values returned after RS_LS_FAILED. */
+#define RS_LS_FAIL_STAGE_NO_SIGNAL       10U
+#define RS_LS_FAIL_STAGE_CURRENT_LOW     11U
+#define RS_LS_FAIL_STAGE_INVALID_RS      12U
+#define RS_LS_FAIL_STAGE_INVALID_LS      13U
+#define RS_LS_FAIL_STAGE_REPEATABILITY   14U
+#define RS_LS_FAIL_STAGE_ENVELOPE        15U
+#define RS_LS_FAIL_STAGE_ALIGN_VOLTAGE   16U
+
 static Rs_Ls_State_e Rs_Ls_State = RS_LS_IDLE;
+static volatile uint8_t Fail_Stage = (uint8_t)RS_LS_FAILED;
 static Rs_Ls_Result_T Rs_Ls_Result = { 0 };
 
 static uint32_t Rs_Ls_Cnt = 0U;
@@ -207,6 +217,7 @@ static bool Measure_Calc(uint32_t Sample_Cnt, float *Rs_Ohm, float *Ls_H)
 
     if (Den <= 0.0f)
     {
+        Fail_Stage = RS_LS_FAIL_STAGE_NO_SIGNAL;
         return false;
     }
 
@@ -215,6 +226,7 @@ static bool Measure_Calc(uint32_t Sample_Cnt, float *Rs_Ohm, float *Ls_H)
 
     if (I_Amp < Envelope->I_Min_A)
     {
+        Fail_Stage = RS_LS_FAIL_STAGE_CURRENT_LOW;
         return false;
     }
 
@@ -249,10 +261,17 @@ static bool Repeat_Valid(float A, float B, float Max_Ratio)
     return (Ref > 0.0f) && ((Diff / Ref) <= Max_Ratio);
 }
 
+static void Rs_Ls_Fail_Stage(uint8_t Stage)
+{
+    Fail_Stage = Stage;
+    Rs_Ls_Fail();
+}
+
 void Rs_Ls_Reset(void)
 {
     PI_Restore();
 
+    Fail_Stage = (uint8_t)RS_LS_FAILED;
     Rs_Ls_Result.Rs_Ohm = 0.0f;
     Rs_Ls_Result.Ls_H = 0.0f;
     Rs_Ls_Result.Valid = false;
@@ -331,7 +350,7 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
 
     if (!Envelope->Valid || (Envelope->U_Hard_V <= 0.0f))
     {
-        Rs_Ls_Fail();
+        Rs_Ls_Fail_Stage(RS_LS_FAIL_STAGE_ENVELOPE);
         return FAST_OFF;
     }
 
@@ -370,7 +389,7 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
 
         if (U_Hold_Abs_V >= Envelope->U_Hard_V)
         {
-            Rs_Ls_Fail();
+            Rs_Ls_Fail_Stage(RS_LS_FAIL_STAGE_ALIGN_VOLTAGE);
             return FAST_OFF;
         }
 
@@ -455,7 +474,7 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
                 }
                 else
                 {
-                    Rs_Ls_Fail();
+                    Rs_Ls_Fail_Stage(RS_LS_FAIL_STAGE_CURRENT_LOW);
                     *Ualpha_V = 0.0f;
                     return FAST_OFF;
                 }
@@ -472,9 +491,23 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
 
         if (Rs_Ls_Cnt >= Rs_Ls_Probe_Measure_Cnt)
         {
-            if (!Measure_Calc(Rs_Ls_Probe_Measure_Cnt, &Rs_Rough, &Ls_Rough) || !Result_Valid(Rs_Rough, Ls_Rough))
+            if (!Measure_Calc(Rs_Ls_Probe_Measure_Cnt, &Rs_Rough, &Ls_Rough))
             {
                 Rs_Ls_Fail();
+                *Ualpha_V = 0.0f;
+                return FAST_OFF;
+            }
+
+            if ((Rs_Rough <= RS_LS_RS_MIN_OHM) || (Rs_Rough >= RS_LS_RS_MAX_OHM))
+            {
+                Rs_Ls_Fail_Stage(RS_LS_FAIL_STAGE_INVALID_RS);
+                *Ualpha_V = 0.0f;
+                return FAST_OFF;
+            }
+
+            if ((Ls_Rough <= RS_LS_LS_MIN_H) || (Ls_Rough >= RS_LS_LS_MAX_H))
+            {
+                Rs_Ls_Fail_Stage(RS_LS_FAIL_STAGE_INVALID_LS);
                 *Ualpha_V = 0.0f;
                 return FAST_OFF;
             }
@@ -540,7 +573,7 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
                 }
                 else
                 {
-                    Rs_Ls_Fail();
+                    Rs_Ls_Fail_Stage(RS_LS_FAIL_STAGE_REPEATABILITY);
                 }
 
                 *Ualpha_V = 0.0f;
@@ -561,6 +594,11 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
 
 Rs_Ls_State_e Rs_Ls_State_Get(void)
 {
+    if (Rs_Ls_State == RS_LS_FAILED)
+    {
+        return (Rs_Ls_State_e)Fail_Stage;
+    }
+
     return Rs_Ls_State;
 }
 
