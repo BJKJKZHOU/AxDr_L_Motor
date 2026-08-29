@@ -15,6 +15,11 @@
 #define AXDR_NORMAL_MAX_CH     15U
 #define AXDR_FAST_BLOCK_SAMPLE 20U
 
+/* FAST Config_ID bit7 requests the extended FAST header:
+ *   seq:u16, config:u8, sample_count:u8, first_control_tick:u32, fast_drop:u32.
+ * Config IDs without this bit keep the legacy 4-byte header unchanged. */
+#define AXDR_FAST_META_CONFIG_MASK 0x80U
+
 typedef struct
 {
     uint8_t Config_ID;

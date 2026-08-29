@@ -5,6 +5,7 @@
 
 #include "Plot.h"
 
+#include "Current_Loop.h"
 #include "Motor_ADC.h"
 #include "Motor_Type.h"
 #include "Sensorless.h"
@@ -28,6 +29,7 @@ static Fast_Var_T Fast_Var[AXDR_FAST_MAX_CH] = { 0 };
 static Normal_Var_T Normal_Var[AXDR_NORMAL_MAX_CH] = { 0 };
 
 static int16_t Fast_Buf[2][AXDR_FAST_BLOCK_SAMPLE * AXDR_FAST_MAX_CH] = { 0 };
+static uint32_t Fast_Block_Tick[2] = { 0U };
 static float Normal_Buf[2][AXDR_NORMAL_MAX_CH] = { 0 };
 
 static volatile uint8_t Fast_Fill = 0U;
@@ -35,6 +37,8 @@ static volatile uint8_t Fast_Ready = PLOT_BUF_NONE;
 static volatile uint8_t Fast_Sample_Cnt = 0U;
 static uint8_t Fast_Tx_Sample = 0U;
 static uint16_t Fast_Seq = 0U;
+static uint32_t Fast_Control_Tick = 0U;
+static bool Fast_Meta = false;
 
 static volatile uint8_t Normal_Fill = 0U;
 static volatile uint8_t Normal_Ready = PLOT_BUF_NONE;
@@ -90,6 +94,22 @@ static const volatile float *Plot_Data_Get(uint16_t Var_ID, float *Scale)
         case 0x0016: /* Ubeta command */
             *Scale = 0.001f;
             return &Motor_Run.Ubeta;
+
+        case 0x0017: /* Id reference */
+            *Scale = 0.001f;
+            return &Sensorless_Id_Ref;
+
+        case 0x0018: /* Iq reference */
+            *Scale = 0.001f;
+            return &Sensorless_Iq_Ref;
+
+        case 0x0019: /* Id PI integrator */
+            *Scale = 0.001f;
+            return &Id_Ctrl.State.Int;
+
+        case 0x001A: /* Iq PI integrator */
+            *Scale = 0.001f;
+            return &Iq_Ctrl.State.Int;
 
         case 0x0020: /* Theta_obs */
             *Scale = 0.0002f;
@@ -235,6 +255,7 @@ AxDr_Status_e Plot_Config(uint8_t Group, uint8_t Config_ID, const uint16_t *Var,
 
     if (Group == AXDR_PLOT_FAST)
     {
+        Fast_Meta = (Config_ID & AXDR_FAST_META_CONFIG_MASK) != 0U;
         Plot_Fast_Flush();
     }
     else
@@ -265,6 +286,8 @@ AxDr_Status_e Plot_Start(uint8_t Group_Mask)
     if ((Group_Mask & AXDR_PLOT_FAST_MASK) != 0U)
     {
         Plot_Fast_Flush();
+        Fast_Control_Tick = 0U;
+        Plot_Fast_Drop = 0U;
         Plot_Group[AXDR_PLOT_FAST].Run = 1U;
     }
 
@@ -311,6 +334,7 @@ const Plot_Group_T *Plot_Group_Get(uint8_t Group)
 
 void Plot_Fast_Sample(void)
 {
+    uint32_t Tick;
     uint16_t Base;
     uint8_t Count;
     uint8_t Fill;
@@ -323,8 +347,15 @@ void Plot_Fast_Sample(void)
         return;
     }
 
+    Tick = Fast_Control_Tick++;
     Count = Plot->Count;
     Fill = Fast_Fill;
+
+    if (Fast_Sample_Cnt == 0U)
+    {
+        Fast_Block_Tick[Fill] = Tick;
+    }
+
     Base = (uint16_t)Fast_Sample_Cnt * Count;
 
     for (uint8_t n = 0U; n < Count; n++)
@@ -386,11 +417,14 @@ bool Plot_Fast_Pop(AxDr_Msg_T *Msg)
 {
     uint8_t Ready;
     uint8_t Count;
+    uint8_t Header_Len;
     uint8_t Max_Sample;
     uint8_t Sample_Count;
     uint8_t Remain;
     uint16_t Src;
     uint16_t Dst;
+    uint32_t Tick;
+    uint32_t Drop;
     int16_t Raw;
     Plot_Group_T *Plot;
 
@@ -403,18 +437,33 @@ bool Plot_Fast_Pop(AxDr_Msg_T *Msg)
 
     Plot = &Plot_Group[AXDR_PLOT_FAST];
     Count = Plot->Count;
-    Max_Sample = (uint8_t)((AXDR_MAX_DATA_LEN - 4U) / (Count * 2U));
+    Header_Len = Fast_Meta ? 12U : 4U;
+    Max_Sample = (uint8_t)((AXDR_MAX_DATA_LEN - Header_Len) / (Count * 2U));
     Remain = (uint8_t)(AXDR_FAST_BLOCK_SAMPLE - Fast_Tx_Sample);
     Sample_Count = (Remain < Max_Sample) ? Remain : Max_Sample;
 
     Msg->Id = (uint16_t)((AXDR_MSG_FAST_DATA << 6) | AXDR_NODE_ID);
-    Msg->Len = (uint8_t)(4U + Sample_Count * Count * 2U);
+    Msg->Len = (uint8_t)(Header_Len + Sample_Count * Count * 2U);
     Msg->Data[0] = (uint8_t)Fast_Seq;
     Msg->Data[1] = (uint8_t)(Fast_Seq >> 8);
     Msg->Data[2] = Plot->Config_ID;
     Msg->Data[3] = Sample_Count;
 
     Dst = 4U;
+    if (Fast_Meta)
+    {
+        Tick = Fast_Block_Tick[Ready] + Fast_Tx_Sample;
+        Drop = Plot_Fast_Drop;
+        Msg->Data[4] = (uint8_t)Tick;
+        Msg->Data[5] = (uint8_t)(Tick >> 8);
+        Msg->Data[6] = (uint8_t)(Tick >> 16);
+        Msg->Data[7] = (uint8_t)(Tick >> 24);
+        Msg->Data[8] = (uint8_t)Drop;
+        Msg->Data[9] = (uint8_t)(Drop >> 8);
+        Msg->Data[10] = (uint8_t)(Drop >> 16);
+        Msg->Data[11] = (uint8_t)(Drop >> 24);
+        Dst = 12U;
+    }
 
     for (uint8_t s = 0U; s < Sample_Count; s++)
     {
