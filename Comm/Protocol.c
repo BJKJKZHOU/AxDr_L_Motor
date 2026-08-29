@@ -474,8 +474,9 @@ static void Sensorless_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
     }
     else if (Op == AXDR_SENSORLESS_STATUS)
     {
-        uint8_t Resp[8];
+        uint8_t Resp[38];
         float We;
+        const Sensorless_Obs_Diag_T *Diag;
 
         if (Len != 2U)
         {
@@ -484,11 +485,21 @@ static void Sensorless_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
         else
         {
             We = IF_Start_We_Get();
+            Diag = Sensorless_Obs_Diag_Get();
             Resp[0] = Sensorless_Active() ? 1U : 0U;
             Resp[1] = Sensorless_Ready() ? 1U : 0U;
             Resp[2] = (uint8_t)Sensorless_State_Get();
             Resp[3] = (uint8_t)IF_Start_State_Get();
             memcpy(&Resp[4], &We, sizeof(float));
+            memcpy(&Resp[8], &Diag->We_Obs_F, sizeof(float));
+            memcpy(&Resp[12], &Diag->We_Err, sizeof(float));
+            memcpy(&Resp[16], &Diag->PLL_Err, sizeof(float));
+            memcpy(&Resp[20], &Diag->Flux_Ratio, sizeof(float));
+            memcpy(&Resp[24], &Diag->Theta_Err, sizeof(float));
+            memcpy(&Resp[28], &Diag->Stable_s, sizeof(float));
+            memcpy(&Resp[32], &Diag->Stable_Max_s, sizeof(float));
+            Resp[36] = Diag->Reject;
+            Resp[37] = Diag->Reject_Seen;
 
             Response(Txn, AXDR_MSG_SENSORLESS, Op, AXDR_OK, Resp, sizeof(Resp));
             return;
