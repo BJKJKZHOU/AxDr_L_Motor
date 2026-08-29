@@ -272,7 +272,8 @@ static void Identification_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcas
     else if (Op == AXDR_IDENT_MODE_SET)
     {
         if (Len != 3U) Status = AXDR_ERR_LENGTH;
-        else if ((Data[2] != AXDR_IDENT_RS_LS) && (Data[2] != AXDR_IDENT_FLUX)) Status = AXDR_ERR_NOT_SUPPORTED;
+        else if ((Data[2] != AXDR_IDENT_RS_LS) && (Data[2] != AXDR_IDENT_FLUX) &&
+                 (Data[2] != AXDR_IDENT_VOLTAGE_DIAG)) Status = AXDR_ERR_NOT_SUPPORTED;
         else if (Motor_State_Get() != DISABLED) Status = AXDR_ERR_STATE;
         else if (!Motor_Cmd_Send(MOTOR_CMD_IDENT_SET, Data[2])) Status = AXDR_ERR_CONFIG;
     }
@@ -299,6 +300,11 @@ static void Identification_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcas
                 memcpy(&Resp[8], &Result->Point_Max_Rel_Dev, sizeof(float));
                 memcpy(&Resp[12], &Result->U_Util_Max, sizeof(float));
                 Resp_Len = 16U;
+            }
+            else if (Mode == IDENT_VOLTAGE_DIAG)
+            {
+                Resp[3] = (Identification_State_Get() == IDENT_RUNNING) ? 1U : 0U;
+                Resp_Len = 4U;
             }
             else
             {
@@ -352,6 +358,7 @@ static void Identification_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcas
         bool Result_Valid;
         if (Len != 2U) Status = AXDR_ERR_LENGTH;
         else if ((Motor_State_Get() == RUN) || (Identification_State_Get() != IDENT_DONE)) Status = AXDR_ERR_STATE;
+        else if (Identification_Mode_Get() == IDENT_VOLTAGE_DIAG) Status = AXDR_ERR_NOT_SUPPORTED;
         else
         {
             Result_Valid = (Identification_Mode_Get() == IDENT_FLUX) ? Flux_Result_Get()->Valid : Rs_Ls_Result_Get()->Valid;
