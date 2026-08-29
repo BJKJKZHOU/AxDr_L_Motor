@@ -36,6 +36,7 @@ volatile ADC_T ADC = { 0 };
 static volatile float Ia_Gain = 1.0f;
 static volatile float Ib_Gain = 1.0f;
 
+static void Iabc_Rank_Test_Config(void);
 static void Iabc_Calib(void);
 
 void ADC_Calib(void)
@@ -50,6 +51,14 @@ void ADC_Calib(void)
         Error_Handler();
     }
 
+    /* Temporary timing experiment: keep the physical phase mapping unchanged
+     * while swapping the first/last ADC1 injected conversion slots.
+     *
+     * Normal order: Ic -> Ib -> Ia (JDR1 -> JDR2 -> JDR3)
+     * Test order:   Ia -> Ib -> Ic (JDR1 -> JDR2 -> JDR3)
+     *
+     * Sampling time, trigger source and PWM timing remain unchanged. */
+    Iabc_Rank_Test_Config();
     Iabc_Calib();
 }
 
@@ -71,6 +80,44 @@ void ADC_Current_Gain_Get(float *Ia_Gain_Out, float *Ib_Gain_Out)
 {
     *Ia_Gain_Out = Ia_Gain;
     *Ib_Gain_Out = Ib_Gain;
+}
+
+static void Iabc_Rank_Test_Config(void)
+{
+    ADC_InjectionConfTypeDef Config = { 0 };
+
+    Config.InjectedSamplingTime = ADC_SAMPLETIME_47CYCLES_5;
+    Config.InjectedSingleDiff = ADC_SINGLE_ENDED;
+    Config.InjectedOffsetNumber = ADC_OFFSET_NONE;
+    Config.InjectedOffset = 0;
+    Config.InjectedNbrOfConversion = 3;
+    Config.InjectedDiscontinuousConvMode = DISABLE;
+    Config.AutoInjectedConv = DISABLE;
+    Config.QueueInjectedContext = DISABLE;
+    Config.ExternalTrigInjecConv = ADC_EXTERNALTRIGINJEC_T1_TRGO2;
+    Config.ExternalTrigInjecConvEdge = ADC_EXTERNALTRIGINJECCONV_EDGE_FALLING;
+    Config.InjecOversamplingMode = DISABLE;
+
+    Config.InjectedChannel = ADC_CHANNEL_3; /* Ia */
+    Config.InjectedRank = ADC_INJECTED_RANK_1;
+    if (HAL_ADCEx_InjectedConfigChannel(&hadc1, &Config) != HAL_OK)
+    {
+        Error_Handler();
+    }
+
+    Config.InjectedChannel = ADC_CHANNEL_2; /* Ib */
+    Config.InjectedRank = ADC_INJECTED_RANK_2;
+    if (HAL_ADCEx_InjectedConfigChannel(&hadc1, &Config) != HAL_OK)
+    {
+        Error_Handler();
+    }
+
+    Config.InjectedChannel = ADC_CHANNEL_1; /* Ic */
+    Config.InjectedRank = ADC_INJECTED_RANK_3;
+    if (HAL_ADCEx_InjectedConfigChannel(&hadc1, &Config) != HAL_OK)
+    {
+        Error_Handler();
+    }
 }
 
 static void Iabc_Calib(void)
@@ -107,9 +154,9 @@ static void Iabc_Calib(void)
             Error_Handler();
         }
 
-        Ia_Sum += ADC1->JDR3;
+        Ia_Sum += ADC1->JDR1;
         Ib_Sum += ADC1->JDR2;
-        Ic_Sum += ADC1->JDR1;
+        Ic_Sum += ADC1->JDR3;
     }
 
     HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_5);
@@ -147,9 +194,9 @@ void Fast_Loop(void)
         Segment_T0 = Profile_T0;
     }
 
-    ADC.Ia_Raw = (uint16_t)ADC1->JDR3;
+    ADC.Ia_Raw = (uint16_t)ADC1->JDR1;
     ADC.Ib_Raw = (uint16_t)ADC1->JDR2;
-    ADC.Ic_Raw = (uint16_t)ADC1->JDR1;
+    ADC.Ic_Raw = (uint16_t)ADC1->JDR3;
     ADC.Vbus_Raw = (uint16_t)ADC2->JDR1;
 
     ADC.Ia_A = ((float)ADC.Ia_Off - (float)ADC.Ia_Raw) * CUR_RAW_TO_A * Ia_Gain;
