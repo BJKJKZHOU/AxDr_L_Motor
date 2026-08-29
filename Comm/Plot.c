@@ -83,6 +83,14 @@ static const volatile float *Plot_Data_Get(uint16_t Var_ID, float *Scale)
             *Scale = 0.0002f;
             return &Motor_Run.Theta_e;
 
+        case 0x0015: /* Ualpha command */
+            *Scale = 0.001f;
+            return &Motor_Run.Ualpha;
+
+        case 0x0016: /* Ubeta command */
+            *Scale = 0.001f;
+            return &Motor_Run.Ubeta;
+
         case 0x0020: /* Theta_obs */
             *Scale = 0.0002f;
             return &Flux_PLL.State.Theta;
@@ -98,6 +106,14 @@ static const volatile float *Plot_Data_Get(uint16_t Var_ID, float *Scale)
         case 0x0023: /* Flux_Err */
             *Scale = 1.0e-9f;
             return &Flux_Obs.State.Flux_Err;
+
+        case 0x0024: /* PsiAlpha */
+            *Scale = 1.0e-6f;
+            return &Flux_Obs.State.PsiAlpha;
+
+        case 0x0025: /* PsiBeta */
+            *Scale = 1.0e-6f;
+            return &Flux_Obs.State.PsiBeta;
 
         case 0x0101: /* Theta_m */
             *Scale = 0.0002f;
