@@ -63,6 +63,8 @@ bool Sensorless_Active(void);
 bool Sensorless_Ready(void);
 bool Sensorless_Shadow_Set(bool Enable);
 bool Sensorless_Shadow_Get(void);
+bool Sensorless_PLL_BW_Set(float Bw_Hz);
+float Sensorless_PLL_BW_Get(void);
 
 bool Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float *Id_Ref, float *Iq_Ref);
 Sensorless_State_e Sensorless_State_Get(void);
