@@ -361,7 +361,13 @@ def main():
                 time.sleep(0.05)
                 test.motor_para_set()
                 test.current_limit_set()
+
+                # Vbus is delivered by the normal plot stream, so the plot must
+                # be configured and running before the initial bus-voltage check.
+                test.configure_plot()
                 test.check_vbus()
+                test.prepare()
+                time.sleep(0.05)
 
                 for index, requested_bw in enumerate(args.pll_bw, start=1):
                     if stop.requested:
