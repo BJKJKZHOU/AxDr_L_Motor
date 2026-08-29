@@ -44,8 +44,7 @@
 /* Temporary handover boundary. Replace with motor-dependent observer-quality
  * criteria after low-speed hardware characterization. */
 #define OBS_TO_IF_WE_RAD_S (0.75f * IF_WE_TARGET_RAD_S)
-
-#define SPD_DIV 10U
+#define SPD_DIV             10U
 
 typedef enum
 {
@@ -59,6 +58,7 @@ static Sensorless_State_e State = SL_ALIGN;
 static To_Obs_State_e To_Obs_State = TO_OBS_WAIT;
 static volatile bool Active = false;
 static bool Initial_IF = true;
+static bool Shadow_Mode = false;
 
 Flux_Observer_T Flux_Obs = { 0 };
 PLL_T Flux_PLL = { 0 };
@@ -79,24 +79,20 @@ static uint32_t Blend_Cnt = 0U;
 static uint32_t Speed_Div = 0U;
 static float Obs_Id_Ref = 0.0f;
 static float Obs_Iq_Ref = 0.0f;
-static Sensorless_Obs_Diag_T Obs_Diag = { 0 };
+static Sensorless_Diag_T Obs_Diag = { 0 };
 
 static float Angle_Diff(float A, float B)
 {
-    float Diff;
-
-    Diff = A - B;
+    float Diff = A - B;
 
     while (Diff > PI_F)
     {
         Diff -= TWO_PI_F;
     }
-
     while (Diff < -PI_F)
     {
         Diff += TWO_PI_F;
     }
-
     return Diff;
 }
 
@@ -107,15 +103,13 @@ static float Abs_F(float X)
 
 static void Obs_Diag_Reset(void)
 {
-    Obs_Diag = (Sensorless_Obs_Diag_T){ 0 };
+    Obs_Diag = (Sensorless_Diag_T){ 0 };
     Obs_Wait_Max_Cnt = 0U;
 }
 
 static float Current_Limit_Get(void)
 {
-    float I_Max;
-
-    I_Max = (Motor_Lim.I_Max < User_Lim.I_Max) ? Motor_Lim.I_Max : User_Lim.I_Max;
+    float I_Max = (Motor_Lim.I_Max < User_Lim.I_Max) ? Motor_Lim.I_Max : User_Lim.I_Max;
     return (I_Max > 0.0f) ? I_Max : 0.0f;
 }
 
@@ -131,7 +125,7 @@ static bool Obs_Stable(void)
     Obs_Diag.We_Err = Obs_Diag.We_Obs_F - Obs_Diag.We_IF;
     Obs_Diag.PLL_Err = Flux_PLL.State.Err;
     Obs_Diag.Theta_Err = Angle_Diff(Flux_PLL.State.Theta, Sensorless_Theta_IF);
-    Obs_Diag.Reject = OBS_REJECT_NONE;
+    Obs_Diag.Reject = SENSORLESS_REJECT_NONE;
 
     Flux2 = Flux_Obs.State.PsiAlpha * Flux_Obs.State.PsiAlpha + Flux_Obs.State.PsiBeta * Flux_Obs.State.PsiBeta;
     Flux_Ref2 = Flux_Obs.Para.Flux * Flux_Obs.Para.Flux;
@@ -143,37 +137,33 @@ static bool Obs_Stable(void)
     else
     {
         Obs_Diag.Flux_Ratio = 0.0f;
-        Obs_Diag.Reject |= OBS_REJECT_FLUX;
+        Obs_Diag.Reject |= SENSORLESS_REJECT_FLUX;
     }
 
     if (Abs_F(Obs_Diag.We_Err) > WE_ERR_MAX)
     {
-        Obs_Diag.Reject |= OBS_REJECT_WE;
+        Obs_Diag.Reject |= SENSORLESS_REJECT_WE;
     }
-
     if (Abs_F(Obs_Diag.PLL_Err) > PLL_ERR_MAX)
     {
-        Obs_Diag.Reject |= OBS_REJECT_PLL;
+        Obs_Diag.Reject |= SENSORLESS_REJECT_PLL;
     }
-
     if ((Flux_Ref2 > 0.0f) && ((Flux2 < FLUX_MIN_RATIO2 * Flux_Ref2) || (Flux2 > FLUX_MAX_RATIO2 * Flux_Ref2)))
     {
-        Obs_Diag.Reject |= OBS_REJECT_FLUX;
+        Obs_Diag.Reject |= SENSORLESS_REJECT_FLUX;
     }
 
     Obs_Diag.Reject_Seen |= Obs_Diag.Reject;
-    return Obs_Diag.Reject == OBS_REJECT_NONE;
+    return Obs_Diag.Reject == SENSORLESS_REJECT_NONE;
 }
 
 static void DQ_Rotate(float Theta_IF, float Theta_Use, float Id_IF, float Iq_IF, float *Id_Ref, float *Iq_Ref)
 {
-    float Diff;
     float Sin;
     float Cos;
+    float Diff = Angle_Diff(Theta_IF, Theta_Use);
 
-    Diff = Angle_Diff(Theta_IF, Theta_Use);
     SinCos(Angle_Wrap(Diff), &Sin, &Cos);
-
     *Id_Ref = Id_IF * Cos - Iq_IF * Sin;
     *Iq_Ref = Id_IF * Sin + Iq_IF * Cos;
 }
@@ -184,12 +174,10 @@ static float Ramp_Zero(float X, float Step)
     {
         return X - Step;
     }
-
     if (X < -Step)
     {
         return X + Step;
     }
-
     return 0.0f;
 }
 
@@ -229,7 +217,6 @@ static void Speed_Run(float We_Ref)
     }
 
     Speed_Div++;
-
     if (Speed_Div >= SPD_DIV)
     {
         Speed_Div = 0U;
@@ -250,7 +237,6 @@ static float IF_Target(float We_Ref)
     {
         Target = IF_WE_TARGET_RAD_S;
     }
-
     return (We_Ref < 0.0f) ? -Target : Target;
 }
 
@@ -313,6 +299,22 @@ bool Sensorless_Ready(void)
     return Active && !Initial_IF;
 }
 
+bool Sensorless_Shadow_Set(bool Enable)
+{
+    if (Active)
+    {
+        return false;
+    }
+
+    Shadow_Mode = Enable;
+    return true;
+}
+
+bool Sensorless_Shadow_Get(void)
+{
+    return Shadow_Mode;
+}
+
 bool Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float *Id_Ref, float *Iq_Ref)
 {
     float Ialpha;
@@ -354,7 +356,6 @@ bool Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float 
         if (Align_Current(IF_Para.Iq_Start_A, IF_ALIGN_CNT, Id_Ref, Iq_Ref))
         {
             Current_Loop_State_Reset();
-
             Dir = (We_Ref < 0.0f) ? -1 : 1;
             We_IF_Target = IF_Target(We_Ref);
             Theta_Start = -(float)Dir * (0.5f * PI_F);
@@ -366,26 +367,17 @@ bool Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float 
             Flux_Obs.Para.Rs = Motor_Para.Rs;
             Flux_Obs.Para.Ls = Motor_Para.Ld;
             Flux_Obs.Para.Flux = Motor_Para.Flux;
-
-            if (Motor_Para.Flux > 0.0f)
-            {
-                Flux_Obs.Para.Gamma = TWO_PI_F * FLUX_OBS_BW_HZ / (Motor_Para.Flux * Motor_Para.Flux);
-            }
-            else
-            {
-                Flux_Obs.Para.Gamma = 0.0f;
-            }
+            Flux_Obs.Para.Gamma = (Motor_Para.Flux > 0.0f)
+                                      ? TWO_PI_F * FLUX_OBS_BW_HZ / (Motor_Para.Flux * Motor_Para.Flux)
+                                      : 0.0f;
 
             Flux_PLL.Para.Kp = PLL_KP;
             Flux_PLL.Para.Ki = PLL_KI;
-
             Flux_Observer_Reset(&Flux_Obs, Theta_Start, Ialpha, Ibeta);
             PLL_Reset(&Flux_PLL, Theta_Start, 0.0f);
             Flux_Obs_U_Valid = false;
-
             State = SL_IF;
         }
-
         return false;
     }
 
@@ -397,17 +389,13 @@ bool Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float 
         {
             T0 = DWT->CYCCNT;
         }
-
         Flux_Observer_Run(&Flux_Obs, Motor_Run.Ualpha, Motor_Run.Ubeta, Ialpha, Ibeta, CUR_TS);
-
         if (Profile_Run)
         {
             Fast_Profile_Add(&Fast_Profile.Flux_Observer, DWT->CYCCNT - T0);
             T0 = DWT->CYCCNT;
         }
-
         PLL_Run(&Flux_PLL, Flux_Obs.State.PsiAlpha, Flux_Obs.State.PsiBeta, Flux_Obs.Para.Flux, CUR_TS);
-
         if (Profile_Run)
         {
             Fast_Profile_Add(&Fast_Profile.PLL, DWT->CYCCNT - T0);
@@ -417,19 +405,15 @@ bool Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float 
     if (State != SL_OBS)
     {
         IF_Start_Target_Set(IF_Target(We_Ref));
-
         if (Profile_Run)
         {
             T0 = DWT->CYCCNT;
         }
-
         IF_Ready = IF_Start_Run(&Theta_IF, &Id_IF, &Iq_IF);
-
         if (Profile_Run)
         {
             Fast_Profile_Add(&Fast_Profile.IF_Start, DWT->CYCCNT - T0);
         }
-
         Sensorless_Theta_IF = Theta_IF;
     }
 
@@ -472,7 +456,6 @@ bool Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float 
                 {
                     Obs_Wait_Cnt++;
                 }
-
                 if (Obs_Wait_Cnt > Obs_Wait_Max_Cnt)
                 {
                     Obs_Wait_Max_Cnt = Obs_Wait_Cnt;
@@ -481,7 +464,7 @@ bool Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float 
                 Obs_Diag.Stable_s = (float)Obs_Wait_Cnt * CUR_TS;
                 Obs_Diag.Stable_Max_s = (float)Obs_Wait_Max_Cnt * CUR_TS;
 
-                if (Obs_Wait_Cnt >= OBS_WAIT_CNT)
+                if ((Obs_Wait_Cnt >= OBS_WAIT_CNT) && !Shadow_Mode)
                 {
                     Blend_Cnt = 0U;
                     Sensorless_Blend = 0.0f;
@@ -497,15 +480,7 @@ bool Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float 
         }
         else if (To_Obs_State == TO_OBS_BLEND)
         {
-            if (BLEND_CNT > 0U)
-            {
-                Blend = (float)(Blend_Cnt + 1U) / (float)BLEND_CNT;
-            }
-            else
-            {
-                Blend = 1.0f;
-            }
-
+            Blend = (BLEND_CNT > 0U) ? (float)(Blend_Cnt + 1U) / (float)BLEND_CNT : 1.0f;
             if (Blend > 1.0f)
             {
                 Blend = 1.0f;
@@ -513,7 +488,6 @@ bool Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float 
 
             Theta_Err = Angle_Diff(Theta_Obs, Theta_IF);
             Theta_Use = Angle_Wrap(Theta_IF + Blend * Theta_Err);
-
             DQ_Rotate(Theta_IF, Theta_Use, Id_IF, Iq_IF, Id_Ref, Iq_Ref);
             Sensorless_Blend = Blend;
 
@@ -521,7 +495,6 @@ bool Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float 
             {
                 Blend_Cnt++;
             }
-
             if (Blend_Cnt >= BLEND_CNT)
             {
                 Obs_Id_Ref = *Id_Ref;
@@ -567,15 +540,7 @@ bool Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float 
     }
     else
     {
-        if (BLEND_CNT > 0U)
-        {
-            Blend = (float)(Blend_Cnt + 1U) / (float)BLEND_CNT;
-        }
-        else
-        {
-            Blend = 1.0f;
-        }
-
+        Blend = (BLEND_CNT > 0U) ? (float)(Blend_Cnt + 1U) / (float)BLEND_CNT : 1.0f;
         if (Blend > 1.0f)
         {
             Blend = 1.0f;
@@ -590,7 +555,6 @@ bool Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float 
         {
             Blend_Cnt++;
         }
-
         if (Blend_Cnt >= BLEND_CNT)
         {
             Sensorless_Blend = 0.0f;
@@ -602,7 +566,6 @@ bool Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float 
     Sensorless_Theta_Use = Theta_Use;
     Sensorless_Id_Ref = *Id_Ref;
     Sensorless_Iq_Ref = *Iq_Ref;
-
     return Sensorless_Ready();
 }
 
@@ -611,7 +574,7 @@ Sensorless_State_e Sensorless_State_Get(void)
     return State;
 }
 
-const Sensorless_Obs_Diag_T *Sensorless_Obs_Diag_Get(void)
+const Sensorless_Diag_T *Sensorless_Diag_Get(void)
 {
     return &Obs_Diag;
 }
