@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Diagnose observer correction contribution to negative-sequence flux.
 
-Captures Theta_e, Ia/Ib, Ucmd alpha/beta, Psi alpha/beta and Flux_Err at FAST rate.
-The observer correction is reconstructed exactly from firmware equations:
+Captures Theta_e, Ia/Ib, Ucmd alpha/beta and Psi alpha/beta at FAST rate.
+Flux_Err is reconstructed offline from the same firmware equation to avoid
+int16 FAST-plot saturation:
 
+    Flux_Err = Flux^2 - PsiAlpha^2 - PsiBeta^2
     Gamma = 2*pi*FLUX_OBS_BW_HZ / Flux^2
     Corr = 0.5 * Gamma * Flux_Err
     CorrPsi = Corr * Psi
@@ -34,7 +36,6 @@ FAST_VARS = (
     ("Ubeta", 0x0016, 0.001),
     ("PsiAlpha", 0x0024, 1.0e-6),
     ("PsiBeta", 0x0025, 1.0e-6),
-    ("FluxErr", 0x0023, 1.0e-9),
 )
 
 
@@ -141,16 +142,21 @@ class CorrectionRun(seq.SequenceRun):
 def correction_metrics(rows, flux):
     gamma = 2.0 * math.pi * FLUX_OBS_BW_HZ / (flux * flux)
     mapped = []
+    flux_err_values = []
     for row in rows:
-        corr = 0.5 * gamma * row["FluxErr"]
+        psi_alpha = row["PsiAlpha"]
+        psi_beta = row["PsiBeta"]
+        flux_err = flux * flux - psi_alpha * psi_alpha - psi_beta * psi_beta
+        corr = 0.5 * gamma * flux_err
+        flux_err_values.append(flux_err)
         mapped.append(
             {
                 "Theta_e": row["Theta_e"],
-                "CorrPsiAlpha": corr * row["PsiAlpha"],
-                "CorrPsiBeta": corr * row["PsiBeta"],
+                "CorrPsiAlpha": corr * psi_alpha,
+                "CorrPsiBeta": corr * psi_beta,
             }
         )
-    return gamma, seq.sequence_metrics(mapped, "CorrPsiAlpha", "CorrPsiBeta")
+    return gamma, seq.sequence_metrics(mapped, "CorrPsiAlpha", "CorrPsiBeta"), flux_err_values
 
 
 def main():
@@ -186,14 +192,14 @@ def main():
                     f"Observer correction diagnostic: We={args.we:.1f} rad/s, "
                     f"PLL BW={args.pll_bw_hz:.1f} Hz"
                 )
-                print("ALIGN -> I/F -> shadow; collecting I/U/Psi/FluxErr at FAST rate")
+                print("ALIGN -> I/F -> shadow; collecting I/U/Psi at FAST rate")
                 test.wait_shadow()
                 rows = test.collect()
 
                 current = seq.current_sequence_metrics(rows)
                 voltage = seq.sequence_metrics(rows, "Ualpha", "Ubeta")
                 flux_m = seq.sequence_metrics(rows, "PsiAlpha", "PsiBeta")
-                gamma, correction = correction_metrics(rows, args.flux)
+                gamma, correction, flux_err_values = correction_metrics(rows, args.flux)
 
                 i_neg = neg_complex(current)
                 u_neg = neg_complex(voltage)
@@ -211,6 +217,10 @@ def main():
                 residual_full = psi_meas - psi_full
 
                 print(f"Gamma={gamma:.6e} 1/(Wb^2*s)")
+                print(
+                    f"Flux_Err offline: mean={seq.mean(flux_err_values):+.6e} Wb^2 "
+                    f"rms={seq.rms(flux_err_values):.6e} Wb^2"
+                )
                 print("\nNegative-sequence complex vectors")
                 print_vec("I_-", i_neg, "A")
                 print_vec("Ucmd_-", u_neg, "V")
