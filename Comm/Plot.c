@@ -113,6 +113,14 @@ static const volatile float *Plot_Data_Get(uint16_t Var_ID, float *Scale)
             *Scale = 0.001f;
             return &Iq_Ctrl.State.Int;
 
+        case 0x001B: /* Id PI error, high resolution */
+            *Scale = 0.00005f;
+            return &Id_Ctrl.Sig.Err;
+
+        case 0x001C: /* Iq PI error, high resolution */
+            *Scale = 0.00005f;
+            return &Iq_Ctrl.Sig.Err;
+
         case 0x0020: /* Theta_obs */
             *Scale = 0.0002f;
             return &Flux_PLL.State.Theta;

@@ -1,15 +1,11 @@
 #!/usr/bin/env python3
-"""Diagnose current-loop 2fe sources during sensorless shadow I/F.
+"""Single-window current-loop 2fe diagnostics during sensorless shadow I/F.
 
-One motor run is kept alive while two FAST windows are captured:
-  A: Theta, Id/Iq, Id/Iq references, Id/Iq PI integrators.
-  B: Theta, Id/Iq, Ud/Uq, Ualpha/Ubeta.
-
-FAST Config_ID bit7 enables the extended firmware header carrying the first
-control tick and Plot_Fast_Drop count. Bit6 requests 4:1 decimation, reducing
-20 kHz FAST transport to 5 kHz while preserving ample resolution for 2fe.
-Raw rows keep global control_tick and true FAST block position so offline
-analysis can reject non-contiguous sample pairs exactly.
+Captures one synchronized 5 kHz FAST window:
+Theta_e, IdErr/IqErr (50 uA/LSB), Id/Iq PI integrators, Ud/Uq, IqRef.
+Ualpha/Ubeta are reconstructed from Ud/Uq/Theta_e so the complete
+Error -> P/Integrator -> dq output -> alpha/beta negative-sequence chain is
+analyzed from the same samples.
 """
 
 import json
@@ -26,33 +22,22 @@ import sequence_diag as seq
 import sensorless_run
 import sensorless_test as base
 
-
 META_MASK = 0x80
 DECIMATE4_MASK = 0x40
-CONFIG_A = META_MASK | DECIMATE4_MASK | 0x11
-CONFIG_B = META_MASK | DECIMATE4_MASK | 0x12
+CONFIG_ID = META_MASK | DECIMATE4_MASK | 0x13
 BLOCK_SAMPLES = 20
 CUR_BW_HZ = 1000.0
 EXPECTED_DECIMATION = 4
 
-FAST_A = (
+FAST_VARS = (
     ("Theta_e", 0x0014, 0.0002),
-    ("Id", 0x0010, 0.001),
-    ("Iq", 0x0011, 0.001),
-    ("IdRef", 0x0017, 0.001),
-    ("IqRef", 0x0018, 0.001),
+    ("IdErr", 0x001B, 0.00005),
+    ("IqErr", 0x001C, 0.00005),
     ("IdInt", 0x0019, 0.001),
     ("IqInt", 0x001A, 0.001),
-)
-
-FAST_B = (
-    ("Theta_e", 0x0014, 0.0002),
-    ("Id", 0x0010, 0.001),
-    ("Iq", 0x0011, 0.001),
     ("Ud", 0x0012, 0.001),
     ("Uq", 0x0013, 0.001),
-    ("Ualpha", 0x0015, 0.001),
-    ("Ubeta", 0x0016, 0.001),
+    ("IqRef", 0x0018, 0.001),
 )
 
 
@@ -75,41 +60,38 @@ def wrap_deg(value):
 def scalar_2fe(rows, key):
     values = [row[key] for row in rows]
     dc = mean(values)
-    coeff = 0j
-    for row in rows:
-        angle = 2.0 * row["Theta_e"]
-        coeff += (row[key] - dc) * complex(math.cos(angle), -math.sin(angle))
-    coeff /= len(rows)
-    peak = 2.0 * abs(coeff)
+    coeff = sum(
+        (row[key] - dc)
+        * complex(math.cos(2.0 * row["Theta_e"]), -math.sin(2.0 * row["Theta_e"]))
+        for row in rows
+    ) / len(rows)
     return {
         "mean": dc,
         "rms": rms(values),
         "coeff_real": coeff.real,
         "coeff_imag": coeff.imag,
-        "peak": peak,
+        "peak": 2.0 * abs(coeff),
         "phase_deg": math.degrees(math.atan2(coeff.imag, coeff.real)),
     }
 
 
 def continuity(rows):
-    expected_step = rows[0]["decimation"]
+    decimation = rows[0]["decimation"]
     gaps = []
     for prev, cur in zip(rows, rows[1:]):
-        expected = prev["control_tick"] + expected_step
+        expected = prev["control_tick"] + decimation
         if cur["control_tick"] != expected:
             delta = cur["control_tick"] - expected
-            gaps.append(
-                {
-                    "from": prev["control_tick"],
-                    "to": cur["control_tick"],
-                    "missing_control_ticks": delta,
-                    "missing_plot_samples": delta // expected_step if delta > 0 else 0,
-                }
-            )
+            gaps.append({
+                "from": prev["control_tick"],
+                "to": cur["control_tick"],
+                "missing_control_ticks": delta,
+                "missing_plot_samples": delta // decimation if delta > 0 else 0,
+            })
     return {
         "first_tick": rows[0]["control_tick"],
         "last_tick": rows[-1]["control_tick"],
-        "decimation": expected_step,
+        "decimation": decimation,
         "gap_count": len(gaps),
         "missing_control_ticks": sum(g["missing_control_ticks"] for g in gaps),
         "missing_plot_samples": sum(g["missing_plot_samples"] for g in gaps),
@@ -123,48 +105,31 @@ def continuity(rows):
 class CurrentLoopRun(seq.SequenceRun):
     def __init__(self, ser, args, stop):
         super().__init__(ser, args, stop)
-        self.active_vars = FAST_A
-        self.active_config = CONFIG_A
         self.samples = []
         self.last_fast_rx = None
         self.current_trip = False
-        self.fast_saturation = [0] * len(self.active_vars)
+        self.fast_saturation = [0] * len(FAST_VARS)
 
     def configure_plot(self):
-        self._configure_fast(FAST_A, CONFIG_A, start_normal=True)
-
-    def _configure_fast(self, variables, config_id, start_normal=False):
-        self.active_vars = variables
-        self.active_config = config_id
         self.fast_last = None
         self.fast_lost = 0
+        self.normal_last = None
+        self.normal_lost = 0
         self.samples = []
-        self.fast_saturation = [0] * len(variables)
-        self.last_fast_rx = None
+        self.fast_saturation = [0] * len(FAST_VARS)
 
-        fast_data = bytes([base.FAST_GROUP, config_id, len(variables)])
-        fast_data += b"".join(struct.pack("<H", var_id) for _, var_id, _ in variables)
+        fast_data = bytes([base.FAST_GROUP, CONFIG_ID, len(FAST_VARS)])
+        fast_data += b"".join(struct.pack("<H", var_id) for _, var_id, _ in FAST_VARS)
         self.request(base.MSG_PLOT, base.PLOT_CONFIG, fast_data)
 
-        if start_normal:
-            self.normal_last = None
-            self.normal_lost = 0
-            normal_data = bytes([base.NORMAL_GROUP, sensorless_run.NORMAL_CONFIG_ID, 1])
-            normal_data += struct.pack("<H", seq.VBUS_ID)
-            self.request(base.MSG_PLOT, base.PLOT_CONFIG, normal_data)
-            mask = base.FAST_MASK | base.NORMAL_MASK
-        else:
-            mask = base.FAST_MASK
-
-        self.request(base.MSG_PLOT, base.PLOT_START, bytes([mask]))
+        normal_data = bytes([base.NORMAL_GROUP, sensorless_run.NORMAL_CONFIG_ID, 1])
+        normal_data += struct.pack("<H", seq.VBUS_ID)
+        self.request(base.MSG_PLOT, base.PLOT_CONFIG, normal_data)
+        self.request(base.MSG_PLOT, base.PLOT_START, bytes([base.FAST_MASK | base.NORMAL_MASK]))
         self.monitor_started = time.monotonic()
 
-    def switch_fast(self, variables, config_id):
-        self.request(base.MSG_PLOT, base.PLOT_STOP, bytes([base.FAST_MASK]))
-        self._configure_fast(variables, config_id, start_normal=False)
-
     def process_fast(self, payload):
-        if len(payload) < 14 or payload[2] != self.active_config:
+        if len(payload) < 14 or payload[2] != CONFIG_ID:
             return
 
         (frame_seq,) = struct.unpack_from("<H", payload, 0)
@@ -172,9 +137,9 @@ class CurrentLoopRun(seq.SequenceRun):
         first_tick, fast_drop = struct.unpack_from("<II", payload, 4)
         first_block_pos = payload[12]
         decimation = payload[13]
-        count = len(self.active_vars)
         if decimation != EXPECTED_DECIMATION:
             raise RuntimeError(f"unexpected FAST decimation: {decimation}")
+        count = len(FAST_VARS)
         if len(payload) != 14 + sample_count * count * 2:
             return
 
@@ -189,25 +154,22 @@ class CurrentLoopRun(seq.SequenceRun):
         raw = struct.unpack_from(f"<{sample_count * count}h", payload, 14)
         for sample in range(sample_count):
             start = sample * count
-            tick = first_tick + sample * decimation
             row = {
-                "control_tick": tick,
+                "control_tick": first_tick + sample * decimation,
                 "block_pos": (first_block_pos + sample) % BLOCK_SAMPLES,
                 "fast_drop": fast_drop,
                 "decimation": decimation,
             }
-            for index, (name, _, scale) in enumerate(self.active_vars):
+            for index, (name, _, scale) in enumerate(FAST_VARS):
                 code = raw[start + index]
                 if code in (-32768, 32767):
                     self.fast_saturation[index] += 1
                 row[name] = code * scale
-            if "Id" in row and "Iq" in row:
-                self.current_peak = max(self.current_peak, abs(row["Id"]), abs(row["Iq"]))
             self.samples.append(row)
 
-    def collect_window(self, seconds):
+    def collect(self):
         start_count = len(self.samples)
-        deadline = time.monotonic() + seconds
+        deadline = time.monotonic() + self.args.duration
         next_status = time.monotonic()
         while time.monotonic() < deadline:
             now = time.monotonic()
@@ -268,40 +230,38 @@ def main():
                 test.request(base.MSG_CONTROL, base.CTRL_ENABLE)
                 test.request(base.MSG_CONTROL, base.CTRL_RUN)
                 print(f"Current-loop diagnostic: We={args.we:.1f} rad/s, FAST=5 kHz (decimation 4)")
-                print("ALIGN -> I/F -> shadow; two FAST windows in the same motor run")
+                print("ALIGN -> I/F -> shadow; one synchronized FAST window")
                 test.wait_shadow()
-
-                print(f"Window A: Ref/Fbk/PI integrators for {args.duration:.2f} s")
-                rows_a = test.collect_window(args.duration)
-                cont_a = continuity(rows_a)
-
-                test.switch_fast(FAST_B, CONFIG_B)
-                time.sleep(0.05)
-                print(f"Window B: dq/alpha-beta outputs for {args.duration:.2f} s")
-                rows_b = test.collect_window(args.duration)
-                cont_b = continuity(rows_b)
+                print(f"Collecting Error/Integrator/Udq for {args.duration:.2f} s")
+                rows = test.collect()
+                cont = continuity(rows)
 
                 wc = 2.0 * math.pi * CUR_BW_HZ
                 kp_d = args.ld * wc
                 kp_q = args.lq * wc
                 ki = args.rs * wc
-                for row in rows_a:
-                    row["IdErr"] = row["IdRef"] - row["Id"]
-                    row["IqErr"] = row["IqRef"] - row["Iq"]
+
+                mapped_u = []
+                for row in rows:
                     row["IdP"] = kp_d * row["IdErr"]
                     row["IqP"] = kp_q * row["IqErr"]
+                    theta = row["Theta_e"]
+                    c = math.cos(theta)
+                    s = math.sin(theta)
+                    row["Ualpha"] = row["Ud"] * c - row["Uq"] * s
+                    row["Ubeta"] = row["Ud"] * s + row["Uq"] * c
+                    mapped_u.append(row)
 
-                a_metrics = {
-                    key: scalar_2fe(rows_a, key)
-                    for key in ("Id", "Iq", "IdErr", "IqErr", "IdP", "IqP", "IdInt", "IqInt")
+                metrics = {
+                    key: scalar_2fe(rows, key)
+                    for key in ("IdErr", "IqErr", "IdP", "IqP", "IdInt", "IqInt", "Ud", "Uq", "IqRef")
                 }
-                b_metrics = {key: scalar_2fe(rows_b, key) for key in ("Id", "Iq", "Ud", "Uq")}
-                u_sequence = seq.sequence_metrics(rows_b, "Ualpha", "Ubeta")
+                u_sequence = seq.sequence_metrics(mapped_u, "Ualpha", "Ubeta")
 
                 int_theory = {}
                 for axis in ("Id", "Iq"):
-                    err = a_metrics[f"{axis}Err"]
-                    integ = a_metrics[f"{axis}Int"]
+                    err = metrics[f"{axis}Err"]
+                    integ = metrics[f"{axis}Int"]
                     pred_peak = ki * err["peak"] / (2.0 * args.we)
                     phase_delta = wrap_deg(integ["phase_deg"] - err["phase_deg"])
                     int_theory[axis] = {
@@ -312,12 +272,12 @@ def main():
                         "ideal_phase_delta_deg": -90.0,
                     }
 
-                print("\nWindow A: current error / PI decomposition")
+                print("\nCurrent error / PI / final dq output")
                 for key, unit in (
-                    ("Id", "A"), ("Iq", "A"), ("IdErr", "A"), ("IqErr", "A"),
-                    ("IdP", "V"), ("IqP", "V"), ("IdInt", "V"), ("IqInt", "V"),
+                    ("IdErr", "A"), ("IqErr", "A"), ("IdP", "V"), ("IqP", "V"),
+                    ("IdInt", "V"), ("IqInt", "V"), ("Ud", "V"), ("Uq", "V"), ("IqRef", "A"),
                 ):
-                    print_scalar(key, a_metrics[key], unit)
+                    print_scalar(key, metrics[key], unit)
 
                 print("\nIntegrator consistency at 2fe")
                 for axis in ("Id", "Iq"):
@@ -329,23 +289,19 @@ def main():
                         f"phase_delta={item['phase_delta_deg']:+.2f} deg (ideal -90 deg)"
                     )
 
-                print("\nWindow B: final dq output")
-                for key, unit in (("Id", "A"), ("Iq", "A"), ("Ud", "V"), ("Uq", "V")):
-                    print_scalar(key, b_metrics[key], unit)
+                print("\nReconstructed Ucmd alpha-beta")
                 print(
-                    f"  Ucmd alpha-beta: positive={u_sequence['positive_mag']:.6f} V "
+                    f"  positive={u_sequence['positive_mag']:.6f} V "
                     f"negative={u_sequence['negative_mag']:.6f} V "
                     f"neg/pos={u_sequence['negative_ratio']:.5f}"
                 )
 
                 print("\nFAST continuity")
-                for name, cont in (("A", cont_a), ("B", cont_b)):
-                    print(
-                        f"  window {name}: tick={cont['first_tick']}..{cont['last_tick']} "
-                        f"decim={cont['decimation']} gaps={cont['gap_count']} "
-                        f"missing_plot={cont['missing_plot_samples']} "
-                        f"fast_drop_delta={cont['fast_drop_delta']}"
-                    )
+                print(
+                    f"  tick={cont['first_tick']}..{cont['last_tick']} decim={cont['decimation']} "
+                    f"gaps={cont['gap_count']} missing_plot={cont['missing_plot_samples']} "
+                    f"fast_drop_delta={cont['fast_drop_delta']}"
+                )
 
                 log = {
                     "timestamp": started.isoformat(),
@@ -360,19 +316,13 @@ def main():
                         "kp_q": kp_q,
                         "ki": ki,
                         "fast_decimation": EXPECTED_DECIMATION,
+                        "error_scale_a": 0.00005,
                     },
-                    "window_a": {
-                        "continuity": cont_a,
-                        "metrics": a_metrics,
-                        "integrator_theory": int_theory,
-                        "raw_samples": rows_a,
-                    },
-                    "window_b": {
-                        "continuity": cont_b,
-                        "metrics": b_metrics,
-                        "u_sequence": u_sequence,
-                        "raw_samples": rows_b,
-                    },
+                    "continuity": cont,
+                    "metrics": metrics,
+                    "integrator_theory": int_theory,
+                    "u_sequence": u_sequence,
+                    "raw_samples": rows,
                 }
 
             except (TimeoutError, RuntimeError) as exc:
