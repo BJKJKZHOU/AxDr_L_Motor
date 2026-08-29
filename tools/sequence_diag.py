@@ -204,7 +204,7 @@ class SequenceRun(shadow.ShadowRun):
     def process_fast(self, payload):
         if len(payload) < 4 or payload[2] != FAST_CONFIG_ID:
             return
-        seq, = struct.unpack_from("<H", payload, 0)
+        seq_num, = struct.unpack_from("<H", payload, 0)
         sample_count = payload[3]
         count = len(FAST_VARS)
         if len(payload) != 4 + sample_count * count * 2:
@@ -212,8 +212,8 @@ class SequenceRun(shadow.ShadowRun):
 
         if self.fast_last is not None:
             expected = (self.fast_last + 1) & 0xFFFF
-            self.fast_lost += (seq - expected) & 0xFFFF
-        self.fast_last = seq
+            self.fast_lost += (seq_num - expected) & 0xFFFF
+        self.fast_last = seq_num
         self.fast_frames += 1
         self.fast_samples += sample_count
         self.last_fast_rx = time.monotonic()
@@ -291,7 +291,7 @@ def parse_args():
     parser.add_argument("--current-limit", type=float, default=2.0)
     parser.add_argument("--ia-gain", type=float, default=1.0)
     parser.add_argument("--ib-gain", type=float, default=1.0)
-    parser.add_argument("--we", type=float, default=120.0)
+    parser.add_argument("--we", type=float, default=120.0, help="signed electrical speed target in rad/s")
     parser.add_argument("--pll-bw-hz", type=float, default=20.0)
     parser.add_argument("--duration", type=float, default=5.0)
     parser.add_argument("--vbus-min", type=float, default=10.0)
@@ -320,8 +320,8 @@ def parse_args():
     args = parser.parse_args()
     if not args.run:
         parser.error("--run is required to energize the motor")
-    if args.pole_pairs <= 0 or args.current_limit <= 0.0 or args.we <= 0.0 or args.duration <= 0.0:
-        parser.error("pole-pairs/current-limit/we/duration must be positive")
+    if args.pole_pairs <= 0 or args.current_limit <= 0.0 or args.we == 0.0 or args.duration <= 0.0:
+        parser.error("pole-pairs/current-limit/duration must be positive and we must be non-zero")
     if not 1.0 <= args.pll_bw_hz <= 200.0:
         parser.error("--pll-bw-hz must be within 1 .. 200 Hz")
     if not 0.8 <= args.ia_gain <= 1.2 or not 0.8 <= args.ib_gain <= 1.2:
@@ -348,6 +348,7 @@ def main():
         "config": {
             "we_if_rad_s": args.we,
             "wm_rad_s": wm,
+            "direction": "forward" if args.we > 0.0 else "reverse",
             "pll_bw_hz": args.pll_bw_hz,
             "duration_s": args.duration,
             "current_gain_requested": {"ia": args.ia_gain, "ib": args.ib_gain},
