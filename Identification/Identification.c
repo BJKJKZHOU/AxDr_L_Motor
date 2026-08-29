@@ -22,7 +22,7 @@
 
 #define IDENT_U_SOFT_RATIO 0.25f
 #define IDENT_U_HARD_RATIO 0.80f
-#define VOLT_DIAG_LOAD_I_RATIO 0.30f
+#define VOLT_DIAG_LOAD_I_RATIO 0.15f
 #define VOLT_DIAG_ALIGN_V      0.50f
 #define VOLT_DIAG_U_MAX_V      6.00f
 
@@ -374,9 +374,9 @@ uint8_t Identification_Stage_Get(void)
         float We_Ref;
         float U_Ref;
         Voltage_Diag_Get(&We_Target, &U_Target, &U_Align, &We_Ref, &U_Ref);
-        (void)U_Target;
         (void)U_Align;
-        return (Abs_Value(We_Ref) + 0.5f >= Abs_Value(We_Target)) ? 2U : 1U;
+        return ((Abs_Value(We_Ref) + 0.5f >= Abs_Value(We_Target)) &&
+                (Abs_Value(U_Ref - U_Target) <= 0.01f)) ? 2U : 1U;
     }
 
     return 0U;
