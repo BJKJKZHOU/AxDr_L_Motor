@@ -5,6 +5,8 @@
 
 #include "Voltage_Diag.h"
 
+#include <stdint.h>
+
 #include "Math.h"
 #include "Sin_LUT.h"
 #include "control_params.h"
