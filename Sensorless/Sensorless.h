@@ -47,6 +47,15 @@ typedef struct
 
 } Sensorless_Diag_T;
 
+typedef struct
+{
+    float Theta_Flux;
+    float We_Flux_Raw;
+    float We_Flux_F;
+    float Theta_Flux_IF_Err;
+
+} Sensorless_Flux_Diag_T;
+
 extern Flux_Observer_T Flux_Obs;
 extern PLL_T Flux_PLL;
 
@@ -69,5 +78,6 @@ float Sensorless_PLL_BW_Get(void);
 bool Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float *Id_Ref, float *Iq_Ref);
 Sensorless_State_e Sensorless_State_Get(void);
 const Sensorless_Diag_T *Sensorless_Diag_Get(void);
+const Sensorless_Flux_Diag_T *Sensorless_Flux_Diag_Get(void);
 
 #endif /* SENSORLESS_H */
