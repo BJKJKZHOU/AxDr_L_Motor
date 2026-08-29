@@ -170,10 +170,14 @@ void Fast_Loop(void)
         goto finish;
     }
 
+    /* Theta_e is owned by the active fast path for every energized mode.
+     * Publish it before either current-loop or direct-voltage execution so
+     * diagnostics and plot data observe the same electrical angle that
+     * generated this cycle's voltage vector. */
+    Motor_Run.Theta_e = Theta_e;
+
     if (Fast_Mode == FAST_CURRENT)
     {
-        Motor_Run.Theta_e = Theta_e;
-
         if (Fast_Profile.Run != 0U)
         {
             Segment_T0 = DWT->CYCCNT;
