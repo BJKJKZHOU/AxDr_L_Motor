@@ -21,11 +21,10 @@
 #include "main.h"
 
 #define FLUX_OBS_BW_HZ 200.0f
-#define PLL_BW_HZ      50.0f
-#define PLL_DAMP       0.707f
-#define PLL_WN         (TWO_PI_F * PLL_BW_HZ)
-#define PLL_KP         (2.0f * PLL_DAMP * PLL_WN)
-#define PLL_KI         (PLL_WN * PLL_WN)
+#define PLL_BW_DEFAULT_HZ 50.0f
+#define PLL_BW_MIN_HZ     1.0f
+#define PLL_BW_MAX_HZ     200.0f
+#define PLL_DAMP          0.707f
 
 #define OBS_WAIT_S   0.20f
 #define OBS_WAIT_CNT ((uint32_t)(OBS_WAIT_S / CUR_TS + 0.5f))
@@ -59,6 +58,7 @@ static To_Obs_State_e To_Obs_State = TO_OBS_WAIT;
 static volatile bool Active = false;
 static bool Initial_IF = true;
 static bool Shadow_Mode = false;
+static float PLL_Bw_Hz = PLL_BW_DEFAULT_HZ;
 
 Flux_Observer_T Flux_Obs = { 0 };
 PLL_T Flux_PLL = { 0 };
@@ -242,6 +242,8 @@ static float IF_Target(float We_Ref)
 
 bool Sensorless_Begin(void)
 {
+    float PLL_Wn;
+
     State = SL_ALIGN;
     To_Obs_State = TO_OBS_WAIT;
     Active = false;
@@ -271,6 +273,10 @@ bool Sensorless_Begin(void)
         State = SL_FAILED;
         return false;
     }
+
+    PLL_Wn = TWO_PI_F * PLL_Bw_Hz;
+    Flux_PLL.Para.Kp = 2.0f * PLL_DAMP * PLL_Wn;
+    Flux_PLL.Para.Ki = PLL_Wn * PLL_Wn;
 
     Active = true;
     return true;
@@ -313,6 +319,22 @@ bool Sensorless_Shadow_Set(bool Enable)
 bool Sensorless_Shadow_Get(void)
 {
     return Shadow_Mode;
+}
+
+bool Sensorless_PLL_BW_Set(float Bw_Hz)
+{
+    if (Active || !__builtin_isfinite(Bw_Hz) || (Bw_Hz < PLL_BW_MIN_HZ) || (Bw_Hz > PLL_BW_MAX_HZ))
+    {
+        return false;
+    }
+
+    PLL_Bw_Hz = Bw_Hz;
+    return true;
+}
+
+float Sensorless_PLL_BW_Get(void)
+{
+    return PLL_Bw_Hz;
 }
 
 bool Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float *Id_Ref, float *Iq_Ref)
@@ -371,8 +393,6 @@ bool Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float 
                                       ? TWO_PI_F * FLUX_OBS_BW_HZ / (Motor_Para.Flux * Motor_Para.Flux)
                                       : 0.0f;
 
-            Flux_PLL.Para.Kp = PLL_KP;
-            Flux_PLL.Para.Ki = PLL_KI;
             Flux_Observer_Reset(&Flux_Obs, Theta_Start, Ialpha, Ibeta);
             PLL_Reset(&Flux_PLL, Theta_Start, 0.0f);
             Flux_Obs_U_Valid = false;
