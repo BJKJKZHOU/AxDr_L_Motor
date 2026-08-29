@@ -251,7 +251,7 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
     log_path = out_dir / f"voltage_sequence_{started.strftime('%Y%m%d_%H%M%S')}.json"
     wm = args.we / args.pole_pairs
-    expected_u = abs(args.we) * args.flux + 0.30 * args.current_limit * args.rs
+    expected_u = abs(args.we) * args.flux + 0.15 * args.current_limit * args.rs
     log = {
         "test": "voltage_sequence_diag",
         "timestamp": started.isoformat(),
