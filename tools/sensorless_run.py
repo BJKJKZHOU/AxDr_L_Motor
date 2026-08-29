@@ -34,6 +34,10 @@ MONITOR_HZ = 1000.0
 INV_SQRT3 = 1.0 / math.sqrt(3.0)
 VOLT_MOD_MAX = 0.95
 
+OBS_REJECT_WE = 1 << 0
+OBS_REJECT_PLL = 1 << 1
+OBS_REJECT_FLUX = 1 << 2
+
 FAST_VARS = (
     ("Id", 0x0010, 0.001),
     ("Iq", 0x0011, 0.001),
@@ -59,6 +63,17 @@ def mean(values):
 
 def rms(values):
     return math.sqrt(sum(value * value for value in values) / len(values))
+
+
+def reject_name(mask):
+    names = []
+    if mask & OBS_REJECT_WE:
+        names.append("WE")
+    if mask & OBS_REJECT_PLL:
+        names.append("PLL")
+    if mask & OBS_REJECT_FLUX:
+        names.append("FLUX")
+    return "|".join(names) if names else "NONE"
 
 
 class StopRequest:
@@ -105,6 +120,7 @@ class SensorlessRun(base.SensorlessTest):
         self.monitor_started = None
         self.command_wm = 0.0
         self.target_we = 0.0
+        self.handover_diag = None
 
     def prepare(self):
         for msg_type, op, data in (
@@ -204,16 +220,56 @@ class SensorlessRun(base.SensorlessTest):
 
     def read_stage(self):
         data = self.request(base.MSG_SENSORLESS, base.SENSORLESS_STATUS)
-        if len(data) != 8:
+        if len(data) not in (8, 38):
             raise RuntimeError(f"invalid Sensorless status length: {len(data)}")
 
         active, ready, stage, if_stage = data[:4]
         self.stage = stage
         self.if_stage = if_stage
         self.ready = bool(ready)
+
+        if len(data) == 38:
+            values = struct.unpack_from("<ffffffff", data, 4)
+            self.handover_diag = {
+                "We_IF": values[0],
+                "We_Obs_F": values[1],
+                "We_Err": values[2],
+                "PLL_Err": values[3],
+                "Flux_Ratio": values[4],
+                "Theta_Err": values[5],
+                "Stable_s": values[6],
+                "Stable_Max_s": values[7],
+                "Reject": data[36],
+                "Reject_Seen": data[37],
+            }
+
         if not active:
             raise RuntimeError("Sensorless stopped while running")
         return stage
+
+    def print_handover_diag(self):
+        diag = self.handover_diag
+        if diag is None:
+            print("Observer handover diagnostics unavailable")
+            return
+
+        print("Observer handover diagnostics")
+        print(
+            f"  We_IF={diag['We_IF']:+.3f} rad/s "
+            f"We_obs_f={diag['We_Obs_F']:+.3f} rad/s "
+            f"We_err={diag['We_Err']:+.3f} rad/s"
+        )
+        print(
+            f"  PLL_err={diag['PLL_Err']:+.5f} rad "
+            f"Theta_err={diag['Theta_Err']:+.5f} rad "
+            f"Flux_ratio={diag['Flux_Ratio']:.4f}"
+        )
+        print(
+            f"  stable={diag['Stable_s']:.4f} s "
+            f"max_stable={diag['Stable_Max_s']:.4f} s "
+            f"reject={reject_name(diag['Reject'])} "
+            f"seen={reject_name(diag['Reject_Seen'])}"
+        )
 
     def speed_set(self, wm):
         self.command_wm = float(wm)
@@ -334,6 +390,7 @@ class SensorlessRun(base.SensorlessTest):
                 self.process(self.parser.feed(self.ser.read(4096)))
             self.guard(require_run=False)
 
+        self.print_handover_diag()
         raise TimeoutError("Sensorless did not enter SENSORLESS_RUN")
 
     def ramp_to(self, wm_target, honor_stop=True):
