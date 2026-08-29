@@ -3,12 +3,16 @@
 
 Known motor parameters are written to firmware RAM before the run. For each PLL
 bandwidth point, sensorless shadow mode independently repeats ALIGN -> I/F and
-keeps FOC on the I/F path while Flux Observer + PLL run in parallel. No motor
-identification is performed and the observer is never allowed to take control.
+keeps FOC on the I/F path while Flux Observer + PLL run in parallel. Raw
+observer diagnostics and summaries are always exported to JSON, including
+partial data when a run fails.
 """
 
 import argparse
+from datetime import datetime
+import json
 import math
+from pathlib import Path
 import signal
 import statistics
 import struct
@@ -26,6 +30,7 @@ SENSORLESS_SHADOW_SET = 0x04
 SENSORLESS_SHADOW_GET = 0x05
 SENSORLESS_PLL_BW_SET = 0x06
 SENSORLESS_PLL_BW_GET = 0x07
+SENSORLESS_FLUX_DIAG_GET = 0x08
 STAGE_IF_TO_OBS = 2
 
 REJECT_WE = 1 << 0
@@ -43,6 +48,10 @@ def stdev(values):
 
 def rms(values):
     return math.sqrt(statistics.fmean(value * value for value in values)) if values else math.nan
+
+
+def json_number(value):
+    return value if isinstance(value, (int, bool)) or math.isfinite(value) else None
 
 
 class ShadowRun(sensorless_run.SensorlessRun):
@@ -114,6 +123,18 @@ class ShadowRun(sensorless_run.SensorlessRun):
             )
         return actual
 
+    def flux_diag_get(self):
+        data = self.request(base.MSG_SENSORLESS, SENSORLESS_FLUX_DIAG_GET)
+        if len(data) != 16:
+            raise RuntimeError(f"invalid flux diagnostic length: {len(data)}")
+        theta_flux, we_raw, we_f, theta_if_err = struct.unpack("<ffff", data)
+        return {
+            "Theta_Flux": theta_flux,
+            "We_Flux_Raw": we_raw,
+            "We_Flux_F": we_f,
+            "Theta_Flux_IF_Err": theta_if_err,
+        }
+
     def wait_shadow(self):
         deadline = time.monotonic() + self.args.ready_timeout
         last_stage = None
@@ -131,11 +152,10 @@ class ShadowRun(sensorless_run.SensorlessRun):
 
         raise TimeoutError("Sensorless shadow did not reach IF_TO_OBS")
 
-    def collect_shadow(self):
+    def collect_shadow(self, samples):
         start = time.monotonic()
         deadline = start + self.args.duration
         next_poll = start
-        rows = []
 
         while time.monotonic() < deadline:
             now = time.monotonic()
@@ -147,21 +167,29 @@ class ShadowRun(sensorless_run.SensorlessRun):
                 if stage != STAGE_IF_TO_OBS:
                     raise RuntimeError(f"left shadow IF_TO_OBS: stage={stage}")
                 if self.handover_diag is not None:
-                    rows.append(dict(self.handover_diag))
+                    row = dict(self.handover_diag)
+                    row.update(self.flux_diag_get())
+                    row["t_s"] = time.monotonic() - start
+                    samples.append(row)
                 next_poll = now + self.args.diag_interval
 
-        if not rows:
+        if not samples:
             raise RuntimeError("no observer shadow diagnostics collected")
-        return rows
 
 
 def analyze_rows(rows):
-    we_if = [row["We_IF"] for row in rows]
-    we_obs = [row["We_Obs_F"] for row in rows]
-    we_err = [row["We_Err"] for row in rows]
-    pll = [row["PLL_Err"] for row in rows]
-    flux = [row["Flux_Ratio"] for row in rows]
-    theta = [row["Theta_Err"] for row in rows]
+    def values(key):
+        return [row[key] for row in rows]
+
+    we_if = values("We_IF")
+    we_obs = values("We_Obs_F")
+    we_err = values("We_Err")
+    we_flux_raw = values("We_Flux_Raw")
+    we_flux_f = values("We_Flux_F")
+    pll = values("PLL_Err")
+    flux = values("Flux_Ratio")
+    theta_pll = values("Theta_Err")
+    theta_flux = values("Theta_Flux_IF_Err")
 
     reject_we = sum(bool(row["Reject"] & REJECT_WE) for row in rows)
     reject_pll = sum(bool(row["Reject"] & REJECT_PLL) for row in rows)
@@ -183,6 +211,12 @@ def analyze_rows(rows):
         "we_err_std": stdev(we_err),
         "we_err_min": min(we_err),
         "we_err_max": max(we_err),
+        "we_flux_raw_mean": mean(we_flux_raw),
+        "we_flux_raw_std": stdev(we_flux_raw),
+        "we_flux_f_mean": mean(we_flux_f),
+        "we_flux_f_std": stdev(we_flux_f),
+        "we_flux_f_min": min(we_flux_f),
+        "we_flux_f_max": max(we_flux_f),
         "pll_mean": mean(pll),
         "pll_rms": rms(pll),
         "pll_peak": max(abs(value) for value in pll),
@@ -190,8 +224,10 @@ def analyze_rows(rows):
         "flux_std": stdev(flux),
         "flux_min": min(flux),
         "flux_max": max(flux),
-        "theta_mean": mean(theta),
-        "theta_std": stdev(theta),
+        "theta_pll_mean": mean(theta_pll),
+        "theta_pll_std": stdev(theta_pll),
+        "theta_flux_mean": mean(theta_flux),
+        "theta_flux_std": stdev(theta_flux),
         "stable_pct": 100.0 * stable / count,
         "reject_we_pct": 100.0 * reject_we / count,
         "reject_pll_pct": 100.0 * reject_pll / count,
@@ -216,17 +252,21 @@ def print_report(bw_hz, result):
     print(f"\nObserver shadow report: PLL BW={bw_hz:.1f} Hz")
     print(f"  samples={result['samples']}, We_IF mean={result['we_if_mean']:+.3f} rad/s")
     print(
-        f"  We_obs_f mean={result['we_obs_mean']:+.3f} rad/s "
+        f"  We_flux_f mean={result['we_flux_f_mean']:+.3f} rad/s "
+        f"std={result['we_flux_f_std']:.3f} min={result['we_flux_f_min']:+.3f} "
+        f"max={result['we_flux_f_max']:+.3f}"
+    )
+    print(
+        f"  We_obs_f  mean={result['we_obs_mean']:+.3f} rad/s "
         f"std={result['we_obs_std']:.3f} min={result['we_obs_min']:+.3f} "
         f"max={result['we_obs_max']:+.3f}"
     )
     print(
-        f"  We_err   mean={result['we_err_mean']:+.3f} rad/s "
-        f"std={result['we_err_std']:.3f} min={result['we_err_min']:+.3f} "
-        f"max={result['we_err_max']:+.3f}"
+        f"  We_err    mean={result['we_err_mean']:+.3f} rad/s "
+        f"std={result['we_err_std']:.3f}"
     )
     print(
-        f"  PLL_err  mean={result['pll_mean']:+.5f} rad "
+        f"  PLL_err   mean={result['pll_mean']:+.5f} rad "
         f"RMS={result['pll_rms']:.5f} peak={result['pll_peak']:.5f}"
     )
     print(
@@ -234,8 +274,10 @@ def print_report(bw_hz, result):
         f"min={result['flux_min']:.4f} max={result['flux_max']:.4f}"
     )
     print(
-        f"  Theta_err mean={result['theta_mean']:+.5f} rad "
-        f"std={result['theta_std']:.5f}"
+        f"  Theta flux-IF mean={result['theta_flux_mean']:+.5f} rad "
+        f"std={result['theta_flux_std']:.5f}; "
+        f"PLL-IF mean={result['theta_pll_mean']:+.5f} rad "
+        f"std={result['theta_pll_std']:.5f}"
     )
     print(
         f"  criteria poll pass={result['stable_pct']:.1f}% "
@@ -251,13 +293,13 @@ def print_report(bw_hz, result):
 
 def print_summary(results):
     print("\nPLL bandwidth sweep summary")
-    print("  BW(Hz)  We mean   We std  Err mean  PLL RMS  Flux mean  Pass%  Stable max")
+    print("  BW(Hz)  Flux We   Flux std  PLL We   PLL std  PLL RMS  Flux mag  Pass%")
     for bw_hz, result in results:
         print(
-            f"  {bw_hz:6.1f}  {result['we_obs_mean']:7.2f}  "
-            f"{result['we_obs_std']:7.2f}  {result['we_err_mean']:+8.2f}  "
-            f"{result['pll_rms']:7.4f}  {result['flux_mean']:9.4f}  "
-            f"{result['stable_pct']:5.1f}%  {1000.0 * result['stable_max_s']:8.1f} ms"
+            f"  {bw_hz:6.1f}  {result['we_flux_f_mean']:7.2f}  "
+            f"{result['we_flux_f_std']:8.2f}  {result['we_obs_mean']:7.2f}  "
+            f"{result['we_obs_std']:7.2f}  {result['pll_rms']:7.4f}  "
+            f"{result['flux_mean']:8.4f}  {result['stable_pct']:5.1f}%"
         )
 
 
@@ -278,7 +320,6 @@ def parse_args():
     parser.add_argument("--port", required=True)
     parser.add_argument("--run", action="store_true",
                         help="required confirmation to energize the motor")
-
     parser.add_argument("--rs", type=float, default=6.334559)
     parser.add_argument("--ld", type=float, default=0.001564084)
     parser.add_argument("--lq", type=float, default=0.001564084)
@@ -292,7 +333,6 @@ def parse_args():
     parser.add_argument("--duration", type=float, default=5.0,
                         help="shadow observation seconds per PLL bandwidth")
     parser.add_argument("--diag-interval", type=float, default=0.02)
-
     parser.add_argument("--vbus-min", type=float, default=10.0)
     parser.add_argument("--vbus-max", type=float, default=20.0)
     parser.add_argument("--vbus-seconds", type=float, default=0.2)
@@ -301,6 +341,8 @@ def parse_args():
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=1.0)
 
+    # Required by SensorlessRun guards; closed-loop-only limits are not enforced
+    # while shadow collection calls guard(require_run=False).
     parser.add_argument("--pll-rms-limit", type=float, default=0.08)
     parser.add_argument("--pll-window", type=float, default=0.2)
     parser.add_argument("--we-tolerance", type=float, default=20.0)
@@ -340,6 +382,39 @@ def main():
     signal.signal(signal.SIGTERM, stop.handle)
 
     wm = args.we / args.pole_pairs
+    started = datetime.now().astimezone()
+    log_dir = Path(__file__).resolve().parents[1] / "build" / "Release"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / f"observer_shadow_{started.strftime('%Y%m%d_%H%M%S')}.json"
+
+    log = {
+        "test": "observer_shadow",
+        "timestamp": started.isoformat(),
+        "success": False,
+        "error": None,
+        "config": {
+            "port": args.port,
+            "we_if_rad_s": args.we,
+            "wm_rad_s": wm,
+            "duration_s": args.duration,
+            "diag_interval_s": args.diag_interval,
+            "pll_bw_hz": args.pll_bw,
+            "motor": {
+                "pole_pairs": args.pole_pairs,
+                "rs_ohm": args.rs,
+                "ld_h": args.ld,
+                "lq_h": args.lq,
+                "flux_wb": args.flux,
+            },
+            "current_limit_a": args.current_limit,
+            "vbus_min_v": args.vbus_min,
+            "vbus_max_v": args.vbus_max,
+        },
+        "vbus": None,
+        "runs": [],
+        "guard": None,
+    }
+
     print(
         f"Observer shadow target: We={args.we:.3f} rad/s, "
         f"Wm={wm:.3f} rad/s ({wm * 60.0 / (2.0 * math.pi):.2f} RPM)"
@@ -361,42 +436,68 @@ def main():
                 time.sleep(0.05)
                 test.motor_para_set()
                 test.current_limit_set()
-
-                # Vbus is delivered by the normal plot stream, so the plot must
-                # be configured and running before the initial bus-voltage check.
                 test.configure_plot()
                 test.check_vbus()
                 test.prepare()
-                time.sleep(0.05)
 
                 for index, requested_bw in enumerate(args.pll_bw, start=1):
                     if stop.requested:
                         break
 
-                    test.prepare()
-                    time.sleep(0.05)
-                    actual_bw = test.pll_bw_set(requested_bw)
-                    test.shadow_set(True, quiet=True)
-                    test.configure_plot()
+                    run_log = {
+                        "pll_bw_hz": requested_bw,
+                        "success": False,
+                        "error": None,
+                        "summary": None,
+                        "samples": [],
+                    }
+                    log["runs"].append(run_log)
 
-                    test.request(base.MSG_CONTROL, base.CTRL_MODE_SET,
-                                 bytes([base.MODE_SENSORLESS_SPEED]))
-                    test.speed_set(wm)
-                    test.request(base.MSG_CONTROL, base.CTRL_ENABLE)
-                    test.request(base.MSG_CONTROL, base.CTRL_RUN)
+                    try:
+                        test.prepare()
+                        time.sleep(0.05)
+                        actual_bw = test.pll_bw_set(requested_bw)
+                        run_log["pll_bw_hz"] = actual_bw
+                        test.shadow_set(True, quiet=True)
+                        test.configure_plot()
 
-                    print(f"\nPLL sweep {index}/{len(args.pll_bw)}: {actual_bw:.1f} Hz")
-                    print("ALIGN -> I/F -> observer shadow (no takeover)")
-                    test.wait_shadow()
-                    print(f"Holding shadow observation for {args.duration:.2f} s...")
-                    rows = test.collect_shadow()
-                    result = analyze_rows(rows)
-                    results.append((actual_bw, result))
-                    print_report(actual_bw, result)
+                        test.request(base.MSG_CONTROL, base.CTRL_MODE_SET,
+                                     bytes([base.MODE_SENSORLESS_SPEED]))
+                        test.speed_set(wm)
+                        test.request(base.MSG_CONTROL, base.CTRL_ENABLE)
+                        test.request(base.MSG_CONTROL, base.CTRL_RUN)
 
-                    test.stop_all(False)
-                    test.shadow_set(False, quiet=True)
-                    time.sleep(0.1)
+                        print(f"\nPLL sweep {index}/{len(args.pll_bw)}: {actual_bw:.1f} Hz")
+                        print("ALIGN -> I/F -> observer shadow (no takeover)")
+                        test.wait_shadow()
+                        print(f"Holding shadow observation for {args.duration:.2f} s...")
+                        test.collect_shadow(run_log["samples"])
+
+                        result = analyze_rows(run_log["samples"])
+                        run_log["summary"] = {
+                            key: json_number(value) for key, value in result.items()
+                        }
+                        run_log["success"] = True
+                        results.append((actual_bw, result))
+                        print_report(actual_bw, result)
+                    except (TimeoutError, RuntimeError) as exc:
+                        run_log["error"] = str(exc)
+                        if run_log["samples"]:
+                            result = analyze_rows(run_log["samples"])
+                            run_log["summary"] = {
+                                key: json_number(value) for key, value in result.items()
+                            }
+                        raise
+                    finally:
+                        try:
+                            test.stop_all(False)
+                        except (TimeoutError, RuntimeError):
+                            pass
+                        try:
+                            test.shadow_set(False, quiet=True)
+                        except (TimeoutError, RuntimeError):
+                            pass
+                        time.sleep(0.1)
 
             except (TimeoutError, RuntimeError) as exc:
                 error = exc
@@ -412,14 +513,40 @@ def main():
 
             if results:
                 print_summary(results)
-            print(
-                f"Peak current magnitude={test.current_peak:.3f} A, "
-                f"FAST lost={test.fast_lost}, NORMAL lost={test.normal_lost}"
-            )
 
     except (base.serial.SerialException, OSError, TimeoutError,
             RuntimeError, KeyboardInterrupt) as exc:
         error = exc
+    finally:
+        if test is not None:
+            vbus = list(test.vbus)
+            if vbus:
+                log["vbus"] = {
+                    "mean_v": mean(vbus),
+                    "min_v": min(vbus),
+                    "max_v": max(vbus),
+                }
+            log["guard"] = {
+                "peak_current_a": test.current_peak,
+                "fast_lost": test.fast_lost,
+                "normal_lost": test.normal_lost,
+            }
+
+        log["success"] = error is None and len(log["runs"]) == len(args.pll_bw) and all(
+            run["success"] for run in log["runs"]
+        )
+        if error is not None:
+            log["error"] = str(error)
+
+        with log_path.open("w", encoding="utf-8") as stream:
+            json.dump(log, stream, ensure_ascii=False, indent=2, allow_nan=False)
+
+        if test is not None:
+            print(
+                f"Peak current magnitude={test.current_peak:.3f} A, "
+                f"FAST lost={test.fast_lost}, NORMAL lost={test.normal_lost}"
+            )
+        print(f"Log: {log_path}")
 
     if error is not None:
         print(f"ERROR: {error}", file=sys.stderr)
