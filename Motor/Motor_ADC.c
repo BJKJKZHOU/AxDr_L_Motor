@@ -32,6 +32,7 @@
 #define VBUS_RAW_TO_V (ADC_VREF_V / ADC_FULL_SCALE * ((VBUS_R1_OHM + VBUS_R2_OHM) / VBUS_R2_OHM))
 
 volatile ADC_T ADC = { 0 };
+volatile uint32_t Motor_Fast_Tick = 0U;
 
 static volatile float Ia_Gain = 1.0f;
 static volatile float Ib_Gain = 1.0f;
@@ -186,6 +187,7 @@ void Fast_Loop(void)
     uint32_t Profile_T0 = 0U;
     uint32_t Segment_T0 = 0U;
 
+    Motor_Fast_Tick++;
     T0 = DWT->CYCCNT;
     Fast_Profile_Begin_Cycle();
 

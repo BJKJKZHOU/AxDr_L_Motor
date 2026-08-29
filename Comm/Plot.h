@@ -15,10 +15,14 @@
 #define AXDR_NORMAL_MAX_CH     15U
 #define AXDR_FAST_BLOCK_SAMPLE 20U
 
-/* FAST Config_ID bit7 requests the extended FAST header:
- *   seq:u16, config:u8, sample_count:u8, first_control_tick:u32, fast_drop:u32.
- * Config IDs without this bit keep the legacy 4-byte header unchanged. */
-#define AXDR_FAST_META_CONFIG_MASK 0x80U
+/* FAST Config_ID diagnostic flags. IDs without these bits keep the legacy
+ * 4-byte header and full-rate sampling unchanged.
+ *
+ * META adds:
+ *   first_control_tick:u32, fast_drop:u32, first_block_pos:u8, decimation:u8.
+ * DECIMATE4 stores one sample every four 20 kHz control cycles. */
+#define AXDR_FAST_META_CONFIG_MASK      0x80U
+#define AXDR_FAST_DECIMATE4_CONFIG_MASK 0x40U
 
 typedef struct
 {

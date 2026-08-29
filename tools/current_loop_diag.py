@@ -6,8 +6,10 @@ One motor run is kept alive while two FAST windows are captured:
   B: Theta, Id/Iq, Ud/Uq, Ualpha/Ubeta.
 
 FAST Config_ID bit7 enables the extended firmware header carrying the first
-control tick and Plot_Fast_Drop count. Raw rows keep control_tick/block_pos so
-offline discrete analysis can reject non-contiguous sample pairs exactly.
+control tick and Plot_Fast_Drop count. Bit6 requests 4:1 decimation, reducing
+20 kHz FAST transport to 5 kHz while preserving ample resolution for 2fe.
+Raw rows keep global control_tick and true FAST block position so offline
+analysis can reject non-contiguous sample pairs exactly.
 """
 
 import json
@@ -26,10 +28,12 @@ import sensorless_test as base
 
 
 META_MASK = 0x80
-CONFIG_A = META_MASK | 0x11
-CONFIG_B = META_MASK | 0x12
+DECIMATE4_MASK = 0x40
+CONFIG_A = META_MASK | DECIMATE4_MASK | 0x11
+CONFIG_B = META_MASK | DECIMATE4_MASK | 0x12
 BLOCK_SAMPLES = 20
 CUR_BW_HZ = 1000.0
+EXPECTED_DECIMATION = 4
 
 FAST_A = (
     ("Theta_e", 0x0014, 0.0002),
@@ -60,6 +64,14 @@ def rms(values):
     return math.sqrt(statistics.fmean(v * v for v in values)) if values else math.nan
 
 
+def wrap_deg(value):
+    while value > 180.0:
+        value -= 360.0
+    while value < -180.0:
+        value += 360.0
+    return value
+
+
 def scalar_2fe(rows, key):
     values = [row[key] for row in rows]
     dc = mean(values)
@@ -79,36 +91,31 @@ def scalar_2fe(rows, key):
     }
 
 
-def current_sequence(rows):
-    mapped = []
-    for row in rows:
-        mapped.append(
-            {
-                "Theta_e": row["Theta_e"],
-                "Ialpha": row["Id"] * math.cos(row["Theta_e"]) - row["Iq"] * math.sin(row["Theta_e"]),
-                "Ibeta": row["Id"] * math.sin(row["Theta_e"]) + row["Iq"] * math.cos(row["Theta_e"]),
-            }
-        )
-    return seq.sequence_metrics(mapped, "Ialpha", "Ibeta")
-
-
 def continuity(rows):
+    expected_step = rows[0]["decimation"]
     gaps = []
     for prev, cur in zip(rows, rows[1:]):
-        if cur["control_tick"] != prev["control_tick"] + 1:
+        expected = prev["control_tick"] + expected_step
+        if cur["control_tick"] != expected:
+            delta = cur["control_tick"] - expected
             gaps.append(
                 {
                     "from": prev["control_tick"],
                     "to": cur["control_tick"],
-                    "missing": cur["control_tick"] - prev["control_tick"] - 1,
+                    "missing_control_ticks": delta,
+                    "missing_plot_samples": delta // expected_step if delta > 0 else 0,
                 }
             )
     return {
         "first_tick": rows[0]["control_tick"],
         "last_tick": rows[-1]["control_tick"],
+        "decimation": expected_step,
         "gap_count": len(gaps),
-        "missing_samples": sum(g["missing"] for g in gaps),
-        "fast_drop_last": max(row["fast_drop"] for row in rows),
+        "missing_control_ticks": sum(g["missing_control_ticks"] for g in gaps),
+        "missing_plot_samples": sum(g["missing_plot_samples"] for g in gaps),
+        "fast_drop_first": rows[0]["fast_drop"],
+        "fast_drop_last": rows[-1]["fast_drop"],
+        "fast_drop_delta": rows[-1]["fast_drop"] - rows[0]["fast_drop"],
         "gaps": gaps,
     }
 
@@ -157,14 +164,18 @@ class CurrentLoopRun(seq.SequenceRun):
         self._configure_fast(variables, config_id, start_normal=False)
 
     def process_fast(self, payload):
-        if len(payload) < 12 or payload[2] != self.active_config:
+        if len(payload) < 14 or payload[2] != self.active_config:
             return
 
         (frame_seq,) = struct.unpack_from("<H", payload, 0)
         sample_count = payload[3]
         first_tick, fast_drop = struct.unpack_from("<II", payload, 4)
+        first_block_pos = payload[12]
+        decimation = payload[13]
         count = len(self.active_vars)
-        if len(payload) != 12 + sample_count * count * 2:
+        if decimation != EXPECTED_DECIMATION:
+            raise RuntimeError(f"unexpected FAST decimation: {decimation}")
+        if len(payload) != 14 + sample_count * count * 2:
             return
 
         if self.fast_last is not None:
@@ -175,14 +186,15 @@ class CurrentLoopRun(seq.SequenceRun):
         self.fast_samples += sample_count
         self.last_fast_rx = time.monotonic()
 
-        raw = struct.unpack_from(f"<{sample_count * count}h", payload, 12)
+        raw = struct.unpack_from(f"<{sample_count * count}h", payload, 14)
         for sample in range(sample_count):
             start = sample * count
-            tick = first_tick + sample
+            tick = first_tick + sample * decimation
             row = {
                 "control_tick": tick,
-                "block_pos": tick % BLOCK_SAMPLES,
+                "block_pos": (first_block_pos + sample) % BLOCK_SAMPLES,
                 "fast_drop": fast_drop,
+                "decimation": decimation,
             }
             for index, (name, _, scale) in enumerate(self.active_vars):
                 code = raw[start + index]
@@ -255,7 +267,7 @@ def main():
                 test.speed_set(wm)
                 test.request(base.MSG_CONTROL, base.CTRL_ENABLE)
                 test.request(base.MSG_CONTROL, base.CTRL_RUN)
-                print(f"Current-loop diagnostic: We={args.we:.1f} rad/s")
+                print(f"Current-loop diagnostic: We={args.we:.1f} rad/s, FAST=5 kHz (decimation 4)")
                 print("ALIGN -> I/F -> shadow; two FAST windows in the same motor run")
                 test.wait_shadow()
 
@@ -272,6 +284,7 @@ def main():
                 wc = 2.0 * math.pi * CUR_BW_HZ
                 kp_d = args.ld * wc
                 kp_q = args.lq * wc
+                ki = args.rs * wc
                 for row in rows_a:
                     row["IdErr"] = row["IdRef"] - row["Id"]
                     row["IqErr"] = row["IqRef"] - row["Iq"]
@@ -285,12 +298,36 @@ def main():
                 b_metrics = {key: scalar_2fe(rows_b, key) for key in ("Id", "Iq", "Ud", "Uq")}
                 u_sequence = seq.sequence_metrics(rows_b, "Ualpha", "Ubeta")
 
+                int_theory = {}
+                for axis in ("Id", "Iq"):
+                    err = a_metrics[f"{axis}Err"]
+                    integ = a_metrics[f"{axis}Int"]
+                    pred_peak = ki * err["peak"] / (2.0 * args.we)
+                    phase_delta = wrap_deg(integ["phase_deg"] - err["phase_deg"])
+                    int_theory[axis] = {
+                        "predicted_peak_v": pred_peak,
+                        "measured_peak_v": integ["peak"],
+                        "peak_ratio_measured_over_predicted": integ["peak"] / pred_peak if pred_peak > 1e-12 else math.nan,
+                        "phase_delta_deg": phase_delta,
+                        "ideal_phase_delta_deg": -90.0,
+                    }
+
                 print("\nWindow A: current error / PI decomposition")
                 for key, unit in (
                     ("Id", "A"), ("Iq", "A"), ("IdErr", "A"), ("IqErr", "A"),
                     ("IdP", "V"), ("IqP", "V"), ("IdInt", "V"), ("IqInt", "V"),
                 ):
                     print_scalar(key, a_metrics[key], unit)
+
+                print("\nIntegrator consistency at 2fe")
+                for axis in ("Id", "Iq"):
+                    item = int_theory[axis]
+                    print(
+                        f"  {axis}: predicted={item['predicted_peak_v']:.6f} V "
+                        f"measured={item['measured_peak_v']:.6f} V "
+                        f"ratio={item['peak_ratio_measured_over_predicted']:.3f} "
+                        f"phase_delta={item['phase_delta_deg']:+.2f} deg (ideal -90 deg)"
+                    )
 
                 print("\nWindow B: final dq output")
                 for key, unit in (("Id", "A"), ("Iq", "A"), ("Ud", "V"), ("Uq", "V")):
@@ -305,8 +342,9 @@ def main():
                 for name, cont in (("A", cont_a), ("B", cont_b)):
                     print(
                         f"  window {name}: tick={cont['first_tick']}..{cont['last_tick']} "
-                        f"gaps={cont['gap_count']} missing={cont['missing_samples']} "
-                        f"fast_drop={cont['fast_drop_last']}"
+                        f"decim={cont['decimation']} gaps={cont['gap_count']} "
+                        f"missing_plot={cont['missing_plot_samples']} "
+                        f"fast_drop_delta={cont['fast_drop_delta']}"
                     )
 
                 log = {
@@ -320,8 +358,15 @@ def main():
                         "current_bw_hz": CUR_BW_HZ,
                         "kp_d": kp_d,
                         "kp_q": kp_q,
+                        "ki": ki,
+                        "fast_decimation": EXPECTED_DECIMATION,
                     },
-                    "window_a": {"continuity": cont_a, "metrics": a_metrics, "raw_samples": rows_a},
+                    "window_a": {
+                        "continuity": cont_a,
+                        "metrics": a_metrics,
+                        "integrator_theory": int_theory,
+                        "raw_samples": rows_a,
+                    },
                     "window_b": {
                         "continuity": cont_b,
                         "metrics": b_metrics,

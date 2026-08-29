@@ -24,6 +24,8 @@ typedef struct
     const volatile float *Data;
 } Normal_Var_T;
 
+extern volatile uint32_t Motor_Fast_Tick;
+
 static Plot_Group_T Plot_Group[2] = { 0 };
 static Fast_Var_T Fast_Var[AXDR_FAST_MAX_CH] = { 0 };
 static Normal_Var_T Normal_Var[AXDR_NORMAL_MAX_CH] = { 0 };
@@ -37,7 +39,7 @@ static volatile uint8_t Fast_Ready = PLOT_BUF_NONE;
 static volatile uint8_t Fast_Sample_Cnt = 0U;
 static uint8_t Fast_Tx_Sample = 0U;
 static uint16_t Fast_Seq = 0U;
-static uint32_t Fast_Control_Tick = 0U;
+static uint8_t Fast_Decimation = 1U;
 static bool Fast_Meta = false;
 
 static volatile uint8_t Normal_Fill = 0U;
@@ -256,6 +258,7 @@ AxDr_Status_e Plot_Config(uint8_t Group, uint8_t Config_ID, const uint16_t *Var,
     if (Group == AXDR_PLOT_FAST)
     {
         Fast_Meta = (Config_ID & AXDR_FAST_META_CONFIG_MASK) != 0U;
+        Fast_Decimation = ((Config_ID & AXDR_FAST_DECIMATE4_CONFIG_MASK) != 0U) ? 4U : 1U;
         Plot_Fast_Flush();
     }
     else
@@ -286,8 +289,6 @@ AxDr_Status_e Plot_Start(uint8_t Group_Mask)
     if ((Group_Mask & AXDR_PLOT_FAST_MASK) != 0U)
     {
         Plot_Fast_Flush();
-        Fast_Control_Tick = 0U;
-        Plot_Fast_Drop = 0U;
         Plot_Group[AXDR_PLOT_FAST].Run = 1U;
     }
 
@@ -347,7 +348,12 @@ void Plot_Fast_Sample(void)
         return;
     }
 
-    Tick = Fast_Control_Tick++;
+    Tick = Motor_Fast_Tick;
+    if ((Tick % Fast_Decimation) != 0U)
+    {
+        return;
+    }
+
     Count = Plot->Count;
     Fill = Fast_Fill;
 
@@ -437,7 +443,7 @@ bool Plot_Fast_Pop(AxDr_Msg_T *Msg)
 
     Plot = &Plot_Group[AXDR_PLOT_FAST];
     Count = Plot->Count;
-    Header_Len = Fast_Meta ? 12U : 4U;
+    Header_Len = Fast_Meta ? 14U : 4U;
     Max_Sample = (uint8_t)((AXDR_MAX_DATA_LEN - Header_Len) / (Count * 2U));
     Remain = (uint8_t)(AXDR_FAST_BLOCK_SAMPLE - Fast_Tx_Sample);
     Sample_Count = (Remain < Max_Sample) ? Remain : Max_Sample;
@@ -452,7 +458,7 @@ bool Plot_Fast_Pop(AxDr_Msg_T *Msg)
     Dst = 4U;
     if (Fast_Meta)
     {
-        Tick = Fast_Block_Tick[Ready] + Fast_Tx_Sample;
+        Tick = Fast_Block_Tick[Ready] + (uint32_t)Fast_Tx_Sample * Fast_Decimation;
         Drop = Plot_Fast_Drop;
         Msg->Data[4] = (uint8_t)Tick;
         Msg->Data[5] = (uint8_t)(Tick >> 8);
@@ -462,7 +468,9 @@ bool Plot_Fast_Pop(AxDr_Msg_T *Msg)
         Msg->Data[9] = (uint8_t)(Drop >> 8);
         Msg->Data[10] = (uint8_t)(Drop >> 16);
         Msg->Data[11] = (uint8_t)(Drop >> 24);
-        Dst = 12U;
+        Msg->Data[12] = Fast_Tx_Sample;
+        Msg->Data[13] = Fast_Decimation;
+        Dst = 14U;
     }
 
     for (uint8_t s = 0U; s < Sample_Count; s++)
