@@ -51,13 +51,11 @@ void ADC_Calib(void)
         Error_Handler();
     }
 
-    /* Temporary timing experiment: keep the physical phase mapping unchanged
-     * while swapping the first/last ADC1 injected conversion slots.
+    /* Temporary timing experiment:
+     * - order: Ia -> Ib -> Ic
+     * - ADC1 injected sampling time: 12.5 cycles
      *
-     * Normal order: Ic -> Ib -> Ia (JDR1 -> JDR2 -> JDR3)
-     * Test order:   Ia -> Ib -> Ic (JDR1 -> JDR2 -> JDR3)
-     *
-     * Sampling time, trigger source and PWM timing remain unchanged. */
+     * Trigger source and PWM timing remain unchanged. */
     Iabc_Rank_Test_Config();
     Iabc_Calib();
 }
@@ -86,7 +84,7 @@ static void Iabc_Rank_Test_Config(void)
 {
     ADC_InjectionConfTypeDef Config = { 0 };
 
-    Config.InjectedSamplingTime = ADC_SAMPLETIME_47CYCLES_5;
+    Config.InjectedSamplingTime = ADC_SAMPLETIME_12CYCLES_5;
     Config.InjectedSingleDiff = ADC_SINGLE_ENDED;
     Config.InjectedOffsetNumber = ADC_OFFSET_NONE;
     Config.InjectedOffset = 0;
