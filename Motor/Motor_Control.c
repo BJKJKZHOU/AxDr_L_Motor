@@ -570,7 +570,7 @@ void Motor_Mode_Set(Motor_Mode_e Mode)
 
 void Motor_Ident_Mode_Set(Ident_Mode_e Mode)
 {
-    if ((Motor_State == DISABLED) && (Mode >= IDENT_RS_LS) && (Mode <= IDENT_FLUX))
+    if ((Motor_State == DISABLED) && (Mode >= IDENT_RS_LS) && (Mode <= IDENT_VOLTAGE_DIAG))
     {
         Ident_Mode = Mode;
     }
