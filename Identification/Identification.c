@@ -10,6 +10,7 @@
 #include "Motor_ADC.h"
 #include "Motor_Para.h"
 #include "Rs_Ls.h"
+#include "Voltage_Diag.h"
 #include "control_params.h"
 
 #define IDENT_PROBE_I_RATIO       0.10f
@@ -21,6 +22,9 @@
 
 #define IDENT_U_SOFT_RATIO 0.25f
 #define IDENT_U_HARD_RATIO 0.80f
+#define VOLT_DIAG_LOAD_I_RATIO 0.30f
+#define VOLT_DIAG_ALIGN_V      0.50f
+#define VOLT_DIAG_U_MAX_V      6.00f
 
 static volatile Ident_Mode_e Ident_Mode = IDENT_NONE;
 static volatile Ident_State_e Ident_State = IDENT_IDLE;
@@ -85,6 +89,50 @@ static bool Envelope_Build(void)
     return Ident_Envelope.Valid;
 }
 
+static bool Voltage_Diag_Start(float Wm_Target)
+{
+    float We_Target;
+    float U_Target;
+    float U_Limit;
+
+    if (!Envelope_Build() || (Motor_Para.Pp == 0U) || (Motor_Para.Flux <= 0.0f) ||
+        (Motor_Para.Rs <= 0.0f))
+    {
+        return false;
+    }
+
+    We_Target = (float)Motor_Para.Pp * Wm_Target;
+    if (!__builtin_isfinite(We_Target) || (We_Target == 0.0f))
+    {
+        return false;
+    }
+
+    U_Target = Abs_Value(We_Target) * Motor_Para.Flux +
+               VOLT_DIAG_LOAD_I_RATIO * Ident_Envelope.I_Safe_A * Motor_Para.Rs;
+    U_Limit = Ident_Envelope.U_Hard_V;
+    if (U_Limit > VOLT_DIAG_U_MAX_V)
+    {
+        U_Limit = VOLT_DIAG_U_MAX_V;
+    }
+    if (U_Target > U_Limit)
+    {
+        U_Target = U_Limit;
+    }
+    if (U_Target <= VOLT_DIAG_ALIGN_V)
+    {
+        return false;
+    }
+
+    if (!Voltage_Diag_Config(We_Target, U_Target, VOLT_DIAG_ALIGN_V) ||
+        !Voltage_Diag_Enable(true))
+    {
+        return false;
+    }
+
+    Voltage_Diag_Begin();
+    return true;
+}
+
 bool Identification_Start(Ident_Mode_e Mode, float Wm_Target)
 {
     if (Ident_State == IDENT_RUNNING)
@@ -111,6 +159,13 @@ bool Identification_Start(Ident_Mode_e Mode, float Wm_Target)
 
         Flux_Start(Wm_Target);
     }
+    else if (Mode == IDENT_VOLTAGE_DIAG)
+    {
+        if (!Voltage_Diag_Start(Wm_Target))
+        {
+            return false;
+        }
+    }
     else
     {
         return false;
@@ -131,6 +186,11 @@ void Identification_Abort(void)
     else if (Ident_Mode == IDENT_FLUX)
     {
         Flux_Reset();
+    }
+    else if (Ident_Mode == IDENT_VOLTAGE_DIAG)
+    {
+        Voltage_Diag_Stop();
+        (void)Voltage_Diag_Enable(false);
     }
 
     Ident_Mode = IDENT_NONE;
@@ -241,7 +301,8 @@ Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
         return FAST_OFF;
     }
 
-    if ((Ident_Mode == IDENT_RS_LS) || (Ident_Mode == IDENT_FLUX))
+    if ((Ident_Mode == IDENT_RS_LS) || (Ident_Mode == IDENT_FLUX) ||
+        (Ident_Mode == IDENT_VOLTAGE_DIAG))
     {
         Envelope_Voltage_Update();
         I_Max = Ident_Envelope.I_Safe_A;
@@ -249,6 +310,16 @@ Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
     else
     {
         return FAST_OFF;
+    }
+
+    if (Ident_Mode == IDENT_VOLTAGE_DIAG)
+    {
+        if (!Voltage_Diag_Run(Ia_A, Ib_A, Ic_A, I_Max, Theta_e, Ualpha_V, Ubeta_V))
+        {
+            Ident_State = IDENT_FAILED;
+            return FAST_OFF;
+        }
+        return FAST_VOLTAGE;
     }
 
     if ((Abs_Value(Ia_A) > I_Max) || (Abs_Value(Ib_A) > I_Max) || (Abs_Value(Ic_A) > I_Max))
@@ -293,6 +364,19 @@ uint8_t Identification_Stage_Get(void)
     if (Ident_Mode == IDENT_FLUX)
     {
         return (uint8_t)Flux_State_Get();
+    }
+
+    if (Ident_Mode == IDENT_VOLTAGE_DIAG)
+    {
+        float We_Target;
+        float U_Target;
+        float U_Align;
+        float We_Ref;
+        float U_Ref;
+        Voltage_Diag_Get(&We_Target, &U_Target, &U_Align, &We_Ref, &U_Ref);
+        (void)U_Target;
+        (void)U_Align;
+        return (Abs_Value(We_Ref) + 0.5f >= Abs_Value(We_Target)) ? 2U : 1U;
     }
 
     return 0U;
