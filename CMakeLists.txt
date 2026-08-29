@@ -67,6 +67,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Motor/Motion_Loop.c
     Motor/Align.c
     Motor/Open_Loop.c
+    Motor/Voltage_Diag.c
     Motor/Motor_PWM.c
     Motor/Motor_Control.c
     BSP/RGB.c
