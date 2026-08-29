@@ -6,6 +6,7 @@
 #ifndef MOTOR_ADC_H
 #define MOTOR_ADC_H
 
+#include <stdbool.h>
 #include <stdint.h>
 
 typedef struct
@@ -30,6 +31,8 @@ typedef struct
 extern volatile ADC_T ADC;
 
 void ADC_Calib(void);
+bool ADC_Current_Gain_Set(float Ia_Gain, float Ib_Gain);
+void ADC_Current_Gain_Get(float *Ia_Gain, float *Ib_Gain);
 void Fast_Loop(void);
 
 #endif /* MOTOR_ADC_H */

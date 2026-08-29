@@ -21,6 +21,8 @@
 
 #define CUR_SHUNT_OHM 0.001f
 #define CUR_AMP_GAIN  20.0f
+#define CUR_GAIN_MIN  0.80f
+#define CUR_GAIN_MAX  1.20f
 
 #define VBUS_R1_OHM 20000.0f
 #define VBUS_R2_OHM 1000.0f
@@ -30,6 +32,9 @@
 #define VBUS_RAW_TO_V (ADC_VREF_V / ADC_FULL_SCALE * ((VBUS_R1_OHM + VBUS_R2_OHM) / VBUS_R2_OHM))
 
 volatile ADC_T ADC = { 0 };
+
+static volatile float Ia_Gain = 1.0f;
+static volatile float Ib_Gain = 1.0f;
 
 static void Iabc_Calib(void);
 
@@ -46,6 +51,26 @@ void ADC_Calib(void)
     }
 
     Iabc_Calib();
+}
+
+bool ADC_Current_Gain_Set(float Ia_Gain_Set, float Ib_Gain_Set)
+{
+    if (!__builtin_isfinite(Ia_Gain_Set) || !__builtin_isfinite(Ib_Gain_Set) ||
+        (Ia_Gain_Set < CUR_GAIN_MIN) || (Ia_Gain_Set > CUR_GAIN_MAX) ||
+        (Ib_Gain_Set < CUR_GAIN_MIN) || (Ib_Gain_Set > CUR_GAIN_MAX))
+    {
+        return false;
+    }
+
+    Ia_Gain = Ia_Gain_Set;
+    Ib_Gain = Ib_Gain_Set;
+    return true;
+}
+
+void ADC_Current_Gain_Get(float *Ia_Gain_Out, float *Ib_Gain_Out)
+{
+    *Ia_Gain_Out = Ia_Gain;
+    *Ib_Gain_Out = Ib_Gain;
 }
 
 static void Iabc_Calib(void)
@@ -127,8 +152,8 @@ void Fast_Loop(void)
     ADC.Ic_Raw = (uint16_t)ADC1->JDR1;
     ADC.Vbus_Raw = (uint16_t)ADC2->JDR1;
 
-    ADC.Ia_A = ((float)ADC.Ia_Off - (float)ADC.Ia_Raw) * CUR_RAW_TO_A;
-    ADC.Ib_A = ((float)ADC.Ib_Off - (float)ADC.Ib_Raw) * CUR_RAW_TO_A;
+    ADC.Ia_A = ((float)ADC.Ia_Off - (float)ADC.Ia_Raw) * CUR_RAW_TO_A * Ia_Gain;
+    ADC.Ib_A = ((float)ADC.Ib_Off - (float)ADC.Ib_Raw) * CUR_RAW_TO_A * Ib_Gain;
     ADC.Ic_A = ((float)ADC.Ic_Off - (float)ADC.Ic_Raw) * CUR_RAW_TO_A;
     ADC.Vbus_V = (float)ADC.Vbus_Raw * VBUS_RAW_TO_V;
 

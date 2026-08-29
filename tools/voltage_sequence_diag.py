@@ -18,6 +18,8 @@ MSG_IDENTIFICATION = 0x05
 MODE_IDENT = 4
 CTRL_I_LIMIT_SET = 0x07
 CTRL_MOTOR_PARA_SET = 0x0A
+CTRL_CURRENT_GAIN_SET = 0x0C
+CTRL_CURRENT_GAIN_GET = 0x0D
 IDENT_MODE_SET = 0x01
 IDENT_STATUS = 0x02
 IDENT_VOLTAGE_DIAG = 0x03
@@ -87,6 +89,7 @@ class VoltageDiag(base.SensorlessTest):
         self.normal_lost = 0
         self.current_peak = 0.0
         self.capture = False
+        self.current_gain = None
 
     def prepare(self):
         for msg_type, op, data in (
@@ -99,12 +102,30 @@ class VoltageDiag(base.SensorlessTest):
             except (TimeoutError, RuntimeError):
                 pass
 
+    def current_gain_set(self):
+        self.request(
+            base.MSG_CONTROL,
+            CTRL_CURRENT_GAIN_SET,
+            struct.pack("<ff", self.args.ia_gain, self.args.ib_gain),
+        )
+        data = self.request(base.MSG_CONTROL, CTRL_CURRENT_GAIN_GET)
+        if len(data) != 8:
+            raise RuntimeError(f"invalid current gain readback length: {len(data)}")
+        ia_gain, ib_gain = struct.unpack("<ff", data)
+        if abs(ia_gain - self.args.ia_gain) > 1e-5 or abs(ib_gain - self.args.ib_gain) > 1e-5:
+            raise RuntimeError(
+                f"current gain readback mismatch: Ia={ia_gain:.6f}, Ib={ib_gain:.6f}"
+            )
+        self.current_gain = {"ia": ia_gain, "ib": ib_gain}
+        print(f"Current gain RAM: Ia={ia_gain:.5f}, Ib={ib_gain:.5f}")
+
     def set_parameters(self):
         payload = bytes([self.args.pole_pairs]) + struct.pack(
             "<ffff", self.args.rs, self.args.ld, self.args.lq, self.args.flux
         )
         self.request(base.MSG_CONTROL, CTRL_MOTOR_PARA_SET, payload)
         self.request(base.MSG_CONTROL, CTRL_I_LIMIT_SET, struct.pack("<f", self.args.current_limit))
+        self.current_gain_set()
 
     def configure_plot(self):
         fast = bytes([base.FAST_GROUP, FAST_CONFIG_ID, len(FAST_VARS)])
@@ -187,6 +208,14 @@ class VoltageDiag(base.SensorlessTest):
             time.sleep(0.02)
         raise TimeoutError("voltage diagnostic did not reach HOLD")
 
+    def settle(self):
+        deadline = time.monotonic() + self.args.settle_seconds
+        while time.monotonic() < deadline:
+            if self.stop_request.requested:
+                raise RuntimeError("user stop")
+            self.process(self.parser.feed(self.ser.read(4096)))
+            self.check_stream()
+
     def collect(self):
         self.samples = []
         self.capture = True
@@ -225,8 +254,11 @@ def parse_args():
     p.add_argument("--flux", type=float, default=0.01513128)
     p.add_argument("--pole-pairs", type=int, default=11)
     p.add_argument("--current-limit", type=float, default=2.0)
+    p.add_argument("--ia-gain", type=float, default=1.0)
+    p.add_argument("--ib-gain", type=float, default=1.0)
     p.add_argument("--we", type=float, default=120.0)
     p.add_argument("--duration", type=float, default=5.0)
+    p.add_argument("--settle-seconds", type=float, default=0.5)
     p.add_argument("--vbus-min", type=float, default=10.0)
     p.add_argument("--vbus-max", type=float, default=20.0)
     p.add_argument("--vbus-seconds", type=float, default=0.2)
@@ -237,6 +269,10 @@ def parse_args():
     args = p.parse_args()
     if not args.run:
         p.error("--run is required")
+    if not 0.8 <= args.ia_gain <= 1.2 or not 0.8 <= args.ib_gain <= 1.2:
+        p.error("--ia-gain/--ib-gain must be within 0.8 .. 1.2")
+    if args.settle_seconds < 0.0:
+        p.error("--settle-seconds must be non-negative")
     args.host_guard = 1.10 * args.current_limit
     return args
 
@@ -258,6 +294,7 @@ def main():
         "success": False,
         "error": None,
         "config": vars(args),
+        "current_gain_readback": None,
         "expected_u_target_v_unclamped": expected_u,
         "vbus": None,
         "sequence": None,
@@ -276,6 +313,7 @@ def main():
                 test.prepare()
                 time.sleep(0.05)
                 test.set_parameters()
+                log["current_gain_readback"] = test.current_gain
                 test.configure_plot()
                 deadline = time.monotonic() + args.vbus_seconds
                 while time.monotonic() < deadline:
@@ -297,6 +335,9 @@ def main():
                     f"firmware Utarget estimate≈{expected_u:.3f} V before clamp"
                 )
                 test.wait_hold()
+                if args.settle_seconds > 0.0:
+                    print(f"Settling for {args.settle_seconds:.2f} s...")
+                    test.settle()
                 print(f"Holding for {args.duration:.2f} s...")
                 rows = test.collect()
                 for row in rows:

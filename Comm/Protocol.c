@@ -10,6 +10,7 @@
 #include "Flux.h"
 #include "Identification.h"
 #include "IF_Start.h"
+#include "Motor_ADC.h"
 #include "Motor_Control.h"
 #include "Motor_Para.h"
 #include "Motor_Type.h"
@@ -240,6 +241,50 @@ static void Control_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
             memcpy(&Resp[5], &Motor_Para.Ld, sizeof(float));
             memcpy(&Resp[9], &Motor_Para.Lq, sizeof(float));
             memcpy(&Resp[13], &Motor_Para.Flux, sizeof(float));
+        }
+        if (Broadcast == 0U)
+        {
+            Response(Txn, AXDR_MSG_CONTROL, Op, Status,
+                     (Status == AXDR_OK) ? Resp : 0,
+                     (Status == AXDR_OK) ? sizeof(Resp) : 0U);
+        }
+        return;
+    }
+    else if (Op == AXDR_CTRL_CURRENT_GAIN_SET)
+    {
+        float Ia_Gain;
+        float Ib_Gain;
+        if (Len != 10U)
+        {
+            Status = AXDR_ERR_LENGTH;
+        }
+        else if (Motor_State_Get() != DISABLED)
+        {
+            Status = AXDR_ERR_STATE;
+        }
+        else
+        {
+            memcpy(&Ia_Gain, &Data[2], sizeof(float));
+            memcpy(&Ib_Gain, &Data[6], sizeof(float));
+            if (!ADC_Current_Gain_Set(Ia_Gain, Ib_Gain)) Status = AXDR_ERR_VALUE;
+        }
+        if (Broadcast == 0U) Response(Txn, AXDR_MSG_CONTROL, Op, Status, 0, 0U);
+        return;
+    }
+    else if (Op == AXDR_CTRL_CURRENT_GAIN_GET)
+    {
+        uint8_t Resp[8];
+        float Ia_Gain;
+        float Ib_Gain;
+        if (Len != 2U)
+        {
+            Status = AXDR_ERR_LENGTH;
+        }
+        else
+        {
+            ADC_Current_Gain_Get(&Ia_Gain, &Ib_Gain);
+            memcpy(&Resp[0], &Ia_Gain, sizeof(float));
+            memcpy(&Resp[4], &Ib_Gain, sizeof(float));
         }
         if (Broadcast == 0U)
         {

@@ -10,7 +10,7 @@ The host then:
   and observer flux relative to Theta_e;
 - exports raw samples and all metrics to JSON.
 
-No gain correction or control compensation is applied by this tool.
+Optional Ia/Ib gains are written to firmware RAM before the run and read back.
 """
 
 import argparse
@@ -29,6 +29,8 @@ import sensorless_run
 import sensorless_test as base
 
 
+CTRL_CURRENT_GAIN_SET = 0x0C
+CTRL_CURRENT_GAIN_GET = 0x0D
 FAST_CONFIG_ID = 16
 NORMAL_CONFIG_ID = sensorless_run.NORMAL_CONFIG_ID
 STAGE_IF_TO_OBS = 2
@@ -133,7 +135,6 @@ def closure_fit(rows):
     if abs(det) < 1e-18:
         raise RuntimeError("three-phase closure fit is singular")
 
-    # [sii sic; sic scc] [Kb Kc]^T = -[sum(Ia*Ib), sum(Ia*Ic)]^T
     kb = (-sai * scc + sac * sic) / det
     kc = (-sac * sii + sai * sic) / det
     fitted = [row["Ia"] + kb * row["Ib"] + kc * row["Ic"] for row in rows]
@@ -163,6 +164,24 @@ class SequenceRun(shadow.ShadowRun):
         self.last_fast_rx = None
         self.current_trip = False
         self.fast_saturation = [0] * len(FAST_VARS)
+        self.current_gain = None
+
+    def current_gain_set(self):
+        self.request(
+            base.MSG_CONTROL,
+            CTRL_CURRENT_GAIN_SET,
+            struct.pack("<ff", self.args.ia_gain, self.args.ib_gain),
+        )
+        data = self.request(base.MSG_CONTROL, CTRL_CURRENT_GAIN_GET)
+        if len(data) != 8:
+            raise RuntimeError(f"invalid current gain readback length: {len(data)}")
+        ia_gain, ib_gain = struct.unpack("<ff", data)
+        if abs(ia_gain - self.args.ia_gain) > 1e-5 or abs(ib_gain - self.args.ib_gain) > 1e-5:
+            raise RuntimeError(
+                f"current gain readback mismatch: Ia={ia_gain:.6f}, Ib={ib_gain:.6f}"
+            )
+        self.current_gain = {"ia": ia_gain, "ib": ib_gain}
+        print(f"Current gain RAM: Ia={ia_gain:.5f}, Ib={ib_gain:.5f}")
 
     def configure_plot(self):
         self.fast_last = None
@@ -270,6 +289,8 @@ def parse_args():
     parser.add_argument("--flux", type=float, default=0.01513128)
     parser.add_argument("--pole-pairs", type=int, default=11)
     parser.add_argument("--current-limit", type=float, default=2.0)
+    parser.add_argument("--ia-gain", type=float, default=1.0)
+    parser.add_argument("--ib-gain", type=float, default=1.0)
     parser.add_argument("--we", type=float, default=120.0)
     parser.add_argument("--pll-bw-hz", type=float, default=20.0)
     parser.add_argument("--duration", type=float, default=5.0)
@@ -281,7 +302,6 @@ def parse_args():
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=1.0)
 
-    # Fields consumed by SensorlessRun/ShadowRun construction.
     parser.add_argument("--pll-window", type=float, default=0.2)
     parser.add_argument("--speed-error-time", type=float, default=1.0)
     parser.add_argument("--pll-rms-limit", type=float, default=0.08)
@@ -304,6 +324,8 @@ def parse_args():
         parser.error("pole-pairs/current-limit/we/duration must be positive")
     if not 1.0 <= args.pll_bw_hz <= 200.0:
         parser.error("--pll-bw-hz must be within 1 .. 200 Hz")
+    if not 0.8 <= args.ia_gain <= 1.2 or not 0.8 <= args.ib_gain <= 1.2:
+        parser.error("--ia-gain/--ib-gain must be within 0.8 .. 1.2")
     return args
 
 
@@ -328,6 +350,7 @@ def main():
             "wm_rad_s": wm,
             "pll_bw_hz": args.pll_bw_hz,
             "duration_s": args.duration,
+            "current_gain_requested": {"ia": args.ia_gain, "ib": args.ib_gain},
             "motor": {
                 "pole_pairs": args.pole_pairs,
                 "rs_ohm": args.rs,
@@ -336,6 +359,7 @@ def main():
                 "flux_wb": args.flux,
             },
         },
+        "current_gain_readback": None,
         "vbus": None,
         "closure_fit": None,
         "sequence": None,
@@ -356,6 +380,8 @@ def main():
                 time.sleep(0.05)
                 test.motor_para_set()
                 test.current_limit_set()
+                test.current_gain_set()
+                log["current_gain_readback"] = test.current_gain
                 test.pll_bw_set(args.pll_bw_hz)
                 test.shadow_set(True, quiet=True)
                 test.configure_plot()

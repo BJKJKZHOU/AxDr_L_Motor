@@ -20,17 +20,19 @@
 #define AXDR_MSG_NORMAL_DATA    0x10U
 #define AXDR_MSG_FAST_DATA      0x18U
 
-#define AXDR_CTRL_ENABLE         0x01U
-#define AXDR_CTRL_RUN            0x02U
-#define AXDR_CTRL_STOP           0x03U
-#define AXDR_CTRL_DISABLE        0x04U
-#define AXDR_CTRL_MODE_SET       0x05U
-#define AXDR_CTRL_SPEED_SET      0x06U
-#define AXDR_CTRL_I_LIMIT_SET    0x07U
-#define AXDR_CTRL_PP_SET         0x08U
-#define AXDR_CTRL_PP_GET         0x09U
-#define AXDR_CTRL_MOTOR_PARA_SET 0x0AU
-#define AXDR_CTRL_MOTOR_PARA_GET 0x0BU
+#define AXDR_CTRL_ENABLE           0x01U
+#define AXDR_CTRL_RUN              0x02U
+#define AXDR_CTRL_STOP             0x03U
+#define AXDR_CTRL_DISABLE          0x04U
+#define AXDR_CTRL_MODE_SET         0x05U
+#define AXDR_CTRL_SPEED_SET        0x06U
+#define AXDR_CTRL_I_LIMIT_SET      0x07U
+#define AXDR_CTRL_PP_SET           0x08U
+#define AXDR_CTRL_PP_GET           0x09U
+#define AXDR_CTRL_MOTOR_PARA_SET   0x0AU
+#define AXDR_CTRL_MOTOR_PARA_GET   0x0BU
+#define AXDR_CTRL_CURRENT_GAIN_SET 0x0CU
+#define AXDR_CTRL_CURRENT_GAIN_GET 0x0DU
 
 #define AXDR_IDENT_MODE_SET       0x01U
 #define AXDR_IDENT_STATUS         0x02U
