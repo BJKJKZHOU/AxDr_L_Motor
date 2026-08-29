@@ -17,6 +17,7 @@ typedef enum
     IDENT_NONE = 0,
     IDENT_RS_LS,
     IDENT_FLUX,
+    IDENT_VOLTAGE_DIAG,
 
 } Ident_Mode_e;
 
