@@ -52,9 +52,12 @@ void ADC_Calib(void)
     }
 
     /* Temporary timing experiment:
-     * - order: Ia -> Ib -> Ic
-     * - ADC1 injected sampling time: 12.5 cycles
+     * - order: Ia -> Ic -> Ib
+     * - ADC1 injected sampling time: 47.5 cycles
      *
+     * With the existing CCR5 trigger offset, Rank1/Rank3 place the two
+     * feedback currents Ia/Ib approximately symmetrically around the PWM
+     * midpoint while Ic occupies the middle conversion slot.
      * Trigger source and PWM timing remain unchanged. */
     Iabc_Rank_Test_Config();
     Iabc_Calib();
@@ -84,7 +87,7 @@ static void Iabc_Rank_Test_Config(void)
 {
     ADC_InjectionConfTypeDef Config = { 0 };
 
-    Config.InjectedSamplingTime = ADC_SAMPLETIME_12CYCLES_5;
+    Config.InjectedSamplingTime = ADC_SAMPLETIME_47CYCLES_5;
     Config.InjectedSingleDiff = ADC_SINGLE_ENDED;
     Config.InjectedOffsetNumber = ADC_OFFSET_NONE;
     Config.InjectedOffset = 0;
@@ -103,14 +106,14 @@ static void Iabc_Rank_Test_Config(void)
         Error_Handler();
     }
 
-    Config.InjectedChannel = ADC_CHANNEL_2; /* Ib */
+    Config.InjectedChannel = ADC_CHANNEL_1; /* Ic */
     Config.InjectedRank = ADC_INJECTED_RANK_2;
     if (HAL_ADCEx_InjectedConfigChannel(&hadc1, &Config) != HAL_OK)
     {
         Error_Handler();
     }
 
-    Config.InjectedChannel = ADC_CHANNEL_1; /* Ic */
+    Config.InjectedChannel = ADC_CHANNEL_2; /* Ib */
     Config.InjectedRank = ADC_INJECTED_RANK_3;
     if (HAL_ADCEx_InjectedConfigChannel(&hadc1, &Config) != HAL_OK)
     {
@@ -153,8 +156,8 @@ static void Iabc_Calib(void)
         }
 
         Ia_Sum += ADC1->JDR1;
-        Ib_Sum += ADC1->JDR2;
-        Ic_Sum += ADC1->JDR3;
+        Ic_Sum += ADC1->JDR2;
+        Ib_Sum += ADC1->JDR3;
     }
 
     HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_5);
@@ -193,8 +196,8 @@ void Fast_Loop(void)
     }
 
     ADC.Ia_Raw = (uint16_t)ADC1->JDR1;
-    ADC.Ib_Raw = (uint16_t)ADC1->JDR2;
-    ADC.Ic_Raw = (uint16_t)ADC1->JDR3;
+    ADC.Ic_Raw = (uint16_t)ADC1->JDR2;
+    ADC.Ib_Raw = (uint16_t)ADC1->JDR3;
     ADC.Vbus_Raw = (uint16_t)ADC2->JDR1;
 
     ADC.Ia_A = ((float)ADC.Ia_Off - (float)ADC.Ia_Raw) * CUR_RAW_TO_A * Ia_Gain;
