@@ -229,7 +229,11 @@ def main():
                 test.speed_set(wm)
                 test.request(base.MSG_CONTROL, base.CTRL_ENABLE)
                 test.request(base.MSG_CONTROL, base.CTRL_RUN)
-                print(f"Current-loop diagnostic: We={args.we:.1f} rad/s, FAST=5 kHz (decimation 4)")
+                direction = "forward" if args.we > 0.0 else "reverse"
+                print(
+                    f"Current-loop diagnostic: We={args.we:.1f} rad/s ({direction}), "
+                    f"FAST=5 kHz (decimation 4)"
+                )
                 print("ALIGN -> I/F -> shadow; one synchronized FAST window")
                 test.wait_shadow()
                 print(f"Collecting Error/Integrator/Udq for {args.duration:.2f} s")
@@ -259,17 +263,18 @@ def main():
                 u_sequence = seq.sequence_metrics(mapped_u, "Ualpha", "Ubeta")
 
                 int_theory = {}
+                ideal_phase_delta = -90.0 if args.we > 0.0 else 90.0
                 for axis in ("Id", "Iq"):
                     err = metrics[f"{axis}Err"]
                     integ = metrics[f"{axis}Int"]
-                    pred_peak = ki * err["peak"] / (2.0 * args.we)
+                    pred_peak = ki * err["peak"] / (2.0 * abs(args.we))
                     phase_delta = wrap_deg(integ["phase_deg"] - err["phase_deg"])
                     int_theory[axis] = {
                         "predicted_peak_v": pred_peak,
                         "measured_peak_v": integ["peak"],
                         "peak_ratio_measured_over_predicted": integ["peak"] / pred_peak if pred_peak > 1e-12 else math.nan,
                         "phase_delta_deg": phase_delta,
-                        "ideal_phase_delta_deg": -90.0,
+                        "ideal_phase_delta_deg": ideal_phase_delta,
                     }
 
                 print("\nCurrent error / PI / final dq output")
@@ -286,7 +291,8 @@ def main():
                         f"  {axis}: predicted={item['predicted_peak_v']:.6f} V "
                         f"measured={item['measured_peak_v']:.6f} V "
                         f"ratio={item['peak_ratio_measured_over_predicted']:.3f} "
-                        f"phase_delta={item['phase_delta_deg']:+.2f} deg (ideal -90 deg)"
+                        f"phase_delta={item['phase_delta_deg']:+.2f} deg "
+                        f"(ideal {item['ideal_phase_delta_deg']:+.0f} deg)"
                     )
 
                 print("\nReconstructed Ucmd alpha-beta")
@@ -308,6 +314,8 @@ def main():
                     "success": True,
                     "config": {
                         "we_rad_s": args.we,
+                        "wm_rad_s": wm,
+                        "direction": direction,
                         "rs_ohm": args.rs,
                         "ld_h": args.ld,
                         "lq_h": args.lq,
