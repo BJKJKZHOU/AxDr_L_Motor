@@ -38,8 +38,9 @@
 #define AXDR_IDENT_APPLY          0x04U
 #define AXDR_IDENT_FLUX_POINT_GET 0x05U
 
-#define AXDR_IDENT_RS_LS 0x01U
-#define AXDR_IDENT_FLUX  0x02U
+#define AXDR_IDENT_RS_LS        0x01U
+#define AXDR_IDENT_FLUX         0x02U
+#define AXDR_IDENT_VOLTAGE_DIAG 0x03U
 
 #define AXDR_SENSORLESS_STATUS        0x02U
 #define AXDR_SENSORLESS_STOP          0x03U
