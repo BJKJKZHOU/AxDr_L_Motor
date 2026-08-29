@@ -74,10 +74,12 @@ static bool Flux_Obs_U_Valid = false;
 static bool Profile_Requested = false;
 static Motor_IF_Para_T IF_Para = { 0 };
 static uint32_t Obs_Wait_Cnt = 0U;
+static uint32_t Obs_Wait_Max_Cnt = 0U;
 static uint32_t Blend_Cnt = 0U;
 static uint32_t Speed_Div = 0U;
 static float Obs_Id_Ref = 0.0f;
 static float Obs_Iq_Ref = 0.0f;
+static Sensorless_Obs_Diag_T Obs_Diag = { 0 };
 
 static float Angle_Diff(float A, float B)
 {
@@ -103,6 +105,12 @@ static float Abs_F(float X)
     return (X >= 0.0f) ? X : -X;
 }
 
+static void Obs_Diag_Reset(void)
+{
+    Obs_Diag = (Sensorless_Obs_Diag_T){ 0 };
+    Obs_Wait_Max_Cnt = 0U;
+}
+
 static float Current_Limit_Get(void)
 {
     float I_Max;
@@ -113,36 +121,48 @@ static float Current_Limit_Get(void)
 
 static bool Obs_Stable(void)
 {
-    float We_Err;
     float Flux2;
     float Flux_Ref2;
 
     Sensorless_We_Obs_F += OBS_WE_ALPHA * (Flux_PLL.State.We - Sensorless_We_Obs_F);
-    We_Err = Sensorless_We_Obs_F - IF_Start_We_Get();
+
+    Obs_Diag.We_IF = IF_Start_We_Get();
+    Obs_Diag.We_Obs_F = Sensorless_We_Obs_F;
+    Obs_Diag.We_Err = Obs_Diag.We_Obs_F - Obs_Diag.We_IF;
+    Obs_Diag.PLL_Err = Flux_PLL.State.Err;
+    Obs_Diag.Theta_Err = Angle_Diff(Flux_PLL.State.Theta, Sensorless_Theta_IF);
+    Obs_Diag.Reject = OBS_REJECT_NONE;
+
     Flux2 = Flux_Obs.State.PsiAlpha * Flux_Obs.State.PsiAlpha + Flux_Obs.State.PsiBeta * Flux_Obs.State.PsiBeta;
     Flux_Ref2 = Flux_Obs.Para.Flux * Flux_Obs.Para.Flux;
 
-    if (Flux_Ref2 <= 0.0f)
+    if (Flux_Ref2 > 0.0f)
     {
-        return false;
+        Obs_Diag.Flux_Ratio = __builtin_sqrtf(Flux2 / Flux_Ref2);
+    }
+    else
+    {
+        Obs_Diag.Flux_Ratio = 0.0f;
+        Obs_Diag.Reject |= OBS_REJECT_FLUX;
     }
 
-    if (Abs_F(We_Err) > WE_ERR_MAX)
+    if (Abs_F(Obs_Diag.We_Err) > WE_ERR_MAX)
     {
-        return false;
+        Obs_Diag.Reject |= OBS_REJECT_WE;
     }
 
-    if (Abs_F(Flux_PLL.State.Err) > PLL_ERR_MAX)
+    if (Abs_F(Obs_Diag.PLL_Err) > PLL_ERR_MAX)
     {
-        return false;
+        Obs_Diag.Reject |= OBS_REJECT_PLL;
     }
 
-    if ((Flux2 < FLUX_MIN_RATIO2 * Flux_Ref2) || (Flux2 > FLUX_MAX_RATIO2 * Flux_Ref2))
+    if ((Flux_Ref2 > 0.0f) && ((Flux2 < FLUX_MIN_RATIO2 * Flux_Ref2) || (Flux2 > FLUX_MAX_RATIO2 * Flux_Ref2)))
     {
-        return false;
+        Obs_Diag.Reject |= OBS_REJECT_FLUX;
     }
 
-    return true;
+    Obs_Diag.Reject_Seen |= Obs_Diag.Reject;
+    return Obs_Diag.Reject == OBS_REJECT_NONE;
 }
 
 static void DQ_Rotate(float Theta_IF, float Theta_Use, float Id_IF, float Iq_IF, float *Id_Ref, float *Iq_Ref)
@@ -255,6 +275,7 @@ bool Sensorless_Begin(void)
     Sensorless_Iq_Ref = 0.0f;
     Sensorless_Blend = 0.0f;
     Sensorless_We_Obs_F = 0.0f;
+    Obs_Diag_Reset();
 
     Align_Reset();
     Current_Loop_State_Reset();
@@ -432,6 +453,7 @@ bool Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float 
         {
             Obs_Wait_Cnt = 0U;
             Sensorless_We_Obs_F = Flux_PLL.State.We;
+            Obs_Diag_Reset();
             To_Obs_State = TO_OBS_WAIT;
             State = SL_IF_TO_OBS;
         }
@@ -451,6 +473,14 @@ bool Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float 
                     Obs_Wait_Cnt++;
                 }
 
+                if (Obs_Wait_Cnt > Obs_Wait_Max_Cnt)
+                {
+                    Obs_Wait_Max_Cnt = Obs_Wait_Cnt;
+                }
+
+                Obs_Diag.Stable_s = (float)Obs_Wait_Cnt * CUR_TS;
+                Obs_Diag.Stable_Max_s = (float)Obs_Wait_Max_Cnt * CUR_TS;
+
                 if (Obs_Wait_Cnt >= OBS_WAIT_CNT)
                 {
                     Blend_Cnt = 0U;
@@ -461,6 +491,8 @@ bool Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float 
             else
             {
                 Obs_Wait_Cnt = 0U;
+                Obs_Diag.Stable_s = 0.0f;
+                Obs_Diag.Stable_Max_s = (float)Obs_Wait_Max_Cnt * CUR_TS;
             }
         }
         else if (To_Obs_State == TO_OBS_BLEND)
@@ -577,4 +609,9 @@ bool Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float 
 Sensorless_State_e Sensorless_State_Get(void)
 {
     return State;
+}
+
+const Sensorless_Obs_Diag_T *Sensorless_Obs_Diag_Get(void)
+{
+    return &Obs_Diag;
 }
