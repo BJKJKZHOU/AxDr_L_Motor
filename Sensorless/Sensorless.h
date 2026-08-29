@@ -23,6 +23,30 @@ typedef enum
 
 } Sensorless_State_e;
 
+typedef enum
+{
+    OBS_REJECT_NONE = 0U,
+    OBS_REJECT_WE = (1U << 0),
+    OBS_REJECT_PLL = (1U << 1),
+    OBS_REJECT_FLUX = (1U << 2),
+
+} Sensorless_Obs_Reject_e;
+
+typedef struct
+{
+    float We_IF;
+    float We_Obs_F;
+    float We_Err;
+    float PLL_Err;
+    float Flux_Ratio;
+    float Theta_Err;
+    float Stable_s;
+    float Stable_Max_s;
+    uint8_t Reject;
+    uint8_t Reject_Seen;
+
+} Sensorless_Obs_Diag_T;
+
 extern Flux_Observer_T Flux_Obs;
 extern PLL_T Flux_PLL;
 
@@ -40,5 +64,6 @@ bool Sensorless_Ready(void);
 
 bool Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float *Id_Ref, float *Iq_Ref);
 Sensorless_State_e Sensorless_State_Get(void);
+const Sensorless_Obs_Diag_T *Sensorless_Obs_Diag_Get(void);
 
 #endif /* SENSORLESS_H */
