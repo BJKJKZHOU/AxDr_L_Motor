@@ -459,6 +459,25 @@ static void Sensorless_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
             return;
         }
     }
+    else if (Op == AXDR_SENSORLESS_FLUX_DIAG_GET)
+    {
+        uint8_t Resp[16];
+        const Sensorless_Flux_Diag_T *Diag;
+        if (Len != 2U)
+        {
+            Status = AXDR_ERR_LENGTH;
+        }
+        else
+        {
+            Diag = Sensorless_Flux_Diag_Get();
+            memcpy(&Resp[0], &Diag->Theta_Flux, sizeof(float));
+            memcpy(&Resp[4], &Diag->We_Flux_Raw, sizeof(float));
+            memcpy(&Resp[8], &Diag->We_Flux_F, sizeof(float));
+            memcpy(&Resp[12], &Diag->Theta_Flux_IF_Err, sizeof(float));
+            Response(Txn, AXDR_MSG_SENSORLESS, Op, AXDR_OK, Resp, sizeof(Resp));
+            return;
+        }
+    }
     else Status = AXDR_ERR_OP;
 
     Response(Txn, AXDR_MSG_SENSORLESS, Op, Status, 0, 0U);
