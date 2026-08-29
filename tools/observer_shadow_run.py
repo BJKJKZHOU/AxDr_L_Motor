@@ -19,6 +19,7 @@ import sensorless_run
 import sensorless_test as base
 
 
+CTRL_I_LIMIT_SET = 0x07
 CTRL_MOTOR_PARA_SET = 0x0A
 CTRL_MOTOR_PARA_GET = 0x0B
 SENSORLESS_SHADOW_SET = 0x04
@@ -82,7 +83,7 @@ class ShadowRun(sensorless_run.SensorlessRun):
     def current_limit_set(self):
         self.request(
             base.MSG_CONTROL,
-            base.CTRL_I_LIMIT_SET,
+            CTRL_I_LIMIT_SET,
             struct.pack("<f", self.args.current_limit),
         )
         print(f"Current limit={self.args.current_limit:.3f} A (RAM)")
