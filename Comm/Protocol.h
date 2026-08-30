@@ -30,10 +30,10 @@
 #define AXDR_CTRL_PP_SET      0x08U
 #define AXDR_CTRL_PP_GET      0x09U
 
-#define AXDR_IDENT_MODE_SET 0x01U
-#define AXDR_IDENT_STATUS   0x02U
-#define AXDR_IDENT_ABORT    0x03U
-#define AXDR_IDENT_APPLY    0x04U
+#define AXDR_IDENT_MODE_SET       0x01U
+#define AXDR_IDENT_STATUS         0x02U
+#define AXDR_IDENT_ABORT          0x03U
+#define AXDR_IDENT_APPLY          0x04U
 #define AXDR_IDENT_FLUX_POINT_GET 0x05U
 
 #define AXDR_IDENT_RS_LS 0x01U

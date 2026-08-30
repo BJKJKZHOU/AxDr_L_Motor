@@ -72,6 +72,9 @@ static float Rs_A = 0.0f;
 static float Ls_A = 0.0f;
 static float Rs_B = 0.0f;
 static float Ls_B = 0.0f;
+static float Rs_C = 0.0f;
+static float Ls_C = 0.0f;
+static bool Measure_Third = false;
 
 static bool PI_Saved = false;
 static bool Align_Pending = false;
@@ -239,7 +242,7 @@ static bool Measure_Calc(uint32_t Sample_Cnt, float *Rs_Ohm, float *Ls_H)
     return true;
 }
 
-static bool Repeat_Valid(float A, float B, float Max_Ratio)
+static float Repeat_Ratio(float A, float B)
 {
     float Ref;
     float Diff;
@@ -252,7 +255,73 @@ static bool Repeat_Valid(float A, float B, float Max_Ratio)
         Diff = -Diff;
     }
 
-    return (Ref > 0.0f) && ((Diff / Ref) <= Max_Ratio);
+    return (Ref > 0.0f) ? (Diff / Ref) : 1.0e30f;
+}
+
+static bool Repeat_Valid(float A, float B, float Max_Ratio)
+{
+    return Repeat_Ratio(A, B) <= Max_Ratio;
+}
+
+static bool Pair_Valid(float Rs_1, float Ls_1, float Rs_2, float Ls_2)
+{
+    return Repeat_Valid(Rs_1, Rs_2, RS_LS_RS_REPEAT_MAX) &&
+           Repeat_Valid(Ls_1, Ls_2, RS_LS_LS_REPEAT_MAX);
+}
+
+static float Pair_Score(float Rs_1, float Ls_1, float Rs_2, float Ls_2)
+{
+    float Rs_Score;
+    float Ls_Score;
+
+    Rs_Score = Repeat_Ratio(Rs_1, Rs_2) / RS_LS_RS_REPEAT_MAX;
+    Ls_Score = Repeat_Ratio(Ls_1, Ls_2) / RS_LS_LS_REPEAT_MAX;
+
+    return (Rs_Score > Ls_Score) ? Rs_Score : Ls_Score;
+}
+
+static bool Best_Pair_Result(float *Rs_Ohm, float *Ls_H)
+{
+    float Score_AB;
+    float Score_AC;
+    float Score_BC;
+
+    Score_AB = Pair_Valid(Rs_A, Ls_A, Rs_B, Ls_B) ? Pair_Score(Rs_A, Ls_A, Rs_B, Ls_B) : 1.0e30f;
+    Score_AC = Pair_Valid(Rs_A, Ls_A, Rs_C, Ls_C) ? Pair_Score(Rs_A, Ls_A, Rs_C, Ls_C) : 1.0e30f;
+    Score_BC = Pair_Valid(Rs_B, Ls_B, Rs_C, Ls_C) ? Pair_Score(Rs_B, Ls_B, Rs_C, Ls_C) : 1.0e30f;
+
+    if ((Score_AB <= Score_AC) && (Score_AB <= Score_BC))
+    {
+        if (Score_AB >= 1.0e30f)
+        {
+            return false;
+        }
+
+        *Rs_Ohm = 0.5f * (Rs_A + Rs_B);
+        *Ls_H = 0.5f * (Ls_A + Ls_B);
+        return true;
+    }
+
+    if (Score_AC <= Score_BC)
+    {
+        if (Score_AC >= 1.0e30f)
+        {
+            return false;
+        }
+
+        *Rs_Ohm = 0.5f * (Rs_A + Rs_C);
+        *Ls_H = 0.5f * (Ls_A + Ls_C);
+        return true;
+    }
+
+    if (Score_BC >= 1.0e30f)
+    {
+        return false;
+    }
+
+    *Rs_Ohm = 0.5f * (Rs_B + Rs_C);
+    *Ls_H = 0.5f * (Ls_B + Ls_C);
+    return true;
 }
 
 static void Rs_Ls_Fail_Stage(uint8_t Stage)
@@ -304,6 +373,9 @@ void Rs_Ls_Reset(void)
     Ls_A = 0.0f;
     Rs_B = 0.0f;
     Ls_B = 0.0f;
+    Rs_C = 0.0f;
+    Ls_C = 0.0f;
+    Measure_Third = false;
 
     Rs_Ls_State = RS_LS_IDLE;
 }
@@ -567,7 +639,7 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
                 Measure_Reset();
                 Rs_Ls_State = RS_LS_MEASURE_B;
             }
-            else
+            else if (!Measure_Third)
             {
                 if (!Measure_Calc(Rs_Ls_Measure_Cnt, &Rs_B, &Ls_B))
                 {
@@ -582,10 +654,36 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
                     return FAST_OFF;
                 }
 
-                if (Repeat_Valid(Rs_A, Rs_B, RS_LS_RS_REPEAT_MAX) && Repeat_Valid(Ls_A, Ls_B, RS_LS_LS_REPEAT_MAX))
+                if (Pair_Valid(Rs_A, Ls_A, Rs_B, Ls_B))
                 {
                     Rs_Ls_Result.Rs_Ohm = 0.5f * (Rs_A + Rs_B);
                     Rs_Ls_Result.Ls_H = 0.5f * (Ls_A + Ls_B);
+                    Rs_Ls_Result.Valid = true;
+                    Rs_Ls_State = RS_LS_DONE;
+                    *Ualpha_V = 0.0f;
+                    return FAST_OFF;
+                }
+
+                Measure_Third = true;
+                Measure_Reset();
+            }
+            else
+            {
+                if (!Measure_Calc(Rs_Ls_Measure_Cnt, &Rs_C, &Ls_C))
+                {
+                    Rs_Ls_Fail();
+                    *Ualpha_V = 0.0f;
+                    return FAST_OFF;
+                }
+
+                if (!Result_Range_Check(Rs_C, Ls_C))
+                {
+                    *Ualpha_V = 0.0f;
+                    return FAST_OFF;
+                }
+
+                if (Best_Pair_Result(&Rs_Ls_Result.Rs_Ohm, &Rs_Ls_Result.Ls_H))
+                {
                     Rs_Ls_Result.Valid = true;
                     Rs_Ls_State = RS_LS_DONE;
                 }
