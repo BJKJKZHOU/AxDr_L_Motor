@@ -45,8 +45,6 @@ void ADC_Calib(void)
         Error_Handler();
     }
 
-    HAL_Delay(20U);
-
     Iabc_Calib();
 }
 

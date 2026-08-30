@@ -259,7 +259,7 @@ class Commission(base.SensorlessTest):
 
     def ident_status(self, mode):
         data = self.request(MSG_IDENTIFICATION, IDENT_STATUS)
-        expected = 28 if mode == IDENT_RS_LS else 16
+        expected = 12 if mode == IDENT_RS_LS else 16
         if len(data) != expected:
             raise RuntimeError(
                 f"invalid identification status length: {len(data)}"
@@ -278,10 +278,6 @@ class Commission(base.SensorlessTest):
             result["rs_ohm"], result["ls_h"] = struct.unpack_from(
                 "<ff", data, 4
             )
-            (result["probe_u_re"], result["probe_u_im"],
-             result["probe_i_re"], result["probe_i_im"]) = struct.unpack_from(
-                 "<ffff", data, 12
-             )
         else:
             (result["flux_wb"], result["point_max_relative_deviation"],
              result["voltage_utilization_max"]) = struct.unpack_from(
@@ -368,16 +364,6 @@ class Commission(base.SensorlessTest):
                 if result is not None and result["state"] == IDENT_DONE:
                     break
                 if result is not None and result["state"] == IDENT_FAILED:
-                    if mode == IDENT_RS_LS:
-                        print(
-                            "  Probe rough: "
-                            f"Rs={result['rs_ohm']:.7g} ohm, "
-                            f"Ls={result['ls_h'] * 1.0e6:.4f} uH, "
-                            f"U=({result['probe_u_re']:.6f}, "
-                            f"{result['probe_u_im']:.6f}), "
-                            f"I=({result['probe_i_re']:.6f}, "
-                            f"{result['probe_i_im']:.6f})"
-                        )
                     failure = RuntimeError(
                         f"identification failed after {active_stage}; "
                         f"captured phase peak={self.run_peak:.3f} A"
