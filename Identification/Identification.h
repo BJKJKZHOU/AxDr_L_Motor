@@ -28,6 +28,24 @@ typedef enum
 
 } Ident_State_e;
 
+typedef struct
+{
+    float I_Safe_A;
+    float I_Probe_A;
+    float I_Measure_A;
+    float I_Measure_Max_A;
+    float I_Align_A;
+    float I_Align_Max_A;
+    float I_Min_A;
+
+    float U_Available_V;
+    float U_Soft_V;
+    float U_Hard_V;
+
+    bool Valid;
+
+} Ident_Envelope_T;
+
 bool Identification_Start(Ident_Mode_e Mode, float Wm_Target);
 void Identification_Abort(void);
 void Identification_Control(void);
@@ -46,5 +64,6 @@ Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
 Ident_Mode_e Identification_Mode_Get(void);
 Ident_State_e Identification_State_Get(void);
 uint8_t Identification_Stage_Get(void);
+const Ident_Envelope_T *Identification_Envelope_Get(void);
 
 #endif /* IDENTIFICATION_H */

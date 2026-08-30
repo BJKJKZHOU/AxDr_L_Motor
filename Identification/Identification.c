@@ -6,17 +6,78 @@
 #include "Identification.h"
 
 #include "Flux.h"
+#include "Math.h"
+#include "Motor_ADC.h"
 #include "Motor_Para.h"
 #include "Rs_Ls.h"
+#include "control_params.h"
 
-#define IDENT_I_MAX_A 2.2f
+#define IDENT_I_MAX_A             2.2f
+#define IDENT_PROBE_I_RATIO       0.10f
+#define IDENT_MEASURE_I_RATIO     0.15f
+#define IDENT_MEASURE_I_MAX_RATIO 0.20f
+#define IDENT_ALIGN_I_RATIO       0.20f
+#define IDENT_ALIGN_I_MAX_RATIO   0.50f
+#define IDENT_I_MIN_RATIO         0.02f
+#define IDENT_U_SOFT_RATIO        0.25f
+#define IDENT_U_HARD_RATIO        0.80f
 
 static volatile Ident_Mode_e Ident_Mode = IDENT_NONE;
 static volatile Ident_State_e Ident_State = IDENT_IDLE;
+static Ident_Envelope_T Ident_Envelope = { 0 };
 
 static float Abs_Value(float Value)
 {
     return (Value >= 0.0f) ? Value : -Value;
+}
+
+static float Current_Limit_Get(void)
+{
+    float I_Max;
+
+    I_Max = (Motor_Lim.I_Max < User_Lim.I_Max) ? Motor_Lim.I_Max : User_Lim.I_Max;
+    return (I_Max > 0.0f) ? I_Max : 0.0f;
+}
+
+static void Envelope_Voltage_Update(void)
+{
+    Ident_Envelope.U_Available_V = ADC.Vbus_V * INV_SQRT3_F * VOLT_MOD_MAX;
+
+    if (Ident_Envelope.U_Available_V < 0.0f)
+    {
+        Ident_Envelope.U_Available_V = 0.0f;
+    }
+
+    Ident_Envelope.U_Soft_V = IDENT_U_SOFT_RATIO * Ident_Envelope.U_Available_V;
+    Ident_Envelope.U_Hard_V = IDENT_U_HARD_RATIO * Ident_Envelope.U_Available_V;
+}
+
+static bool Envelope_Build(void)
+{
+    Ident_Envelope.I_Safe_A = Current_Limit_Get();
+    Ident_Envelope.I_Min_A = IDENT_I_MIN_RATIO * Ident_Envelope.I_Safe_A;
+
+    Ident_Envelope.I_Probe_A = IDENT_PROBE_I_RATIO * Ident_Envelope.I_Safe_A;
+    if (Ident_Envelope.I_Probe_A < Ident_Envelope.I_Min_A)
+    {
+        Ident_Envelope.I_Probe_A = Ident_Envelope.I_Min_A;
+    }
+
+    Ident_Envelope.I_Measure_A = IDENT_MEASURE_I_RATIO * Ident_Envelope.I_Safe_A;
+    if (Ident_Envelope.I_Measure_A < Ident_Envelope.I_Min_A)
+    {
+        Ident_Envelope.I_Measure_A = Ident_Envelope.I_Min_A;
+    }
+
+    Ident_Envelope.I_Measure_Max_A = IDENT_MEASURE_I_MAX_RATIO * Ident_Envelope.I_Safe_A;
+    Ident_Envelope.I_Align_A = IDENT_ALIGN_I_RATIO * Ident_Envelope.I_Safe_A;
+    Ident_Envelope.I_Align_Max_A = IDENT_ALIGN_I_MAX_RATIO * Ident_Envelope.I_Safe_A;
+
+    Envelope_Voltage_Update();
+
+    Ident_Envelope.Valid = (Ident_Envelope.I_Safe_A > 0.0f) && (Ident_Envelope.U_Hard_V > 0.0f) &&
+                           (Ident_Envelope.I_Probe_A <= Ident_Envelope.I_Measure_Max_A);
+    return Ident_Envelope.Valid;
 }
 
 bool Identification_Start(Ident_Mode_e Mode, float Wm_Target)
@@ -28,6 +89,11 @@ bool Identification_Start(Ident_Mode_e Mode, float Wm_Target)
 
     if (Mode == IDENT_RS_LS)
     {
+        if (!Envelope_Build())
+        {
+            return false;
+        }
+
         Rs_Ls_Start();
     }
     else if (Mode == IDENT_FLUX)
@@ -151,6 +217,8 @@ Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
                                           float *Ualpha_V,
                                           float *Ubeta_V)
 {
+    float I_Max;
+
     *Theta_e = 0.0f;
     *Id_Ref = 0.0f;
     *Iq_Ref = 0.0f;
@@ -162,13 +230,27 @@ Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
         return FAST_OFF;
     }
 
-    if ((Abs_Value(Ia_A) > IDENT_I_MAX_A) || (Abs_Value(Ib_A) > IDENT_I_MAX_A) || (Abs_Value(Ic_A) > IDENT_I_MAX_A))
+    if (Ident_Mode == IDENT_RS_LS)
+    {
+        Envelope_Voltage_Update();
+        I_Max = Ident_Envelope.I_Safe_A;
+    }
+    else if (Ident_Mode == IDENT_FLUX)
+    {
+        I_Max = IDENT_I_MAX_A;
+    }
+    else
+    {
+        return FAST_OFF;
+    }
+
+    if ((Abs_Value(Ia_A) > I_Max) || (Abs_Value(Ib_A) > I_Max) || (Abs_Value(Ic_A) > I_Max))
     {
         if (Ident_Mode == IDENT_RS_LS)
         {
             Rs_Ls_Fail();
         }
-        else if (Ident_Mode == IDENT_FLUX)
+        else
         {
             Flux_Fail();
         }
@@ -181,12 +263,7 @@ Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
         return Rs_Ls_Run(Ia_A, Theta_e, Id_Ref, Iq_Ref, Ualpha_V, Ubeta_V);
     }
 
-    if (Ident_Mode == IDENT_FLUX)
-    {
-        return Flux_Fast_Run(Ia_A, Ib_A, Ic_A, Theta_e, Id_Ref, Iq_Ref);
-    }
-
-    return FAST_OFF;
+    return Flux_Fast_Run(Ia_A, Ib_A, Ic_A, Theta_e, Id_Ref, Iq_Ref);
 }
 
 Ident_Mode_e Identification_Mode_Get(void)
@@ -212,4 +289,9 @@ uint8_t Identification_Stage_Get(void)
     }
 
     return 0U;
+}
+
+const Ident_Envelope_T *Identification_Envelope_Get(void)
+{
+    return &Ident_Envelope;
 }
