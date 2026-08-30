@@ -313,7 +313,7 @@ static void Identification_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcas
     }
     else if (Op == AXDR_IDENT_STATUS)
     {
-        uint8_t Resp[16];
+        uint8_t Resp[28];
         uint8_t Resp_Len;
         Ident_Mode_e Mode;
 
@@ -347,7 +347,11 @@ static void Identification_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcas
                 Resp[3] = Result->Valid ? 1U : 0U;
                 memcpy(&Resp[4], &Result->Rs_Ohm, sizeof(float));
                 memcpy(&Resp[8], &Result->Ls_H, sizeof(float));
-                Resp_Len = 12U;
+                memcpy(&Resp[12], &Result->Probe_U_Re, sizeof(float));
+                memcpy(&Resp[16], &Result->Probe_U_Im, sizeof(float));
+                memcpy(&Resp[20], &Result->Probe_I_Re, sizeof(float));
+                memcpy(&Resp[24], &Result->Probe_I_Im, sizeof(float));
+                Resp_Len = 28U;
             }
 
             Response(Txn, AXDR_MSG_IDENTIFICATION, Op, AXDR_OK, Resp, Resp_Len);
