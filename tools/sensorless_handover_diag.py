@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Diagnose a sensorless I/F -> observer handover without changing firmware."""
 
+from collections import deque
 import struct
 import time
 
@@ -8,16 +9,11 @@ import sensorless_run
 import sensorless_test as base
 
 
-# Reuse the normal guarded runner, adding the observer flux-magnitude error that
-# is already exposed by the firmware Plot registry as variable 0x0023. Use a
-# wider host scale so startup transients do not saturate the 16-bit transport.
-sensorless_run.FAST_VARS = sensorless_run.FAST_VARS + (
-    ("Flux_Err", 0x0023, 1.0e-8),
-)
-sensorless_run.FAST_INDEX = {
-    name: index
-    for index, (name, _, _) in enumerate(sensorless_run.FAST_VARS)
-}
+# Flux_Err is already exposed by the firmware Plot registry as variable 0x0023.
+# Keep the normal sensorless FAST set unchanged and sample Flux_Err through the
+# NORMAL float channel so startup transients cannot saturate int16 transport.
+FLUX_ERR_ID = 0x0023
+DIAG_NORMAL_CONFIG_ID = 15
 
 
 class HandoverDiag(sensorless_run.SensorlessRun):
@@ -25,6 +21,45 @@ class HandoverDiag(sensorless_run.SensorlessRun):
         super().__init__(ser, args, stop)
         self.we_if = 0.0
         self.handover_started = False
+        self.flux_err = deque(maxlen=2000)
+
+    def configure_plot(self):
+        fast_data = bytes([
+            base.FAST_GROUP,
+            sensorless_run.FAST_CONFIG_ID,
+            len(sensorless_run.FAST_VARS),
+        ])
+        fast_data += b"".join(
+            struct.pack("<H", var_id)
+            for _, var_id, _ in sensorless_run.FAST_VARS
+        )
+        self.request(base.MSG_PLOT, base.PLOT_CONFIG, fast_data)
+
+        normal_data = bytes([base.NORMAL_GROUP, DIAG_NORMAL_CONFIG_ID, 2])
+        normal_data += struct.pack("<HH", sensorless_run.VBUS_ID, FLUX_ERR_ID)
+        self.request(base.MSG_PLOT, base.PLOT_CONFIG, normal_data)
+        self.request(
+            base.MSG_PLOT,
+            base.PLOT_START,
+            bytes([base.FAST_MASK | base.NORMAL_MASK]),
+        )
+        self.monitor_started = time.monotonic()
+
+    def process_normal(self, payload):
+        if (len(payload) != 12 or payload[2] != DIAG_NORMAL_CONFIG_ID or
+                payload[3] != 2):
+            return
+
+        seq, = struct.unpack_from("<H", payload, 0)
+        if self.normal_last is not None:
+            expected = (self.normal_last + 1) & 0xFFFF
+            self.normal_lost += (seq - expected) & 0xFFFF
+        self.normal_last = seq
+
+        vbus, flux_err = struct.unpack_from("<ff", payload, 4)
+        self.vbus.append(vbus)
+        self.flux_err.append(flux_err)
+        self.last_normal_rx = time.monotonic()
 
     def read_stage(self):
         data = self.request(base.MSG_SENSORLESS, base.SENSORLESS_STATUS)
@@ -42,11 +77,12 @@ class HandoverDiag(sensorless_run.SensorlessRun):
 
     def handover_diag(self):
         values = self.snapshot()
-        if values is None:
+        if values is None or not self.flux_err:
             print("  Handover diag: monitor data unavailable")
             return
 
         we_obs = values["We_obs"]
+        flux_err = sum(self.flux_err) / len(self.flux_err)
         print(
             "  Handover diag: "
             f"We_IF={self.we_if:.3f} rad/s, "
@@ -54,7 +90,7 @@ class HandoverDiag(sensorless_run.SensorlessRun):
             f"We_err={we_obs - self.we_if:+.3f} rad/s, "
             f"PLL_mean={values['PLL_Err']:+.5f}, "
             f"PLL_RMS={values['PLL_RMS']:.5f}, "
-            f"Flux_Err={values['Flux_Err']:+.8e} Wb^2"
+            f"Flux_Err={flux_err:+.8e} Wb^2"
         )
 
     def wait_run(self):
@@ -79,6 +115,7 @@ class HandoverDiag(sensorless_run.SensorlessRun):
                     # Discard ALIGN/IF monitor history so all following averages
                     # describe the actual I/F -> observer handover window.
                     self.blocks.clear()
+                    self.flux_err.clear()
                     self.fast_saturation = [0] * len(sensorless_run.FAST_VARS)
                     self.handover_started = True
                     next_diag = now + 0.5
