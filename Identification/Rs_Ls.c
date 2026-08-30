@@ -380,10 +380,6 @@ void Rs_Ls_Reset(void)
     Rs_Ls_Result.Rs_Ohm = 0.0f;
     Rs_Ls_Result.Ls_H = 0.0f;
     Rs_Ls_Result.Valid = false;
-    Rs_Ls_Result.Probe_U_Re = 0.0f;
-    Rs_Ls_Result.Probe_U_Im = 0.0f;
-    Rs_Ls_Result.Probe_I_Re = 0.0f;
-    Rs_Ls_Result.Probe_I_Im = 0.0f;
 
     Rs_Ls_Cnt = 0U;
     Rs_Ls_Phase = 0.0f;
@@ -614,10 +610,6 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
             Rs_Ls_Result.Rs_Ohm = Rs_Rough;
             Rs_Ls_Result.Ls_H = Ls_Rough;
             Rs_Ls_Result.Valid = false;
-            Rs_Ls_Result.Probe_U_Re = U_Re;
-            Rs_Ls_Result.Probe_U_Im = U_Im;
-            Rs_Ls_Result.Probe_I_Re = I_Re;
-            Rs_Ls_Result.Probe_I_Im = I_Im;
 
             if ((Rs_Rough <= RS_LS_RS_MIN_OHM) || (Rs_Rough >= RS_LS_RS_MAX_OHM))
             {
