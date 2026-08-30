@@ -14,6 +14,8 @@
 #include "control_params.h"
 
 #define RS_LS_PROBE_FREQ_HZ       100.0f
+#define RS_LS_PROBE_FREQ_STEP_HZ  100.0f
+#define RS_LS_PROBE_FREQ_MAX_HZ   300.0f
 #define RS_LS_FREQ_MIN_HZ         20.0f
 #define RS_LS_FREQ_MAX_HZ         500.0f
 #define RS_LS_FREQ_RL_RATIO       0.5f
@@ -51,6 +53,7 @@ static uint32_t Rs_Ls_Cnt = 0U;
 static float Rs_Ls_Phase = 0.0f;
 static float Rs_Ls_Phase_Step = 0.0f;
 static float Rs_Ls_Freq_Hz = RS_LS_PROBE_FREQ_HZ;
+static float Rs_Ls_Probe_Freq_Hz = RS_LS_PROBE_FREQ_HZ;
 static uint32_t Rs_Ls_Sample_Per_Cycle = 0U;
 static uint32_t Rs_Ls_Probe_Measure_Cnt = 0U;
 static uint32_t Rs_Ls_Measure_Cnt = 0U;
@@ -347,6 +350,28 @@ static bool Result_Range_Check(float Rs_Ohm, float Ls_H)
     return true;
 }
 
+static bool Probe_Retry(void)
+{
+    if (Rs_Ls_Probe_Freq_Hz >= RS_LS_PROBE_FREQ_MAX_HZ)
+    {
+        return false;
+    }
+
+    Rs_Ls_Probe_Freq_Hz += RS_LS_PROBE_FREQ_STEP_HZ;
+    if (Rs_Ls_Probe_Freq_Hz > RS_LS_PROBE_FREQ_MAX_HZ)
+    {
+        Rs_Ls_Probe_Freq_Hz = RS_LS_PROBE_FREQ_MAX_HZ;
+    }
+
+    Frequency_Set(Rs_Ls_Probe_Freq_Hz);
+    Rs_Ls_Phase = 0.0f;
+    Rs_Ls_U_Ac_V = 0.0f;
+    Ramp_Reset();
+    Measure_Reset();
+    Rs_Ls_State = RS_LS_PROBE_RAMP;
+    return true;
+}
+
 void Rs_Ls_Reset(void)
 {
     PI_Restore();
@@ -362,7 +387,8 @@ void Rs_Ls_Reset(void)
     Rs_Ls_U_Ac_V = 0.0f;
     Align_Pending = false;
 
-    Frequency_Set(RS_LS_PROBE_FREQ_HZ);
+    Rs_Ls_Probe_Freq_Hz = RS_LS_PROBE_FREQ_HZ;
+    Frequency_Set(Rs_Ls_Probe_Freq_Hz);
     Ramp_Reset();
     Measure_Reset();
     Align_Reset();
@@ -585,8 +611,22 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
             Rs_Ls_Result.Ls_H = Ls_Rough;
             Rs_Ls_Result.Valid = false;
 
-            if (!Result_Range_Check(Rs_Rough, Ls_Rough))
+            if ((Rs_Rough <= RS_LS_RS_MIN_OHM) || (Rs_Rough >= RS_LS_RS_MAX_OHM))
             {
+                Rs_Ls_Fail_Stage(RS_LS_FAIL_STAGE_INVALID_RS);
+                *Ualpha_V = 0.0f;
+                return FAST_OFF;
+            }
+
+            if ((Ls_Rough <= RS_LS_LS_MIN_H) || (Ls_Rough >= RS_LS_LS_MAX_H))
+            {
+                if (Probe_Retry())
+                {
+                    *Ualpha_V = 0.0f;
+                    return FAST_VOLTAGE;
+                }
+
+                Rs_Ls_Fail_Stage(RS_LS_FAIL_STAGE_INVALID_LS);
                 *Ualpha_V = 0.0f;
                 return FAST_OFF;
             }
