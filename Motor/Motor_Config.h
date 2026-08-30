@@ -1,0 +1,32 @@
+/*
+ * SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) 2026 ZHOUHENG
+ */
+
+#ifndef MOTOR_CONFIG_H
+#define MOTOR_CONFIG_H
+
+#include <stdbool.h>
+#include <stdint.h>
+
+typedef struct
+{
+    int8_t Dir; /* +1: user positive = internal positive, -1: reversed */
+
+} Motor_Config_T;
+
+extern Motor_Config_T Motor_Config;
+
+bool Motor_Dir_Set(int8_t Dir);
+float Motor_User_To_Internal(float Value);
+float Motor_Internal_To_User(float Value);
+void Motor_Position_User_To_Internal(int32_t Turn_User,
+                                     float Theta_User,
+                                     int32_t *Turn_Int,
+                                     float *Theta_Int);
+void Motor_Position_Internal_To_User(int32_t Turn_Int,
+                                     float Theta_Int,
+                                     int32_t *Turn_User,
+                                     float *Theta_User);
+
+#endif /* MOTOR_CONFIG_H */
