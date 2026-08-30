@@ -509,6 +509,10 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
                 return FAST_OFF;
             }
 
+            Rs_Ls_Result.Rs_Ohm = Rs_Rough;
+            Rs_Ls_Result.Ls_H = Ls_Rough;
+            Rs_Ls_Result.Valid = false;
+
             if (!Result_Range_Check(Rs_Rough, Ls_Rough))
             {
                 *Ualpha_V = 0.0f;

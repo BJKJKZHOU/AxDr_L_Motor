@@ -3,18 +3,21 @@
 
 The workflow is fixed intentionally:
 
-1. Run Rs/Ls identification five times.
-2. Check repeatability and ask whether the fifth result may be applied to RAM.
-3. Run Flux identification twice forward and twice reverse.
-4. Check repeatability and ask whether the fourth result may be applied to RAM.
-5. Ramp to the requested sensorless test speed and run until Ctrl+C by default.
+1. Apply the known pole pairs and commissioning current limit to firmware RAM.
+2. Run Rs/Ls identification five times.
+3. Check repeatability and ask whether the fifth result may be applied to RAM.
+4. Run Flux identification twice forward and twice reverse.
+5. Check repeatability and direction consistency; report per-point/peak-voltage diagnostics as warnings.
+6. Ask whether the fourth Flux result may be applied to RAM.
+7. Ramp to the requested sensorless test speed and run until Ctrl+C by default.
 
-Declining either RAM update stops the workflow. Applied values are not saved to
-nonvolatile memory and are lost after a firmware reset.
+Declining either identification result stops the workflow. Applied values, pole
+pairs and the user current limit are not saved to nonvolatile memory and are lost
+after a firmware reset.
 
 Example:
     python3 tools/new_motor_commission.py \
-        --port /dev/ttyACM0 --run
+        --port /dev/ttyACM0 --current-limit 2.0 --run
 """
 
 import argparse
@@ -34,15 +37,21 @@ import sensorless_test as base
 MSG_IDENTIFICATION = 0x05
 
 MODE_IDENT = 4
+CTRL_I_LIMIT_SET = 0x07
+CTRL_PP_SET = 0x08
+CTRL_PP_GET = 0x09
 
 IDENT_MODE_SET = 0x01
 IDENT_STATUS = 0x02
 IDENT_APPLY = 0x04
+IDENT_FLUX_POINT_GET = 0x05
 IDENT_RS_LS = 0x01
 IDENT_FLUX = 0x02
 
 IDENT_DONE = 2
 IDENT_FAILED = 3
+
+HOST_CURRENT_GUARD_RATIO = 1.10
 
 FAST_CONFIG_ID = 13
 NORMAL_CONFIG_ID = 14
@@ -76,6 +85,10 @@ FLUX_STAGE = {
     6: "DONE",
     7: "FAILED",
     8: "FINISH",
+    9: "POINT_CALC",
+    10: "SEARCH_NEXT",
+    11: "FIT_WINDOW",
+    12: "ENVELOPE",
 }
 
 
@@ -155,6 +168,40 @@ class Commission(base.SensorlessTest):
             except (TimeoutError, RuntimeError):
                 pass
 
+    def current_limit_set(self):
+        self.request(
+            base.MSG_CONTROL,
+            CTRL_I_LIMIT_SET,
+            struct.pack("<f", self.args.current_limit),
+        )
+        print(
+            f"Commission current limit={self.args.current_limit:.3f} A; "
+            f"host guard={self.args.ident_current_limit:.3f} A"
+        )
+
+    def pole_pairs_set(self):
+        self.request(
+            base.MSG_CONTROL,
+            CTRL_PP_SET,
+            bytes([self.args.pole_pairs]),
+        )
+
+        deadline = time.monotonic() + self.args.timeout
+        while time.monotonic() < deadline:
+            data = self.request(base.MSG_CONTROL, CTRL_PP_GET)
+            if len(data) != 1:
+                raise RuntimeError(
+                    f"invalid pole-pairs response length: {len(data)}"
+                )
+            if data[0] == self.args.pole_pairs:
+                print(f"Motor pole pairs={data[0]} (RAM)")
+                return data[0]
+            time.sleep(0.01)
+
+        raise TimeoutError(
+            f"pole-pairs readback did not reach {self.args.pole_pairs}"
+        )
+
     def configure_plot(self):
         self.fast_last = None
         self.normal_last = None
@@ -232,9 +279,37 @@ class Commission(base.SensorlessTest):
                 "<ff", data, 4
             )
         else:
-            (result["flux_wb"], result["v_offset_v"],
-             result["fit_r2"]) = struct.unpack_from("<fff", data, 4)
+            (result["flux_wb"], result["point_max_relative_deviation"],
+             result["voltage_utilization_max"]) = struct.unpack_from(
+                 "<fff", data, 4
+             )
         return result
+
+    def flux_points_get(self):
+        points = []
+        names = ("we_rad_s", "e_v", "id_a", "iq_a", "ud_v", "uq_v")
+
+        for index in range(4):
+            data = self.request(
+                MSG_IDENTIFICATION,
+                IDENT_FLUX_POINT_GET,
+                bytes([index]),
+            )
+            if len(data) != 25:
+                raise RuntimeError(
+                    f"invalid Flux point response length: {len(data)}"
+                )
+            if data[0] != index:
+                raise RuntimeError(
+                    f"unexpected Flux point index: {data[0]} != {index}"
+                )
+
+            values = struct.unpack_from("<ffffff", data, 1)
+            point = {"index": index}
+            point.update(zip(names, values))
+            points.append(point)
+
+        return points
 
     def run_ident(self, mode, run_number, direction=None):
         if direction is not None:
@@ -282,7 +357,7 @@ class Commission(base.SensorlessTest):
 
                 if self.run_trip:
                     failure = RuntimeError(
-                        "identification phase current exceeded "
+                        "identification phase current exceeded host guard "
                         f"{self.args.ident_current_limit:.3f} A"
                     )
                     break
@@ -320,6 +395,13 @@ class Commission(base.SensorlessTest):
         result["normal_lost"] = self.normal_lost - normal_lost_start
         result["fast_samples"] = self.fast_samples - fast_samples_start
         result["normal_frames"] = self.normal_frames - normal_frames_start
+        if failure is None and mode == IDENT_FLUX:
+            try:
+                result["points"] = self.flux_points_get()
+                analyze_flux_points(result)
+                print_flux_points(result)
+            except (TimeoutError, RuntimeError) as exc:
+                failure = exc
         if failure is not None:
             result["error"] = str(failure)
             raise IdentificationFailed(str(failure), result)
@@ -347,6 +429,87 @@ def max_relative_deviation(values):
     if median <= 0.0:
         return math.inf
     return max(abs(value - median) / median for value in values)
+
+
+def point_fit(points):
+    count = len(points)
+    sum_x = sum(point["we_rad_s"] for point in points)
+    sum_y = sum(point["e_v"] for point in points)
+    sum_xx = sum(point["we_rad_s"] ** 2 for point in points)
+    sum_xy = sum(point["we_rad_s"] * point["e_v"] for point in points)
+    den = count * sum_xx - sum_x * sum_x
+    if den <= 0.0:
+        raise RuntimeError("Flux point fit has no speed span")
+
+    flux = (count * sum_xy - sum_x * sum_y) / den
+    v_offset = (sum_y - flux * sum_x) / count
+    residual = [
+        point["e_v"] - (flux * point["we_rad_s"] + v_offset)
+        for point in points
+    ]
+    y_mean = sum_y / count
+    ss_tot = sum((point["e_v"] - y_mean) ** 2 for point in points)
+    ss_err = sum(value * value for value in residual)
+    r2 = 1.0 - ss_err / ss_tot if ss_tot > 0.0 else 0.0
+
+    return {
+        "flux_wb": flux,
+        "v_offset_v": v_offset,
+        "fit_r2": r2,
+        "rmse_v": math.sqrt(ss_err / count),
+    }
+
+
+def analyze_flux_points(result):
+    points = result["points"]
+    result["point_fit"] = {
+        "p0_p3": point_fit(points),
+        "p0_p2": point_fit(points[:3]),
+        "p1_p3": point_fit(points[1:]),
+    }
+    fit = result["point_fit"]["p0_p3"]
+
+    for point in points:
+        we = point["we_rad_s"]
+        point["residual_v"] = (
+            point["e_v"] -
+            (fit["flux_wb"] * we + fit["v_offset_v"])
+        )
+        point["apparent_flux_wb"] = (
+            (point["e_v"] - fit["v_offset_v"]) / we
+            if we != 0.0 else math.nan
+        )
+
+
+def print_flux_points(result):
+    print(
+        f"\nFlux points run {result['run']} "
+        f"({result['direction']})"
+    )
+    print(
+        " point    We (rad/s)       E (V)      Id (A)      Iq (A)"
+        "      Ud (V)      Uq (V)  residual (mV)  psi_app (mWb)"
+    )
+    for point in result["points"]:
+        print(
+            f" P{point['index']}  {point['we_rad_s']:>12.4f}  "
+            f"{point['e_v']:>10.6f}  {point['id_a']:>10.6f}  "
+            f"{point['iq_a']:>10.6f}  {point['ud_v']:>10.6f}  "
+            f"{point['uq_v']:>10.6f}  "
+            f"{point['residual_v'] * 1.0e3:>13.3f}  "
+            f"{point['apparent_flux_wb'] * 1.0e3:>14.6f}"
+        )
+
+    fits = result["point_fit"]
+    for name in ("p0_p3", "p0_p2", "p1_p3"):
+        fit = fits[name]
+        print(
+            f" {name.replace('_', '-').upper()}: "
+            f"Psi_d={fit['flux_wb']:.7g} Wb, "
+            f"Voff={fit['v_offset_v']:+.6f} V, "
+            f"R2={fit['fit_r2']:.5f}, "
+            f"RMSE={fit['rmse_v'] * 1.0e3:.3f} mV"
+        )
 
 
 def evaluate_rs_ls(results, args):
@@ -389,9 +552,15 @@ def evaluate_flux(results, args):
         "flux_median_wb": median,
         "flux_max_relative_deviation": max_relative_deviation(flux),
         "direction_relative_difference": direction_error,
-        "fit_r2_min": min(item["fit_r2"] for item in results),
+        "point_max_relative_deviation": max(
+            item["point_max_relative_deviation"] for item in results
+        ),
+        "voltage_utilization_peak_max": max(
+            item["voltage_utilization_max"] for item in results
+        ),
     }
     reasons = []
+    warnings = []
     if not all(item["valid"] for item in results):
         reasons.append("one or more results are invalid")
     if not all(math.isfinite(value) and value > 0.0 for value in flux):
@@ -400,15 +569,17 @@ def evaluate_flux(results, args):
         reasons.append("Flux repeatability exceeds limit")
     if direction_error > args.flux_repeat_limit:
         reasons.append("forward/reverse Flux difference exceeds limit")
-    if summary["fit_r2_min"] < args.flux_r2_min:
-        reasons.append("Flux fit R2 is below limit")
+    if summary["point_max_relative_deviation"] > args.flux_point_limit:
+        warnings.append("Flux work-point consistency exceeds warning threshold")
+    if summary["voltage_utilization_peak_max"] > args.flux_voltage_util_limit:
+        warnings.append("Flux peak voltage utilization exceeds warning threshold")
     if any(item["fast_lost"] > args.max_lost or
            item["normal_lost"] > args.max_lost for item in results):
         reasons.append("telemetry loss exceeds limit")
     if any(item["fast_samples"] == 0 or item["normal_frames"] == 0
            for item in results):
         reasons.append("one or more runs have no FAST/NORMAL telemetry")
-    return summary, reasons
+    return summary, reasons, warnings
 
 
 def print_rs_ls(results, summary):
@@ -429,22 +600,27 @@ def print_rs_ls(results, summary):
     )
 
 
-def print_flux(results, summary):
+def print_flux(results, summary, warnings):
     print("\nFlux results")
-    print(" run  direction     Flux (Wb)      Voff (V)       R2  peak (A)  lost F/N")
+    print(" run  direction     Flux (Wb)  point dev  peak U util  peak (A)  lost F/N")
     for item in results:
         print(
             f" {item['run']:>3d}  {item['direction']:<9}  "
-            f"{item['flux_wb']:>12.7g}  {item['v_offset_v']:>11.6g}  "
-            f"{item['fit_r2']:>7.5f}  {item['phase_peak_a']:>8.3f}  "
+            f"{item['flux_wb']:>12.7g}  "
+            f"{100.0 * item['point_max_relative_deviation']:>8.2f}%  "
+            f"{100.0 * item['voltage_utilization_max']:>10.2f}%  "
+            f"{item['phase_peak_a']:>8.3f}  "
             f"{item['fast_lost']}/{item['normal_lost']}"
         )
     print(
         f" median: Flux={summary['flux_median_wb']:.7g} Wb; "
-        f"max deviation={100.0 * summary['flux_max_relative_deviation']:.2f}%, "
+        f"run deviation={100.0 * summary['flux_max_relative_deviation']:.2f}%, "
         f"forward/reverse={100.0 * summary['direction_relative_difference']:.2f}%, "
-        f"min R2={summary['fit_r2_min']:.5f}"
+        f"point deviation={100.0 * summary['point_max_relative_deviation']:.2f}%, "
+        f"max peak U util={100.0 * summary['voltage_utilization_peak_max']:.2f}%"
     )
+    for warning in warnings:
+        print(f" WARNING: {warning}")
 
 
 def confirm_ram(prompt):
@@ -481,16 +657,25 @@ def parse_args():
     parser.add_argument("--target-we", type=int, default=1000,
                         help="final sensorless test point in electrical rad/s")
     parser.add_argument("--pole-pairs", type=int, default=16,
-                        help="known pole pairs, used to convert commands to mechanical speed")
+                        help="known pole pairs, written to firmware RAM and used for speed conversion")
     parser.add_argument("--direction", choices=("forward", "reverse"),
                         default="forward")
     parser.add_argument("--duration", type=float, default=0.0,
                         help="final hold seconds; 0 runs until Ctrl+C")
-    parser.add_argument("--ident-current-limit", type=float, default=2.2)
-    parser.add_argument("--current-limit", type=float, default=2.6)
+    parser.add_argument(
+        "--current-limit", type=float, required=True,
+        help="maximum phase current allowed for this motor during commissioning",
+    )
     parser.add_argument("--rl-repeat-limit", type=float, default=0.10)
     parser.add_argument("--flux-repeat-limit", type=float, default=0.05)
-    parser.add_argument("--flux-r2-min", type=float, default=0.99)
+    parser.add_argument(
+        "--flux-point-limit", type=float, default=0.05,
+        help="warning threshold for Flux per-point consistency",
+    )
+    parser.add_argument(
+        "--flux-voltage-util-limit", type=float, default=0.80,
+        help="warning threshold for diagnostic peak Flux voltage utilization",
+    )
     parser.add_argument("--vbus-min", type=float, default=10.0)
     parser.add_argument("--vbus-max", type=float, default=20.0)
     parser.add_argument("--vbus-seconds", type=float, default=0.2)
@@ -519,29 +704,32 @@ def parse_args():
         parser.error("--run is required to energize the motor")
     if not 120 <= args.target_we <= 3000:
         parser.error("--target-we must be between 120 and 3000 electrical rad/s")
-    if args.pole_pairs <= 0:
-        parser.error("--pole-pairs must be positive")
+    if not 1 <= args.pole_pairs <= 255:
+        parser.error("--pole-pairs must be between 1 and 255")
     if args.duration < 0.0:
         parser.error("--duration must be non-negative")
     for name in (
-            "ident_current_limit", "current_limit", "rl_repeat_limit",
-            "flux_repeat_limit", "flux_r2_min", "vbus_min", "vbus_max",
-            "vbus_seconds", "ident_timeout", "poll_interval", "ramp_step",
-            "ramp_interval", "pll_rms_limit", "pll_window", "we_tolerance",
-            "we_relative_tolerance", "speed_error_time",
+            "current_limit", "rl_repeat_limit", "flux_repeat_limit",
+            "flux_point_limit", "flux_voltage_util_limit", "vbus_min",
+            "vbus_max", "vbus_seconds", "ident_timeout", "poll_interval",
+            "ramp_step", "ramp_interval", "pll_rms_limit", "pll_window",
+            "we_tolerance", "we_relative_tolerance", "speed_error_time",
             "voltage_util_limit", "ready_timeout", "target_timeout",
             "settle_seconds", "status_interval", "timeout"):
         if getattr(args, name) <= 0:
             parser.error(f"--{name.replace('_', '-')} must be positive")
     if args.vbus_min >= args.vbus_max:
         parser.error("vbus-min must be less than vbus-max")
-    if args.flux_r2_min > 1.0:
-        parser.error("flux-r2-min must not exceed 1")
+    if args.flux_point_limit > 1.0:
+        parser.error("flux-point-limit must not exceed 1")
+    if args.flux_voltage_util_limit > 1.0:
+        parser.error("flux-voltage-util-limit must not exceed 1")
     if args.voltage_util_limit > 1.0:
         parser.error("voltage-util-limit must not exceed 1")
     if args.max_lost < 0:
         parser.error("max-lost must be non-negative")
 
+    args.ident_current_limit = HOST_CURRENT_GUARD_RATIO * args.current_limit
     sign = 1.0 if args.direction == "forward" else -1.0
     args.target_wm = sign * args.target_we / args.pole_pairs
     args.rpm = abs(args.target_wm) * 60.0 / (2.0 * math.pi)
@@ -552,6 +740,8 @@ def main():
     args = parse_args()
     record = {
         "started": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "current_limit_a": args.current_limit,
+        "host_current_guard_a": args.ident_current_limit,
         "target_we_rad_s": args.target_we,
         "target_wm_rad_s": args.target_wm,
         "pole_pairs": args.pole_pairs,
@@ -588,6 +778,8 @@ def main():
                 ident.prepare()
                 ident.configure_plot()
                 ident.check_vbus()
+                record["firmware_pole_pairs"] = ident.pole_pairs_set()
+                ident.current_limit_set()
 
                 for run in range(1, 6):
                     print(f"\nRs/Ls identification {run}/5")
@@ -626,9 +818,10 @@ def main():
                         raise
                     record["flux"].append(result)
 
-                flux_summary, reasons = evaluate_flux(record["flux"], args)
+                flux_summary, reasons, warnings = evaluate_flux(record["flux"], args)
                 record["flux_summary"] = flux_summary
-                print_flux(record["flux"], flux_summary)
+                record["flux_warnings"] = warnings
+                print_flux(record["flux"], flux_summary, warnings)
                 ident.stop_plot()
                 if reasons:
                     raise RuntimeError("Flux quality gate: " + "; ".join(reasons))

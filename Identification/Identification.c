@@ -91,6 +91,11 @@ bool Identification_Start(Ident_Mode_e Mode, float Wm_Target)
         return false;
     }
 
+    if (Ident_State != IDENT_IDLE)
+    {
+        Identification_Abort();
+    }
+
     if (!Envelope_Build())
     {
         return false;
