@@ -458,9 +458,9 @@ bool Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float 
                     To_Obs_State = TO_OBS_BLEND;
                 }
             }
-            else
+            else if (Obs_Wait_Cnt > 0U)
             {
-                Obs_Wait_Cnt = 0U;
+                Obs_Wait_Cnt--;
             }
         }
         else if (To_Obs_State == TO_OBS_BLEND)
