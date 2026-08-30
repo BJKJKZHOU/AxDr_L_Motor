@@ -427,13 +427,10 @@ bool Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float 
         *Iq_Ref = Iq_IF;
         Sensorless_Blend = 0.0f;
 
-        if (Abs_F(IF_Start_We_Get()) >= IF_WE_TARGET_RAD_S)
-        {
-            Obs_Wait_Cnt = 0U;
-            Sensorless_We_Obs_F = Flux_PLL.State.We;
-            To_Obs_State = TO_OBS_WAIT;
-            State = SL_IF_TO_OBS;
-        }
+        Obs_Wait_Cnt = 0U;
+        Sensorless_We_Obs_F = Flux_PLL.State.We;
+        To_Obs_State = TO_OBS_WAIT;
+        State = SL_IF_TO_OBS;
     }
     else if (State == SL_IF_TO_OBS)
     {
