@@ -31,6 +31,21 @@ def angle_diff(a, b):
     return diff
 
 
+def circular_mean(values):
+    if not values:
+        return 0.0
+    sin_mean = sum(math.sin(value) for value in values) / len(values)
+    cos_mean = sum(math.cos(value) for value in values) / len(values)
+    return math.atan2(sin_mean, cos_mean)
+
+
+def circular_span(values, center):
+    if not values:
+        return 0.0
+    deviations = [angle_diff(value, center) for value in values]
+    return max(deviations) - min(deviations)
+
+
 class HandoverDiag(sensorless_run.SensorlessRun):
     def __init__(self, ser, args, stop):
         super().__init__(ser, args, stop)
@@ -41,6 +56,7 @@ class HandoverDiag(sensorless_run.SensorlessRun):
         self.we_obs_f = None
         self.we_err_gate_pass = 0
         self.we_err_gate_total = 0
+        self.diag_fast_blocks = 0
 
     def configure_plot(self):
         fast_data = bytes([
@@ -75,26 +91,30 @@ class HandoverDiag(sensorless_run.SensorlessRun):
         self.monitor_started = time.monotonic()
 
     def process_fast(self, payload):
-        before = len(self.blocks)
+        previous_block_count = self.fast_samples // sensorless_run.FAST_BLOCK_SAMPLES
         super().process_fast(payload)
+        current_block_count = self.fast_samples // sensorless_run.FAST_BLOCK_SAMPLES
 
-        # SensorlessRun stores one 1 kHz mean block for every 20 FAST samples.
-        # Re-run the firmware's 20 ms first-order speed filter at that 1 kHz
-        # observation rate. This is intentionally diagnostic-only and avoids a
-        # firmware telemetry change.
-        if len(self.blocks) == before:
+        # Process every newly completed 1 kHz block. Do not use deque length to
+        # detect new blocks because the deque is bounded and stops growing once
+        # full.
+        new_blocks = current_block_count - previous_block_count
+        if new_blocks <= 0 or not self.blocks:
             return
 
-        we_obs = self.blocks[-1][sensorless_run.FAST_INDEX["We_obs"]]
-        if self.we_obs_f is None:
-            self.we_obs_f = we_obs
-        else:
-            self.we_obs_f += OBS_WE_ALPHA * (we_obs - self.we_obs_f)
+        for row in list(self.blocks)[-new_blocks:]:
+            we_obs = row[sensorless_run.FAST_INDEX["We_obs"]]
+            if self.we_obs_f is None:
+                self.we_obs_f = we_obs
+            else:
+                self.we_obs_f += OBS_WE_ALPHA * (we_obs - self.we_obs_f)
 
-        if self.handover_started:
-            self.we_err_gate_total += 1
-            if abs(self.we_obs_f - self.we_if) <= WE_ERR_MAX:
-                self.we_err_gate_pass += 1
+            if self.handover_started:
+                self.we_err_gate_total += 1
+                if abs(self.we_obs_f - self.we_if) <= WE_ERR_MAX:
+                    self.we_err_gate_pass += 1
+
+        self.diag_fast_blocks += new_blocks
 
     def process_normal(self, payload):
         if (len(payload) != 20 or payload[2] != DIAG_NORMAL_CONFIG_ID or
@@ -137,8 +157,8 @@ class HandoverDiag(sensorless_run.SensorlessRun):
         we_obs_f = self.we_obs_f if self.we_obs_f is not None else we_obs
         flux_err = sum(self.flux_err) / len(self.flux_err)
         theta_err = list(self.theta_err)
-        theta_mean = sum(theta_err) / len(theta_err) if theta_err else 0.0
-        theta_span = (max(theta_err) - min(theta_err)) if theta_err else 0.0
+        theta_mean = circular_mean(theta_err)
+        theta_span = circular_span(theta_err, theta_mean)
         gate_ratio = (
             self.we_err_gate_pass / self.we_err_gate_total
             if self.we_err_gate_total else 0.0
@@ -176,7 +196,7 @@ class HandoverDiag(sensorless_run.SensorlessRun):
 
                 if (stage == 2) and not self.handover_started:
                     # Discard ALIGN/IF history and seed the diagnostic speed
-                    # filter from the current observer speed at handover entry.
+                    # filter from the first observer sample after handover entry.
                     self.blocks.clear()
                     self.flux_err.clear()
                     self.theta_err.clear()
@@ -184,6 +204,7 @@ class HandoverDiag(sensorless_run.SensorlessRun):
                     self.we_obs_f = None
                     self.we_err_gate_pass = 0
                     self.we_err_gate_total = 0
+                    self.diag_fast_blocks = 0
                     self.handover_started = True
                     next_diag = now + 0.5
 
