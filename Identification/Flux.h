@@ -11,6 +11,8 @@
 
 #include "Motor_Type.h"
 
+#define FLUX_POINT_NUM 4U
+
 typedef enum
 {
     FLUX_IDLE = 0,
@@ -27,14 +29,27 @@ typedef enum
 
 typedef struct
 {
+    float We;
+    float E;
+    float Id;
+    float Iq;
+    float Ud;
+    float Uq;
+
+} Flux_Point_T;
+
+typedef struct
+{
     float Flux_Wb;
-    float V_Offset_V;
-    float Fit_R2;
+    float Point_Max_Rel_Dev;
+    float U_Util_Max;
+    Flux_Point_T Point[FLUX_POINT_NUM];
+    uint8_t Point_Num;
     bool Valid;
 
 } Flux_Result_T;
 
-void Flux_Start(float Wm_Target);
+bool Flux_Start(float Wm_Target);
 void Flux_Reset(void);
 void Flux_Fail(void);
 void Flux_Control(void);

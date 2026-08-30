@@ -29,7 +29,7 @@ static void Motor_Cmd_Run(void)
 {
     Motor_State_e State;
     Motor_Cmd_Msg_T Msg;
-    float Wm;
+    float Value;
 
     while (tx_queue_receive(&Motor_Cmd_Q, &Msg, TX_NO_WAIT) == TX_SUCCESS)
     {
@@ -86,12 +86,21 @@ static void Motor_Cmd_Run(void)
                 break;
 
             case MOTOR_CMD_SPEED_SET:
-                memcpy(&Wm, &Msg.Arg, sizeof(Wm));
-                Speed_Target_Set(Wm);
+                memcpy(&Value, &Msg.Arg, sizeof(Value));
+                Speed_Target_Set(Value);
                 break;
 
             case MOTOR_CMD_IDENT_APPLY:
                 (void)Motor_Ident_Apply();
+                break;
+
+            case MOTOR_CMD_I_LIMIT_SET:
+                memcpy(&Value, &Msg.Arg, sizeof(Value));
+                (void)User_I_Limit_Set(Value);
+                break;
+
+            case MOTOR_CMD_PP_SET:
+                (void)Motor_Pp_Set((uint8_t)Msg.Arg);
                 break;
 
             default:

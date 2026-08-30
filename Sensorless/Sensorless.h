@@ -19,6 +19,7 @@ typedef enum
     SL_IF_TO_OBS,
     SL_OBS,
     SL_OBS_TO_IF,
+    SL_FAILED,
 
 } Sensorless_State_e;
 
@@ -32,7 +33,7 @@ extern volatile float Sensorless_Iq_Ref;
 extern volatile float Sensorless_Blend;
 extern volatile float Sensorless_We_Obs_F;
 
-void Sensorless_Begin(void);
+bool Sensorless_Begin(void);
 void Sensorless_Stop(void);
 bool Sensorless_Active(void);
 bool Sensorless_Ready(void);

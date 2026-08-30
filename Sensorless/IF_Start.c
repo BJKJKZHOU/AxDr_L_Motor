@@ -14,6 +14,10 @@ static float Theta_e = 0.0f;
 static float We = 0.0f;
 static float We_Target = IF_WE_TARGET_RAD_S;
 static float Iq = 0.0f;
+static float Iq_Start_A = IF_IQ_START_A;
+static float Iq_Target_A = IF_IQ_TARGET_A;
+static float We_Base = IF_WE_TARGET_RAD_S;
+static float Acc = IF_ACC_RAD_S2;
 
 static float Abs_F(float X)
 {
@@ -28,6 +32,24 @@ void IF_Start_Reset(float Theta_Start, float We_Start)
     We = We_Start;
     We_Target = We_Start;
     Iq = 0.0f;
+
+    Iq_Start_A = IF_IQ_START_A;
+    Iq_Target_A = IF_IQ_TARGET_A;
+    We_Base = IF_WE_TARGET_RAD_S;
+    Acc = IF_ACC_RAD_S2;
+}
+
+void IF_Start_Para_Set(float Iq_Start, float Iq_Target, float We_Base_In, float Acc_In)
+{
+    if ((Iq_Start <= 0.0f) || (Iq_Target < Iq_Start) || (We_Base_In <= 0.0f) || (Acc_In <= 0.0f))
+    {
+        return;
+    }
+
+    Iq_Start_A = Iq_Start;
+    Iq_Target_A = Iq_Target;
+    We_Base = We_Base_In;
+    Acc = Acc_In;
 }
 
 void IF_Start_Target_Set(float We_Target_In)
@@ -58,18 +80,18 @@ bool IF_Start_Run(float *Theta_e_Out, float *Id_Ref, float *Iq_Ref)
     float Iq_Step;
     float We_Step;
 
-    Ratio = Abs_F(We) / IF_WE_TARGET_RAD_S;
+    Ratio = Abs_F(We) / We_Base;
 
     if (Ratio > 1.0f)
     {
         Ratio = 1.0f;
     }
 
-    Iq_Abs = IF_IQ_START_A + (IF_IQ_TARGET_A - IF_IQ_START_A) * Ratio;
+    Iq_Abs = Iq_Start_A + (Iq_Target_A - Iq_Start_A) * Ratio;
 
     if (State == IF_RAMP)
     {
-        We_Step = IF_ACC_RAD_S2 * CUR_TS;
+        We_Step = Acc * CUR_TS;
 
         if (We < We_Target)
         {

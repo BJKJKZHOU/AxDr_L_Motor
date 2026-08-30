@@ -9,6 +9,7 @@
 #include "Current_Loop.h"
 #include "Flux.h"
 #include "Motor_ADC.h"
+#include "Motor_Para.h"
 #include "Motor_PWM.h"
 #include "Motion_Loop.h"
 #include "Open_Loop.h"
@@ -483,7 +484,10 @@ void Motor_Start(void)
     }
     else if (Motor_Mode == SENSORLESS_SPEED)
     {
-        Sensorless_Begin();
+        if (!Sensorless_Begin())
+        {
+            return;
+        }
     }
 
     if (!Motion_Mode_Active())
@@ -542,6 +546,11 @@ void Motor_Disable(void)
         Motor_Stop();
     }
 
+    if ((Motor_Mode == IDENT) && (Identification_State_Get() == IDENT_FAILED))
+    {
+        Identification_Abort();
+    }
+
     PWM_Disable();
     Fast_Run = Fast_Off_Run;
     Current_Ref.Id = 0.0f;
@@ -575,6 +584,29 @@ bool Motor_Ident_Apply(void)
     }
 
     return Identification_Apply();
+}
+
+bool User_I_Limit_Set(float I_Max)
+{
+    if ((Motor_State != DISABLED) || !__builtin_isfinite(I_Max) || (I_Max <= 0.0f) || (I_Max > Motor_Lim.I_Max))
+    {
+        return false;
+    }
+
+    User_Lim.I_Max = I_Max;
+    return true;
+}
+
+bool Motor_Pp_Set(uint8_t Pp)
+{
+    if ((Motor_State != DISABLED) || (Pp == 0U))
+    {
+        return false;
+    }
+
+    Motor_Para.Pp = Pp;
+    Motor_Para_Changed(MOTOR_PARA_PP);
+    return true;
 }
 
 void Torque_Target_Set(float Te)
