@@ -12,7 +12,6 @@
 #include "Rs_Ls.h"
 #include "control_params.h"
 
-#define IDENT_I_MAX_A             2.2f
 #define IDENT_PROBE_I_RATIO       0.10f
 #define IDENT_MEASURE_I_RATIO     0.15f
 #define IDENT_MEASURE_I_MAX_RATIO 0.20f
@@ -87,27 +86,27 @@ bool Identification_Start(Ident_Mode_e Mode, float Wm_Target)
         return false;
     }
 
+    if ((Mode != IDENT_RS_LS) && (Mode != IDENT_FLUX))
+    {
+        return false;
+    }
+
+    if (!Envelope_Build())
+    {
+        return false;
+    }
+
     if (Mode == IDENT_RS_LS)
     {
-        if (!Envelope_Build())
-        {
-            return false;
-        }
-
         Rs_Ls_Start();
     }
-    else if (Mode == IDENT_FLUX)
-    {
-        Flux_Start(Wm_Target);
-    }
-    else
+    else if (!Flux_Start(Wm_Target))
     {
         return false;
     }
 
     Ident_Mode = Mode;
     Ident_State = IDENT_RUNNING;
-
     return true;
 }
 
@@ -173,7 +172,6 @@ bool Identification_Apply(void)
     if (Ident_Mode == IDENT_RS_LS)
     {
         Rs_Ls_Result = Rs_Ls_Result_Get();
-
         if (!Rs_Ls_Result->Valid)
         {
             return false;
@@ -189,7 +187,6 @@ bool Identification_Apply(void)
     if (Ident_Mode == IDENT_FLUX)
     {
         Flux_Result = Flux_Result_Get();
-
         if (!Flux_Result->Valid)
         {
             return false;
@@ -230,31 +227,19 @@ Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
         return FAST_OFF;
     }
 
-    if (Ident_Mode == IDENT_RS_LS)
-    {
-        Envelope_Voltage_Update();
-        I_Max = Ident_Envelope.I_Safe_A;
-    }
-    else if (Ident_Mode == IDENT_FLUX)
-    {
-        I_Max = IDENT_I_MAX_A;
-    }
-    else
-    {
-        return FAST_OFF;
-    }
+    Envelope_Voltage_Update();
+    I_Max = Ident_Envelope.I_Safe_A;
 
-    if ((Abs_Value(Ia_A) > I_Max) || (Abs_Value(Ib_A) > I_Max) || (Abs_Value(Ic_A) > I_Max))
+    if ((I_Max <= 0.0f) || (Abs_Value(Ia_A) > I_Max) || (Abs_Value(Ib_A) > I_Max) || (Abs_Value(Ic_A) > I_Max))
     {
         if (Ident_Mode == IDENT_RS_LS)
         {
             Rs_Ls_Fail();
         }
-        else
+        else if (Ident_Mode == IDENT_FLUX)
         {
             Flux_Fail();
         }
-
         return FAST_OFF;
     }
 
@@ -263,7 +248,12 @@ Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
         return Rs_Ls_Run(Ia_A, Theta_e, Id_Ref, Iq_Ref, Ualpha_V, Ubeta_V);
     }
 
-    return Flux_Fast_Run(Ia_A, Ib_A, Ic_A, Theta_e, Id_Ref, Iq_Ref);
+    if (Ident_Mode == IDENT_FLUX)
+    {
+        return Flux_Fast_Run(Ia_A, Ib_A, Ic_A, Theta_e, Id_Ref, Iq_Ref);
+    }
+
+    return FAST_OFF;
 }
 
 Ident_Mode_e Identification_Mode_Get(void)
