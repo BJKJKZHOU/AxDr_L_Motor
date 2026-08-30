@@ -2,6 +2,7 @@
 """Diagnose a sensorless I/F -> observer handover without changing firmware."""
 
 from collections import deque
+import math
 import struct
 import time
 
@@ -9,11 +10,25 @@ import sensorless_run
 import sensorless_test as base
 
 
-# Flux_Err is already exposed by the firmware Plot registry as variable 0x0023.
-# Keep the normal sensorless FAST set unchanged and sample Flux_Err through the
-# NORMAL float channel so startup transients cannot saturate int16 transport.
+# Use the existing Plot registry only. Keep the normal sensorless FAST set
+# unchanged and sample diagnostic-only float signals through NORMAL transport.
 FLUX_ERR_ID = 0x0023
+THETA_E_ID = 0x0014
+THETA_OBS_ID = 0x0020
 DIAG_NORMAL_CONFIG_ID = 15
+OBS_WE_TAU_S = 0.020
+MONITOR_TS = 1.0 / sensorless_run.MONITOR_HZ
+OBS_WE_ALPHA = MONITOR_TS / (OBS_WE_TAU_S + MONITOR_TS)
+WE_ERR_MAX = 5.0
+
+
+def angle_diff(a, b):
+    diff = a - b
+    while diff > math.pi:
+        diff -= 2.0 * math.pi
+    while diff < -math.pi:
+        diff += 2.0 * math.pi
+    return diff
 
 
 class HandoverDiag(sensorless_run.SensorlessRun):
@@ -22,6 +37,10 @@ class HandoverDiag(sensorless_run.SensorlessRun):
         self.we_if = 0.0
         self.handover_started = False
         self.flux_err = deque(maxlen=2000)
+        self.theta_err = deque(maxlen=2000)
+        self.we_obs_f = None
+        self.we_err_gate_pass = 0
+        self.we_err_gate_total = 0
 
     def configure_plot(self):
         fast_data = bytes([
@@ -35,8 +54,18 @@ class HandoverDiag(sensorless_run.SensorlessRun):
         )
         self.request(base.MSG_PLOT, base.PLOT_CONFIG, fast_data)
 
-        normal_data = bytes([base.NORMAL_GROUP, DIAG_NORMAL_CONFIG_ID, 2])
-        normal_data += struct.pack("<HH", sensorless_run.VBUS_ID, FLUX_ERR_ID)
+        normal_ids = (
+            sensorless_run.VBUS_ID,
+            FLUX_ERR_ID,
+            THETA_E_ID,
+            THETA_OBS_ID,
+        )
+        normal_data = bytes([
+            base.NORMAL_GROUP,
+            DIAG_NORMAL_CONFIG_ID,
+            len(normal_ids),
+        ])
+        normal_data += b"".join(struct.pack("<H", var_id) for var_id in normal_ids)
         self.request(base.MSG_PLOT, base.PLOT_CONFIG, normal_data)
         self.request(
             base.MSG_PLOT,
@@ -45,9 +74,31 @@ class HandoverDiag(sensorless_run.SensorlessRun):
         )
         self.monitor_started = time.monotonic()
 
+    def process_fast(self, payload):
+        before = len(self.blocks)
+        super().process_fast(payload)
+
+        # SensorlessRun stores one 1 kHz mean block for every 20 FAST samples.
+        # Re-run the firmware's 20 ms first-order speed filter at that 1 kHz
+        # observation rate. This is intentionally diagnostic-only and avoids a
+        # firmware telemetry change.
+        if len(self.blocks) == before:
+            return
+
+        we_obs = self.blocks[-1][sensorless_run.FAST_INDEX["We_obs"]]
+        if self.we_obs_f is None:
+            self.we_obs_f = we_obs
+        else:
+            self.we_obs_f += OBS_WE_ALPHA * (we_obs - self.we_obs_f)
+
+        if self.handover_started:
+            self.we_err_gate_total += 1
+            if abs(self.we_obs_f - self.we_if) <= WE_ERR_MAX:
+                self.we_err_gate_pass += 1
+
     def process_normal(self, payload):
-        if (len(payload) != 12 or payload[2] != DIAG_NORMAL_CONFIG_ID or
-                payload[3] != 2):
+        if (len(payload) != 20 or payload[2] != DIAG_NORMAL_CONFIG_ID or
+                payload[3] != 4):
             return
 
         seq, = struct.unpack_from("<H", payload, 0)
@@ -56,9 +107,10 @@ class HandoverDiag(sensorless_run.SensorlessRun):
             self.normal_lost += (seq - expected) & 0xFFFF
         self.normal_last = seq
 
-        vbus, flux_err = struct.unpack_from("<ff", payload, 4)
+        vbus, flux_err, theta_e, theta_obs = struct.unpack_from("<ffff", payload, 4)
         self.vbus.append(vbus)
         self.flux_err.append(flux_err)
+        self.theta_err.append(angle_diff(theta_obs, theta_e))
         self.last_normal_rx = time.monotonic()
 
     def read_stage(self):
@@ -82,13 +134,24 @@ class HandoverDiag(sensorless_run.SensorlessRun):
             return
 
         we_obs = values["We_obs"]
+        we_obs_f = self.we_obs_f if self.we_obs_f is not None else we_obs
         flux_err = sum(self.flux_err) / len(self.flux_err)
+        theta_err = list(self.theta_err)
+        theta_mean = sum(theta_err) / len(theta_err) if theta_err else 0.0
+        theta_span = (max(theta_err) - min(theta_err)) if theta_err else 0.0
+        gate_ratio = (
+            self.we_err_gate_pass / self.we_err_gate_total
+            if self.we_err_gate_total else 0.0
+        )
         print(
             "  Handover diag: "
             f"We_IF={self.we_if:.3f} rad/s, "
             f"We_obs={we_obs:.3f} rad/s, "
-            f"We_err={we_obs - self.we_if:+.3f} rad/s, "
-            f"PLL_mean={values['PLL_Err']:+.5f}, "
+            f"We_obs_f={we_obs_f:.3f} rad/s, "
+            f"We_err_f={we_obs_f - self.we_if:+.3f} rad/s, "
+            f"We_gate={100.0 * gate_ratio:.1f}%, "
+            f"Theta_err={math.degrees(theta_mean):+.1f} deg, "
+            f"Theta_span={math.degrees(theta_span):.1f} deg, "
             f"PLL_RMS={values['PLL_RMS']:.5f}, "
             f"Flux_Err={flux_err:+.8e} Wb^2"
         )
@@ -112,11 +175,15 @@ class HandoverDiag(sensorless_run.SensorlessRun):
                     last_stage = stage
 
                 if (stage == 2) and not self.handover_started:
-                    # Discard ALIGN/IF monitor history so all following averages
-                    # describe the actual I/F -> observer handover window.
+                    # Discard ALIGN/IF history and seed the diagnostic speed
+                    # filter from the current observer speed at handover entry.
                     self.blocks.clear()
                     self.flux_err.clear()
+                    self.theta_err.clear()
                     self.fast_saturation = [0] * len(sensorless_run.FAST_VARS)
+                    self.we_obs_f = None
+                    self.we_err_gate_pass = 0
+                    self.we_err_gate_total = 0
                     self.handover_started = True
                     next_diag = now + 0.5
 
@@ -133,8 +200,6 @@ class HandoverDiag(sensorless_run.SensorlessRun):
                     self.handover_diag()
                     next_diag = now + 1.0
             else:
-                # Before IF_TO_OBS, only keep basic safety/transport checks from
-                # interfering with the diagnostic window.
                 if self.current_trip:
                     raise RuntimeError(
                         f"current magnitude exceeded {self.args.current_limit:.3f} A"
