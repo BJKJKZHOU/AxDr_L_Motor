@@ -24,6 +24,7 @@ typedef enum
     OPEN_LOOP,
     IDENT,
     SENSORLESS_SPEED,
+    PHASE_SEARCH,
 
 } Motor_Mode_e;
 
@@ -44,31 +45,44 @@ typedef enum
  * Enable, Stop and Disable must not clear or overwrite these targets.
  *
  * Position target uses Pos_Turn + Pos_Theta to preserve single-turn angle precision.
+ * Targets are stored in the user mechanical coordinate. Motor_Config.Dir maps
+ * them into the internal motor coordinate only when they are executed.
  */
 typedef struct
 {
-    float Te_Target; /* N*m */
-    float Wm_Target; /* rad/s */
+    float Te_Target; /* N*m, user mechanical coordinate */
+    float Wm_Target; /* rad/s, user mechanical coordinate */
 
-    int32_t Pos_Turn; /* Mechanical turns */
-    float Pos_Theta; /* rad, [0, 2pi) */
+    int32_t Pos_Turn; /* User mechanical turns */
+    float Pos_Theta; /* rad, [0, 2pi), user mechanical coordinate */
 
 } Motor_Cmd_T;
 
 /*
- * Mechanical positive direction convention:
- * Viewed from the motor output-shaft side toward the motor body, CCW is positive.
- * Mechanical angle, speed and torque signs must follow this convention.
+ * Servo phase calibration establishes one self-consistent internal motor
+ * coordinate. Enc_Dir, phase order and Theta_Off belong to that calibration
+ * result and must not be changed merely to reverse the user-facing direction.
  *
- * Enc_Dir maps the encoder raw direction into this mechanical coordinate system.
- * After direction correction, Theta_m increases in the positive mechanical direction.
- * Theta_Off is the calibrated electrical angle offset used by:
+ * Internal sign invariant:
+ *   +Iq -> +Te -> internal positive mechanical direction.
+ *
+ * Motor_Config.Dir separately maps this internal direction to the user
+ * mechanical coordinate. By project convention the user may choose output-
+ * shaft-side CCW as positive; if the observed direction is opposite, change
+ * Motor_Config.Dir only. This does not invalidate Enc_Dir or Theta_Off.
+ *
+ * Enc_Dir maps the encoder native angle direction into the internal motor
+ * coordinate. Only +1 / -1 are valid and direction calibration may only be
+ * changed while DISABLED. After direction correction, Motor_Run Theta_m,
+ * Turn and Wm all belong to the internal motor coordinate.
+ *
+ * Theta_Off must be calibrated after Enc_Dir / phase order are established:
  * Theta_e = wrap(Pp * Theta_m + Theta_Off).
  */
 typedef struct
 {
-    int8_t Enc_Dir; /* +1 / -1 */
-    float Theta_Off; /* rad */
+    int8_t Enc_Dir; /* +1 / -1, calibration result */
+    float Theta_Off; /* rad, calibration result */
 
 } Motor_Cal_T;
 
@@ -79,7 +93,7 @@ typedef struct
     float Rs; /* Ohm */
     float Ld; /* H */
     float Lq; /* H */
-    float Flux; /* Wb, Te = 1.5 * Pp * Flux * Iq */
+    float Flux; /* Wb, positive magnitude; Te = 1.5 * Pp * Flux * Iq */
 
     float J; /* kg*m^2 */
     float B; /* N*m/(rad/s) */
@@ -111,15 +125,15 @@ typedef struct
 typedef struct
 {
     int32_t
-        Turn; /* Software accumulated mechanical turns; +1 on positive 2pi->0 wrap, -1 on negative 0->2pi wrap; starts at 0 after power-up and is not retained across power loss */
+        Turn; /* Internal mechanical turns; +1 on positive 2pi->0 wrap, -1 on negative 0->2pi wrap; starts at 0 after power-up and is not retained across power loss */
 
-    float Theta_m; /* rad, [0, 2pi) */
-    float Wm; /* rad/s */
+    float Theta_m; /* rad, [0, 2pi), internal mechanical coordinate */
+    float Wm; /* rad/s, internal mechanical coordinate */
 
-    float Theta_e; /* rad, [0, 2pi), electrical angle currently used by FOC */
+    float Theta_e; /* rad, [0, 2pi), internal electrical angle currently used by FOC */
 
-    float Id; /* A */
-    float Iq; /* A */
+    float Id; /* A, internal dq coordinate */
+    float Iq; /* A, +Iq produces +Te in the internal motor coordinate */
 
     float Ud; /* V */
     float Uq; /* V */
