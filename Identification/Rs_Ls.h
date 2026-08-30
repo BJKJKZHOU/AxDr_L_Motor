@@ -31,6 +31,12 @@ typedef struct
     float Ls_H;
     bool Valid;
 
+    /* Temporary probe diagnostics for intermittent startup failures. */
+    float Probe_U_Re;
+    float Probe_U_Im;
+    float Probe_I_Re;
+    float Probe_I_Im;
+
 } Rs_Ls_Result_T;
 
 void Rs_Ls_Start(void);
