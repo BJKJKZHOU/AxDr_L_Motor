@@ -6,6 +6,7 @@
 #ifndef USER_MOTOR_PARAMS_H
 #define USER_MOTOR_PARAMS_H
 
+#include "Encoder.h"
 #include "Motor_Type.h"
 
 /* Current 32-pole outer-rotor motor current-loop parameters. */
@@ -36,6 +37,12 @@
 
 #define MOTOR_ENC_DIR_DEFAULT   1
 #define MOTOR_THETA_OFF_DEFAULT 0.0f
+#define ENCODER_TYPE_DEFAULT    ENC_MT6816
+
+#define ENCODER_CONFIG_DEFAULT                                                                                         \
+    {                                                                                                                  \
+        .Type = ENCODER_TYPE_DEFAULT,                                                                                  \
+    }
 
 #define MOTOR_CAL_DEFAULT                                                                                              \
     {                                                                                                                  \
