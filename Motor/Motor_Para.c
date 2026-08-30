@@ -20,6 +20,7 @@
 #define MOTOR_IF_R_MAX_RATIO     0.60f
 #define MOTOR_IF_WE_RL_RATIO     0.02f
 #define MOTOR_IF_WE_MARGIN_RATIO 0.25f
+#define MOTOR_IF_WE_MIN_RAD_S    1.0f
 #define MOTOR_IF_RAMP_TIME_S     6.0f
 
 Motor_Para_T Motor_Para = MOTOR_PARA_DEFAULT;
@@ -118,9 +119,9 @@ bool Motor_IF_Para_Build(float Vbus_V, float I_Max_A, Motor_IF_Para_T *Para)
         We_Base = MOTOR_IF_WE_MARGIN_RATIO * We_RL_Max;
     }
 
-    if (We_Base < 1.0f)
+    if (We_Base < MOTOR_IF_WE_MIN_RAD_S)
     {
-        We_Base = 1.0f;
+        return false;
     }
 
     Para->We_Base = We_Base;
