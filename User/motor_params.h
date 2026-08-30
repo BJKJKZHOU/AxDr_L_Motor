@@ -20,6 +20,7 @@
 #define MOTOR_J_DEFAULT    9.08865259e-05f
 #define MOTOR_B_DEFAULT    0.000188353f
 
+/* Default motor torque constant is only used to initialize compile-time controller tuning. */
 #define MOTOR_KT_DEFAULT (1.5f * (float)MOTOR_PP_DEFAULT * MOTOR_FLUX_DEFAULT)
 
 /* MT6816 absolute speed capability; this is the system hardware speed ceiling. */
@@ -28,11 +29,9 @@
 
 /* First-version phase-current command ceiling based on the board 10 A operating range. */
 #define MOTOR_I_MAX_DEFAULT  10.0f
-#define MOTOR_TE_MAX_DEFAULT (MOTOR_KT_DEFAULT * MOTOR_I_MAX_DEFAULT)
 #define MOTOR_WM_MAX_DEFAULT ENC_WM_MAX
 
 #define USER_I_MAX_DEFAULT  5.0f
-#define USER_TE_MAX_DEFAULT (MOTOR_KT_DEFAULT * USER_I_MAX_DEFAULT)
 #define USER_WM_MAX_DEFAULT 314.159265f /* 3000 rpm */
 
 #define MOTOR_ENC_DIR_DEFAULT   1
@@ -64,14 +63,14 @@
 #define MOTOR_LIM_DEFAULT                                                                                              \
     {                                                                                                                  \
         .I_Max = MOTOR_I_MAX_DEFAULT,                                                                                  \
-        .Te_Max = MOTOR_TE_MAX_DEFAULT,                                                                                \
+        .Te_Max = 0.0f,                                                                                                \
         .Wm_Max = MOTOR_WM_MAX_DEFAULT,                                                                                \
     }
 
 #define USER_LIM_DEFAULT                                                                                               \
     {                                                                                                                  \
         .I_Max = USER_I_MAX_DEFAULT,                                                                                   \
-        .Te_Max = USER_TE_MAX_DEFAULT,                                                                                 \
+        .Te_Max = 0.0f,                                                                                                \
         .Wm_Max = USER_WM_MAX_DEFAULT,                                                                                 \
     }
 

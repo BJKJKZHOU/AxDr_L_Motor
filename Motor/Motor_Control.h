@@ -34,4 +34,8 @@ void Torque_Target_Set(float Te);
 void Speed_Target_Set(float Wm);
 void Position_Target_Set(int32_t Turn, float Theta);
 
+/* User mechanical coordinate feedback. Internal FOC state remains in Motor_Run. */
+float Motor_Wm_Get(void);
+void Motor_Position_Get(int32_t *Turn, float *Theta);
+
 #endif /* MOTOR_CONTROL_H */
