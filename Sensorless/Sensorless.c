@@ -44,6 +44,8 @@
 /* Temporary handover boundary. Replace with motor-dependent observer-quality
  * criteria after low-speed hardware characterization. */
 #define OBS_TO_IF_WE_RAD_S (0.75f * IF_WE_TARGET_RAD_S)
+#define OBS_TO_IF_WAIT_S   0.020f
+#define OBS_TO_IF_WAIT_CNT ((uint32_t)(OBS_TO_IF_WAIT_S / CUR_TS + 0.5f))
 
 #define SPD_DIV 10U
 
@@ -74,6 +76,7 @@ static bool Flux_Obs_U_Valid = false;
 static bool Profile_Requested = false;
 static Motor_IF_Para_T IF_Para = { 0 };
 static uint32_t Obs_Wait_Cnt = 0U;
+static uint32_t Obs_To_IF_Cnt = 0U;
 static uint32_t Blend_Cnt = 0U;
 static uint32_t Speed_Div = 0U;
 static float Obs_Id_Ref = 0.0f;
@@ -244,6 +247,7 @@ bool Sensorless_Begin(void)
     Profile_Requested = false;
     IF_Para = (Motor_IF_Para_T){ 0 };
     Obs_Wait_Cnt = 0U;
+    Obs_To_IF_Cnt = 0U;
     Blend_Cnt = 0U;
     Speed_Div = 0U;
     Obs_Id_Ref = 0.0f;
@@ -275,6 +279,7 @@ void Sensorless_Stop(void)
     Flux_Obs_U_Valid = false;
     Profile_Requested = false;
     Obs_Wait_Cnt = 0U;
+    Obs_To_IF_Cnt = 0U;
     Blend_Cnt = 0U;
     Speed_Div = 0U;
     Obs_Id_Ref = 0.0f;
@@ -511,6 +516,7 @@ bool Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float 
             if (Obs_Id_Ref == 0.0f)
             {
                 Initial_IF = false;
+                Obs_To_IF_Cnt = 0U;
                 State = SL_OBS;
             }
         }
@@ -525,12 +531,25 @@ bool Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float 
 
         if (Abs_F(Flux_PLL.State.We) <= OBS_TO_IF_WE_RAD_S)
         {
-            IF_Start_Reset(Theta_Obs, Flux_PLL.State.We);
-            IF_Start_Para_Set(IF_Para.Iq_Start_A, IF_Para.Iq_Max_A, IF_Para.We_Base, IF_Para.Acc);
-            IF_Start_Target_Set(We_Ref);
-            Sensorless_Theta_IF = Theta_Obs;
-            Blend_Cnt = 0U;
-            State = SL_OBS_TO_IF;
+            if (Obs_To_IF_Cnt < OBS_TO_IF_WAIT_CNT)
+            {
+                Obs_To_IF_Cnt++;
+            }
+
+            if (Obs_To_IF_Cnt >= OBS_TO_IF_WAIT_CNT)
+            {
+                IF_Start_Reset(Theta_Obs, Flux_PLL.State.We);
+                IF_Start_Para_Set(IF_Para.Iq_Start_A, IF_Para.Iq_Max_A, IF_Para.We_Base, IF_Para.Acc);
+                IF_Start_Target_Set(We_Ref);
+                Sensorless_Theta_IF = Theta_Obs;
+                Blend_Cnt = 0U;
+                Obs_To_IF_Cnt = 0U;
+                State = SL_OBS_TO_IF;
+            }
+        }
+        else
+        {
+            Obs_To_IF_Cnt = 0U;
         }
     }
     else
