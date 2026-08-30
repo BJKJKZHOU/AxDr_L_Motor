@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Diagnose a sensorless I/F -> observer handover without changing firmware."""
 
-import math
 import struct
 import time
 
@@ -10,9 +9,10 @@ import sensorless_test as base
 
 
 # Reuse the normal guarded runner, adding the observer flux-magnitude error that
-# is already exposed by the firmware Plot registry as variable 0x0023.
+# is already exposed by the firmware Plot registry as variable 0x0023. Use a
+# wider host scale so startup transients do not saturate the 16-bit transport.
 sensorless_run.FAST_VARS = sensorless_run.FAST_VARS + (
-    ("Flux_Err", 0x0023, 1.0e-9),
+    ("Flux_Err", 0x0023, 1.0e-8),
 )
 sensorless_run.FAST_INDEX = {
     name: index
@@ -24,6 +24,7 @@ class HandoverDiag(sensorless_run.SensorlessRun):
     def __init__(self, ser, args, stop):
         super().__init__(ser, args, stop)
         self.we_if = 0.0
+        self.handover_started = False
 
     def read_stage(self):
         data = self.request(base.MSG_SENSORLESS, base.SENSORLESS_STATUS)
@@ -59,7 +60,7 @@ class HandoverDiag(sensorless_run.SensorlessRun):
     def wait_run(self):
         deadline = time.monotonic() + self.args.ready_timeout
         next_status = time.monotonic()
-        next_diag = time.monotonic() + 1.0
+        next_diag = None
         last_stage = None
 
         while time.monotonic() < deadline:
@@ -73,6 +74,15 @@ class HandoverDiag(sensorless_run.SensorlessRun):
                     name = sensorless_run.STAGE_NAME.get(stage, str(stage))
                     print(f"  Sensorless stage={name}")
                     last_stage = stage
+
+                if (stage == 2) and not self.handover_started:
+                    # Discard ALIGN/IF monitor history so all following averages
+                    # describe the actual I/F -> observer handover window.
+                    self.blocks.clear()
+                    self.fast_saturation = [0] * len(sensorless_run.FAST_VARS)
+                    self.handover_started = True
+                    next_diag = now + 0.5
+
                 if stage == sensorless_run.SENSORLESS_RUN:
                     self.handover_diag()
                     return True
@@ -80,11 +90,22 @@ class HandoverDiag(sensorless_run.SensorlessRun):
             else:
                 self.process(self.parser.feed(self.ser.read(4096)))
 
-            self.guard(require_run=False)
-
-            if now >= next_diag:
-                self.handover_diag()
-                next_diag = now + 1.0
+            if self.handover_started:
+                self.guard(require_run=False)
+                if next_diag is not None and now >= next_diag:
+                    self.handover_diag()
+                    next_diag = now + 1.0
+            else:
+                # Before IF_TO_OBS, only keep basic safety/transport checks from
+                # interfering with the diagnostic window.
+                if self.current_trip:
+                    raise RuntimeError(
+                        f"current magnitude exceeded {self.args.current_limit:.3f} A"
+                    )
+                if self.fast_lost > self.args.max_lost:
+                    raise RuntimeError(f"FAST lost {self.fast_lost} frames")
+                if self.normal_lost > self.args.max_lost:
+                    raise RuntimeError(f"NORMAL lost {self.normal_lost} frames")
 
         self.handover_diag()
         raise TimeoutError("Sensorless did not enter SENSORLESS_RUN")
