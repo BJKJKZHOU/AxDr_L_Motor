@@ -151,7 +151,7 @@ static void Control_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
         {
             Mode = Data[2];
 
-            if (Mode > (uint8_t)SENSORLESS_SPEED)
+            if (Mode > (uint8_t)PHASE_SEARCH)
             {
                 Status = AXDR_ERR_VALUE;
             }

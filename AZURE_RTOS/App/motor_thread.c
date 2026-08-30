@@ -10,6 +10,7 @@
 #include "Motor_ADC.h"
 #include "Motor_Control.h"
 #include "Plot.h"
+#include "Protection.h"
 #include "USB_Thread.h"
 
 #define MOTOR_STACK_SIZE  512U
@@ -36,7 +37,10 @@ static void Motor_Cmd_Run(void)
         switch ((Motor_Cmd_e)Msg.Cmd)
         {
             case MOTOR_CMD_ENABLE:
-                Motor_Enable();
+                if (Protection_Enable_Allowed())
+                {
+                    Motor_Enable();
+                }
                 break;
 
             case MOTOR_CMD_RUN:
@@ -56,7 +60,10 @@ static void Motor_Cmd_Run(void)
 
                 if (State == DISABLED)
                 {
-                    Motor_Enable();
+                    if (Protection_Enable_Allowed())
+                    {
+                        Motor_Enable();
+                    }
                 }
                 else
                 {
@@ -167,6 +174,7 @@ static void Motor_Entry(ULONG thread_input)
     {
         if (tx_semaphore_get(&Motor_Sem, TX_WAIT_FOREVER) == TX_SUCCESS)
         {
+            Protection_Control();
             Motor_Cmd_Run();
             Motor_Control();
             USB_Tx_Poll();

@@ -7,13 +7,19 @@
 
 #include "Math.h"
 #include "Current_Loop.h"
+#include "Encoder.h"
 #include "Flux.h"
 #include "Motor_ADC.h"
+#include "Motor_Cal.h"
+#include "Motor_Config.h"
 #include "Motor_Para.h"
 #include "Motor_PWM.h"
 #include "Motion_Loop.h"
 #include "Open_Loop.h"
+#include "Ramp.h"
 #include "Sensorless.h"
+#include "Servo_Phase.h"
+#include "Trapezoid.h"
 #include "control_params.h"
 #include "motor_params.h"
 
@@ -41,10 +47,9 @@ static Motor_Mode_e Motor_Mode = TORQUE;
 static Ident_Mode_e Ident_Mode = IDENT_RS_LS;
 
 static Current_Ref_T Current_Ref = { 0 };
+static Motion_Ref_T Motion_Ref = { 0 };
 static float Wm_Ref = 0.0f;
 static float We_Ref = 0.0f;
-static int32_t Pos_Ref_Turn = 0;
-static float Pos_Ref_Theta = 0.0f;
 static uint32_t Pos_Div = 0U;
 
 static Motor_Fast_Mode_e Fast_Off_Run(float *Theta_e,
@@ -72,28 +77,44 @@ static Motor_Fast_Mode_e Sensorless_Fast_Run(float *Theta_e,
                                              float *Iq_Ref,
                                              float *Ualpha,
                                              float *Ubeta);
+static Motor_Fast_Mode_e Phase_Fast_Run(float *Theta_e,
+                                        float *Id_Ref,
+                                        float *Iq_Ref,
+                                        float *Ualpha,
+                                        float *Ubeta);
 
 static Fast_Run_T Fast_Run = Fast_Off_Run;
 
 static void Motor_Limit_Get(Motor_Limit_T *Lim)
 {
+    float Kt;
+
     Lim->I_Max = (Motor_Lim.I_Max < User_Lim.I_Max) ? Motor_Lim.I_Max : User_Lim.I_Max;
-    Lim->Te_Max = (Motor_Lim.Te_Max < User_Lim.Te_Max) ? Motor_Lim.Te_Max : User_Lim.Te_Max;
     Lim->Wm_Max = (Motor_Lim.Wm_Max < User_Lim.Wm_Max) ? Motor_Lim.Wm_Max : User_Lim.Wm_Max;
+
+    if (Motion_Config.Wm_Max < Lim->Wm_Max)
+    {
+        Lim->Wm_Max = Motion_Config.Wm_Max;
+    }
 
     if (Lim->I_Max < 0.0f)
     {
         Lim->I_Max = 0.0f;
     }
 
-    if (Lim->Te_Max < 0.0f)
-    {
-        Lim->Te_Max = 0.0f;
-    }
-
     if (Lim->Wm_Max < 0.0f)
     {
         Lim->Wm_Max = 0.0f;
+    }
+
+    Kt = 1.5f * (float)Motor_Para.Pp * Motor_Para.Flux;
+    if (__builtin_isfinite(Kt) && (Kt > 0.0f))
+    {
+        Lim->Te_Max = Kt * Lim->I_Max;
+    }
+    else
+    {
+        Lim->Te_Max = 0.0f;
     }
 }
 
@@ -147,8 +168,7 @@ static void Motion_State_Reset(void)
     Speed_Ctrl.State.Fbk_Pre = (float)Motor_Para.Pp * Motor_Run.Wm;
     Wm_Ref = 0.0f;
     We_Ref = 0.0f;
-    Pos_Ref_Turn = Motor_Run.Turn;
-    Pos_Ref_Theta = Motor_Run.Theta_m;
+    Trapezoid_Reset(&Motion_Ref, Motor_Run.Turn, Motor_Run.Theta_m, 0.0f);
     Pos_Div = 0U;
 }
 
@@ -250,6 +270,20 @@ static Motor_Fast_Mode_e Sensorless_Fast_Run(float *Theta_e,
     return FAST_CURRENT;
 }
 
+static Motor_Fast_Mode_e Phase_Fast_Run(float *Theta_e,
+                                        float *Id_Ref,
+                                        float *Iq_Ref,
+                                        float *Ualpha,
+                                        float *Ubeta)
+{
+    if (Motor_State != RUN)
+    {
+        return FAST_OFF;
+    }
+
+    return Servo_Phase_Fast_Run(Theta_e, Id_Ref, Iq_Ref, Ualpha, Ubeta);
+}
+
 static void Fast_Path_Bind(void)
 {
     switch (Motor_Mode)
@@ -272,6 +306,10 @@ static void Fast_Path_Bind(void)
             Fast_Run = Sensorless_Fast_Run;
             break;
 
+        case PHASE_SEARCH:
+            Fast_Run = Phase_Fast_Run;
+            break;
+
         default:
             Fast_Run = Fast_Off_Run;
             break;
@@ -280,12 +318,17 @@ static void Fast_Path_Bind(void)
 
 void Motor_Control(void)
 {
+    int32_t Pos_Turn_Target;
+    int8_t Phase_Enc_Dir;
+    float Pos_Theta_Target;
+    float Phase_Theta_Off;
     float Kt;
     float Te_Ref;
     float Wm_Target;
     float We_Fbk;
     float Iq_Min;
     float Iq_Max;
+    float Wm_Corr;
     Motor_Limit_T Lim;
 
     if (Motor_State == DISABLED)
@@ -294,6 +337,27 @@ void Motor_Control(void)
         Current_Ref.Iq = 0.0f;
         Wm_Ref = 0.0f;
         We_Ref = 0.0f;
+        return;
+    }
+
+    if (Motor_Mode == PHASE_SEARCH)
+    {
+        if ((Motor_State == RUN) && !Servo_Phase_Active())
+        {
+            PWM_Disable();
+            Fast_Run = Fast_Off_Run;
+            Current_Ref.Id = 0.0f;
+            Current_Ref.Iq = 0.0f;
+            Motor_State = DISABLED;
+
+            if (Servo_Phase_Result_Get(&Phase_Enc_Dir, &Phase_Theta_Off))
+            {
+                (void)Motor_Cal_Set(Phase_Enc_Dir, Phase_Theta_Off);
+            }
+
+            Servo_Phase_Clear();
+        }
+
         return;
     }
 
@@ -319,17 +383,10 @@ void Motor_Control(void)
 
     if ((Motor_Mode == SPEED) || (Motor_Mode == OPEN_LOOP) || (Motor_Mode == SENSORLESS_SPEED))
     {
-        if (Motor_State == RUN)
-        {
-            Wm_Target = Motor_Cmd.Wm_Target;
-            Limit_Value(&Wm_Target, -Lim.Wm_Max, Lim.Wm_Max);
-            Wm_Ref = Speed_Profile(Wm_Target, Wm_Ref, MOTION_ACC_RAD_S2, MOTION_DEC_RAD_S2);
-        }
-        else
-        {
-            Wm_Ref = 0.0f;
-        }
-
+        Wm_Target = (Motor_State == RUN) ? Motor_User_To_Internal(Motor_Cmd.Wm_Target) : 0.0f;
+        Limit_Value(&Wm_Target, -Lim.Wm_Max, Lim.Wm_Max);
+        Ramp_Run(&Motion_Ref, Wm_Target, Motion_Config.Wm_Acc, Motion_Config.Wm_Dec, SPD_TS);
+        Wm_Ref = Motion_Ref.Wm;
         We_Ref = (float)Motor_Para.Pp * Wm_Ref;
     }
 
@@ -368,7 +425,14 @@ void Motor_Control(void)
             if (Motor_State == RUN)
             {
                 Kt = 1.5f * (float)Motor_Para.Pp * Motor_Para.Flux;
-                Te_Ref = Motor_Cmd.Te_Target;
+
+                if (!__builtin_isfinite(Kt) || (Kt <= 0.0f))
+                {
+                    Current_Ref.Iq = 0.0f;
+                    break;
+                }
+
+                Te_Ref = Motor_User_To_Internal(Motor_Cmd.Te_Target);
                 Limit_Value(&Te_Ref, -Lim.Te_Max, Lim.Te_Max);
                 Current_Ref.Iq = Te_Ref / Kt;
             }
@@ -383,15 +447,26 @@ void Motor_Control(void)
             break;
 
         case POSITION:
-            if (Motor_State == RUN)
-            {
-                Pos_Ref_Turn = Motor_Cmd.Pos_Turn;
-                Pos_Ref_Theta = Motor_Cmd.Pos_Theta;
-            }
-
             if (Pos_Div == 0U)
             {
-                Wm_Ref = Position_Loop(Pos_Ref_Turn, Pos_Ref_Theta, -Lim.Wm_Max, Lim.Wm_Max);
+                if (Motor_State == RUN)
+                {
+                    Motor_Position_User_To_Internal(Motor_Cmd.Pos_Turn,
+                                                    Motor_Cmd.Pos_Theta,
+                                                    &Pos_Turn_Target,
+                                                    &Pos_Theta_Target);
+                    Trapezoid_Run(&Motion_Ref,
+                                  Pos_Turn_Target,
+                                  Pos_Theta_Target,
+                                  Lim.Wm_Max,
+                                  Motion_Config.Wm_Acc,
+                                  Motion_Config.Wm_Dec,
+                                  POS_TS);
+                }
+
+                Wm_Corr = Position_Loop(Motion_Ref.Turn, Motion_Ref.Theta, -Lim.Wm_Max, Lim.Wm_Max);
+                Wm_Ref = Motion_Ref.Wm + Wm_Corr;
+                Limit_Value(&Wm_Ref, -Lim.Wm_Max, Lim.Wm_Max);
             }
 
             Pos_Div ^= 1U;
@@ -435,6 +510,12 @@ Motor_Mode_e Motor_Mode_Get(void)
 void Motor_Enable(void)
 {
     if (Motor_State != DISABLED)
+    {
+        return;
+    }
+
+    if ((Motion_Mode_Active() || (Motor_Mode == PHASE_SEARCH)) &&
+        ((Encoder.Ready == 0U) || (Encoder.Fault != 0U)))
     {
         return;
     }
@@ -489,6 +570,15 @@ void Motor_Start(void)
             return;
         }
     }
+    else if (Motor_Mode == PHASE_SEARCH)
+    {
+        Current_Loop_State_Reset();
+
+        if (!Servo_Phase_Start())
+        {
+            return;
+        }
+    }
 
     if (!Motion_Mode_Active())
     {
@@ -517,10 +607,13 @@ void Motor_Stop(void)
     {
         Sensorless_Stop();
     }
+    else if (Motor_Mode == PHASE_SEARCH)
+    {
+        Servo_Phase_Abort();
+    }
     else if (Motor_Mode == POSITION)
     {
-        Pos_Ref_Turn = Motor_Run.Turn;
-        Pos_Ref_Theta = Motor_Run.Theta_m;
+        Trapezoid_Reset(&Motion_Ref, Motor_Run.Turn, Motor_Run.Theta_m, 0.0f);
         Pos_Div = 0U;
     }
 
@@ -562,7 +655,7 @@ void Motor_Disable(void)
 
 void Motor_Mode_Set(Motor_Mode_e Mode)
 {
-    if ((Motor_State == DISABLED) && (Mode <= SENSORLESS_SPEED))
+    if ((Motor_State == DISABLED) && (Mode <= PHASE_SEARCH))
     {
         Motor_Mode = Mode;
     }
@@ -623,4 +716,14 @@ void Position_Target_Set(int32_t Turn, float Theta)
 {
     Motor_Cmd.Pos_Turn = Turn;
     Motor_Cmd.Pos_Theta = Theta;
+}
+
+float Motor_Wm_Get(void)
+{
+    return Motor_Internal_To_User(Motor_Run.Wm);
+}
+
+void Motor_Position_Get(int32_t *Turn, float *Theta)
+{
+    Motor_Position_Internal_To_User(Motor_Run.Turn, Motor_Run.Theta_m, Turn, Theta);
 }

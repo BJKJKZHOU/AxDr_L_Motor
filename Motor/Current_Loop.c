@@ -42,6 +42,13 @@ void Current_Loop(float Id_Ref, float Iq_Ref, float *Ualpha, float *Ubeta)
     Motor_Run.Id = Ialpha * Cos + Ibeta * Sin;
     Motor_Run.Iq = -Ialpha * Sin + Ibeta * Cos;
 
+    /*
+     * Internal sign invariant for the logical ABC phase convention:
+     *   +Iq -> +Te -> internal positive mechanical direction.
+     * Servo phase search establishes this internal relationship. User-facing
+     * direction reversal is handled only by Motor_Config.Dir and must not
+     * change Enc_Dir, phase order or Theta_Off.
+     */
     Id_Ctrl.Sig.Ref = Id_Ref;
     Id_Ctrl.Sig.Fbk = Motor_Run.Id;
     Iq_Ctrl.Sig.Ref = Iq_Ref;

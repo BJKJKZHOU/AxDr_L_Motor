@@ -59,14 +59,23 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Observer/PLL.c
     Sensorless/IF_Start.c
     Sensorless/Sensorless.c
+    Motion/Motion.c
+    Motion/Ramp.c
+    Motion/Trapezoid.c
     Motor/Fast_Profile.c
     Motor/Motor_ADC.c
     Motor/Encoder.c
+    Motor/Encoder_Drv/MT6816.c
+    Motor/Encoder_Drv/MT6835.c
+    Motor/Protection.c
+    Motor/Motor_Cal.c
+    Motor/Motor_Config.c
     Motor/Motor_Para.c
     Motor/Current_Loop.c
     Motor/Motion_Loop.c
     Motor/Align.c
     Motor/Open_Loop.c
+    Motor/Servo_Phase.c
     Motor/Motor_PWM.c
     Motor/Motor_Control.c
     BSP/RGB.c
@@ -96,7 +105,9 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     Identification
     Observer
     Sensorless
+    Motion
     Motor
+    Motor/Encoder_Drv
     User
 )
 
