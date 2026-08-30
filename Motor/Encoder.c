@@ -6,15 +6,16 @@
 #include "Encoder.h"
 
 #include "MT6816.h"
+#include "MT6835.h"
 #include "Math.h"
 #include "Motor_Control.h"
 #include "Motor_Type.h"
 #include "control_params.h"
 #include "motor_params.h"
 
-#define ENC_READY_VALID_CNT     16U
-#define ENC_RUNTIME_INVALID_CNT 3U
-#define ENC_STARTUP_TIMEOUT_CNT ((uint16_t)(CUR_FREQ_HZ_DEFAULT * 0.05f))
+#define ENC_READY_VALID_CNT      16U
+#define ENC_RUNTIME_INVALID_CNT  3U
+#define ENC_STARTUP_TIMEOUT_CNT  ((uint16_t)(CUR_FREQ_HZ_DEFAULT * 0.05f))
 
 Encoder_Config_T Encoder_Config = ENCODER_CONFIG_DEFAULT;
 volatile Encoder_T Encoder = { 0 };
@@ -37,6 +38,12 @@ static bool Driver_Bind(Encoder_Type_e Type)
             Drv_Config = MT6816_Config;
             Drv_Start = MT6816_Start;
             Drv_IRQHandler = MT6816_IRQHandler;
+            return true;
+
+        case ENC_MT6835:
+            Drv_Config = MT6835_Config;
+            Drv_Start = MT6835_Start;
+            Drv_IRQHandler = MT6835_IRQHandler;
             return true;
 
         default:
@@ -126,8 +133,8 @@ bool Encoder_Type_Set(Encoder_Type_e Type)
     }
 
     Encoder_Config.Type = Type;
-    Feedback_Reset();
-    Drv_Config();
+    Encoder_DMA_Config();
+
     return true;
 }
 
