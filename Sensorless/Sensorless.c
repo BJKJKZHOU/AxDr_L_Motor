@@ -34,12 +34,14 @@
 #define ID_RAMP_A_S  5.0f
 #define ID_RAMP_STEP (ID_RAMP_A_S * CUR_TS)
 
-#define OBS_WE_TAU_S    0.020f
-#define OBS_WE_ALPHA    (CUR_TS / (OBS_WE_TAU_S + CUR_TS))
-#define WE_ERR_MAX      5.0f
-#define PLL_ERR_MAX     0.08f
-#define FLUX_MIN_RATIO2 0.64f
-#define FLUX_MAX_RATIO2 1.44f
+#define OBS_WE_TAU_S      0.020f
+#define OBS_WE_ALPHA      (CUR_TS / (OBS_WE_TAU_S + CUR_TS))
+#define OBS_PLL_ERR_TAU_S 0.050f
+#define OBS_PLL_ERR_ALPHA (CUR_TS / (OBS_PLL_ERR_TAU_S + CUR_TS))
+#define WE_ERR_MAX        5.0f
+#define PLL_ERR_MAX       0.08f
+#define FLUX_MIN_RATIO2   0.64f
+#define FLUX_MAX_RATIO2   1.44f
 
 /* Temporary handover boundary. Replace with motor-dependent observer-quality
  * criteria after low-speed hardware characterization. */
@@ -81,6 +83,7 @@ static uint32_t Blend_Cnt = 0U;
 static uint32_t Speed_Div = 0U;
 static float Obs_Id_Ref = 0.0f;
 static float Obs_Iq_Ref = 0.0f;
+static float Obs_PLL_Err2_F = 0.0f;
 
 static float Angle_Diff(float A, float B)
 {
@@ -119,9 +122,12 @@ static bool Obs_Stable(void)
     float We_Err;
     float Flux2;
     float Flux_Ref2;
+    float Pll_Err;
 
     Sensorless_We_Obs_F += OBS_WE_ALPHA * (Flux_PLL.State.We - Sensorless_We_Obs_F);
     We_Err = Sensorless_We_Obs_F - IF_Start_We_Get();
+    Pll_Err = Flux_PLL.State.Err;
+    Obs_PLL_Err2_F += OBS_PLL_ERR_ALPHA * (Pll_Err * Pll_Err - Obs_PLL_Err2_F);
     Flux2 = Flux_Obs.State.PsiAlpha * Flux_Obs.State.PsiAlpha + Flux_Obs.State.PsiBeta * Flux_Obs.State.PsiBeta;
     Flux_Ref2 = Flux_Obs.Para.Flux * Flux_Obs.Para.Flux;
 
@@ -135,7 +141,7 @@ static bool Obs_Stable(void)
         return false;
     }
 
-    if (Abs_F(Flux_PLL.State.Err) > PLL_ERR_MAX)
+    if (Obs_PLL_Err2_F > PLL_ERR_MAX * PLL_ERR_MAX)
     {
         return false;
     }
@@ -252,6 +258,7 @@ bool Sensorless_Begin(void)
     Speed_Div = 0U;
     Obs_Id_Ref = 0.0f;
     Obs_Iq_Ref = 0.0f;
+    Obs_PLL_Err2_F = 0.0f;
 
     Sensorless_Theta_IF = 0.0f;
     Sensorless_Theta_Use = 0.0f;
@@ -284,6 +291,7 @@ void Sensorless_Stop(void)
     Speed_Div = 0U;
     Obs_Id_Ref = 0.0f;
     Obs_Iq_Ref = 0.0f;
+    Obs_PLL_Err2_F = 0.0f;
     Sensorless_Blend = 0.0f;
 }
 
@@ -437,6 +445,7 @@ bool Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float 
         {
             Obs_Wait_Cnt = 0U;
             Sensorless_We_Obs_F = Flux_PLL.State.We;
+            Obs_PLL_Err2_F = 0.0f;
             To_Obs_State = TO_OBS_WAIT;
             State = SL_IF_TO_OBS;
         }
