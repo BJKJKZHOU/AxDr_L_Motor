@@ -61,19 +61,6 @@ FAST_VARS = (
 )
 VBUS_ID = 0x0004
 
-RS_LS_STAGE = {
-    0: "IDLE",
-    1: "PROBE_RAMP",
-    2: "PROBE_MEASURE",
-    3: "ALIGN",
-    4: "RAMP",
-    5: "SETTLE",
-    6: "MEASURE_A",
-    7: "MEASURE_B",
-    8: "DONE",
-    9: "FAILED",
-}
-
 
 class UserDeclined(Exception):
     pass
@@ -242,27 +229,26 @@ class Commission(base.SensorlessTest):
 
     def ident_status(self, mode):
         data = self.request(MSG_IDENTIFICATION, IDENT_STATUS)
-        expected = 12 if mode == IDENT_RS_LS else 8
+        expected = 11 if mode == IDENT_RS_LS else 7
         if len(data) != expected:
             raise RuntimeError(
                 f"invalid identification status length: {len(data)}"
             )
 
-        rx_mode, state, stage, valid = data[:4]
+        rx_mode, state, valid = data[:3]
         if rx_mode != mode:
             raise RuntimeError(f"unexpected identification mode: {rx_mode}")
 
         result = {
             "state": state,
-            "stage": stage,
             "valid": bool(valid),
         }
         if mode == IDENT_RS_LS:
             result["rs_ohm"], result["ls_h"] = struct.unpack_from(
-                "<ff", data, 4
+                "<ff", data, 3
             )
         else:
-            result["flux_wb"], = struct.unpack_from("<f", data, 4)
+            result["flux_wb"], = struct.unpack_from("<f", data, 3)
         return result
 
     def run_ident(self, mode, run_number, direction=None):
@@ -285,28 +271,16 @@ class Commission(base.SensorlessTest):
         self.ident_active = True
         result = None
         failure = None
-        active_stage = "START"
 
         try:
             self.request(base.MSG_CONTROL, base.CTRL_RUN)
             deadline = start + self.args.ident_timeout
             next_status = start
-            last = None
 
             while time.monotonic() < deadline:
                 now = time.monotonic()
                 if now >= next_status:
                     result = self.ident_status(mode)
-                    if mode == IDENT_RS_LS:
-                        current = (result["state"], result["stage"])
-                        if current != last:
-                            stage = RS_LS_STAGE.get(
-                                result["stage"], str(result["stage"])
-                            )
-                            print(f"  t={now - start:.3f} s stage={stage}")
-                            if result["state"] != IDENT_FAILED:
-                                active_stage = stage
-                            last = current
                     next_status = now + self.args.poll_interval
                 else:
                     self.process(self.parser.feed(self.ser.read(4096)))
@@ -320,16 +294,11 @@ class Commission(base.SensorlessTest):
                 if result is not None and result["state"] == IDENT_DONE:
                     break
                 if result is not None and result["state"] == IDENT_FAILED:
-                    if mode == IDENT_RS_LS:
-                        failure = RuntimeError(
-                            f"identification failed after {active_stage}; "
-                            f"captured phase peak={self.run_peak:.3f} A"
-                        )
-                    else:
-                        failure = RuntimeError(
-                            "Flux identification failed; "
-                            f"captured phase peak={self.run_peak:.3f} A"
-                        )
+                    name = "Rs/Ls" if mode == IDENT_RS_LS else "Flux"
+                    failure = RuntimeError(
+                        f"{name} identification failed; "
+                        f"captured phase peak={self.run_peak:.3f} A"
+                    )
                     break
             else:
                 failure = TimeoutError("identification timeout")
@@ -345,13 +314,10 @@ class Commission(base.SensorlessTest):
         if result is None:
             result = {
                 "state": -1,
-                "stage": -1,
                 "valid": False,
             }
         result["run"] = run_number
         result["direction"] = direction
-        if mode == IDENT_RS_LS:
-            result["active_stage"] = active_stage
         result["time_s"] = time.monotonic() - start
         result["phase_peak_a"] = self.run_peak
         result["fast_lost"] = self.fast_lost - fast_lost_start

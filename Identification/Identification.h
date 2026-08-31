@@ -63,7 +63,6 @@ Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
 
 Ident_Mode_e Identification_Mode_Get(void);
 Ident_State_e Identification_State_Get(void);
-uint8_t Identification_Stage_Get(void);
 const Ident_Envelope_T *Identification_Envelope_Get(void);
 
 #endif /* IDENTIFICATION_H */

@@ -313,7 +313,7 @@ static void Identification_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcas
     }
     else if (Op == AXDR_IDENT_STATUS)
     {
-        uint8_t Resp[12];
+        uint8_t Resp[11];
         uint8_t Resp_Len;
         Ident_Mode_e Mode;
 
@@ -326,26 +326,25 @@ static void Identification_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcas
             Mode = Identification_Mode_Get();
             Resp[0] = (uint8_t)Mode;
             Resp[1] = (uint8_t)Identification_State_Get();
-            Resp[2] = Identification_Stage_Get();
 
             if (Mode == IDENT_FLUX)
             {
                 const Flux_Result_T *Result;
 
                 Result = Flux_Result_Get();
-                Resp[3] = Result->Valid ? 1U : 0U;
-                memcpy(&Resp[4], &Result->Flux_Wb, sizeof(float));
-                Resp_Len = 8U;
+                Resp[2] = Result->Valid ? 1U : 0U;
+                memcpy(&Resp[3], &Result->Flux_Wb, sizeof(float));
+                Resp_Len = 7U;
             }
             else
             {
                 const Rs_Ls_Result_T *Result;
 
                 Result = Rs_Ls_Result_Get();
-                Resp[3] = Result->Valid ? 1U : 0U;
-                memcpy(&Resp[4], &Result->Rs_Ohm, sizeof(float));
-                memcpy(&Resp[8], &Result->Ls_H, sizeof(float));
-                Resp_Len = 12U;
+                Resp[2] = Result->Valid ? 1U : 0U;
+                memcpy(&Resp[3], &Result->Rs_Ohm, sizeof(float));
+                memcpy(&Resp[7], &Result->Ls_H, sizeof(float));
+                Resp_Len = 11U;
             }
 
             Response(Txn, AXDR_MSG_IDENTIFICATION, Op, AXDR_OK, Resp, Resp_Len);

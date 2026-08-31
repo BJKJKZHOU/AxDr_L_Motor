@@ -2,7 +2,6 @@
 """Repeated Rs/Ls identification stress test."""
 
 import argparse
-from collections import Counter
 import json
 from pathlib import Path
 import statistics
@@ -115,7 +114,6 @@ def main():
 
     successes = 0
     failures = 0
-    stages = Counter()
     error = None
 
     print(
@@ -150,8 +148,6 @@ def main():
                     except comm.IdentificationFailed as exc:
                         result = exc.result
                         failures += 1
-                        stage = result.get("stage", -1)
-                        stages[str(stage)] += 1
 
                         record["results"].append(result)
                         progress_print(
@@ -195,7 +191,6 @@ def main():
         record["finished"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
         record["success_count"] = successes
         record["failure_count"] = failures
-        record["failure_stage_counts"] = dict(stages)
 
         valid = [item for item in record["results"] if item.get("valid")]
         if valid:
@@ -215,10 +210,7 @@ def main():
         except OSError as exc:
             print(f"Log warning: {exc}", file=sys.stderr)
 
-    print(
-        f"\nFinal: success={successes}, failure={failures}, "
-        f"failure_stages={dict(stages)}"
-    )
+    print(f"\nFinal: success={successes}, failure={failures}")
 
     if error is not None:
         print(f"ERROR: {error}", file=sys.stderr)
