@@ -12,14 +12,7 @@
 #include "Rs_Ls.h"
 #include "control_params.h"
 
-#define IDENT_PROBE_I_RATIO       0.10f
-#define IDENT_MEASURE_I_RATIO     0.15f
-#define IDENT_MEASURE_I_MAX_RATIO 0.20f
-#define IDENT_ALIGN_I_RATIO       0.20f
-#define IDENT_ALIGN_I_MAX_RATIO   0.50f
-#define IDENT_I_MIN_RATIO         0.02f
-#define IDENT_U_SOFT_RATIO        0.25f
-#define IDENT_U_HARD_RATIO        0.80f
+#define IDENT_U_MAX_RATIO 0.80f
 
 static volatile Ident_Mode_e Ident_Mode = IDENT_NONE;
 static volatile Ident_State_e Ident_State = IDENT_IDLE;
@@ -30,53 +23,16 @@ static float Abs_Value(float Value)
     return (Value >= 0.0f) ? Value : -Value;
 }
 
-static float Current_Limit_Get(void)
-{
-    float I_Max;
-
-    I_Max = (Motor_Lim.I_Max < User_Lim.I_Max) ? Motor_Lim.I_Max : User_Lim.I_Max;
-    return (I_Max > 0.0f) ? I_Max : 0.0f;
-}
-
 static void Envelope_Voltage_Update(void)
 {
-    Ident_Envelope.U_Available_V = ADC.Vbus_V * INV_SQRT3_F * VOLT_MOD_MAX;
+    Ident_Envelope.U_Available = ADC.Vbus_V * INV_SQRT3_F * VOLT_MOD_MAX;
 
-    if (Ident_Envelope.U_Available_V < 0.0f)
+    if (Ident_Envelope.U_Available < 0.0f)
     {
-        Ident_Envelope.U_Available_V = 0.0f;
+        Ident_Envelope.U_Available = 0.0f;
     }
 
-    Ident_Envelope.U_Soft_V = IDENT_U_SOFT_RATIO * Ident_Envelope.U_Available_V;
-    Ident_Envelope.U_Hard_V = IDENT_U_HARD_RATIO * Ident_Envelope.U_Available_V;
-}
-
-static bool Envelope_Build(void)
-{
-    Ident_Envelope.I_Safe_A = Current_Limit_Get();
-    Ident_Envelope.I_Min_A = IDENT_I_MIN_RATIO * Ident_Envelope.I_Safe_A;
-
-    Ident_Envelope.I_Probe_A = IDENT_PROBE_I_RATIO * Ident_Envelope.I_Safe_A;
-    if (Ident_Envelope.I_Probe_A < Ident_Envelope.I_Min_A)
-    {
-        Ident_Envelope.I_Probe_A = Ident_Envelope.I_Min_A;
-    }
-
-    Ident_Envelope.I_Measure_A = IDENT_MEASURE_I_RATIO * Ident_Envelope.I_Safe_A;
-    if (Ident_Envelope.I_Measure_A < Ident_Envelope.I_Min_A)
-    {
-        Ident_Envelope.I_Measure_A = Ident_Envelope.I_Min_A;
-    }
-
-    Ident_Envelope.I_Measure_Max_A = IDENT_MEASURE_I_MAX_RATIO * Ident_Envelope.I_Safe_A;
-    Ident_Envelope.I_Align_A = IDENT_ALIGN_I_RATIO * Ident_Envelope.I_Safe_A;
-    Ident_Envelope.I_Align_Max_A = IDENT_ALIGN_I_MAX_RATIO * Ident_Envelope.I_Safe_A;
-
-    Envelope_Voltage_Update();
-
-    Ident_Envelope.Valid = (Ident_Envelope.I_Safe_A > 0.0f) && (Ident_Envelope.U_Hard_V > 0.0f) &&
-                           (Ident_Envelope.I_Probe_A <= Ident_Envelope.I_Measure_Max_A);
-    return Ident_Envelope.Valid;
+    Ident_Envelope.U_Max = IDENT_U_MAX_RATIO * Ident_Envelope.U_Available;
 }
 
 bool Identification_Start(Ident_Mode_e Mode, float Wm_Target)
@@ -96,7 +52,14 @@ bool Identification_Start(Ident_Mode_e Mode, float Wm_Target)
         Identification_Abort();
     }
 
-    if (!Envelope_Build())
+    Ident_Envelope.I_Max = (Motor_Lim.I_Max < User_Lim.I_Max) ? Motor_Lim.I_Max : User_Lim.I_Max;
+    if (Ident_Envelope.I_Max < 0.0f)
+    {
+        Ident_Envelope.I_Max = 0.0f;
+    }
+
+    Envelope_Voltage_Update();
+    if ((Ident_Envelope.I_Max <= 0.0f) || (Ident_Envelope.U_Max <= 0.0f))
     {
         return false;
     }
@@ -227,7 +190,7 @@ Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
     }
 
     Envelope_Voltage_Update();
-    I_Max = Ident_Envelope.I_Safe_A;
+    I_Max = Ident_Envelope.I_Max;
 
     if ((I_Max <= 0.0f) || (Abs_Value(Ia_A) > I_Max) || (Abs_Value(Ib_A) > I_Max) || (Abs_Value(Ic_A) > I_Max))
     {

@@ -24,6 +24,13 @@
 #define RS_LS_PROBE_MEASURE_CYCLE 5U
 #define RS_LS_MEASURE_CYCLE       10U
 
+#define RS_LS_PROBE_I_RATIO       0.10f
+#define RS_LS_MEASURE_I_RATIO     0.15f
+#define RS_LS_MEASURE_I_MAX_RATIO 0.20f
+#define RS_LS_ALIGN_I_RATIO       0.20f
+#define RS_LS_ALIGN_I_MAX_RATIO   0.50f
+#define RS_LS_I_MIN_RATIO         0.02f
+
 #define RS_LS_ALIGN_TIME_S  0.5f
 #define RS_LS_ALIGN_CNT     ((uint32_t)(RS_LS_ALIGN_TIME_S / CUR_TS + 0.5f))
 #define RS_LS_SETTLE_TIME_S 0.2f
@@ -198,9 +205,8 @@ static void Fail(void)
     State = RS_LS_FAILED;
 }
 
-static bool Measure_Calc(uint32_t Sample_Cnt, float *Rs, float *Ls)
+static bool Measure_Calc(uint32_t Sample_Cnt, float I_Min, float *Rs, float *Ls)
 {
-    const Ident_Envelope_T *Envelope;
     float Den;
     float Freq;
     float I_Amp;
@@ -208,7 +214,6 @@ static bool Measure_Calc(uint32_t Sample_Cnt, float *Rs, float *Ls)
     float Z_Re;
     float Z_Im;
 
-    Envelope = Identification_Envelope_Get();
     Den = I_Re * I_Re + I_Im * I_Im;
 
     if (Den <= 0.0f)
@@ -219,7 +224,7 @@ static bool Measure_Calc(uint32_t Sample_Cnt, float *Rs, float *Ls)
     Scale = 2.0f / (float)Sample_Cnt;
     I_Amp = Scale * __builtin_sqrtf(Den);
 
-    if (I_Amp < Envelope->I_Min_A)
+    if (I_Amp < I_Min)
     {
         return false;
     }
@@ -375,6 +380,12 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
     float Rs;
     float Ls;
     float Freq_Target;
+    float I_Probe;
+    float I_Measure;
+    float I_Measure_Max;
+    float I_Align;
+    float I_Align_Max;
+    float I_Min;
     float I_Target;
     float I_Soft;
     float I_Abs;
@@ -395,18 +406,34 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
     }
 
     Envelope = Identification_Envelope_Get();
-
-    if (!Envelope->Valid || (Envelope->U_Hard_V <= 0.0f))
+    if ((Envelope->I_Max <= 0.0f) || (Envelope->U_Max <= 0.0f))
     {
         Fail();
         return FAST_OFF;
     }
 
+    I_Min = RS_LS_I_MIN_RATIO * Envelope->I_Max;
+    I_Probe = RS_LS_PROBE_I_RATIO * Envelope->I_Max;
+    if (I_Probe < I_Min)
+    {
+        I_Probe = I_Min;
+    }
+
+    I_Measure = RS_LS_MEASURE_I_RATIO * Envelope->I_Max;
+    if (I_Measure < I_Min)
+    {
+        I_Measure = I_Min;
+    }
+
+    I_Measure_Max = RS_LS_MEASURE_I_MAX_RATIO * Envelope->I_Max;
+    I_Align = RS_LS_ALIGN_I_RATIO * Envelope->I_Max;
+    I_Align_Max = RS_LS_ALIGN_I_MAX_RATIO * Envelope->I_Max;
+
     if (State == RS_LS_ALIGN)
     {
         if (!Align_Pending)
         {
-            Align_Done = Align_Current(Envelope->I_Align_A, RS_LS_ALIGN_CNT, Id_Ref, Iq_Ref);
+            Align_Done = Align_Current(I_Align, RS_LS_ALIGN_CNT, Id_Ref, Iq_Ref);
 
             if (Align_Done)
             {
@@ -428,21 +455,21 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
 
     if ((State == RS_LS_PROBE_RAMP) || (State == RS_LS_PROBE_MEASURE))
     {
-        U_Ac_Max = Envelope->U_Hard_V;
-        I_Soft = Envelope->I_Measure_Max_A;
+        U_Ac_Max = Envelope->U_Max;
+        I_Soft = I_Measure_Max;
     }
     else
     {
         U_Hold_Abs = (U_Hold >= 0.0f) ? U_Hold : -U_Hold;
 
-        if (U_Hold_Abs >= Envelope->U_Hard_V)
+        if (U_Hold_Abs >= Envelope->U_Max)
         {
             Fail();
             return FAST_OFF;
         }
 
-        U_Ac_Max = Envelope->U_Hard_V - U_Hold_Abs;
-        I_Soft = Envelope->I_Align_Max_A;
+        U_Ac_Max = Envelope->U_Max - U_Hold_Abs;
+        I_Soft = I_Align_Max;
     }
 
     if (U_Ac > U_Ac_Max)
@@ -483,9 +510,9 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
                          __builtin_sqrtf(Ramp_I_Re * Ramp_I_Re + Ramp_I_Im * Ramp_I_Im);
 
             Ramp_Reset();
-            I_Target = (State == RS_LS_PROBE_RAMP) ? Envelope->I_Probe_A : Envelope->I_Measure_A;
+            I_Target = (State == RS_LS_PROBE_RAMP) ? I_Probe : I_Measure;
 
-            if (Ramp_I_Amp > Envelope->I_Measure_Max_A)
+            if (Ramp_I_Amp > I_Measure_Max)
             {
                 if (Ramp_I_Amp > 0.0f)
                 {
@@ -507,7 +534,7 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
             }
             else if (U_Ac >= U_Ac_Max)
             {
-                if (Ramp_I_Amp >= Envelope->I_Min_A)
+                if (Ramp_I_Amp >= I_Min)
                 {
                     if (State == RS_LS_PROBE_RAMP)
                     {
@@ -540,7 +567,7 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
         Sample_Cnt = Sample_Per_Cycle * RS_LS_PROBE_MEASURE_CYCLE;
         if (Cnt >= Sample_Cnt)
         {
-            if (!Measure_Calc(Sample_Cnt, &Rs, &Ls))
+            if (!Measure_Calc(Sample_Cnt, I_Min, &Rs, &Ls))
             {
                 Fail();
                 *Ualpha_V = 0.0f;
@@ -600,7 +627,7 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
         {
             if (State == RS_LS_MEASURE_A)
             {
-                if (!Measure_Calc(Sample_Cnt, &Rs_A, &Ls_A) || !Result_Valid(Rs_A, Ls_A))
+                if (!Measure_Calc(Sample_Cnt, I_Min, &Rs_A, &Ls_A) || !Result_Valid(Rs_A, Ls_A))
                 {
                     Fail();
                     *Ualpha_V = 0.0f;
@@ -612,7 +639,7 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
             }
             else if (State == RS_LS_MEASURE_B)
             {
-                if (!Measure_Calc(Sample_Cnt, &Rs_B, &Ls_B) || !Result_Valid(Rs_B, Ls_B))
+                if (!Measure_Calc(Sample_Cnt, I_Min, &Rs_B, &Ls_B) || !Result_Valid(Rs_B, Ls_B))
                 {
                     Fail();
                     *Ualpha_V = 0.0f;
@@ -634,7 +661,7 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
             }
             else
             {
-                if (!Measure_Calc(Sample_Cnt, &Rs_C, &Ls_C) || !Result_Valid(Rs_C, Ls_C))
+                if (!Measure_Calc(Sample_Cnt, I_Min, &Rs_C, &Ls_C) || !Result_Valid(Rs_C, Ls_C))
                 {
                     Fail();
                     *Ualpha_V = 0.0f;
