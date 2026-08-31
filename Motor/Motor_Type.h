@@ -117,7 +117,6 @@ typedef struct
 typedef struct
 {
     float I_Max; /* A */
-    float Te_Max; /* N*m */
     float Wm_Max; /* rad/s */
 
 } Motor_Limit_T;

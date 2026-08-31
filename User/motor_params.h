@@ -63,14 +63,12 @@
 #define MOTOR_LIM_DEFAULT                                                                                              \
     {                                                                                                                  \
         .I_Max = MOTOR_I_MAX_DEFAULT,                                                                                  \
-        .Te_Max = 0.0f,                                                                                                \
         .Wm_Max = MOTOR_WM_MAX_DEFAULT,                                                                                \
     }
 
 #define USER_LIM_DEFAULT                                                                                               \
     {                                                                                                                  \
         .I_Max = USER_I_MAX_DEFAULT,                                                                                   \
-        .Te_Max = 0.0f,                                                                                                \
         .Wm_Max = USER_WM_MAX_DEFAULT,                                                                                 \
     }
 

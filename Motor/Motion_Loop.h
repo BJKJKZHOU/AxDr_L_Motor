@@ -13,6 +13,7 @@
 extern PID_T Pos_Ctrl;
 extern PID_T Speed_Ctrl;
 
+void Speed_Loop_State_Reset(float We_Fbk);
 float Position_Loop(int32_t Turn_Ref, float Theta_Ref, float Wm_Min, float Wm_Max);
 float Speed_Loop(float We_Ref, float We_Fbk, float Iq_Min, float Iq_Max);
 
