@@ -7,7 +7,6 @@
 #define IDENTIFICATION_H
 
 #include <stdbool.h>
-#include <stdint.h>
 
 #include "Motor_Type.h"
 
