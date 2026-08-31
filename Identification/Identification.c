@@ -119,7 +119,7 @@ void Identification_Abort(void)
 {
     if (Ident_Mode == IDENT_RS_LS)
     {
-        Rs_Ls_Reset();
+        Rs_Ls_Abort();
     }
 
     Ident_Mode = IDENT_NONE;
@@ -233,12 +233,10 @@ Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
     {
         if (Ident_Mode == IDENT_RS_LS)
         {
-            Rs_Ls_Fail();
+            Rs_Ls_Abort();
         }
-        else if (Ident_Mode == IDENT_FLUX)
-        {
-            Ident_State = IDENT_FAILED;
-        }
+
+        Ident_State = IDENT_FAILED;
         return FAST_OFF;
     }
 
@@ -263,16 +261,6 @@ Ident_Mode_e Identification_Mode_Get(void)
 Ident_State_e Identification_State_Get(void)
 {
     return Ident_State;
-}
-
-uint8_t Identification_Stage_Get(void)
-{
-    if (Ident_Mode == IDENT_RS_LS)
-    {
-        return (uint8_t)Rs_Ls_State_Get();
-    }
-
-    return 0xFFU;
 }
 
 const Ident_Envelope_T *Identification_Envelope_Get(void)
