@@ -208,10 +208,23 @@ void Motor_Control(void)
         We_Ref = (float)Motor_Para.Pp * Wm_Ref;
     }
 
-    if ((Motor_Mode == OPEN_LOOP) || (Motor_Mode == SENSORLESS_SPEED))
+    if (Motor_Mode == OPEN_LOOP)
     {
         Current_Ref.Id = 0.0f;
         Current_Ref.Iq = 0.0f;
+        return;
+    }
+
+    if (Motor_Mode == SENSORLESS_SPEED)
+    {
+        Current_Ref.Id = 0.0f;
+        Current_Ref.Iq = 0.0f;
+
+        if (Motor_State == RUN)
+        {
+            Sensorless_Control(We_Ref, -Lim.I_Max, Lim.I_Max);
+        }
+
         return;
     }
 
@@ -358,7 +371,7 @@ Motor_Fast_Mode_e Motor_Fast_Run(float *Theta_e,
                 return FAST_OFF;
             }
 
-            (void)Sensorless_Run(ADC.Ia_A, ADC.Ib_A, We_Ref, Theta_e, Id_Ref, Iq_Ref);
+            Sensorless_Run(ADC.Ia_A, ADC.Ib_A, We_Ref, Theta_e, Id_Ref, Iq_Ref);
             return FAST_CURRENT;
 
         case PHASE_SEARCH:

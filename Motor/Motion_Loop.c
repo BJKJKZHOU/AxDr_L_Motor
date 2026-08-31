@@ -18,6 +18,28 @@ void Speed_Loop_State_Reset(float We_Fbk)
     Speed_Ctrl.State.Fbk_Pre = We_Fbk;
 }
 
+void Speed_Loop_Track(float We_Ref, float We_Fbk, float Iq, float Iq_Min, float Iq_Max)
+{
+    float Err;
+    float Int;
+
+    Speed_Ctrl.Para.Out_Min = Iq_Min;
+    Speed_Ctrl.Para.Out_Max = Iq_Max;
+    Speed_Ctrl.Para.Int_Min = Iq_Min;
+    Speed_Ctrl.Para.Int_Max = Iq_Max;
+
+    Speed_Ctrl.Sig.Ref = We_Ref;
+    Speed_Ctrl.Sig.Fbk = We_Fbk;
+    Err = We_Ref - We_Fbk;
+    Int = Iq - Speed_Ctrl.Para.Kp * Err;
+    Limit_Value(&Int, Iq_Min, Iq_Max);
+
+    Speed_Ctrl.Sig.Err = Err;
+    Speed_Ctrl.Sig.Out = Iq;
+    Speed_Ctrl.State.Int = Int;
+    Speed_Ctrl.State.Fbk_Pre = We_Fbk;
+}
+
 float Position_Loop(int32_t Turn_Ref, float Theta_Ref, float Wm_Min, float Wm_Max)
 {
     int32_t Turn_Err;
