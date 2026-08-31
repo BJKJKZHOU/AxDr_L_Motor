@@ -71,7 +71,7 @@ bool Protection_Clear(void)
 
 void Protection_Control(void)
 {
-    if (Encoder.Fault != 0U)
+    if (Motor_Encoder_Required() && (Encoder.Fault != 0U))
     {
         Protection_Stop_Set(PROT_ENCODER);
     }
