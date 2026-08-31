@@ -9,7 +9,6 @@
 #include "control_params.h"
 
 static IF_State_e State = IF_RAMP;
-static uint32_t Hold_Cnt = 0U;
 static float Theta_e = 0.0f;
 static float We = 0.0f;
 static float We_Target = IF_WE_TARGET_RAD_S;
@@ -27,16 +26,10 @@ static float Abs_F(float X)
 void IF_Start_Reset(float Theta_Start, float We_Start)
 {
     State = IF_RAMP;
-    Hold_Cnt = 0U;
     Theta_e = Angle_Wrap(Theta_Start);
     We = We_Start;
     We_Target = We_Start;
     Iq = 0.0f;
-
-    Iq_Start_A = IF_IQ_START_A;
-    Iq_Target_A = IF_IQ_TARGET_A;
-    We_Base = IF_WE_TARGET_RAD_S;
-    Acc = IF_ACC_RAD_S2;
 }
 
 void IF_Start_Para_Set(float Iq_Start, float Iq_Target, float We_Base_In, float Acc_In)
@@ -60,7 +53,6 @@ void IF_Start_Target_Set(float We_Target_In)
     }
 
     We_Target = We_Target_In;
-    Hold_Cnt = 0U;
 
     if (We == We_Target)
     {
@@ -72,7 +64,7 @@ void IF_Start_Target_Set(float We_Target_In)
     }
 }
 
-bool IF_Start_Run(float *Theta_e_Out, float *Id_Ref, float *Iq_Ref)
+void IF_Start_Run(float *Theta_e_Out, float *Id_Ref, float *Iq_Ref)
 {
     float Ratio;
     float Iq_Abs;
@@ -100,7 +92,6 @@ bool IF_Start_Run(float *Theta_e_Out, float *Id_Ref, float *Iq_Ref)
             if (We >= We_Target)
             {
                 We = We_Target;
-                Hold_Cnt = 0U;
                 State = IF_HOLD;
             }
         }
@@ -111,14 +102,9 @@ bool IF_Start_Run(float *Theta_e_Out, float *Id_Ref, float *Iq_Ref)
             if (We <= We_Target)
             {
                 We = We_Target;
-                Hold_Cnt = 0U;
                 State = IF_HOLD;
             }
         }
-    }
-    else if (Hold_Cnt < IF_HOLD_CNT)
-    {
-        Hold_Cnt++;
     }
 
     if (We > 0.0f)
@@ -169,8 +155,6 @@ bool IF_Start_Run(float *Theta_e_Out, float *Id_Ref, float *Iq_Ref)
 
     Theta_e += We * CUR_TS;
     Theta_e = Angle_Wrap(Theta_e);
-
-    return (State == IF_HOLD) && (Hold_Cnt >= IF_HOLD_CNT);
 }
 
 IF_State_e IF_Start_State_Get(void)

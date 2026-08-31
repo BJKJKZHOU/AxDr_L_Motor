@@ -6,7 +6,6 @@
 #include "MT6835.h"
 
 #include "Encoder.h"
-#include "Fast_Profile.h"
 #include "Math.h"
 #include "control_params.h"
 #include "main.h"

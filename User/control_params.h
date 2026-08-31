@@ -97,8 +97,6 @@
 #define IF_IQ_SLEW_A_S     20.0f
 #define IF_WE_TARGET_RAD_S 120.0f
 #define IF_ACC_RAD_S2      15.0f
-#define IF_HOLD_TIME_S     0.3f
-#define IF_HOLD_CNT        ((uint32_t)(IF_HOLD_TIME_S / CUR_TS + 0.5f))
 
 /*
  * Mechanical-speed reference profile.
@@ -111,7 +109,6 @@
 
 /*
  * Speed-loop PI design.
- *
  * Controller input is electrical speed We. User/communication speed remains
  * mechanical speed Wm and is converted with We = Pp * Wm before this loop.
  *
