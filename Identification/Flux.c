@@ -105,7 +105,7 @@ static bool Flux_Calc(float *We_Out, float *Flux_Out, float *U_Util_Out)
     }
 
     Envelope = Identification_Envelope_Get();
-    if (!Envelope->Valid || (Envelope->U_Available_V <= 0.0f))
+    if (Envelope->U_Available <= 0.0f)
     {
         return false;
     }
@@ -128,7 +128,7 @@ static bool Flux_Calc(float *We_Out, float *Flux_Out, float *U_Util_Out)
 
     *We_Out = We;
     *Flux_Out = __builtin_sqrtf(Psi_d * Psi_d + Psi_q * Psi_q);
-    *U_Util_Out = (U_Mag_Sum / (float)Meas_Cnt) / Envelope->U_Available_V;
+    *U_Util_Out = (U_Mag_Sum / (float)Meas_Cnt) / Envelope->U_Available;
 
     return __builtin_isfinite(*Flux_Out) && (*Flux_Out > 0.0f) && __builtin_isfinite(*U_Util_Out);
 }
@@ -150,7 +150,7 @@ static bool Search_Next_Build(float We_Meas, float Flux_Meas, float U_Util, int8
     }
 
     Envelope = Identification_Envelope_Get();
-    if (!Envelope->Valid || (Envelope->U_Available_V <= 0.0f) || (Envelope->U_Hard_V <= 0.0f))
+    if ((Envelope->U_Available <= 0.0f) || (Envelope->U_Max <= 0.0f))
     {
         return false;
     }
@@ -164,8 +164,8 @@ static bool Search_Next_Build(float We_Meas, float Flux_Meas, float U_Util, int8
         Step_Ratio = FLUX_WE_STEP_MAX_RATIO;
     }
 
-    U_Mag = U_Util * Envelope->U_Available_V;
-    U_Search_Max = FLUX_U_SEARCH_RATIO * Envelope->U_Hard_V;
+    U_Mag = U_Util * Envelope->U_Available;
+    U_Search_Max = FLUX_U_SEARCH_RATIO * Envelope->U_Max;
     if (U_Mag > 0.0f)
     {
         Voltage_Step_Ratio = U_Search_Max / U_Mag;
@@ -197,7 +197,7 @@ bool Flux_Start(float Wm_Target)
     Measure_Reset();
 
     Envelope = Identification_Envelope_Get();
-    if (!Envelope->Valid || !Motor_IF_Para_Build(ADC.Vbus_V, Envelope->I_Safe_A, &IF_Para))
+    if ((Envelope->I_Max <= 0.0f) || !Motor_IF_Para_Build(ADC.Vbus_V, Envelope->I_Max, &IF_Para))
     {
         State = FLUX_FAILED;
         return false;
@@ -298,7 +298,7 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
         return FAST_CURRENT;
     }
 
-    if (!Envelope->Valid || (Envelope->U_Hard_V <= 0.0f) || (Envelope->U_Available_V <= 0.0f))
+    if ((Envelope->I_Max <= 0.0f) || (Envelope->U_Max <= 0.0f) || (Envelope->U_Available <= 0.0f))
     {
         State = FLUX_FAILED;
         Result.Valid = false;

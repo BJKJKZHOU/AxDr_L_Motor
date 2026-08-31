@@ -29,19 +29,9 @@ typedef enum
 
 typedef struct
 {
-    float I_Safe_A;
-    float I_Probe_A;
-    float I_Measure_A;
-    float I_Measure_Max_A;
-    float I_Align_A;
-    float I_Align_Max_A;
-    float I_Min_A;
-
-    float U_Available_V;
-    float U_Soft_V;
-    float U_Hard_V;
-
-    bool Valid;
+    float I_Max;
+    float U_Available;
+    float U_Max;
 
 } Ident_Envelope_T;
 
