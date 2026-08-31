@@ -18,18 +18,7 @@ Motor_Fast_Mode_e Motor_Fast_Run(float *Theta_e,
 
 Motor_State_e Motor_State_Get(void);
 Motor_Mode_e Motor_Mode_Get(void);
-
-/*
- * Encoder feedback is a required runtime resource only for servo modes and
- * servo phase search. Open-loop, identification and sensorless operation must
- * remain available when no encoder is present or the encoder has faulted.
- */
-static inline bool Motor_Encoder_Required(void)
-{
-    Motor_Mode_e Mode = Motor_Mode_Get();
-
-    return (Mode == TORQUE) || (Mode == SPEED) || (Mode == POSITION) || (Mode == PHASE_SEARCH);
-}
+bool Motor_Encoder_Required(void);
 
 void Motor_Enable(void);
 void Motor_Start(void);

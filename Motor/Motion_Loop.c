@@ -6,11 +6,17 @@
 #include "Motion_Loop.h"
 
 #include "Math.h"
-#include "Motor_Control.h"
+#include "Motor_Type.h"
 #include "control_params.h"
 
 PID_T Pos_Ctrl = POSITION_CTRL_DEFAULT;
 PID_T Speed_Ctrl = SPEED_CTRL_DEFAULT;
+
+void Speed_Loop_State_Reset(float We_Fbk)
+{
+    Speed_Ctrl.State.Int = 0.0f;
+    Speed_Ctrl.State.Fbk_Pre = We_Fbk;
+}
 
 float Position_Loop(int32_t Turn_Ref, float Theta_Ref, float Wm_Min, float Wm_Max)
 {
