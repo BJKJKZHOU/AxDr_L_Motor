@@ -11,6 +11,7 @@
 #include "Motor_PWM.h"
 #include "Voltage_Mod.h"
 #include "adc.h"
+#include "control_params.h"
 #include "main.h"
 #include "tim.h"
 
@@ -25,12 +26,11 @@
 #define VBUS_R2_OHM 1000.0f
 
 #define CUR_RAW_TO_A (ADC_VREF_V / ADC_FULL_SCALE / CUR_SHUNT_OHM / CUR_AMP_GAIN)
-
 #define VBUS_RAW_TO_V (ADC_VREF_V / ADC_FULL_SCALE * ((VBUS_R1_OHM + VBUS_R2_OHM) / VBUS_R2_OHM))
 
 volatile ADC_T ADC = { 0 };
 
-static void Iabc_Calib(void);
+static void Iab_Calib(void);
 
 void ADC_Calib(void)
 {
@@ -44,16 +44,19 @@ void ADC_Calib(void)
         Error_Handler();
     }
 
-    Iabc_Calib();
+    Iab_Calib();
 }
 
-static void Iabc_Calib(void)
+static void Iab_Calib(void)
 {
     uint32_t Ia_Sum = 0U;
     uint32_t Ib_Sum = 0U;
-    uint32_t Ic_Sum = 0U;
 
-    /* TIM1 CH5/TRGO2 triggers ADC injected without enabling phase PWM. */
+    /*
+     * TIM1 CH5/TRGO2 triggers both injected ADCs.
+     * ADC1 JDR1 = Ia; ADC2 JDR1 = Ib; ADC2 JDR2 = Vbus.
+     * Offset calibration only uses the simultaneous current Rank1 samples.
+     */
     if (HAL_ADCEx_InjectedStart(&hadc2) != HAL_OK)
     {
         Error_Handler();
@@ -76,14 +79,8 @@ static void Iabc_Calib(void)
             Error_Handler();
         }
 
-        if (HAL_ADCEx_InjectedPollForConversion(&hadc2, 100U) != HAL_OK)
-        {
-            Error_Handler();
-        }
-
-        Ia_Sum += ADC1->JDR3;
-        Ib_Sum += ADC1->JDR2;
-        Ic_Sum += ADC1->JDR1;
+        Ia_Sum += ADC1->JDR1;
+        Ib_Sum += ADC2->JDR1;
     }
 
     HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_5);
@@ -93,7 +90,10 @@ static void Iabc_Calib(void)
 
     ADC.Ia_Off = (uint16_t)((Ia_Sum + (ADC_SAMPLE_NUM / 2U)) / ADC_SAMPLE_NUM);
     ADC.Ib_Off = (uint16_t)((Ib_Sum + (ADC_SAMPLE_NUM / 2U)) / ADC_SAMPLE_NUM);
-    ADC.Ic_Off = (uint16_t)((Ic_Sum + (ADC_SAMPLE_NUM / 2U)) / ADC_SAMPLE_NUM);
+
+    /* Fixed-AB first stage: Ic is reconstructed after Ia/Ib offset correction. */
+    ADC.Ic_Off = 0U;
+    ADC.Ic_Raw = 0U;
 }
 
 void Fast_Loop(void)
@@ -112,14 +112,19 @@ void Fast_Loop(void)
 
     T0 = DWT->CYCCNT;
 
-    ADC.Ia_Raw = (uint16_t)ADC1->JDR3;
-    ADC.Ib_Raw = (uint16_t)ADC1->JDR2;
-    ADC.Ic_Raw = (uint16_t)ADC1->JDR1;
-    ADC.Vbus_Raw = (uint16_t)ADC2->JDR1;
+    /*
+     * Ia/Ib are Rank1 simultaneous samples. Vbus is ADC2 injected Rank2.
+     * The ADC1 Rank1 JEOS path drives the fast loop, so JDR2 may represent
+     * the completed value from the previous trigger; <= 50 us latency is
+     * negligible for the DC-bus measurement and avoids delaying current FOC.
+     */
+    ADC.Ia_Raw = (uint16_t)ADC1->JDR1;
+    ADC.Ib_Raw = (uint16_t)ADC2->JDR1;
+    ADC.Vbus_Raw = (uint16_t)ADC2->JDR2;
 
     ADC.Ia_A = ((float)ADC.Ia_Off - (float)ADC.Ia_Raw) * CUR_RAW_TO_A;
     ADC.Ib_A = ((float)ADC.Ib_Off - (float)ADC.Ib_Raw) * CUR_RAW_TO_A;
-    ADC.Ic_A = ((float)ADC.Ic_Off - (float)ADC.Ic_Raw) * CUR_RAW_TO_A;
+    ADC.Ic_A = -(ADC.Ia_A + ADC.Ib_A);
     ADC.Vbus_V = (float)ADC.Vbus_Raw * VBUS_RAW_TO_V;
 
     Fast_Mode = Motor_Fast_Run(&Theta_e, &Id_Ref, &Iq_Ref, &Ualpha, &Ubeta);
