@@ -7,10 +7,13 @@
 
 #include <string.h>
 
+#include "Encoder.h"
+#include "Math.h"
 #include "Motor_ADC.h"
 #include "Motor_Control.h"
 #include "Plot.h"
 #include "Protection.h"
+#include "Servo_Phase.h"
 #include "USB_Thread.h"
 
 #define MOTOR_STACK_SIZE  512U
@@ -31,6 +34,8 @@ static void Motor_Cmd_Run(void)
     Motor_State_e State;
     Motor_Cmd_Msg_T Msg;
     float Value;
+    float Value2;
+    int32_t Turn;
 
     while (tx_queue_receive(&Motor_Cmd_Q, &Msg, TX_NO_WAIT) == TX_SUCCESS)
     {
@@ -94,7 +99,36 @@ static void Motor_Cmd_Run(void)
 
             case MOTOR_CMD_SPEED_SET:
                 memcpy(&Value, &Msg.Arg, sizeof(Value));
-                Speed_Target_Set(Value);
+                if (__builtin_isfinite(Value))
+                {
+                    Speed_Target_Set(Value);
+                }
+                break;
+
+            case MOTOR_CMD_TORQUE_SET:
+                memcpy(&Value, &Msg.Arg, sizeof(Value));
+                if (__builtin_isfinite(Value))
+                {
+                    Torque_Target_Set(Value);
+                }
+                break;
+
+            case MOTOR_CMD_POSITION_SET:
+                memcpy(&Turn, &Msg.Arg, sizeof(Turn));
+                memcpy(&Value2, &Msg.Arg2, sizeof(Value2));
+                if (__builtin_isfinite(Value2))
+                {
+                    Position_Target_Set(Turn, Value2);
+                }
+                break;
+
+            case MOTOR_CMD_ENCODER_TYPE_SET:
+                (void)Encoder_Type_Set((Encoder_Type_e)Msg.Arg);
+                break;
+
+            case MOTOR_CMD_PHASE_CURRENT_SET:
+                memcpy(&Value, &Msg.Arg, sizeof(Value));
+                (void)Servo_Phase_Current_Set(Value);
                 break;
 
             case MOTOR_CMD_IDENT_APPLY:
@@ -135,7 +169,7 @@ UINT Motor_Thread_Init(VOID *memory_ptr)
 
     if (tx_queue_create(&Motor_Cmd_Q,
                         "Motor Command",
-                        TX_2_ULONG,
+                        TX_4_ULONG,
                         pointer,
                         MOTOR_CMD_Q_LEN * sizeof(Motor_Cmd_Msg_T)) != TX_SUCCESS)
     {

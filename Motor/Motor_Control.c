@@ -414,6 +414,11 @@ void Motor_Enable(void)
         return;
     }
 
+    if (Servo_Mode() && (Motor_Cal.Valid == 0U))
+    {
+        return;
+    }
+
     Current_Ref.Id = 0.0f;
     Current_Ref.Iq = 0.0f;
 
@@ -590,18 +595,59 @@ bool Motor_Pp_Set(uint8_t Pp)
 
 void Torque_Target_Set(float Te)
 {
-    Motor_Cmd.Te_Target = Te;
+    if (__builtin_isfinite(Te))
+    {
+        Motor_Cmd.Te_Target = Te;
+    }
 }
 
 void Speed_Target_Set(float Wm)
 {
-    Motor_Cmd.Wm_Target = Wm;
+    if (__builtin_isfinite(Wm))
+    {
+        Motor_Cmd.Wm_Target = Wm;
+    }
 }
 
 void Position_Target_Set(int32_t Turn, float Theta)
 {
-    Motor_Cmd.Pos_Turn = Turn;
-    Motor_Cmd.Pos_Theta = Theta;
+    double Turn_Delta;
+    double Turn_Normalized;
+    double Theta_Normalized;
+
+    if (!__builtin_isfinite(Theta))
+    {
+        return;
+    }
+
+    Turn_Delta = __builtin_floor((double)Theta / (double)TWO_PI_F);
+    Turn_Normalized = (double)Turn + Turn_Delta;
+
+    if ((Turn_Normalized > 2147483647.0) || (Turn_Normalized < -2147483648.0))
+    {
+        return;
+    }
+
+    Theta_Normalized = (double)Theta - Turn_Delta * (double)TWO_PI_F;
+
+    if (Theta_Normalized >= (double)TWO_PI_F)
+    {
+        Theta_Normalized -= (double)TWO_PI_F;
+        Turn_Normalized += 1.0;
+    }
+    else if (Theta_Normalized < 0.0)
+    {
+        Theta_Normalized += (double)TWO_PI_F;
+        Turn_Normalized -= 1.0;
+    }
+
+    if ((Turn_Normalized > 2147483647.0) || (Turn_Normalized < -2147483648.0))
+    {
+        return;
+    }
+
+    Motor_Cmd.Pos_Turn = (int32_t)Turn_Normalized;
+    Motor_Cmd.Pos_Theta = (float)Theta_Normalized;
 }
 
 float Motor_Wm_Get(void)

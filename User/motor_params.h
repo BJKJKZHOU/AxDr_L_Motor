@@ -47,6 +47,7 @@
     {                                                                                                                  \
         .Enc_Dir = MOTOR_ENC_DIR_DEFAULT,                                                                              \
         .Theta_Off = MOTOR_THETA_OFF_DEFAULT,                                                                          \
+        .Valid = 0U,                                                                                                   \
     }
 
 #define MOTOR_PARA_DEFAULT                                                                                             \

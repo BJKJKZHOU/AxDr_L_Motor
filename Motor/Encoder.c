@@ -8,6 +8,7 @@
 #include "MT6816.h"
 #include "MT6835.h"
 #include "Math.h"
+#include "Motor_Cal.h"
 #include "Motor_Control.h"
 #include "Motor_Type.h"
 #include "control_params.h"
@@ -130,6 +131,11 @@ bool Encoder_Type_Set(Encoder_Type_e Type)
     if (!Driver_Bind(Type))
     {
         return false;
+    }
+
+    if (Encoder_Config.Type != Type)
+    {
+        Motor_Cal_Invalidate();
     }
 
     Encoder_Config.Type = Type;
