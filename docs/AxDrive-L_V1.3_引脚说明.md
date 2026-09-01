@@ -35,10 +35,10 @@
 
 | 原理图信号 | MCU 引脚 | 当前配置 | 硬件用途 |
 | --- | --- | --- | --- |
-| `IC` | PA0 | ADC1_IN1 | C 相电流采样 |
-| `IB` | PA1 | ADC1_IN2 | B 相电流采样 |
-| `IA` | PA2 | ADC1_IN3 | A 相电流采样 |
-| `IBUS` | PA3 | 未配置 | 母线电流采样 |
+| `IC` | PA0 | ADC1_IN1，未加入转换序列 | C 相电流采样；当前由 `Ic = -(Ia + Ib)` 重建 |
+| `IB` | PA1 | ADC2_IN2，Injected Rank1 | B 相电流采样；与 IA 同步转换 |
+| `IA` | PA2 | ADC1_IN3，Injected Rank1 | A 相电流采样；与 IB 同步转换 |
+| `IBUS` | PA3 | 未配置、未采样 | 母线电流采样 |
 | `DAC` | PA4 | 未配置 | 板上模拟调试信号 |
 | `VA` | PC0 | ADC2_IN6 | A 相电压采样 |
 | `VB` | PC1 | ADC2_IN7 | B 相电压采样 |
@@ -48,6 +48,11 @@
 | `VBUS` | PC5 | ADC2_IN11 | 母线电压采样 |
 | `NTC1` | PB1 | ADC1_IN12 | 温度采样 1 |
 | `NTC3` | PB12 | ADC1_IN11 | 温度采样 3 |
+
+当前电流快环使用 ADC1/ADC2 双注入同步模式：ADC1 Rank1 采集 IA，ADC2
+Rank1 同时采集 IB。PA0 虽保留为 ADC1_IN1 模拟引脚，但未加入当前 ADC
+转换序列，IC 由 IA、IB 完成偏置校正后重建。IOC 中分配为 ADC 模拟引脚
+不等于该通道已经加入实际转换序列。
 
 ## 4. 编码器与 Hall
 
