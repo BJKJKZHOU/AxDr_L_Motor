@@ -10,5 +10,6 @@
 #include <stdint.h>
 
 bool Motor_Cal_Set(int8_t Enc_Dir, float Theta_Off);
+void Motor_Cal_Invalidate(void);
 
 #endif /* MOTOR_CAL_H */

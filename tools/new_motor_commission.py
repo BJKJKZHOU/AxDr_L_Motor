@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Identify an unknown motor, apply results to RAM, then run sensorless.
+"""Identify an unknown motor, apply results to RAM, then optionally run sensorless.
 
 The workflow is fixed intentionally:
 
@@ -9,15 +9,20 @@ The workflow is fixed intentionally:
 4. Run Flux identification twice forward and twice reverse.
 5. Check Flux repeatability and direction consistency.
 6. Ask whether the fourth Flux result may be applied to RAM.
-7. Ramp to the requested sensorless test speed and run until Ctrl+C by default.
+7. Unless --identify-only is used, ramp to the requested sensorless test speed
+   and run until Ctrl+C by default.
 
 Declining either identification result stops the workflow. Applied values, pole
 pairs and the user current limit are not saved to nonvolatile memory and are lost
-after a firmware reset.
+after a firmware reset. --identify-only is intended for workflows that continue
+immediately into another commissioning step, such as servo phase search.
 
-Example:
+Examples:
     python3 tools/new_motor_commission.py \
         --port /dev/ttyACM0 --current-limit 2.0 --run
+
+    python3 tools/new_motor_commission.py \
+        --port /dev/ttyACM0 --current-limit 2.0 --identify-only --run
 """
 
 import argparse
@@ -473,11 +478,16 @@ def log_write(record, output):
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Identify an unknown motor and run guarded sensorless speed"
+        description="Identify an unknown motor and optionally run guarded sensorless speed"
     )
     parser.add_argument("--port", required=True)
     parser.add_argument("--run", action="store_true",
                         help="required confirmation to energize the motor")
+    parser.add_argument(
+        "--identify-only",
+        action="store_true",
+        help="stop after Rs/Ls and Flux are accepted and applied to firmware RAM",
+    )
     parser.add_argument("--target-we", type=int, default=1000,
                         help="final sensorless test point in electrical rad/s")
     parser.add_argument("--pole-pairs", type=int, default=16,
@@ -557,6 +567,7 @@ def main():
         "target_wm_rad_s": args.target_wm,
         "pole_pairs": args.pole_pairs,
         "direction": args.direction,
+        "identify_only": args.identify_only,
         "status": "started",
         "rs_ls": [],
         "flux": [],
@@ -571,10 +582,13 @@ def main():
         "Unknown-motor commissioning: 5 x Rs/Ls, "
         "2 x forward Flux, 2 x reverse Flux"
     )
-    print(
-        f"Final target: {args.target_wm:.3f} mechanical rad/s "
-        f"({args.target_we} electrical rad/s, {args.rpm:.2f} RPM at Pp={args.pole_pairs})"
-    )
+    if args.identify_only:
+        print("Final sensorless run: skipped (--identify-only)")
+    else:
+        print(
+            f"Final target: {args.target_wm:.3f} mechanical rad/s "
+            f"({args.target_we} electrical rad/s, {args.rpm:.2f} RPM at Pp={args.pole_pairs})"
+        )
     print("RAM updates are temporary; reset restores compiled parameters.")
 
     try:
@@ -643,6 +657,15 @@ def main():
 
                 ident.stop_all()
                 ident = None
+
+                if args.identify_only:
+                    record["status"] = "completed"
+                    print(
+                        "Identification complete. Rs/Ls and Flux remain in firmware RAM; "
+                        "do not reset the MCU before the next commissioning step."
+                    )
+                    return
+
                 ser.reset_input_buffer()
                 time.sleep(0.05)
 

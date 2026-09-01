@@ -19,6 +19,10 @@ typedef enum
     MOTOR_CMD_MODE_SET,
     MOTOR_CMD_IDENT_SET,
     MOTOR_CMD_SPEED_SET,
+    MOTOR_CMD_TORQUE_SET,
+    MOTOR_CMD_POSITION_SET,
+    MOTOR_CMD_ENCODER_TYPE_SET,
+    MOTOR_CMD_PHASE_CURRENT_SET,
     MOTOR_CMD_IDENT_APPLY,
     MOTOR_CMD_I_LIMIT_SET,
     MOTOR_CMD_PP_SET,
@@ -29,6 +33,8 @@ typedef struct
 {
     ULONG Cmd;
     ULONG Arg;
+    ULONG Arg2;
+    ULONG Reserved;
 
 } Motor_Cmd_Msg_T;
 

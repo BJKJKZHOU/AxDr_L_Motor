@@ -78,11 +78,15 @@ typedef struct
  *
  * Theta_Off must be calibrated after Enc_Dir / phase order are established:
  * Theta_e = wrap(Pp * Theta_m + Theta_Off).
+ *
+ * Valid is set only after a complete servo phase calibration result is
+ * accepted. Changing encoder type or pole-pair count invalidates the result.
  */
 typedef struct
 {
     int8_t Enc_Dir; /* +1 / -1, calibration result */
     float Theta_Off; /* rad, calibration result */
+    uint8_t Valid; /* 1 only when Enc_Dir / Theta_Off match current encoder and Pp */
 
 } Motor_Cal_T;
 

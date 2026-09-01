@@ -10,6 +10,7 @@
 #include "Current_Loop.h"
 #include "Math.h"
 #include "Motion_Loop.h"
+#include "Motor_Cal.h"
 #include "control_params.h"
 #include "motor_params.h"
 
@@ -31,6 +32,11 @@ void Motor_Para_Changed(uint32_t Changed)
 {
     float Kt;
     float Den;
+
+    if ((Changed & MOTOR_PARA_PP) != 0U)
+    {
+        Motor_Cal_Invalidate();
+    }
 
     if ((Changed & MOTOR_PARA_RL) != 0U)
     {

@@ -7,13 +7,16 @@
 
 #include <string.h>
 
+#include "Encoder.h"
 #include "Flux.h"
 #include "Identification.h"
 #include "IF_Start.h"
+#include "Math.h"
 #include "Motor_Control.h"
 #include "Plot.h"
 #include "Rs_Ls.h"
 #include "Sensorless.h"
+#include "Servo_Phase.h"
 #include "USB_Thread.h"
 #include "motor_thread.h"
 
@@ -65,13 +68,19 @@ static void Response(uint8_t Txn,
     (void)Response_Push(&Msg);
 }
 
-static bool Motor_Cmd_Send(Motor_Cmd_e Cmd_Id, uint32_t Arg)
+static bool Motor_Cmd_Send2(Motor_Cmd_e Cmd_Id, uint32_t Arg, uint32_t Arg2)
 {
-    Motor_Cmd_Msg_T Msg;
+    Motor_Cmd_Msg_T Msg = { 0 };
 
     Msg.Cmd = (ULONG)Cmd_Id;
     Msg.Arg = (ULONG)Arg;
+    Msg.Arg2 = (ULONG)Arg2;
     return tx_queue_send(&Motor_Cmd_Q, &Msg, TX_NO_WAIT) == TX_SUCCESS;
+}
+
+static bool Motor_Cmd_Send(Motor_Cmd_e Cmd_Id, uint32_t Arg)
+{
+    return Motor_Cmd_Send2(Cmd_Id, Arg, 0U);
 }
 
 static void Control_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
@@ -80,7 +89,10 @@ static void Control_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
     uint8_t Op;
     uint8_t Mode;
     uint32_t Arg;
+    uint32_t Arg2;
+    int32_t Turn;
     float Value;
+    float Theta;
     Motor_Cmd_e Cmd;
     AxDr_Status_e Status;
 
@@ -167,7 +179,7 @@ static void Control_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
         }
         return;
     }
-    else if ((Op == AXDR_CTRL_SPEED_SET) || (Op == AXDR_CTRL_I_LIMIT_SET))
+    else if ((Op == AXDR_CTRL_SPEED_SET) || (Op == AXDR_CTRL_TORQUE_SET) || (Op == AXDR_CTRL_I_LIMIT_SET))
     {
         if (Len != 6U)
         {
@@ -199,7 +211,8 @@ static void Control_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
             else
             {
                 memcpy(&Arg, &Value, sizeof(Arg));
-                if (!Motor_Cmd_Send(MOTOR_CMD_SPEED_SET, Arg))
+
+                if (!Motor_Cmd_Send((Op == AXDR_CTRL_SPEED_SET) ? MOTOR_CMD_SPEED_SET : MOTOR_CMD_TORQUE_SET, Arg))
                 {
                     Status = AXDR_ERR_CONFIG;
                 }
@@ -209,6 +222,186 @@ static void Control_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
         if (Broadcast == 0U)
         {
             Response(Txn, AXDR_MSG_CONTROL, Op, Status, 0, 0U);
+        }
+        return;
+    }
+    else if (Op == AXDR_CTRL_POSITION_SET)
+    {
+        if (Len != 10U)
+        {
+            Status = AXDR_ERR_LENGTH;
+        }
+        else
+        {
+            memcpy(&Turn, &Data[2], sizeof(Turn));
+            memcpy(&Theta, &Data[6], sizeof(Theta));
+
+            if (!__builtin_isfinite(Theta))
+            {
+                Status = AXDR_ERR_VALUE;
+            }
+            else
+            {
+                memcpy(&Arg, &Turn, sizeof(Arg));
+                memcpy(&Arg2, &Theta, sizeof(Arg2));
+
+                if (!Motor_Cmd_Send2(MOTOR_CMD_POSITION_SET, Arg, Arg2))
+                {
+                    Status = AXDR_ERR_CONFIG;
+                }
+            }
+        }
+
+        if (Broadcast == 0U)
+        {
+            Response(Txn, AXDR_MSG_CONTROL, Op, Status, 0, 0U);
+        }
+        return;
+    }
+    else if (Op == AXDR_CTRL_ENCODER_TYPE_SET)
+    {
+        if (Len != 3U)
+        {
+            Status = AXDR_ERR_LENGTH;
+        }
+        else if (Motor_State_Get() != DISABLED)
+        {
+            Status = AXDR_ERR_STATE;
+        }
+        else if ((Data[2] != (uint8_t)ENC_MT6816) && (Data[2] != (uint8_t)ENC_MT6835))
+        {
+            Status = AXDR_ERR_VALUE;
+        }
+        else if (!Motor_Cmd_Send(MOTOR_CMD_ENCODER_TYPE_SET, Data[2]))
+        {
+            Status = AXDR_ERR_CONFIG;
+        }
+
+        if (Broadcast == 0U)
+        {
+            Response(Txn, AXDR_MSG_CONTROL, Op, Status, 0, 0U);
+        }
+        return;
+    }
+    else if (Op == AXDR_CTRL_ENCODER_TYPE_GET)
+    {
+        uint8_t Type;
+
+        if (Len != 2U)
+        {
+            Status = AXDR_ERR_LENGTH;
+        }
+
+        if (Broadcast == 0U)
+        {
+            if (Status == AXDR_OK)
+            {
+                Type = (uint8_t)Encoder_Config.Type;
+                Response(Txn, AXDR_MSG_CONTROL, Op, Status, &Type, 1U);
+            }
+            else
+            {
+                Response(Txn, AXDR_MSG_CONTROL, Op, Status, 0, 0U);
+            }
+        }
+        return;
+    }
+    else if (Op == AXDR_CTRL_PHASE_CURRENT_SET)
+    {
+        if (Len != 6U)
+        {
+            Status = AXDR_ERR_LENGTH;
+        }
+        else if (Motor_State_Get() != DISABLED)
+        {
+            Status = AXDR_ERR_STATE;
+        }
+        else
+        {
+            memcpy(&Value, &Data[2], sizeof(Value));
+
+            if (!__builtin_isfinite(Value) || (Value <= 0.0f))
+            {
+                Status = AXDR_ERR_VALUE;
+            }
+            else
+            {
+                memcpy(&Arg, &Value, sizeof(Arg));
+                if (!Motor_Cmd_Send(MOTOR_CMD_PHASE_CURRENT_SET, Arg))
+                {
+                    Status = AXDR_ERR_CONFIG;
+                }
+            }
+        }
+
+        if (Broadcast == 0U)
+        {
+            Response(Txn, AXDR_MSG_CONTROL, Op, Status, 0, 0U);
+        }
+        return;
+    }
+    else if (Op == AXDR_CTRL_PHASE_CURRENT_GET)
+    {
+        if (Len != 2U)
+        {
+            Status = AXDR_ERR_LENGTH;
+        }
+
+        if (Broadcast == 0U)
+        {
+            if (Status == AXDR_OK)
+            {
+                Response(Txn,
+                         AXDR_MSG_CONTROL,
+                         Op,
+                         Status,
+                         (const uint8_t *)&Servo_Phase_Config.I_Search_A,
+                         sizeof(Servo_Phase_Config.I_Search_A));
+            }
+            else
+            {
+                Response(Txn, AXDR_MSG_CONTROL, Op, Status, 0, 0U);
+            }
+        }
+        return;
+    }
+    else if (Op == AXDR_CTRL_PHASE_STATUS)
+    {
+        uint8_t Resp[40];
+        const Servo_Phase_Result_T *Result;
+
+        if (Len != 2U)
+        {
+            Status = AXDR_ERR_LENGTH;
+        }
+
+        if (Broadcast == 0U)
+        {
+            if (Status == AXDR_OK)
+            {
+                Result = Servo_Phase_Last_Result_Get();
+                Resp[0] = (uint8_t)Result->State;
+                Resp[1] = (uint8_t)Result->Fail;
+                Resp[2] = Motor_Cal.Valid;
+                Resp[3] = (uint8_t)Result->Enc_Dir;
+                Resp[4] = Encoder.Ready;
+                Resp[5] = Encoder.Fault;
+                Resp[6] = Encoder.Valid;
+                Resp[7] = (uint8_t)Encoder_Config.Type;
+                memcpy(&Resp[8], &Result->Theta_Off_Pos, sizeof(float));
+                memcpy(&Resp[12], &Result->Theta_Off_Neg, sizeof(float));
+                memcpy(&Resp[16], &Result->Theta_Off_Error, sizeof(float));
+                memcpy(&Resp[20], &Result->Theta_Off, sizeof(float));
+                memcpy(&Resp[24], &Result->Pos_Move, sizeof(float));
+                memcpy(&Resp[28], &Result->Neg_Move, sizeof(float));
+                memcpy(&Resp[32], &Result->Verify_Move, sizeof(float));
+                memcpy(&Resp[36], &Result->I_Search_A, sizeof(float));
+                Response(Txn, AXDR_MSG_CONTROL, Op, Status, Resp, sizeof(Resp));
+            }
+            else
+            {
+                Response(Txn, AXDR_MSG_CONTROL, Op, Status, 0, 0U);
+            }
         }
         return;
     }
