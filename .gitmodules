@@ -4,3 +4,6 @@
 [submodule "ThirdParty/Eclipse/usbx"]
 	path = ThirdParty/Eclipse/usbx
 	url = https://github.com/eclipse-threadx/usbx.git
+[submodule "ThirdParty/Zephyr"]
+	path = ThirdParty/Zephyr
+	url = https://github.com/zephyrproject-rtos/zephyr.git

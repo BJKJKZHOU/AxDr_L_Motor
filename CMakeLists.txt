@@ -83,6 +83,9 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Comm/USB_Thread.c
     AZURE_RTOS/App/motor_thread.c
     AZURE_RTOS/App/panel_thread.c
+    ThirdParty/Zephyr/subsys/kvss/nvs/nvs.c
+    ThirdParty/Zephyr/subsys/crc/crc8_sw.c
+    ThirdParty/Zephyr/subsys/crc/crc32_sw.c
 )
 
 # ST Arm Clang defines both __clang__ and GNU compatibility macros. The
@@ -107,6 +110,8 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     Motion
     Motor
     Motor/Encoder_Drv
+    ThirdParty/Zephyr_Port/include
+    ThirdParty/Zephyr/subsys/kvss/nvs
     User
 )
 
