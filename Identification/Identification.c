@@ -9,6 +9,7 @@
 #include "Math.h"
 #include "Motor_ADC.h"
 #include "Motor_Para.h"
+#include "Protection.h"
 #include "Rs_Ls.h"
 #include "control_params.h"
 
@@ -73,6 +74,8 @@ bool Identification_Start(Ident_Mode_e Mode, float Wm_Target)
         return false;
     }
 
+    Protection_Report_Clear(PROT_IDENT_FAILED);
+
     Ident_Mode = Mode;
     Ident_State = IDENT_RUNNING;
     return true;
@@ -118,6 +121,11 @@ void Identification_Control(void)
 
         Flux_Result = Flux_Result_Get();
         Ident_State = Flux_Result->Valid ? IDENT_DONE : IDENT_FAILED;
+    }
+
+    if (Ident_State == IDENT_FAILED)
+    {
+        Protection_Report_Set(PROT_IDENT_FAILED);
     }
 }
 
@@ -200,6 +208,7 @@ Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
         }
 
         Ident_State = IDENT_FAILED;
+        Protection_Report_Set(PROT_IDENT_FAILED);
         return FAST_OFF;
     }
 

@@ -37,17 +37,16 @@ import sensorless_test as base
 FAST_CONFIG_ID = 21
 NORMAL_CONFIG_ID = 22
 FAST_VARS = (
-    ("Ia", 0x0001),
-    ("Ib", 0x0002),
-    ("Ic", 0x0003),
+    ("Ia", base.PARAM_ADC_IA),
+    ("Ib", base.PARAM_ADC_IB),
+    ("Ic", base.PARAM_ADC_IC),
 )
-VBUS_ID = 0x0004
+VBUS_ID = base.PARAM_ADC_VBUS
 
 MSG_IDENTIFICATION = 0x05
 MODE_IDENT = 4
-CTRL_I_LIMIT_SET = 0x07
-IDENT_MODE_SET = 0x01
-IDENT_STATUS = 0x02
+IDENT_RS_LS_START = 0x01
+IDENT_STATUS = 0x03
 IDENT_RS_LS = 0x01
 IDENT_DONE = 2
 IDENT_FAILED = 3
@@ -220,10 +219,10 @@ class DualADCTest(base.SensorlessTest):
         return time.monotonic() - start
 
     def current_limit_set(self):
-        self.request(
-            base.MSG_CONTROL,
-            CTRL_I_LIMIT_SET,
-            struct.pack("<f", self.args.current_limit),
+        self.parameter_write(
+            base.PARAM_LIMIT_I_MAX,
+            base.PARAM_FLOAT,
+            self.args.current_limit,
         )
 
     def ident_status(self):
@@ -239,13 +238,12 @@ class DualADCTest(base.SensorlessTest):
         return state, bool(valid), rs_ohm, ls_h
 
     def run_dynamic(self):
-        self.request(base.MSG_CONTROL, base.CTRL_MODE_SET, bytes([MODE_IDENT]))
-        self.request(MSG_IDENTIFICATION, IDENT_MODE_SET, bytes([IDENT_RS_LS]))
+        self.parameter_write(base.PARAM_MOTOR_MODE, base.PARAM_U8, MODE_IDENT)
         self.current_limit_set()
         self.request(base.MSG_CONTROL, base.CTRL_ENABLE)
 
         self.reset_capture()
-        self.request(base.MSG_CONTROL, base.CTRL_RUN)
+        self.request(MSG_IDENTIFICATION, IDENT_RS_LS_START)
         start = time.monotonic()
         next_status = start
         status = None
@@ -270,7 +268,6 @@ class DualADCTest(base.SensorlessTest):
             else:
                 raise TimeoutError("Rs/Ls dynamic excitation timeout")
 
-            # Drain a short tail so the last telemetry block is accounted for.
             self.collect_for(0.05)
             return time.monotonic() - start, status
         finally:

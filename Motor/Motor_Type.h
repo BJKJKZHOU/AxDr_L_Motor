@@ -146,6 +146,8 @@ typedef struct
 
 } Motor_Run_T;
 
+extern Motor_Cmd_T Motor_Cmd;
+extern uint8_t Motor_Mode;
 extern Motor_Cal_T Motor_Cal;
 extern Motor_Para_T Motor_Para;
 extern const Motor_Limit_T Motor_Lim;

@@ -7,6 +7,7 @@
 
 #include "Motor_ADC.h"
 #include "Motor_Type.h"
+#include "Parameter.h"
 #include "Sensorless.h"
 #include "USB_Thread.h"
 
@@ -47,66 +48,7 @@ static const volatile float *Plot_Data_Get(uint16_t Var_ID, float *Scale)
 {
     switch (Var_ID)
     {
-        case 0x0001: /* Ia */
-            *Scale = 0.001f;
-            return &ADC.Ia_A;
-
-        case 0x0002: /* Ib */
-            *Scale = 0.001f;
-            return &ADC.Ib_A;
-
-        case 0x0003: /* Ic */
-            *Scale = 0.001f;
-            return &ADC.Ic_A;
-
-        case 0x0004: /* Vbus */
-            *Scale = 0.0f;
-            return &ADC.Vbus_V;
-
-        case 0x0010: /* Id */
-            *Scale = 0.001f;
-            return &Motor_Run.Id;
-
-        case 0x0011: /* Iq */
-            *Scale = 0.001f;
-            return &Motor_Run.Iq;
-
-        case 0x0012: /* Ud */
-            *Scale = 0.001f;
-            return &Motor_Run.Ud;
-
-        case 0x0013: /* Uq */
-            *Scale = 0.001f;
-            return &Motor_Run.Uq;
-
-        case 0x0014: /* Theta_e */
-            *Scale = 0.0002f;
-            return &Motor_Run.Theta_e;
-
-        case 0x0020: /* Theta_obs */
-            *Scale = 0.0002f;
-            return &Flux_PLL.State.Theta;
-
-        case 0x0021: /* We_obs */
-            *Scale = 0.1f;
-            return &Flux_PLL.State.We;
-
-        case 0x0022: /* PLL_Err */
-            *Scale = 0.0001f;
-            return &Flux_PLL.State.Err;
-
-        case 0x0023: /* Flux_Err */
-            *Scale = 1.0e-9f;
-            return &Flux_Obs.State.Flux_Err;
-
-        case 0x0101: /* Theta_m */
-            *Scale = 0.0002f;
-            return &Motor_Run.Theta_m;
-
-        case 0x0102: /* Wm */
-            *Scale = 0.1f;
-            return &Motor_Run.Wm;
-
+#include "Plot_Data.generated.inc"
         default:
             *Scale = 0.0f;
             return 0;

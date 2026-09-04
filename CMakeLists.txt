@@ -77,6 +77,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Motor/Servo_Phase.c
     Motor/Motor_PWM.c
     Motor/Motor_Control.c
+    Parameter/Parameter.c
     BSP/RGB.c
     Comm/Protocol.c
     Comm/Plot.c
@@ -110,6 +111,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     Motion
     Motor
     Motor/Encoder_Drv
+    Parameter
     ThirdParty/Zephyr_Port/include
     ThirdParty/Zephyr/subsys/kvss/nvs
     User

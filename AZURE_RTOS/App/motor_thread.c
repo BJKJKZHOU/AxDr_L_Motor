@@ -7,13 +7,13 @@
 
 #include <string.h>
 
-#include "Encoder.h"
 #include "Math.h"
 #include "Motor_ADC.h"
 #include "Motor_Control.h"
+#include "Parameter.h"
 #include "Plot.h"
+#include "Protocol.h"
 #include "Protection.h"
-#include "Servo_Phase.h"
 #include "USB_Thread.h"
 
 #define MOTOR_STACK_SIZE  512U
@@ -29,35 +29,92 @@ static uint8_t Normal_Div = 0U;
 
 static void Motor_Entry(ULONG thread_input);
 
+static void Motor_Action_Response(const Motor_Cmd_Msg_T *Msg, AxDr_Status_e Status)
+{
+    ULONG Reserved;
+
+    Reserved = Msg->Reserved;
+    if ((Reserved & MOTOR_ACTION_RESPONSE) == 0U)
+    {
+        return;
+    }
+
+    Protocol_Action_Response(
+        (uint8_t)((Reserved >> MOTOR_ACTION_TXN_SHIFT) & MOTOR_ACTION_BYTE_MASK),
+        (uint8_t)((Reserved >> MOTOR_ACTION_MSG_SHIFT) & MOTOR_ACTION_BYTE_MASK),
+        (uint8_t)((Reserved >> MOTOR_ACTION_OP_SHIFT) & MOTOR_ACTION_BYTE_MASK),
+        Status);
+}
+
 static void Motor_Cmd_Run(void)
 {
     Motor_State_e State;
     Motor_Cmd_Msg_T Msg;
-    float Value;
+    AxDr_Status_e Action_Status;
     float Value2;
     int32_t Turn;
+    Parameter_Value_T Parameter_Value;
+    Parameter_Status_e Parameter_Status;
 
     while (tx_queue_receive(&Motor_Cmd_Q, &Msg, TX_NO_WAIT) == TX_SUCCESS)
     {
         switch ((Motor_Cmd_e)Msg.Cmd)
         {
             case MOTOR_CMD_ENABLE:
-                if (Protection_Enable_Allowed())
+                Action_Status = AXDR_OK;
+                if ((Motor_State_Get() != DISABLED) || !Protection_Enable_Allowed())
+                {
+                    Action_Status = AXDR_ERR_STATE;
+                }
+                else
                 {
                     Motor_Enable();
+                    if (Motor_State_Get() != ENABLED)
+                    {
+                        Action_Status = AXDR_ERR_CONFIG;
+                    }
                 }
+                Motor_Action_Response(&Msg, Action_Status);
                 break;
 
             case MOTOR_CMD_RUN:
-                Motor_Start();
+                Action_Status = AXDR_OK;
+                if ((Motor_State_Get() != ENABLED) || (Motor_Mode_Get() == IDENT))
+                {
+                    Action_Status = AXDR_ERR_STATE;
+                }
+                else
+                {
+                    Motor_Start();
+                    if (Motor_State_Get() != RUN)
+                    {
+                        Action_Status = AXDR_ERR_CONFIG;
+                    }
+                }
+                Motor_Action_Response(&Msg, Action_Status);
                 break;
 
             case MOTOR_CMD_STOP:
-                Motor_Stop();
+                Action_Status = AXDR_OK;
+                if (Motor_State_Get() != RUN)
+                {
+                    Action_Status = AXDR_ERR_STATE;
+                }
+                else
+                {
+                    Motor_Stop();
+                    if (Motor_State_Get() != ENABLED)
+                    {
+                        Action_Status = AXDR_ERR_CONFIG;
+                    }
+                }
+                Motor_Action_Response(&Msg, Action_Status);
                 break;
 
             case MOTOR_CMD_DISABLE:
                 Motor_Disable();
+                Action_Status = (Motor_State_Get() == DISABLED) ? AXDR_OK : AXDR_ERR_CONFIG;
+                Motor_Action_Response(&Msg, Action_Status);
                 break;
 
             case MOTOR_CMD_EN_TOGGLE:
@@ -89,59 +146,88 @@ static void Motor_Cmd_Run(void)
                 }
                 break;
 
-            case MOTOR_CMD_MODE_SET:
-                Motor_Mode_Set((Motor_Mode_e)Msg.Arg);
-                break;
-
-            case MOTOR_CMD_IDENT_SET:
-                Motor_Ident_Mode_Set((Ident_Mode_e)Msg.Arg);
-                break;
-
-            case MOTOR_CMD_SPEED_SET:
-                memcpy(&Value, &Msg.Arg, sizeof(Value));
-                if (__builtin_isfinite(Value))
+            case MOTOR_CMD_IDENT_START:
+                Action_Status = AXDR_OK;
+                if ((Motor_State_Get() != ENABLED) ||
+                    (Motor_Mode_Get() != IDENT) ||
+                    !Protection_Enable_Allowed())
                 {
-                    Speed_Target_Set(Value);
+                    Action_Status = AXDR_ERR_STATE;
                 }
+                else if (!Motor_Ident_Start((Ident_Mode_e)Msg.Arg))
+                {
+                    Action_Status = AXDR_ERR_CONFIG;
+                }
+                Motor_Action_Response(&Msg, Action_Status);
                 break;
 
-            case MOTOR_CMD_TORQUE_SET:
-                memcpy(&Value, &Msg.Arg, sizeof(Value));
-                if (__builtin_isfinite(Value))
+            case MOTOR_CMD_IDENT_ABORT:
+                Action_Status = ((Motor_State_Get() == RUN) &&
+                                 (Motor_Mode_Get() == IDENT) &&
+                                 Identification_Active()) ?
+                                    AXDR_OK : AXDR_ERR_STATE;
+                if ((Action_Status == AXDR_OK) && !Motor_Ident_Abort())
                 {
-                    Torque_Target_Set(Value);
+                    Action_Status = AXDR_ERR_CONFIG;
                 }
+                Motor_Action_Response(&Msg, Action_Status);
                 break;
 
             case MOTOR_CMD_POSITION_SET:
+                Action_Status = AXDR_OK;
                 memcpy(&Turn, &Msg.Arg, sizeof(Turn));
                 memcpy(&Value2, &Msg.Arg2, sizeof(Value2));
                 if (__builtin_isfinite(Value2))
                 {
                     Position_Target_Set(Turn, Value2);
                 }
+                else
+                {
+                    Action_Status = AXDR_ERR_VALUE;
+                }
+                Motor_Action_Response(&Msg, Action_Status);
                 break;
 
-            case MOTOR_CMD_ENCODER_TYPE_SET:
-                (void)Encoder_Type_Set((Encoder_Type_e)Msg.Arg);
-                break;
+            case MOTOR_CMD_PARAMETER_WRITE:
+                memcpy(&Parameter_Value, &Msg.Arg2, sizeof(Parameter_Value));
+                Parameter_Status = Parameter_Write((uint16_t)Msg.Arg,
+                                                   (Parameter_Type_e)(Msg.Reserved & 0xFFU),
+                                                   Parameter_Value);
 
-            case MOTOR_CMD_PHASE_CURRENT_SET:
-                memcpy(&Value, &Msg.Arg, sizeof(Value));
-                (void)Servo_Phase_Current_Set(Value);
+                if ((Msg.Reserved & MOTOR_PARAM_RESPONSE) != 0U)
+                {
+                    Protocol_Parameter_Write_Response(
+                        (uint8_t)(Msg.Reserved >> MOTOR_PARAM_TXN_SHIFT),
+                        Parameter_Status);
+                }
                 break;
 
             case MOTOR_CMD_IDENT_APPLY:
-                (void)Motor_Ident_Apply();
+                Action_Status = AXDR_OK;
+                if ((Motor_State_Get() == RUN) ||
+                    (Motor_Mode_Get() != IDENT) ||
+                    (Identification_State_Get() != IDENT_DONE))
+                {
+                    Action_Status = AXDR_ERR_STATE;
+                }
+                else if (!Motor_Ident_Apply())
+                {
+                    Action_Status = AXDR_ERR_CONFIG;
+                }
+                Motor_Action_Response(&Msg, Action_Status);
                 break;
 
-            case MOTOR_CMD_I_LIMIT_SET:
-                memcpy(&Value, &Msg.Arg, sizeof(Value));
-                (void)User_I_Limit_Set(Value);
-                break;
-
-            case MOTOR_CMD_PP_SET:
-                (void)Motor_Pp_Set((uint8_t)Msg.Arg);
+            case MOTOR_CMD_PROTECTION_CLEAR:
+                Action_Status = AXDR_OK;
+                if (Motor_State_Get() != DISABLED)
+                {
+                    Action_Status = AXDR_ERR_STATE;
+                }
+                else if (!Protection_Clear())
+                {
+                    Action_Status = AXDR_ERR_CONFIG;
+                }
+                Motor_Action_Response(&Msg, Action_Status);
                 break;
 
             default:
@@ -211,6 +297,7 @@ static void Motor_Entry(ULONG thread_input)
             Protection_Control();
             Motor_Cmd_Run();
             Motor_Control();
+            Protocol_Event_Poll();
             USB_Tx_Poll();
 
             Normal_Div ^= 1U;

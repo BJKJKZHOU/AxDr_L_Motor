@@ -30,15 +30,14 @@ typedef struct
 
 } Current_Ref_T;
 
+Motor_Cmd_T Motor_Cmd = { 0 };
+uint8_t Motor_Mode = (uint8_t)TORQUE;
 Motor_Cal_T Motor_Cal = MOTOR_CAL_DEFAULT;
 const Motor_Limit_T Motor_Lim = MOTOR_LIM_DEFAULT;
 Motor_Limit_T User_Lim = USER_LIM_DEFAULT;
 Motor_Run_T Motor_Run = { 0 };
 
-static Motor_Cmd_T Motor_Cmd = { 0 };
 static volatile Motor_State_e Motor_State = DISABLED;
-static Motor_Mode_e Motor_Mode = TORQUE;
-static Ident_Mode_e Ident_Mode = IDENT_RS_LS;
 
 static Current_Ref_T Current_Ref = { 0 };
 static Motion_Ref_T Motion_Ref = { 0 };
@@ -394,7 +393,7 @@ Motor_State_e Motor_State_Get(void)
 
 Motor_Mode_e Motor_Mode_Get(void)
 {
-    return Motor_Mode;
+    return (Motor_Mode_e)Motor_Mode;
 }
 
 bool Motor_Encoder_Required(void)
@@ -448,17 +447,16 @@ void Motor_Start(void)
         return;
     }
 
+    /* Identification is entered only through Motor_Ident_Start(). */
+    if (Motor_Mode == IDENT)
+    {
+        return;
+    }
+
     if (Motor_Mode == OPEN_LOOP)
     {
         Current_Loop_State_Reset();
         Open_Loop_Reset();
-    }
-    else if (Motor_Mode == IDENT)
-    {
-        if (!Identification_Start(Ident_Mode, Motor_Cmd.Wm_Target))
-        {
-            return;
-        }
     }
     else if (Motor_Mode == SENSORLESS_SPEED)
     {
@@ -496,9 +494,18 @@ void Motor_Stop(void)
     {
         Open_Loop_Reset();
     }
-    else if ((Motor_Mode == IDENT) && Identification_Active())
+    else if (Motor_Mode == IDENT)
     {
-        Identification_Abort();
+        if (Identification_Active())
+        {
+            (void)Motor_Ident_Abort();
+        }
+        else
+        {
+            PWM_Disable();
+            Motor_State = ENABLED;
+        }
+        return;
     }
     else if (Motor_Mode == SENSORLESS_SPEED)
     {
@@ -548,16 +555,44 @@ void Motor_Mode_Set(Motor_Mode_e Mode)
 {
     if ((Motor_State == DISABLED) && (Mode <= PHASE_SEARCH))
     {
-        Motor_Mode = Mode;
+        Motor_Mode = (uint8_t)Mode;
     }
 }
 
-void Motor_Ident_Mode_Set(Ident_Mode_e Mode)
+bool Motor_Ident_Start(Ident_Mode_e Mode)
 {
-    if ((Motor_State == DISABLED) && (Mode >= IDENT_RS_LS) && (Mode <= IDENT_FLUX))
+    if ((Motor_State != ENABLED) ||
+        (Motor_Mode != IDENT) ||
+        ((Mode != IDENT_RS_LS) && (Mode != IDENT_FLUX)))
     {
-        Ident_Mode = Mode;
+        return false;
     }
+
+    if (!Identification_Start(Mode, Motor_Cmd.Wm_Target))
+    {
+        return false;
+    }
+
+    PWM_Enable();
+    Motor_State = RUN;
+    return true;
+}
+
+bool Motor_Ident_Abort(void)
+{
+    if ((Motor_State != RUN) ||
+        (Motor_Mode != IDENT) ||
+        !Identification_Active())
+    {
+        return false;
+    }
+
+    Identification_Abort();
+    Current_Ref.Id = 0.0f;
+    Current_Ref.Iq = 0.0f;
+    PWM_Disable();
+    Motor_State = ENABLED;
+    return true;
 }
 
 bool Motor_Ident_Apply(void)

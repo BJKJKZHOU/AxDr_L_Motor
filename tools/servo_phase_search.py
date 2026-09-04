@@ -43,13 +43,6 @@ except ImportError:
 
 MODE_PHASE_SEARCH = 6
 
-CTRL_I_LIMIT_SET = 0x07
-CTRL_PP_SET = 0x08
-CTRL_PP_GET = 0x09
-CTRL_ENCODER_TYPE_SET = 0x0C
-CTRL_ENCODER_TYPE_GET = 0x0D
-CTRL_PHASE_CURRENT_SET = 0x0E
-CTRL_PHASE_CURRENT_GET = 0x0F
 CTRL_PHASE_STATUS = 0x10
 
 ENCODER_TYPES = {
@@ -84,53 +77,38 @@ class PhaseSearch(base.SensorlessTest):
                 pass
 
     def read_encoder_type(self):
-        data = self.request(base.MSG_CONTROL, CTRL_ENCODER_TYPE_GET)
-        if len(data) != 1:
-            raise RuntimeError(f"invalid encoder type response length: {len(data)}")
-        return data[0]
+        return self.parameter_read(
+            base.PARAM_ENCODER_TYPE, base.PARAM_U8
+        )
 
     def set_encoder_type(self, encoder_type):
-        self.request(base.MSG_CONTROL, CTRL_ENCODER_TYPE_SET, bytes([encoder_type]))
-        deadline = time.monotonic() + self.args.timeout
-        while time.monotonic() < deadline:
-            if self.read_encoder_type() == encoder_type:
-                return
-            time.sleep(0.01)
-        raise TimeoutError("encoder type readback did not update")
+        self.parameter_write(
+            base.PARAM_ENCODER_TYPE, base.PARAM_U8, encoder_type
+        )
 
     def read_pole_pairs(self):
-        data = self.request(base.MSG_CONTROL, CTRL_PP_GET)
-        if len(data) != 1:
-            raise RuntimeError(f"invalid pole-pairs response length: {len(data)}")
-        return data[0]
+        return self.parameter_read(base.PARAM_MOTOR_PP, base.PARAM_U8)
 
     def set_pole_pairs(self, pole_pairs):
-        self.request(base.MSG_CONTROL, CTRL_PP_SET, bytes([pole_pairs]))
-        deadline = time.monotonic() + self.args.timeout
-        while time.monotonic() < deadline:
-            if self.read_pole_pairs() == pole_pairs:
-                return
-            time.sleep(0.01)
-        raise TimeoutError("pole-pairs readback did not update")
+        self.parameter_write(
+            base.PARAM_MOTOR_PP, base.PARAM_U8, pole_pairs
+        )
 
     def read_phase_current(self):
-        data = self.request(base.MSG_CONTROL, CTRL_PHASE_CURRENT_GET)
-        if len(data) != 4:
-            raise RuntimeError(f"invalid phase-current response length: {len(data)}")
-        return struct.unpack("<f", data)[0]
+        return self.parameter_read(
+            base.PARAM_PHASE_I_SEARCH, base.PARAM_FLOAT
+        )
 
     def set_phase_current(self, current):
-        self.request(base.MSG_CONTROL, CTRL_PHASE_CURRENT_SET, struct.pack("<f", current))
-        deadline = time.monotonic() + self.args.timeout
-        while time.monotonic() < deadline:
-            value = self.read_phase_current()
-            if abs(value - current) <= max(1.0e-6, abs(current) * 1.0e-5):
-                return value
-            time.sleep(0.01)
-        raise TimeoutError("phase-current readback did not update")
+        self.parameter_write(
+            base.PARAM_PHASE_I_SEARCH, base.PARAM_FLOAT, current
+        )
+        return self.read_phase_current()
 
     def set_current_limit(self, current):
-        self.request(base.MSG_CONTROL, CTRL_I_LIMIT_SET, struct.pack("<f", current))
+        self.parameter_write(
+            base.PARAM_LIMIT_I_MAX, base.PARAM_FLOAT, current
+        )
 
     def phase_status(self):
         data = self.request(base.MSG_CONTROL, CTRL_PHASE_STATUS)
@@ -271,8 +249,8 @@ def parse_args():
 
     if not args.run:
         parser.error("--run is required to energize the motor")
-    if not 1 <= args.pole_pairs <= 255:
-        parser.error("--pole-pairs must be in 1..255")
+    if not 1 <= args.pole_pairs <= 64:
+        parser.error("--pole-pairs must be in 1..64")
     if args.phase_current is not None and args.phase_current <= 0.0:
         parser.error("--phase-current must be positive")
     if args.current_limit is not None and args.current_limit <= 0.0:

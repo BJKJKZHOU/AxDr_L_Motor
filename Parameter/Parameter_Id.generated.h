@@ -1,0 +1,153 @@
+/* Generated from Parameter/parameter_objects.yaml. DO NOT EDIT. */
+#ifndef PARAMETER_ID_GENERATED_H
+#define PARAMETER_ID_GENERATED_H
+
+typedef enum
+{
+    /* ADC.Ia_A: ADC采样得到的A相电流反馈。 */
+    PARAM_ADC_IA = 0x0001U,
+
+    /* ADC.Ib_A: ADC采样得到的B相电流反馈。 */
+    PARAM_ADC_IB = 0x0002U,
+
+    /* ADC.Ic_A: 由相电流采样链得到的C相电流反馈。 */
+    PARAM_ADC_IC = 0x0003U,
+
+    /* ADC.Vbus_V: 直流母线电压采样值。 */
+    PARAM_ADC_VBUS = 0x0004U,
+
+    /* Motor_Run.Id: FOC Park变换后的d轴实际电流反馈。 */
+    PARAM_RUN_ID = 0x0010U,
+
+    /* Motor_Run.Iq: FOC Park变换后的q轴实际电流反馈。 */
+    PARAM_RUN_IQ = 0x0011U,
+
+    /* Motor_Run.Ud: FOC电流环输出的d轴电压。 */
+    PARAM_RUN_UD = 0x0012U,
+
+    /* Motor_Run.Uq: FOC电流环输出的q轴电压。 */
+    PARAM_RUN_UQ = 0x0013U,
+
+    /* Motor_Run.Theta_e: 当前FOC实际使用的电角度。 */
+    PARAM_RUN_THETA_E = 0x0014U,
+
+    /* Motor_Run.Ualpha: 上一快环实际送入SVPWM的alpha轴电压命令。 */
+    PARAM_RUN_UALPHA = 0x0015U,
+
+    /* Motor_Run.Ubeta: 上一快环实际送入SVPWM的beta轴电压命令。 */
+    PARAM_RUN_UBETA = 0x0016U,
+
+    /* Flux_PLL.State.Theta: 磁链观测器PLL估算的电角度。 */
+    PARAM_OBS_THETA = 0x0020U,
+
+    /* Flux_PLL.State.We: 磁链观测器PLL估算的电角速度。 */
+    PARAM_OBS_WE = 0x0021U,
+
+    /* Flux_PLL.State.Err: 磁链观测器PLL的相位误差信号。 */
+    PARAM_OBS_PLL_ERR = 0x0022U,
+
+    /* Flux_Obs.State.Flux_Err: 磁链观测器内部的磁链误差信号。 */
+    PARAM_OBS_FLUX_ERR = 0x0023U,
+
+    /* Motor_Para.Pp: 电机极对数。 */
+    PARAM_MOTOR_PP = 0x0101U,
+
+    /* Motor_Para.Rs: 电机相电阻Rs，供电机模型、电流控制及无感相关算法使用。 */
+    PARAM_MOTOR_RS = 0x0110U,
+
+    /* Motor_Para.Ld: 电机d轴电感Ld。 */
+    PARAM_MOTOR_LD = 0x0111U,
+
+    /* Motor_Para.Lq: 电机q轴电感Lq。 */
+    PARAM_MOTOR_LQ = 0x0112U,
+
+    /* Motor_Para.Flux: 电机永磁磁链参数。 */
+    PARAM_MOTOR_FLUX = 0x0113U,
+
+    /* Motor_Para.J: 电机及等效负载转动惯量参数J。 */
+    PARAM_MOTOR_J = 0x0114U,
+
+    /* Motor_Para.B: 电机粘性阻尼/摩擦模型参数B。 */
+    PARAM_MOTOR_B = 0x0115U,
+
+    /* Motor_Config.Dir: 用户机械正方向与内部控制方向之间的符号映射，只允许-1或+1。 */
+    PARAM_MOTOR_DIR = 0x0116U,
+
+    /* User_Lim.I_Max: 用户配置的最大相电流限制，实际限制不会超过硬件/固件Motor_Lim.I_Max。 */
+    PARAM_LIMIT_I_MAX = 0x0201U,
+
+    /* User_Lim.Wm_Max: 用户配置的最大机械角速度限制，实际限制不会超过Motor_Lim.Wm_Max。 */
+    PARAM_LIMIT_WM_MAX = 0x0202U,
+
+    /* Encoder_Config.Type: 运行前选择的编码器类型。 */
+    PARAM_ENCODER_TYPE = 0x0301U,
+
+    /* Encoder.Ready: 编码器驱动是否已经完成初始化并可供控制使用。 */
+    PARAM_ENCODER_READY = 0x0302U,
+
+    /* Encoder.Valid: 当前编码器反馈数据是否有效。 */
+    PARAM_ENCODER_VALID = 0x0303U,
+
+    /* Encoder.Fault: 当前编码器故障标志。 */
+    PARAM_ENCODER_FAULT = 0x0304U,
+
+    /* Servo_Phase_Config.I_Search_A: 伺服寻相过程使用的持续寻相电流。 */
+    PARAM_PHASE_I_SEARCH = 0x0401U,
+
+    /* Motor_Cal.Valid: 当前伺服相位/编码器校准结果是否有效。 */
+    PARAM_CAL_VALID = 0x0402U,
+
+    /* Motor_Cal.Enc_Dir: 寻相得到的编码器方向符号，按工程约定用于机械方向对齐。 */
+    PARAM_CAL_ENC_DIR = 0x0403U,
+
+    /* Motor_Cal.Theta_Off: 寻相/校准得到的编码器到电角度的零位偏置。 */
+    PARAM_CAL_THETA_OFF = 0x0404U,
+
+    /* Motor_Run.Theta_m: 当前机械角度反馈。 */
+    PARAM_RUN_THETA_M = 0x0501U,
+
+    /* Motor_Run.Wm: 当前机械角速度反馈。 */
+    PARAM_RUN_WM = 0x0502U,
+
+    /* Motor_Run.Turn: 上电后累计的内部机械整圈计数，不跨掉电保存。 */
+    PARAM_RUN_TURN = 0x0503U,
+
+    /* Motion_Config.Wm_Max: 运动规划器允许使用的最大机械角速度。 */
+    PARAM_MOTION_WM_MAX = 0x0601U,
+
+    /* Motion_Config.Wm_Acc: 运动规划器机械加速度限制，可在运行期间修改。 */
+    PARAM_MOTION_WM_ACC = 0x0602U,
+
+    /* Motion_Config.Wm_Dec: 运动规划器机械减速度限制，可在运行期间修改。 */
+    PARAM_MOTION_WM_DEC = 0x0603U,
+
+    /* Motor_Mode: 当前选择的电机控制模式；与TORQUE/SPEED/POSITION/OPEN_LOOP/IDENT/SENSORLESS_SPEED/PHASE_SEARCH对应。 */
+    PARAM_MOTOR_MODE = 0x0701U,
+
+    /* Motor_Cmd.Te_Target: Torque模式的用户机械转矩目标。 */
+    PARAM_TARGET_TORQUE = 0x0702U,
+
+    /* Motor_Cmd.Wm_Target: Speed、Open-loop、Sensorless及Flux辨识流程使用的用户机械速度目标。 */
+    PARAM_TARGET_SPEED = 0x0703U,
+
+    /* Motor_State_Get(): 电机顶级生命周期状态，只读：DISABLED、ENABLED或RUN。状态迁移通过Action完成。 */
+    PARAM_MOTOR_STATE = 0x0710U,
+
+    /* Protection.Report: 当前提示/报告级事件位图。 */
+    PARAM_EVENT_REPORT = 0x0801U,
+
+    /* Protection.Warning: 当前警告级事件位图；警告不自动关闭电机。 */
+    PARAM_EVENT_WARNING = 0x0802U,
+
+    /* Protection.Stop: 当前错误级事件位图；非零时软件自动Disable并禁止重新Enable。 */
+    PARAM_EVENT_ERROR = 0x0803U,
+
+    /* Protection.Trip: 当前硬件快速关断级事件位图。 */
+    PARAM_EVENT_TRIP = 0x0804U,
+
+    /* Sensorless_State_Get(): 当前Sensorless状态机状态。 */
+    PARAM_SENSORLESS_STATE = 0x0C01U,
+
+} Parameter_Id_e;
+
+#endif /* PARAMETER_ID_GENERATED_H */

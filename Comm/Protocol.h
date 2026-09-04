@@ -9,6 +9,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "Parameter.h"
+
 #define AXDR_NODE_ID      1U
 #define AXDR_MAX_DATA_LEN 64U
 
@@ -17,36 +19,33 @@
 #define AXDR_MSG_PLOT           0x04U
 #define AXDR_MSG_IDENTIFICATION 0x05U
 #define AXDR_MSG_SENSORLESS     0x06U
+#define AXDR_MSG_PARAMETER      0x07U
+#define AXDR_MSG_EVENT          0x08U
 #define AXDR_MSG_NORMAL_DATA    0x10U
 #define AXDR_MSG_FAST_DATA      0x18U
 
-#define AXDR_CTRL_ENABLE            0x01U
-#define AXDR_CTRL_RUN               0x02U
-#define AXDR_CTRL_STOP              0x03U
-#define AXDR_CTRL_DISABLE           0x04U
-#define AXDR_CTRL_MODE_SET          0x05U
-#define AXDR_CTRL_SPEED_SET         0x06U
-#define AXDR_CTRL_I_LIMIT_SET       0x07U
-#define AXDR_CTRL_PP_SET            0x08U
-#define AXDR_CTRL_PP_GET            0x09U
-#define AXDR_CTRL_TORQUE_SET        0x0AU
-#define AXDR_CTRL_POSITION_SET      0x0BU
-#define AXDR_CTRL_ENCODER_TYPE_SET  0x0CU
-#define AXDR_CTRL_ENCODER_TYPE_GET  0x0DU
-#define AXDR_CTRL_PHASE_CURRENT_SET 0x0EU
-#define AXDR_CTRL_PHASE_CURRENT_GET 0x0FU
-#define AXDR_CTRL_PHASE_STATUS      0x10U
+#define AXDR_CTRL_ENABLE        0x01U
+#define AXDR_CTRL_RUN           0x02U
+#define AXDR_CTRL_STOP          0x03U
+#define AXDR_CTRL_DISABLE       0x04U
+#define AXDR_CTRL_POSITION_SET  0x0BU
+#define AXDR_CTRL_PHASE_STATUS  0x10U
 
-#define AXDR_IDENT_MODE_SET 0x01U
-#define AXDR_IDENT_STATUS   0x02U
-#define AXDR_IDENT_ABORT    0x03U
-#define AXDR_IDENT_APPLY    0x04U
+#define AXDR_PARAM_READ  0x01U
+#define AXDR_PARAM_WRITE 0x02U
 
-#define AXDR_IDENT_RS_LS 0x01U
-#define AXDR_IDENT_FLUX  0x02U
+#define AXDR_IDENT_RS_LS_START 0x01U
+#define AXDR_IDENT_FLUX_START  0x02U
+#define AXDR_IDENT_STATUS      0x03U
+#define AXDR_IDENT_ABORT       0x04U
+#define AXDR_IDENT_APPLY       0x05U
 
 #define AXDR_SENSORLESS_STATUS 0x02U
 #define AXDR_SENSORLESS_STOP   0x03U
+
+/* EVENT_NOTIFY is unsolicited and carries the complete four-level event snapshot. */
+#define AXDR_EVENT_NOTIFY 0x01U
+#define AXDR_EVENT_CLEAR  0x02U
 
 #define AXDR_PLOT_CONFIG 0x01U
 #define AXDR_PLOT_START  0x02U
@@ -80,6 +79,12 @@ typedef struct
 } AxDr_Msg_T;
 
 void Protocol_Rx(uint16_t Id, const uint8_t *Data, uint8_t Len);
+void Protocol_Parameter_Write_Response(uint8_t Txn, Parameter_Status_e Status);
+void Protocol_Action_Response(uint8_t Txn,
+                              uint8_t Req_Msg,
+                              uint8_t Req_Op,
+                              AxDr_Status_e Status);
+void Protocol_Event_Poll(void);
 bool Protocol_Tx_Pop(AxDr_Msg_T *Msg);
 
 #endif /* PROTOCOL_H */

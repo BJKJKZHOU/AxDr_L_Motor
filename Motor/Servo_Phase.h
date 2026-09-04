@@ -11,6 +11,8 @@
 
 #include "Motor_Type.h"
 
+#define SERVO_PHASE_I_MAX_A 2.0f
+
 typedef enum
 {
     SERVO_PHASE_RESULT_NONE = 0,
@@ -65,7 +67,6 @@ typedef struct
 
 extern Servo_Phase_Config_T Servo_Phase_Config;
 
-bool Servo_Phase_Current_Set(float I_Search_A);
 bool Servo_Phase_Start(void);
 void Servo_Phase_Abort(void);
 bool Servo_Phase_Active(void);
