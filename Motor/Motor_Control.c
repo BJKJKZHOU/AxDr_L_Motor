@@ -583,14 +583,6 @@ void Motor_Disable(void)
     Disable_Apply();
 }
 
-void Motor_Mode_Set(Motor_Mode_e Mode)
-{
-    if ((Motor_State == DISABLED) && (Mode <= PHASE_SEARCH))
-    {
-        Motor_Mode = (uint8_t)Mode;
-    }
-}
-
 bool Motor_Ident_Start(Ident_Mode_e Mode)
 {
     if ((Motor_State != ENABLED) ||
@@ -635,86 +627,6 @@ bool Motor_Ident_Apply(void)
     }
 
     return Identification_Apply();
-}
-
-bool User_I_Limit_Set(float I_Max)
-{
-    if ((Motor_State != DISABLED) || !__builtin_isfinite(I_Max) || (I_Max <= 0.0f) || (I_Max > Motor_Lim.I_Max))
-    {
-        return false;
-    }
-
-    User_Lim.I_Max = I_Max;
-    return true;
-}
-
-bool Motor_Pp_Set(uint8_t Pp)
-{
-    if ((Motor_State != DISABLED) || (Pp == 0U))
-    {
-        return false;
-    }
-
-    Motor_Para.Pp = Pp;
-    Motor_Pp_Changed();
-    return true;
-}
-
-void Torque_Target_Set(float Te)
-{
-    if (__builtin_isfinite(Te))
-    {
-        Motor_Cmd.Te_Target = Te;
-    }
-}
-
-void Speed_Target_Set(float Wm)
-{
-    if (__builtin_isfinite(Wm))
-    {
-        Motor_Cmd.Wm_Target = Wm;
-    }
-}
-
-void Position_Target_Set(int32_t Turn, float Theta)
-{
-    double Turn_Delta;
-    double Turn_Normalized;
-    double Theta_Normalized;
-
-    if (!__builtin_isfinite(Theta))
-    {
-        return;
-    }
-
-    Turn_Delta = __builtin_floor((double)Theta / (double)TWO_PI_F);
-    Turn_Normalized = (double)Turn + Turn_Delta;
-
-    if ((Turn_Normalized > 2147483647.0) || (Turn_Normalized < -2147483648.0))
-    {
-        return;
-    }
-
-    Theta_Normalized = (double)Theta - Turn_Delta * (double)TWO_PI_F;
-
-    if (Theta_Normalized >= (double)TWO_PI_F)
-    {
-        Theta_Normalized -= (double)TWO_PI_F;
-        Turn_Normalized += 1.0;
-    }
-    else if (Theta_Normalized < 0.0)
-    {
-        Theta_Normalized += (double)TWO_PI_F;
-        Turn_Normalized -= 1.0;
-    }
-
-    if ((Turn_Normalized > 2147483647.0) || (Turn_Normalized < -2147483648.0))
-    {
-        return;
-    }
-
-    Motor_Cmd.Position_Target.Turn = (int32_t)Turn_Normalized;
-    Motor_Cmd.Position_Target.Theta = (float)Theta_Normalized;
 }
 
 float Motor_Wm_Get(void)

@@ -29,14 +29,9 @@ void Motor_Start(void);
 void Motor_Stop(void);
 void Motor_Disable(void);
 
-void Motor_Mode_Set(Motor_Mode_e Mode);
 bool Motor_Ident_Start(Ident_Mode_e Mode);
 bool Motor_Ident_Abort(void);
 bool Motor_Ident_Apply(void);
-
-void Torque_Target_Set(float Te);
-void Speed_Target_Set(float Wm);
-void Position_Target_Set(int32_t Turn, float Theta);
 
 /* User mechanical coordinate feedback. Internal FOC state remains in Motor_Run. */
 float Motor_Wm_Get(void);

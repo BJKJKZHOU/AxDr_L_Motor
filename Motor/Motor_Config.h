@@ -6,7 +6,6 @@
 #ifndef MOTOR_CONFIG_H
 #define MOTOR_CONFIG_H
 
-#include <stdbool.h>
 #include <stdint.h>
 
 typedef struct
@@ -17,7 +16,6 @@ typedef struct
 
 extern Motor_Config_T Motor_Config;
 
-bool Motor_Dir_Set(int8_t Dir);
 float Motor_User_To_Internal(float Value);
 float Motor_Internal_To_User(float Value);
 void Motor_Position_User_To_Internal(int32_t Turn_User,
