@@ -282,8 +282,8 @@ void Motor_Control(void)
             {
                 if (Motor_State == RUN)
                 {
-                    Motor_Position_User_To_Internal(Motor_Cmd.Pos_Turn,
-                                                    Motor_Cmd.Pos_Theta,
+                    Motor_Position_User_To_Internal(Motor_Cmd.Position_Target.Turn,
+                                                    Motor_Cmd.Position_Target.Theta,
                                                     &Pos_Turn_Target,
                                                     &Pos_Theta_Target);
                     Trapezoid_Run(&Motion_Ref,
@@ -394,6 +394,38 @@ Motor_State_e Motor_State_Get(void)
 Motor_Mode_e Motor_Mode_Get(void)
 {
     return (Motor_Mode_e)Motor_Mode;
+}
+
+float Motor_I_Limit_Effective_Get(void)
+{
+    Motor_Limit_T Lim;
+
+    Motor_Limit_Get(&Lim);
+    return Lim.I_Max;
+}
+
+float Motor_Wm_Limit_Effective_Get(void)
+{
+    Motor_Limit_T Lim;
+
+    Motor_Limit_Get(&Lim);
+    return Lim.Wm_Max;
+}
+
+float Motor_Wm_Ref_Get(void)
+{
+    return Motor_Internal_To_User(Wm_Ref);
+}
+
+Motor_Position_T Motor_Position_Ref_Get(void)
+{
+    Motor_Position_T Position;
+
+    Motor_Position_Internal_To_User(Motion_Ref.Turn,
+                                    Motion_Ref.Theta,
+                                    &Position.Turn,
+                                    &Position.Theta);
+    return Position;
 }
 
 bool Motor_Encoder_Required(void)
@@ -681,8 +713,8 @@ void Position_Target_Set(int32_t Turn, float Theta)
         return;
     }
 
-    Motor_Cmd.Pos_Turn = (int32_t)Turn_Normalized;
-    Motor_Cmd.Pos_Theta = (float)Theta_Normalized;
+    Motor_Cmd.Position_Target.Turn = (int32_t)Turn_Normalized;
+    Motor_Cmd.Position_Target.Theta = (float)Theta_Normalized;
 }
 
 float Motor_Wm_Get(void)

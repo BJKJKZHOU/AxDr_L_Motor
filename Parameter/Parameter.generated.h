@@ -79,6 +79,12 @@ typedef enum
     /* User_Lim.Wm_Max: 用户配置的最大机械角速度限制，实际限制不会超过Motor_Lim.Wm_Max。 */
     PARAM_LIMIT_WM_MAX = 0x0202U,
 
+    /* Motor_I_Limit_Effective_Get(): 当前控制实际使用的相电流上限。 */
+    PARAM_LIMIT_I_EFFECTIVE = 0x0203U,
+
+    /* Motor_Wm_Limit_Effective_Get(): 当前控制实际使用的机械速度上限，包含Motor、User与Motion限制。 */
+    PARAM_LIMIT_WM_EFFECTIVE = 0x0204U,
+
     /* Encoder_Config.Type: 运行前选择的编码器类型。 */
     PARAM_ENCODER_TYPE = 0x0301U,
 
@@ -117,6 +123,15 @@ typedef enum
 
     /* Motor_Run.Turn: 上电后累计的内部机械整圈计数，不跨掉电保存。 */
     PARAM_RUN_TURN = 0x0503U,
+
+    /* Motor_Iq_Ref_Get(): 最近一次快环实际使用的q轴电流参考。 */
+    PARAM_REF_IQ = 0x0510U,
+
+    /* Motor_Wm_Ref_Get(): 当前速度控制实际使用的用户机械速度参考。 */
+    PARAM_REF_WM = 0x0511U,
+
+    /* Motor_Position_Ref_Get(): 当前位置轨迹实际使用的用户机械位置参考。 */
+    PARAM_REF_POSITION = 0x0512U,
 
     /* Motion_Config.Wm_Max: 运动规划器允许使用的最大机械角速度。 */
     PARAM_MOTION_WM_MAX = 0x0601U,
@@ -168,9 +183,6 @@ typedef enum
 
     /* Identification_Flux_Get(): 最近一次Flux辨识得到的永磁磁链结果。 */
     PARAM_IDENT_FLUX_RESULT = 0x0911U,
-
-    /* Sensorless_State_Get(): 当前Sensorless状态机状态。 */
-    PARAM_SENSORLESS_STATE = 0x0C01U,
 
     /* MOTOR_CMD_ENABLE: 使能电机功率级。 */
     ACTION_MOTOR_ENABLE = 0x1001U,

@@ -249,6 +249,22 @@ objects:
     write_state: disabled
     range: { min: 0.0, exclusive_min: true, max_binding: Motor_Lim.Wm_Max }
 
+  PARAM_LIMIT_I_EFFECTIVE:
+    id: 0x0203
+    type: f32
+    access: ro
+    getter: Motor_I_Limit_Effective_Get
+    unit: A
+    description: "当前控制实际使用的相电流上限。"
+
+  PARAM_LIMIT_WM_EFFECTIVE:
+    id: 0x0204
+    type: f32
+    access: ro
+    getter: Motor_Wm_Limit_Effective_Get
+    unit: rad/s
+    description: "当前控制实际使用的机械速度上限，包含Motor、User与Motion限制。"
+
   PARAM_ENCODER_TYPE:
     id: 0x0301
     type: u8
@@ -357,6 +373,30 @@ objects:
     access: ro
     binding: Motor_Run.Turn
     description: "上电后累计的内部机械整圈计数，不跨掉电保存。"
+
+  PARAM_REF_IQ:
+    id: 0x0510
+    type: f32
+    access: ro
+    getter: Motor_Iq_Ref_Get
+    unit: A
+    description: "最近一次快环实际使用的q轴电流参考。"
+
+  PARAM_REF_WM:
+    id: 0x0511
+    type: f32
+    access: ro
+    getter: Motor_Wm_Ref_Get
+    unit: rad/s
+    description: "当前速度控制实际使用的用户机械速度参考。"
+
+  PARAM_REF_POSITION:
+    id: 0x0512
+    type: position
+    access: ro
+    getter: Motor_Position_Ref_Get
+    unit: turn+rad
+    description: "当前位置轨迹实际使用的用户机械位置参考。"
 
   PARAM_MOTION_WM_MAX:
     id: 0x0601
@@ -493,14 +533,6 @@ objects:
     getter: Identification_Flux_Get
     unit: Wb
     description: "最近一次Flux辨识得到的永磁磁链结果。"
-
-  PARAM_SENSORLESS_STATE:
-    id: 0x0C01
-    type: u8
-    access: ro
-    getter: Sensorless_State_Get
-    description: "当前Sensorless状态机状态。"
-    allowed_symbols: [SL_ALIGN, SL_IF, SL_IF_TO_OBS, SL_OBS, SL_OBS_TO_IF, SL_FAILED, SL_IDLE]
 
   ACTION_MOTOR_ENABLE:
     id: 0x1001

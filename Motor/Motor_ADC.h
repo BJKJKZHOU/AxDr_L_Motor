@@ -31,5 +31,6 @@ extern volatile ADC_T ADC;
 
 void ADC_Calib(void);
 void Fast_Loop(void);
+float Motor_Iq_Ref_Get(void);
 
 #endif /* MOTOR_ADC_H */

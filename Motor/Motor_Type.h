@@ -66,21 +66,7 @@ typedef struct
 {
     float Te_Target; /* N*m, user mechanical coordinate */
     float Wm_Target; /* rad/s, user mechanical coordinate */
-
-    /*
-     * Position_Target is the canonical representation. The anonymous legacy
-     * view keeps existing users of Pos_Turn / Pos_Theta source-compatible while
-     * callers are migrated to pass Motor_Position_T as one value.
-     */
-    union
-    {
-        Motor_Position_T Position_Target;
-        struct
-        {
-            int32_t Pos_Turn;
-            float Pos_Theta;
-        };
-    };
+    Motor_Position_T Position_Target;
 
 } Motor_Cmd_T;
 

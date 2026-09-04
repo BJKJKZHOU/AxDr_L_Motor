@@ -78,8 +78,6 @@ def load_objects():
             raise ValueError(f"{name}: exactly one of binding/getter is required")
         if "getter" in obj and obj["access"] != "ro":
             raise ValueError(f"{name}: getter-backed object must be read-only")
-        if "getter" in obj and obj["type"] == "position":
-            raise ValueError(f"{name}: position objects require direct binding")
     return objects
 
 
@@ -163,6 +161,9 @@ def render_inc(objects):
     lines += ["", "#elif defined(PARAM_GENERATE_READ)"]
     for name, obj in values(objects):
         if "getter" not in obj:
+            continue
+        if obj["type"] == "position":
+            lines += [f"case {name}:", f"    Value->Position = {obj['getter']}();", "    return PARAM_OK;", ""]
             continue
         member = VALUE_MEMBER_C[obj["type"]]
         cast = CAST_C[obj["type"]]
