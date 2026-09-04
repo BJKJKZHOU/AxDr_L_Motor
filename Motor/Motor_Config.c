@@ -6,7 +6,6 @@
 #include "Motor_Config.h"
 
 #include "Math.h"
-#include "Motor_Control.h"
 
 Motor_Config_T Motor_Config =
 {
@@ -27,22 +26,6 @@ static void Position_Reverse(int32_t Turn,
 
     *Turn_Out = -Turn - 1;
     *Theta_Out = TWO_PI_F - Theta;
-}
-
-bool Motor_Dir_Set(int8_t Dir)
-{
-    if (Motor_State_Get() != DISABLED)
-    {
-        return false;
-    }
-
-    if ((Dir != 1) && (Dir != -1))
-    {
-        return false;
-    }
-
-    Motor_Config.Dir = Dir;
-    return true;
 }
 
 float Motor_User_To_Internal(float Value)

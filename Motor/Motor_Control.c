@@ -30,15 +30,14 @@ typedef struct
 
 } Current_Ref_T;
 
+Motor_Cmd_T Motor_Cmd = { 0 };
+uint8_t Motor_Mode = (uint8_t)TORQUE;
 Motor_Cal_T Motor_Cal = MOTOR_CAL_DEFAULT;
 const Motor_Limit_T Motor_Lim = MOTOR_LIM_DEFAULT;
 Motor_Limit_T User_Lim = USER_LIM_DEFAULT;
 Motor_Run_T Motor_Run = { 0 };
 
-static Motor_Cmd_T Motor_Cmd = { 0 };
 static volatile Motor_State_e Motor_State = DISABLED;
-static Motor_Mode_e Motor_Mode = TORQUE;
-static Ident_Mode_e Ident_Mode = IDENT_RS_LS;
 
 static Current_Ref_T Current_Ref = { 0 };
 static Motion_Ref_T Motion_Ref = { 0 };
@@ -283,8 +282,8 @@ void Motor_Control(void)
             {
                 if (Motor_State == RUN)
                 {
-                    Motor_Position_User_To_Internal(Motor_Cmd.Pos_Turn,
-                                                    Motor_Cmd.Pos_Theta,
+                    Motor_Position_User_To_Internal(Motor_Cmd.Position_Target.Turn,
+                                                    Motor_Cmd.Position_Target.Theta,
                                                     &Pos_Turn_Target,
                                                     &Pos_Theta_Target);
                     Trapezoid_Run(&Motion_Ref,
@@ -394,7 +393,39 @@ Motor_State_e Motor_State_Get(void)
 
 Motor_Mode_e Motor_Mode_Get(void)
 {
-    return Motor_Mode;
+    return (Motor_Mode_e)Motor_Mode;
+}
+
+float Motor_I_Limit_Effective_Get(void)
+{
+    Motor_Limit_T Lim;
+
+    Motor_Limit_Get(&Lim);
+    return Lim.I_Max;
+}
+
+float Motor_Wm_Limit_Effective_Get(void)
+{
+    Motor_Limit_T Lim;
+
+    Motor_Limit_Get(&Lim);
+    return Lim.Wm_Max;
+}
+
+float Motor_Wm_Ref_Get(void)
+{
+    return Motor_Internal_To_User(Wm_Ref);
+}
+
+Motor_Position_T Motor_Position_Ref_Get(void)
+{
+    Motor_Position_T Position;
+
+    Motor_Position_Internal_To_User(Motion_Ref.Turn,
+                                    Motion_Ref.Theta,
+                                    &Position.Turn,
+                                    &Position.Theta);
+    return Position;
 }
 
 bool Motor_Encoder_Required(void)
@@ -448,17 +479,16 @@ void Motor_Start(void)
         return;
     }
 
+    /* Identification is entered only through Motor_Ident_Start(). */
+    if (Motor_Mode == IDENT)
+    {
+        return;
+    }
+
     if (Motor_Mode == OPEN_LOOP)
     {
         Current_Loop_State_Reset();
         Open_Loop_Reset();
-    }
-    else if (Motor_Mode == IDENT)
-    {
-        if (!Identification_Start(Ident_Mode, Motor_Cmd.Wm_Target))
-        {
-            return;
-        }
     }
     else if (Motor_Mode == SENSORLESS_SPEED)
     {
@@ -496,9 +526,18 @@ void Motor_Stop(void)
     {
         Open_Loop_Reset();
     }
-    else if ((Motor_Mode == IDENT) && Identification_Active())
+    else if (Motor_Mode == IDENT)
     {
-        Identification_Abort();
+        if (Identification_Active())
+        {
+            (void)Motor_Ident_Abort();
+        }
+        else
+        {
+            PWM_Disable();
+            Motor_State = ENABLED;
+        }
+        return;
     }
     else if (Motor_Mode == SENSORLESS_SPEED)
     {
@@ -544,20 +583,40 @@ void Motor_Disable(void)
     Disable_Apply();
 }
 
-void Motor_Mode_Set(Motor_Mode_e Mode)
+bool Motor_Ident_Start(Ident_Mode_e Mode)
 {
-    if ((Motor_State == DISABLED) && (Mode <= PHASE_SEARCH))
+    if ((Motor_State != ENABLED) ||
+        (Motor_Mode != IDENT) ||
+        ((Mode != IDENT_RS_LS) && (Mode != IDENT_FLUX)))
     {
-        Motor_Mode = Mode;
+        return false;
     }
+
+    if (!Identification_Start(Mode, Motor_Cmd.Wm_Target))
+    {
+        return false;
+    }
+
+    PWM_Enable();
+    Motor_State = RUN;
+    return true;
 }
 
-void Motor_Ident_Mode_Set(Ident_Mode_e Mode)
+bool Motor_Ident_Abort(void)
 {
-    if ((Motor_State == DISABLED) && (Mode >= IDENT_RS_LS) && (Mode <= IDENT_FLUX))
+    if ((Motor_State != RUN) ||
+        (Motor_Mode != IDENT) ||
+        !Identification_Active())
     {
-        Ident_Mode = Mode;
+        return false;
     }
+
+    Identification_Abort();
+    Current_Ref.Id = 0.0f;
+    Current_Ref.Iq = 0.0f;
+    PWM_Disable();
+    Motor_State = ENABLED;
+    return true;
 }
 
 bool Motor_Ident_Apply(void)
@@ -568,86 +627,6 @@ bool Motor_Ident_Apply(void)
     }
 
     return Identification_Apply();
-}
-
-bool User_I_Limit_Set(float I_Max)
-{
-    if ((Motor_State != DISABLED) || !__builtin_isfinite(I_Max) || (I_Max <= 0.0f) || (I_Max > Motor_Lim.I_Max))
-    {
-        return false;
-    }
-
-    User_Lim.I_Max = I_Max;
-    return true;
-}
-
-bool Motor_Pp_Set(uint8_t Pp)
-{
-    if ((Motor_State != DISABLED) || (Pp == 0U))
-    {
-        return false;
-    }
-
-    Motor_Para.Pp = Pp;
-    Motor_Para_Changed(MOTOR_PARA_PP);
-    return true;
-}
-
-void Torque_Target_Set(float Te)
-{
-    if (__builtin_isfinite(Te))
-    {
-        Motor_Cmd.Te_Target = Te;
-    }
-}
-
-void Speed_Target_Set(float Wm)
-{
-    if (__builtin_isfinite(Wm))
-    {
-        Motor_Cmd.Wm_Target = Wm;
-    }
-}
-
-void Position_Target_Set(int32_t Turn, float Theta)
-{
-    double Turn_Delta;
-    double Turn_Normalized;
-    double Theta_Normalized;
-
-    if (!__builtin_isfinite(Theta))
-    {
-        return;
-    }
-
-    Turn_Delta = __builtin_floor((double)Theta / (double)TWO_PI_F);
-    Turn_Normalized = (double)Turn + Turn_Delta;
-
-    if ((Turn_Normalized > 2147483647.0) || (Turn_Normalized < -2147483648.0))
-    {
-        return;
-    }
-
-    Theta_Normalized = (double)Theta - Turn_Delta * (double)TWO_PI_F;
-
-    if (Theta_Normalized >= (double)TWO_PI_F)
-    {
-        Theta_Normalized -= (double)TWO_PI_F;
-        Turn_Normalized += 1.0;
-    }
-    else if (Theta_Normalized < 0.0)
-    {
-        Theta_Normalized += (double)TWO_PI_F;
-        Turn_Normalized -= 1.0;
-    }
-
-    if ((Turn_Normalized > 2147483647.0) || (Turn_Normalized < -2147483648.0))
-    {
-        return;
-    }
-
-    Motor_Cmd.Pos_Turn = (int32_t)Turn_Normalized;
-    Motor_Cmd.Pos_Theta = (float)Theta_Normalized;
 }
 
 float Motor_Wm_Get(void)

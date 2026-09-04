@@ -19,7 +19,7 @@ typedef enum
 
 typedef struct
 {
-    Encoder_Type_e Type;
+    uint8_t Type; /* Encoder_Type_e; fixed-width configuration storage. */
 
 } Encoder_Config_T;
 
@@ -51,7 +51,7 @@ void Encoder_DMA_Config(void);
 void Encoder_DMA_IRQHandler(void);
 void Encoder_Start(void);
 
-bool Encoder_Type_Set(Encoder_Type_e Type);
+void Encoder_Config_Changed(void);
 
 /* Drivers publish native [0, 2pi) angle here; generic Encoder.c owns direction mapping, turns and speed. */
 void Encoder_Sample_Update(uint32_t Raw, float Theta);

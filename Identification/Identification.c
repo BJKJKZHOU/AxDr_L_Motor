@@ -142,7 +142,7 @@ bool Identification_Apply(void)
         Motor_Para.Rs = Rs_Ls_Result->Rs_Ohm;
         Motor_Para.Ld = Rs_Ls_Result->Ls_H;
         Motor_Para.Lq = Rs_Ls_Result->Ls_H;
-        Motor_Para_Changed(MOTOR_PARA_RL);
+        Motor_Para_Update();
         return true;
     }
 
@@ -155,7 +155,7 @@ bool Identification_Apply(void)
         }
 
         Motor_Para.Flux = Flux_Result->Flux_Wb;
-        Motor_Para_Changed(MOTOR_PARA_FLUX);
+        Motor_Para_Update();
         return true;
     }
 
@@ -165,6 +165,26 @@ bool Identification_Apply(void)
 bool Identification_Active(void)
 {
     return Ident_State == IDENT_RUNNING;
+}
+
+bool Identification_Result_Valid(void)
+{
+    if (Ident_State != IDENT_DONE)
+    {
+        return false;
+    }
+
+    if (Ident_Mode == IDENT_RS_LS)
+    {
+        return Rs_Ls_Result_Get()->Valid;
+    }
+
+    if (Ident_Mode == IDENT_FLUX)
+    {
+        return Flux_Result_Get()->Valid;
+    }
+
+    return false;
 }
 
 Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
@@ -229,4 +249,29 @@ Ident_State_e Identification_State_Get(void)
 const Ident_Envelope_T *Identification_Envelope_Get(void)
 {
     return &Ident_Envelope;
+}
+
+uint8_t Identification_Rs_Ls_Valid_Get(void)
+{
+    return Rs_Ls_Result_Get()->Valid ? 1U : 0U;
+}
+
+float Identification_Rs_Get(void)
+{
+    return Rs_Ls_Result_Get()->Rs_Ohm;
+}
+
+float Identification_Ls_Get(void)
+{
+    return Rs_Ls_Result_Get()->Ls_H;
+}
+
+uint8_t Identification_Flux_Valid_Get(void)
+{
+    return Flux_Result_Get()->Valid ? 1U : 0U;
+}
+
+float Identification_Flux_Get(void)
+{
+    return Flux_Result_Get()->Flux_Wb;
 }

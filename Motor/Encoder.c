@@ -9,7 +9,6 @@
 #include "MT6835.h"
 #include "Math.h"
 #include "Motor_Cal.h"
-#include "Motor_Control.h"
 #include "Motor_Type.h"
 #include "control_params.h"
 #include "motor_params.h"
@@ -112,7 +111,7 @@ void Encoder_DMA_Config(void)
 {
     Feedback_Reset();
 
-    if (!Driver_Bind(Encoder_Config.Type))
+    if (!Driver_Bind((Encoder_Type_e)Encoder_Config.Type))
     {
         Encoder.Fault = 1U;
         return;
@@ -121,27 +120,10 @@ void Encoder_DMA_Config(void)
     Drv_Config();
 }
 
-bool Encoder_Type_Set(Encoder_Type_e Type)
+void Encoder_Config_Changed(void)
 {
-    if (Motor_State_Get() != DISABLED)
-    {
-        return false;
-    }
-
-    if (!Driver_Bind(Type))
-    {
-        return false;
-    }
-
-    if (Encoder_Config.Type != Type)
-    {
-        Motor_Cal_Invalidate();
-    }
-
-    Encoder_Config.Type = Type;
+    Motor_Cal_Invalidate();
     Encoder_DMA_Config();
-
-    return true;
 }
 
 void Encoder_Start(void)

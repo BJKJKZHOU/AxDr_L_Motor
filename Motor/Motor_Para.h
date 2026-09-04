@@ -11,15 +11,6 @@
 
 #include "Motor_Type.h"
 
-typedef enum
-{
-    MOTOR_PARA_RL = 1U << 0,
-    MOTOR_PARA_FLUX = 1U << 1,
-    MOTOR_PARA_JB = 1U << 2,
-    MOTOR_PARA_PP = 1U << 3,
-
-} Motor_Para_Change_e;
-
 typedef struct
 {
     float Iq_Start_A;
@@ -31,7 +22,12 @@ typedef struct
 
 } Motor_IF_Para_T;
 
-void Motor_Para_Changed(uint32_t Changed);
+/* Rebuild all control/model values derived from the current Motor_Para. */
+void Motor_Para_Update(void);
+
+/* Pp also changes the mechanical-to-electrical coordinate mapping. */
+void Motor_Pp_Changed(void);
+
 bool Motor_IF_Para_Build(float Vbus_V, float I_Max_A, Motor_IF_Para_T *Para);
 
 #endif /* MOTOR_PARA_H */

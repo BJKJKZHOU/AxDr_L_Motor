@@ -20,6 +20,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake ninja-build gcc-arm-none-eabi
 
+      - name: Check generated parameter files
+        run: |
+          python3 -m pip install PyYAML
+          python3 tools/gen_parameters.py --check
+
       - name: Configure
         run: cmake --preset gcc-release
 

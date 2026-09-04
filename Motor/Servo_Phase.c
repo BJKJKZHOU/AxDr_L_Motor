@@ -7,7 +7,6 @@
 
 #include "Encoder.h"
 #include "Math.h"
-#include "Motor_Control.h"
 #include "Sin_LUT.h"
 #include "control_params.h"
 #include "motor_params.h"
@@ -21,7 +20,6 @@
  * final direction verification uses an internal fraction of the same envelope.
  */
 #define PHASE_SEARCH_I_DEFAULT_A   0.5f
-#define PHASE_SEARCH_I_MAX_A       2.0f
 #define PHASE_VERIFY_I_RATIO       0.6f
 #define PHASE_ALIGN_TIME_S         0.5f
 #define PHASE_ALIGN_CNT            ((uint32_t)(PHASE_ALIGN_TIME_S / CUR_TS + 0.5f))
@@ -156,22 +154,6 @@ static void Fail(Servo_Phase_Fail_e Reason)
     Result_Snapshot(SERVO_PHASE_RESULT_FAIL, Reason);
 }
 
-bool Servo_Phase_Current_Set(float I_Search_A)
-{
-    if (Motor_State_Get() != DISABLED)
-    {
-        return false;
-    }
-
-    if (!__builtin_isfinite(I_Search_A) || (I_Search_A <= 0.0f))
-    {
-        return false;
-    }
-
-    Servo_Phase_Config.I_Search_A = I_Search_A;
-    return true;
-}
-
 bool Servo_Phase_Start(void)
 {
     float I_Search;
@@ -188,9 +170,9 @@ bool Servo_Phase_Start(void)
         return false;
     }
 
-    if (I_Search > PHASE_SEARCH_I_MAX_A)
+    if (I_Search > SERVO_PHASE_I_MAX_A)
     {
-        I_Search = PHASE_SEARCH_I_MAX_A;
+        I_Search = SERVO_PHASE_I_MAX_A;
     }
 
     if (I_Search > Motor_Lim.I_Max)

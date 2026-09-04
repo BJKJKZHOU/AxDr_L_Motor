@@ -11,13 +11,27 @@ Examples:
         --fast Ia Ib Ic --normal Wm Theta_m Vbus Iq --seconds 10
 
 All USB traffic is binary. Variable names are only a PC-side convenience and are
-translated to the fixed AxDr Var_ID table before transmission.
+translated to the generated AxDr parameter ID table before transmission.
 """
 
 import argparse
 import struct
 import sys
 import time
+
+from parameter_ids_generated import (
+    PARAM_ADC_IA,
+    PARAM_ADC_IB,
+    PARAM_ADC_IC,
+    PARAM_ADC_VBUS,
+    PARAM_RUN_ID,
+    PARAM_RUN_IQ,
+    PARAM_RUN_UD,
+    PARAM_RUN_UQ,
+    PARAM_RUN_THETA_E,
+    PARAM_RUN_THETA_M,
+    PARAM_RUN_WM,
+)
 
 try:
     import serial
@@ -57,26 +71,17 @@ STATUS_NAME = {
 }
 
 VAR = {
-    "ia": (0x0001, 0.001),
-    "ib": (0x0002, 0.001),
-    "ic": (0x0003, 0.001),
-    "vbus": (0x0004, None),
-    "id": (0x0010, 0.001),
-    "iq": (0x0011, 0.001),
-    "ud": (0x0012, 0.001),
-    "uq": (0x0013, 0.001),
-    "theta_e": (0x0014, 0.0002),
-    "theta_m": (0x0101, 0.0002),
-    "wm": (0x0102, 0.1),
-    "va_meas": (0x0120, None),
-    "vb_meas": (0x0121, None),
-    "vc_meas": (0x0122, None),
-    "va_cmd_f": (0x0123, None),
-    "vb_cmd_f": (0x0124, None),
-    "vc_cmd_f": (0x0125, None),
-    "erra": (0x0126, None),
-    "errb": (0x0127, None),
-    "errc": (0x0128, None),
+    "ia": (PARAM_ADC_IA, 0.001),
+    "ib": (PARAM_ADC_IB, 0.001),
+    "ic": (PARAM_ADC_IC, 0.001),
+    "vbus": (PARAM_ADC_VBUS, None),
+    "id": (PARAM_RUN_ID, 0.001),
+    "iq": (PARAM_RUN_IQ, 0.001),
+    "ud": (PARAM_RUN_UD, 0.001),
+    "uq": (PARAM_RUN_UQ, 0.001),
+    "theta_e": (PARAM_RUN_THETA_E, 0.0002),
+    "theta_m": (PARAM_RUN_THETA_M, 0.0002),
+    "wm": (PARAM_RUN_WM, 0.1),
 }
 
 VAR_ID_NAME = {value[0]: name for name, value in VAR.items()}

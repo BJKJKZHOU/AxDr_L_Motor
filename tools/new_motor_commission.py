@@ -41,30 +41,30 @@ import sensorless_test as base
 
 MSG_IDENTIFICATION = 0x05
 
-MODE_IDENT = 4
-CTRL_I_LIMIT_SET = 0x07
-CTRL_PP_SET = 0x08
-CTRL_PP_GET = 0x09
+IDENT_RS_LS_START = 0x01
+IDENT_FLUX_START = 0x02
+IDENT_STATUS = 0x03
+IDENT_ABORT = 0x04
+IDENT_APPLY = 0x05
 
-IDENT_MODE_SET = 0x01
-IDENT_STATUS = 0x02
-IDENT_APPLY = 0x04
 IDENT_RS_LS = 0x01
 IDENT_FLUX = 0x02
 
 IDENT_DONE = 2
 IDENT_FAILED = 3
 
+MODE_IDENT = 4
+
 HOST_CURRENT_GUARD_RATIO = 1.10
 
 FAST_CONFIG_ID = 13
 NORMAL_CONFIG_ID = 14
 FAST_VARS = (
-    ("Ia", 0x0001),
-    ("Ib", 0x0002),
-    ("Ic", 0x0003),
+    ("Ia", base.PARAM_ADC_IA),
+    ("Ib", base.PARAM_ADC_IB),
+    ("Ic", base.PARAM_ADC_IC),
 )
-VBUS_ID = 0x0004
+VBUS_ID = base.PARAM_ADC_VBUS
 
 
 class UserDeclined(Exception):
@@ -144,10 +144,10 @@ class Commission(base.SensorlessTest):
                 pass
 
     def current_limit_set(self):
-        self.request(
-            base.MSG_CONTROL,
-            CTRL_I_LIMIT_SET,
-            struct.pack("<f", self.args.current_limit),
+        self.parameter_write(
+            base.PARAM_LIMIT_I_MAX,
+            base.PARAM_FLOAT,
+            self.args.current_limit,
         )
         print(
             f"Commission current limit={self.args.current_limit:.3f} A; "
@@ -155,27 +155,20 @@ class Commission(base.SensorlessTest):
         )
 
     def pole_pairs_set(self):
-        self.request(
-            base.MSG_CONTROL,
-            CTRL_PP_SET,
-            bytes([self.args.pole_pairs]),
+        self.parameter_write(
+            base.PARAM_MOTOR_PP,
+            base.PARAM_U8,
+            self.args.pole_pairs,
         )
 
-        deadline = time.monotonic() + self.args.timeout
-        while time.monotonic() < deadline:
-            data = self.request(base.MSG_CONTROL, CTRL_PP_GET)
-            if len(data) != 1:
-                raise RuntimeError(
-                    f"invalid pole-pairs response length: {len(data)}"
-                )
-            if data[0] == self.args.pole_pairs:
-                print(f"Motor pole pairs={data[0]} (RAM)")
-                return data[0]
-            time.sleep(0.01)
+        value = self.parameter_read(base.PARAM_MOTOR_PP, base.PARAM_U8)
+        if value != self.args.pole_pairs:
+            raise RuntimeError(
+                f"pole-pairs readback {value} != {self.args.pole_pairs}"
+            )
 
-        raise TimeoutError(
-            f"pole-pairs readback did not reach {self.args.pole_pairs}"
-        )
+        print(f"Motor pole pairs={value} (RAM)")
+        return value
 
     def configure_plot(self):
         self.fast_last = None
@@ -262,8 +255,10 @@ class Commission(base.SensorlessTest):
             wm_test = sign * base.IF_WE_RAD_S / self.args.pole_pairs
             self.speed_set(wm_test)
 
-        self.request(base.MSG_CONTROL, base.CTRL_MODE_SET, bytes([MODE_IDENT]))
-        self.request(MSG_IDENTIFICATION, IDENT_MODE_SET, bytes([mode]))
+        start_op = (IDENT_RS_LS_START if mode == IDENT_RS_LS
+                    else IDENT_FLUX_START)
+
+        self.parameter_write(base.PARAM_MOTOR_MODE, base.PARAM_U8, MODE_IDENT)
         self.request(base.MSG_CONTROL, base.CTRL_ENABLE)
 
         self.run_peak = 0.0
@@ -278,7 +273,7 @@ class Commission(base.SensorlessTest):
         failure = None
 
         try:
-            self.request(base.MSG_CONTROL, base.CTRL_RUN)
+            self.request(MSG_IDENTIFICATION, start_op)
             deadline = start + self.args.ident_timeout
             next_status = start
 

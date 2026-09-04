@@ -1,0 +1,575 @@
+# AxDr_L host-visible parameter dictionary.
+#
+# Single source of truth for value parameters and write-trigger actions.
+# Generated firmware/host files are produced by tools/gen_parameters.py.
+#
+# Value types: u8, i8, f32, i32, u32, position.
+# Actions use type: action, access: wo. Every valid WRITE is one trigger;
+# actions do not store a value and do not depend on value changes.
+
+schema: 1
+
+objects:
+  PARAM_ADC_IA:
+    id: 0x0001
+    type: f32
+    access: ro
+    binding: ADC.Ia_A
+    unit: A
+    description: "ADC采样得到的A相电流反馈。"
+    plot_scale: 0.001
+
+  PARAM_ADC_IB:
+    id: 0x0002
+    type: f32
+    access: ro
+    binding: ADC.Ib_A
+    unit: A
+    description: "ADC采样得到的B相电流反馈。"
+    plot_scale: 0.001
+
+  PARAM_ADC_IC:
+    id: 0x0003
+    type: f32
+    access: ro
+    binding: ADC.Ic_A
+    unit: A
+    description: "由相电流采样链得到的C相电流反馈。"
+    plot_scale: 0.001
+
+  PARAM_ADC_VBUS:
+    id: 0x0004
+    type: f32
+    access: ro
+    binding: ADC.Vbus_V
+    unit: V
+    description: "直流母线电压采样值。"
+    plot_scale: 0.0
+
+  PARAM_RUN_ID:
+    id: 0x0010
+    type: f32
+    access: ro
+    binding: Motor_Run.Id
+    unit: A
+    description: "FOC Park变换后的d轴实际电流反馈。"
+    plot_scale: 0.001
+
+  PARAM_RUN_IQ:
+    id: 0x0011
+    type: f32
+    access: ro
+    binding: Motor_Run.Iq
+    unit: A
+    description: "FOC Park变换后的q轴实际电流反馈。"
+    plot_scale: 0.001
+
+  PARAM_RUN_UD:
+    id: 0x0012
+    type: f32
+    access: ro
+    binding: Motor_Run.Ud
+    unit: V
+    description: "FOC电流环输出的d轴电压。"
+    plot_scale: 0.001
+
+  PARAM_RUN_UQ:
+    id: 0x0013
+    type: f32
+    access: ro
+    binding: Motor_Run.Uq
+    unit: V
+    description: "FOC电流环输出的q轴电压。"
+    plot_scale: 0.001
+
+  PARAM_RUN_THETA_E:
+    id: 0x0014
+    type: f32
+    access: ro
+    binding: Motor_Run.Theta_e
+    unit: rad
+    description: "当前FOC实际使用的电角度。"
+    plot_scale: 0.0002
+
+  PARAM_RUN_UALPHA:
+    id: 0x0015
+    type: f32
+    access: ro
+    binding: Motor_Run.Ualpha
+    unit: V
+    description: "上一快环实际送入SVPWM的alpha轴电压命令。"
+    plot_scale: 0.001
+
+  PARAM_RUN_UBETA:
+    id: 0x0016
+    type: f32
+    access: ro
+    binding: Motor_Run.Ubeta
+    unit: V
+    description: "上一快环实际送入SVPWM的beta轴电压命令。"
+    plot_scale: 0.001
+
+  PARAM_OBS_THETA:
+    id: 0x0020
+    type: f32
+    access: ro
+    binding: Flux_PLL.State.Theta
+    unit: rad
+    description: "磁链观测器PLL估算的电角度。"
+    plot_scale: 0.0002
+
+  PARAM_OBS_WE:
+    id: 0x0021
+    type: f32
+    access: ro
+    binding: Flux_PLL.State.We
+    unit: rad/s
+    description: "磁链观测器PLL估算的电角速度。"
+    plot_scale: 0.1
+
+  PARAM_MOTOR_PP:
+    id: 0x0101
+    type: u8
+    access: rw
+    binding: Motor_Para.Pp
+    description: "电机极对数。"
+    write_state: disabled
+    range:
+      min: 1
+      max: 255
+    on_change: MOTOR_PP
+
+  PARAM_MOTOR_RS:
+    id: 0x0110
+    type: f32
+    access: rw
+    binding: Motor_Para.Rs
+    unit: ohm
+    description: "电机相电阻Rs，供电机模型、电流控制及无感相关算法使用。"
+    write_state: disabled
+    range: { min: 0.0, exclusive_min: true }
+    on_change: MOTOR_PARA
+
+  PARAM_MOTOR_LD:
+    id: 0x0111
+    type: f32
+    access: rw
+    binding: Motor_Para.Ld
+    unit: H
+    description: "电机d轴电感Ld。"
+    write_state: disabled
+    range: { min: 0.0, exclusive_min: true }
+    on_change: MOTOR_PARA
+
+  PARAM_MOTOR_LQ:
+    id: 0x0112
+    type: f32
+    access: rw
+    binding: Motor_Para.Lq
+    unit: H
+    description: "电机q轴电感Lq。"
+    write_state: disabled
+    range: { min: 0.0, exclusive_min: true }
+    on_change: MOTOR_PARA
+
+  PARAM_MOTOR_FLUX:
+    id: 0x0113
+    type: f32
+    access: rw
+    binding: Motor_Para.Flux
+    unit: Wb
+    description: "电机永磁磁链参数。"
+    write_state: disabled
+    range: { min: 0.0, exclusive_min: true }
+    on_change: MOTOR_PARA
+
+  PARAM_MOTOR_J:
+    id: 0x0114
+    type: f32
+    access: rw
+    binding: Motor_Para.J
+    unit: kg*m^2
+    description: "电机及等效负载转动惯量参数J。"
+    write_state: disabled
+    range: { min: 0.0, exclusive_min: true }
+    on_change: MOTOR_PARA
+
+  PARAM_MOTOR_B:
+    id: 0x0115
+    type: f32
+    access: rw
+    binding: Motor_Para.B
+    description: "电机粘性阻尼/摩擦模型参数B。"
+    write_state: disabled
+    range: { min: 0.0 }
+    on_change: MOTOR_PARA
+
+  PARAM_MOTOR_DIR:
+    id: 0x0116
+    type: i8
+    access: rw
+    binding: Motor_Config.Dir
+    description: "用户机械正方向与内部控制方向之间的符号映射，只允许-1或+1。"
+    write_state: disabled
+    allowed: [-1, 1]
+
+  PARAM_LIMIT_I_MAX:
+    id: 0x0201
+    type: f32
+    access: rw
+    binding: User_Lim.I_Max
+    unit: A
+    description: "用户配置的最大相电流限制，实际限制不会超过硬件/固件Motor_Lim.I_Max。"
+    write_state: disabled
+    range: { min: 0.0, exclusive_min: true, max_binding: Motor_Lim.I_Max }
+
+  PARAM_LIMIT_WM_MAX:
+    id: 0x0202
+    type: f32
+    access: rw
+    binding: User_Lim.Wm_Max
+    unit: rad/s
+    description: "用户配置的最大机械角速度限制，实际限制不会超过Motor_Lim.Wm_Max。"
+    write_state: disabled
+    range: { min: 0.0, exclusive_min: true, max_binding: Motor_Lim.Wm_Max }
+
+  PARAM_LIMIT_I_EFFECTIVE:
+    id: 0x0203
+    type: f32
+    access: ro
+    getter: Motor_I_Limit_Effective_Get
+    unit: A
+    description: "当前控制实际使用的相电流上限。"
+
+  PARAM_LIMIT_WM_EFFECTIVE:
+    id: 0x0204
+    type: f32
+    access: ro
+    getter: Motor_Wm_Limit_Effective_Get
+    unit: rad/s
+    description: "当前控制实际使用的机械速度上限，包含Motor、User与Motion限制。"
+
+  PARAM_ENCODER_TYPE:
+    id: 0x0301
+    type: u8
+    access: rw
+    binding: Encoder_Config.Type
+    description: "运行前选择的编码器类型。"
+    write_state: disabled
+    allowed_symbols: [ENC_MT6816, ENC_MT6835]
+    on_change: ENCODER_CONFIG
+
+  PARAM_ENCODER_READY:
+    id: 0x0302
+    type: u8
+    access: ro
+    binding: Encoder.Ready
+    description: "编码器驱动是否已经完成初始化并可供控制使用。"
+    range: { min: 0, max: 1 }
+
+  PARAM_ENCODER_VALID:
+    id: 0x0303
+    type: u8
+    access: ro
+    binding: Encoder.Valid
+    description: "当前编码器反馈数据是否有效。"
+    range: { min: 0, max: 1 }
+
+  PARAM_ENCODER_FAULT:
+    id: 0x0304
+    type: u8
+    access: ro
+    binding: Encoder.Fault
+    description: "当前编码器故障标志。"
+    range: { min: 0, max: 1 }
+
+  PARAM_PHASE_I_SEARCH:
+    id: 0x0401
+    type: f32
+    access: rw
+    binding: Servo_Phase_Config.I_Search_A
+    unit: A
+    description: "伺服寻相过程使用的持续寻相电流。"
+    write_state: disabled
+    range: { min: 0.0, exclusive_min: true, max_symbol: SERVO_PHASE_I_MAX_A }
+
+  PARAM_CAL_VALID:
+    id: 0x0402
+    type: u8
+    access: ro
+    binding: Motor_Cal.Valid
+    description: "当前伺服相位/编码器校准结果是否有效。"
+    range: { min: 0, max: 1 }
+
+  PARAM_CAL_ENC_DIR:
+    id: 0x0403
+    type: i8
+    access: ro
+    binding: Motor_Cal.Enc_Dir
+    description: "寻相得到的编码器方向符号，按工程约定用于机械方向对齐。"
+    range: { min: -1, max: 1 }
+
+  PARAM_CAL_THETA_OFF:
+    id: 0x0404
+    type: f32
+    access: ro
+    binding: Motor_Cal.Theta_Off
+    unit: rad
+    description: "寻相/校准得到的编码器到电角度的零位偏置。"
+
+  PARAM_PHASE_THETA_OFF_ERROR:
+    id: 0x0410
+    type: f32
+    access: ro
+    getter: Servo_Phase_Theta_Off_Error_Get
+    unit: rad
+    description: "最近一次伺服寻相正反扫描得到的电角零偏一致性误差。"
+
+  PARAM_PHASE_VERIFY_MOVE:
+    id: 0x0411
+    type: f32
+    access: ro
+    getter: Servo_Phase_Verify_Move_Get
+    unit: rad
+    description: "最近一次伺服寻相最终正Iq方向验证得到的机械位移。"
+
+  PARAM_RUN_POSITION:
+    id: 0x0501
+    type: position
+    access: ro
+    getter: Parameter_Run_Position_Get
+    unit: turn+rad
+    description: "当前用户机械坐标下的位置反馈。"
+
+  PARAM_RUN_WM:
+    id: 0x0502
+    type: f32
+    access: ro
+    getter: Motor_Wm_Get
+    unit: rad/s
+    description: "当前用户机械坐标下的机械角速度反馈。"
+
+  PARAM_REF_IQ:
+    id: 0x0510
+    type: f32
+    access: ro
+    getter: Motor_Iq_Ref_Get
+    unit: A
+    description: "最近一次快环实际使用的q轴电流参考。"
+
+  PARAM_REF_WM:
+    id: 0x0511
+    type: f32
+    access: ro
+    getter: Motor_Wm_Ref_Get
+    unit: rad/s
+    description: "当前速度控制实际使用的用户机械速度参考。"
+
+  PARAM_REF_POSITION:
+    id: 0x0512
+    type: position
+    access: ro
+    getter: Motor_Position_Ref_Get
+    unit: turn+rad
+    description: "当前位置轨迹实际使用的用户机械位置参考。"
+
+  PARAM_MOTION_WM_MAX:
+    id: 0x0601
+    type: f32
+    access: rw
+    binding: Motion_Config.Wm_Max
+    unit: rad/s
+    description: "运动规划器允许使用的最大机械角速度。"
+    range: { min: 0.0, max_bindings: [User_Lim.Wm_Max, Motor_Lim.Wm_Max] }
+
+  PARAM_MOTION_WM_ACC:
+    id: 0x0602
+    type: f32
+    access: rw
+    binding: Motion_Config.Wm_Acc
+    unit: rad/s^2
+    description: "运动规划器机械加速度限制，可在运行期间修改。"
+    range: { min: 0.0, exclusive_min: true }
+
+  PARAM_MOTION_WM_DEC:
+    id: 0x0603
+    type: f32
+    access: rw
+    binding: Motion_Config.Wm_Dec
+    unit: rad/s^2
+    description: "运动规划器机械减速度限制，可在运行期间修改。"
+    range: { min: 0.0, exclusive_min: true }
+
+  PARAM_MOTOR_MODE:
+    id: 0x0701
+    type: u8
+    access: rw
+    binding: Motor_Mode
+    description: "当前选择的电机控制模式；与TORQUE/SPEED/POSITION/OPEN_LOOP/IDENT/SENSORLESS_SPEED/PHASE_SEARCH对应。"
+    write_state: disabled
+    allowed_symbols: [TORQUE, SPEED, POSITION, OPEN_LOOP, IDENT, SENSORLESS_SPEED, PHASE_SEARCH]
+
+  PARAM_TARGET_TORQUE:
+    id: 0x0702
+    type: f32
+    access: rw
+    binding: Motor_Cmd.Te_Target
+    unit: N*m
+    description: "Torque模式的用户机械转矩目标。"
+
+  PARAM_TARGET_SPEED:
+    id: 0x0703
+    type: f32
+    access: rw
+    binding: Motor_Cmd.Wm_Target
+    unit: rad/s
+    description: "Speed、Open-loop、Sensorless及Flux辨识流程使用的用户机械速度目标。"
+
+  PARAM_TARGET_POSITION:
+    id: 0x0704
+    type: position
+    access: rw
+    binding: Motor_Cmd.Position_Target
+    unit: turn+rad
+    description: "Position模式的用户机械位置目标；wire格式固定为little-endian int32 Turn + float32 Theta，一次写入。"
+
+  PARAM_MOTOR_STATE:
+    id: 0x0710
+    type: u8
+    access: ro
+    getter: Motor_State_Get
+    description: "电机顶级生命周期状态，只读：DISABLED、ENABLED或RUN。状态迁移通过Action完成。"
+    allowed_symbols: [DISABLED, ENABLED, RUN]
+
+  PARAM_EVENT_REPORT:
+    id: 0x0801
+    type: u32
+    access: ro
+    binding: Protection.Report
+    description: "当前提示/报告级事件位图。"
+
+  PARAM_EVENT_WARNING:
+    id: 0x0802
+    type: u32
+    access: ro
+    binding: Protection.Warning
+    description: "当前警告级事件位图；警告不自动关闭电机。"
+
+  PARAM_EVENT_ERROR:
+    id: 0x0803
+    type: u32
+    access: ro
+    binding: Protection.Stop
+    description: "当前错误级事件位图；非零时软件自动Disable并禁止重新Enable。"
+
+  PARAM_EVENT_TRIP:
+    id: 0x0804
+    type: u32
+    access: ro
+    binding: Protection.Trip
+    description: "当前硬件快速关断级事件位图。"
+
+  PARAM_IDENT_RS_LS_VALID:
+    id: 0x0901
+    type: u8
+    access: ro
+    getter: Identification_Rs_Ls_Valid_Get
+    description: "最近一次Rs/Ls辨识结果是否有效。"
+    range: { min: 0, max: 1 }
+
+  PARAM_IDENT_RS_RESULT:
+    id: 0x0902
+    type: f32
+    access: ro
+    getter: Identification_Rs_Get
+    unit: ohm
+    description: "最近一次Rs/Ls辨识得到的相电阻结果。"
+
+  PARAM_IDENT_LS_RESULT:
+    id: 0x0903
+    type: f32
+    access: ro
+    getter: Identification_Ls_Get
+    unit: H
+    description: "最近一次Rs/Ls辨识得到的等效相电感结果。"
+
+  PARAM_IDENT_FLUX_VALID:
+    id: 0x0910
+    type: u8
+    access: ro
+    getter: Identification_Flux_Valid_Get
+    description: "最近一次Flux辨识结果是否有效。"
+    range: { min: 0, max: 1 }
+
+  PARAM_IDENT_FLUX_RESULT:
+    id: 0x0911
+    type: f32
+    access: ro
+    getter: Identification_Flux_Get
+    unit: Wb
+    description: "最近一次Flux辨识得到的永磁磁链结果。"
+
+  ACTION_MOTOR_ENABLE:
+    id: 0x1001
+    type: action
+    access: wo
+    command: MOTOR_CMD_ENABLE
+    description: "使能电机功率级。"
+
+  ACTION_MOTOR_RUN:
+    id: 0x1002
+    type: action
+    access: wo
+    command: MOTOR_CMD_RUN
+    description: "按当前Motor Mode启动运行；PHASE_SEARCH模式下作为异步寻相启动动作。"
+
+  ACTION_MOTOR_STOP:
+    id: 0x1003
+    type: action
+    access: wo
+    command: MOTOR_CMD_STOP
+    description: "停止当前运行并回到ENABLED。"
+
+  ACTION_MOTOR_DISABLE:
+    id: 0x1004
+    type: action
+    access: wo
+    command: MOTOR_CMD_DISABLE
+    description: "立即关闭PWM并进入DISABLED。"
+
+  ACTION_IDENT_RS_LS_START:
+    id: 0x1101
+    type: action
+    access: wo
+    command: MOTOR_CMD_IDENT_START
+    arg: IDENT_RS_LS
+    description: "启动Rs/Ls辨识。"
+
+  ACTION_IDENT_FLUX_START:
+    id: 0x1102
+    type: action
+    access: wo
+    command: MOTOR_CMD_IDENT_START
+    arg: IDENT_FLUX
+    description: "启动Flux辨识。"
+
+  ACTION_IDENT_ABORT:
+    id: 0x1103
+    type: action
+    access: wo
+    command: MOTOR_CMD_IDENT_ABORT
+    description: "中止当前辨识。"
+
+  ACTION_IDENT_APPLY:
+    id: 0x1104
+    type: action
+    access: wo
+    command: MOTOR_CMD_IDENT_APPLY
+    description: "将最近一次有效辨识结果应用到Motor参数。"
+
+  ACTION_PROTECTION_CLEAR:
+    id: 0x1201
+    type: action
+    access: wo
+    command: MOTOR_CMD_PROTECTION_CLEAR
+    description: "在DISABLED状态清除可清除的保护状态。"

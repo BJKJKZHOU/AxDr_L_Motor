@@ -6,7 +6,18 @@
 #ifndef MOTOR_THREAD_H
 #define MOTOR_THREAD_H
 
+#include <stdint.h>
+
+#include "Parameter.h"
 #include "tx_api.h"
+
+#define MOTOR_PARAM_TXN_SHIFT 8U
+
+/* Action context carried with the internal Motor queue message. */
+#define MOTOR_ACTION_ID_SHIFT  0U
+#define MOTOR_ACTION_ID_MASK   0xFFFFUL
+#define MOTOR_ACTION_TXN_SHIFT 16U
+#define MOTOR_ACTION_TXN_MASK  0xFFUL
 
 typedef enum
 {
@@ -16,16 +27,11 @@ typedef enum
     MOTOR_CMD_DISABLE,
     MOTOR_CMD_EN_TOGGLE,
     MOTOR_CMD_RUN_TOGGLE,
-    MOTOR_CMD_MODE_SET,
-    MOTOR_CMD_IDENT_SET,
-    MOTOR_CMD_SPEED_SET,
-    MOTOR_CMD_TORQUE_SET,
-    MOTOR_CMD_POSITION_SET,
-    MOTOR_CMD_ENCODER_TYPE_SET,
-    MOTOR_CMD_PHASE_CURRENT_SET,
+    MOTOR_CMD_IDENT_START,
+    MOTOR_CMD_IDENT_ABORT,
+    MOTOR_CMD_PARAMETER_WRITE,
     MOTOR_CMD_IDENT_APPLY,
-    MOTOR_CMD_I_LIMIT_SET,
-    MOTOR_CMD_PP_SET,
+    MOTOR_CMD_PROTECTION_CLEAR,
 
 } Motor_Cmd_e;
 
@@ -34,14 +40,28 @@ typedef struct
     ULONG Cmd;
     ULONG Arg;
     ULONG Arg2;
+    ULONG Arg3;
     ULONG Reserved;
 
 } Motor_Cmd_Msg_T;
+
+typedef enum
+{
+    MOTOR_PARAM_REQUEST_OK = 0,
+    MOTOR_PARAM_REQUEST_ERR_ID,
+    MOTOR_PARAM_REQUEST_ERR_QUEUE,
+
+} Motor_Parameter_Request_Status_e;
 
 extern TX_SEMAPHORE Motor_Sem;
 extern TX_QUEUE Motor_Cmd_Q;
 extern volatile ULONG Motor_Ready;
 
+Motor_Parameter_Request_Status_e Motor_Parameter_Write_Request(
+    uint16_t Id,
+    Parameter_Type_e Type,
+    const Parameter_Value_T *Value,
+    uint8_t Txn);
 UINT Motor_Thread_Init(VOID *memory_ptr);
 
 #endif /* MOTOR_THREAD_H */

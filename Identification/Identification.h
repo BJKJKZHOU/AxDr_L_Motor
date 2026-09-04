@@ -7,6 +7,7 @@
 #define IDENTIFICATION_H
 
 #include <stdbool.h>
+#include <stdint.h>
 
 #include "Motor_Type.h"
 
@@ -41,6 +42,7 @@ void Identification_Control(void);
 bool Identification_Apply(void);
 
 bool Identification_Active(void);
+bool Identification_Result_Valid(void);
 Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
                                           float Ib_A,
                                           float Ic_A,
@@ -50,8 +52,16 @@ Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
                                           float *Ualpha_V,
                                           float *Ubeta_V);
 
+/* Internal lifecycle accessors. These are not Host-visible protocol state. */
 Ident_Mode_e Identification_Mode_Get(void);
 Ident_State_e Identification_State_Get(void);
 const Ident_Envelope_T *Identification_Envelope_Get(void);
+
+/* Stable final-result accessors used by the Parameter layer. */
+uint8_t Identification_Rs_Ls_Valid_Get(void);
+float Identification_Rs_Get(void);
+float Identification_Ls_Get(void);
+uint8_t Identification_Flux_Valid_Get(void);
+float Identification_Flux_Get(void);
 
 #endif /* IDENTIFICATION_H */

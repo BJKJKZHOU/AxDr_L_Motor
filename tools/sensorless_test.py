@@ -14,6 +14,8 @@ import struct
 import sys
 import time
 
+from parameter_ids_generated import *  # generated Parameter object IDs
+
 try:
     import serial
 except ImportError:
@@ -30,13 +32,25 @@ MSG_PLOT = 0x04
 MSG_NORMAL_DATA = 0x10
 MSG_FAST_DATA = 0x18
 MSG_SENSORLESS = 0x06
+MSG_PARAMETER = 0x07
 
 CTRL_ENABLE = 0x01
 CTRL_RUN = 0x02
 CTRL_STOP = 0x03
 CTRL_DISABLE = 0x04
-CTRL_MODE_SET = 0x05
-CTRL_SPEED_SET = 0x06
+
+PARAM_READ = 0x01
+PARAM_WRITE = 0x02
+
+PARAM_U8 = 0
+PARAM_I8 = 1
+PARAM_FLOAT = 2
+
+PARAM_FORMAT = {
+    PARAM_U8: "<B",
+    PARAM_I8: "<b",
+    PARAM_FLOAT: "<f",
+}
 
 MODE_SENSORLESS_SPEED = 5
 
@@ -54,15 +68,15 @@ NORMAL_MASK = 1 << NORMAL_GROUP
 IF_WE_RAD_S = 120.0
 
 FAST_VARS = (
-    ("Id", 0x0010),
-    ("Iq", 0x0011),
-    ("Ud", 0x0012),
-    ("Uq", 0x0013),
-    ("Ia", 0x0001),
-    ("Ib", 0x0002),
-    ("Ic", 0x0003),
+    ("Id", PARAM_RUN_ID),
+    ("Iq", PARAM_RUN_IQ),
+    ("Ud", PARAM_RUN_UD),
+    ("Uq", PARAM_RUN_UQ),
+    ("Ia", PARAM_ADC_IA),
+    ("Ib", PARAM_ADC_IB),
+    ("Ic", PARAM_ADC_IC),
 )
-VBUS_ID = 0x0004
+VBUS_ID = PARAM_ADC_VBUS
 
 SENSORLESS_STAGE = {
     0: "ALIGN",
@@ -284,8 +298,34 @@ class SensorlessTest:
 
         raise TimeoutError(f"request {msg_type}/{op} timeout")
 
+    def parameter_read(self, param_id, param_type):
+        data = self.request(MSG_PARAMETER, PARAM_READ,
+                            struct.pack("<H", param_id))
+        value_size = struct.calcsize(PARAM_FORMAT[param_type])
+        if len(data) != 3 + value_size:
+            raise RuntimeError(
+                f"invalid parameter response length: {len(data)}"
+            )
+
+        response_id, response_type = struct.unpack_from("<HB", data, 0)
+        if response_id != param_id or response_type != param_type:
+            raise RuntimeError(
+                f"parameter response mismatch: "
+                f"id=0x{response_id:04X} type={response_type}"
+            )
+
+        return struct.unpack_from(PARAM_FORMAT[param_type], data, 3)[0]
+
+    def parameter_write(self, param_id, param_type, value):
+        encoded = struct.pack(PARAM_FORMAT[param_type], value)
+        self.request(
+            MSG_PARAMETER,
+            PARAM_WRITE,
+            struct.pack("<HB", param_id, param_type) + encoded,
+        )
+
     def speed_set(self, wm):
-        self.request(MSG_CONTROL, CTRL_SPEED_SET, struct.pack("<f", wm))
+        self.parameter_write(PARAM_TARGET_SPEED, PARAM_FLOAT, wm)
 
     def configure_plot(self):
         fast_data = bytes([FAST_GROUP, 1, len(FAST_VARS)])
@@ -350,7 +390,7 @@ class SensorlessTest:
             raise RuntimeError("Sensorless stopped before test completion")
 
     def run(self, wm_target):
-        self.request(MSG_CONTROL, CTRL_MODE_SET, bytes([MODE_SENSORLESS_SPEED]))
+        self.parameter_write(PARAM_MOTOR_MODE, PARAM_U8, MODE_SENSORLESS_SPEED)
         self.speed_set(wm_target)
         self.request(MSG_CONTROL, CTRL_ENABLE)
 
