@@ -35,16 +35,16 @@
 
 #define AXDR_IDENT_RS_LS_START 0x01U
 #define AXDR_IDENT_FLUX_START  0x02U
-#define AXDR_IDENT_STATUS      0x03U
 #define AXDR_IDENT_ABORT       0x04U
 #define AXDR_IDENT_APPLY       0x05U
 
 #define AXDR_SENSORLESS_STATUS 0x02U
 #define AXDR_SENSORLESS_STOP   0x03U
 
-/* EVENT_NOTIFY is unsolicited and carries the complete four-level event snapshot. */
-#define AXDR_EVENT_NOTIFY 0x01U
-#define AXDR_EVENT_CLEAR  0x02U
+/* Unsolicited Event payloads. */
+#define AXDR_EVENT_NOTIFY          0x01U
+#define AXDR_EVENT_CLEAR           0x02U
+#define AXDR_EVENT_ACTION_COMPLETE 0x03U
 
 #define AXDR_PLOT_CONFIG 0x01U
 #define AXDR_PLOT_START  0x02U
@@ -80,6 +80,10 @@ typedef struct
 void Protocol_Rx(uint16_t Id, const uint8_t *Data, uint8_t Len);
 void Protocol_Parameter_Write_Response(uint8_t Txn, Parameter_Status_e Status);
 void Protocol_Action_Response(uint8_t Txn,
+                              uint8_t Req_Msg,
+                              uint8_t Req_Op,
+                              AxDr_Status_e Status);
+void Protocol_Action_Complete(uint8_t Txn,
                               uint8_t Req_Msg,
                               uint8_t Req_Op,
                               AxDr_Status_e Status);

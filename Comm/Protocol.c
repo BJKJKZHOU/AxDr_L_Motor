@@ -8,15 +8,12 @@
 #include <string.h>
 
 #include "Encoder.h"
-#include "Flux.h"
 #include "Identification.h"
 #include "IF_Start.h"
-#include "Math.h"
 #include "Motor_Control.h"
 #include "Parameter.h"
 #include "Plot.h"
 #include "Protection.h"
-#include "Rs_Ls.h"
 #include "Sensorless.h"
 #include "Servo_Phase.h"
 #include "USB_Thread.h"
@@ -381,6 +378,23 @@ void Protocol_Action_Response(uint8_t Txn,
     Response(Txn, Req_Msg, Req_Op, Status, 0, 0U);
 }
 
+void Protocol_Action_Complete(uint8_t Txn,
+                              uint8_t Req_Msg,
+                              uint8_t Req_Op,
+                              AxDr_Status_e Status)
+{
+    AxDr_Msg_T Msg = { 0 };
+
+    Msg.Id = (uint16_t)((AXDR_MSG_EVENT << 6) | AXDR_NODE_ID);
+    Msg.Len = 5U;
+    Msg.Data[0] = AXDR_EVENT_ACTION_COMPLETE;
+    Msg.Data[1] = Txn;
+    Msg.Data[2] = Req_Msg;
+    Msg.Data[3] = Req_Op;
+    Msg.Data[4] = (uint8_t)Status;
+    (void)Response_Push(&Msg);
+}
+
 static void Identification_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
 {
     uint8_t Txn;
@@ -428,42 +442,6 @@ static void Identification_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcas
             Status = AXDR_ERR_CONFIG;
         }
     }
-    else if (Op == AXDR_IDENT_STATUS)
-    {
-        uint8_t Resp[11];
-        uint8_t Resp_Len;
-        Ident_Mode_e Mode;
-
-        if (Len != 2U)
-        {
-            Status = AXDR_ERR_LENGTH;
-        }
-        else
-        {
-            Mode = Identification_Mode_Get();
-            Resp[0] = (uint8_t)Mode;
-            Resp[1] = (uint8_t)Identification_State_Get();
-
-            if (Mode == IDENT_FLUX)
-            {
-                const Flux_Result_T *Result = Flux_Result_Get();
-                Resp[2] = Result->Valid ? 1U : 0U;
-                memcpy(&Resp[3], &Result->Flux_Wb, sizeof(float));
-                Resp_Len = 7U;
-            }
-            else
-            {
-                const Rs_Ls_Result_T *Result = Rs_Ls_Result_Get();
-                Resp[2] = Result->Valid ? 1U : 0U;
-                memcpy(&Resp[3], &Result->Rs_Ohm, sizeof(float));
-                memcpy(&Resp[7], &Result->Ls_H, sizeof(float));
-                Resp_Len = 11U;
-            }
-
-            Response(Txn, AXDR_MSG_IDENTIFICATION, Op, AXDR_OK, Resp, Resp_Len);
-            return;
-        }
-    }
     else if (Op == AXDR_IDENT_ABORT)
     {
         if (Len != 2U)
@@ -491,42 +469,29 @@ static void Identification_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcas
     }
     else if (Op == AXDR_IDENT_APPLY)
     {
-        bool Result_Valid;
-
         if (Len != 2U)
         {
             Status = AXDR_ERR_LENGTH;
         }
         else if ((Motor_State_Get() == RUN) ||
                  (Motor_Mode_Get() != IDENT) ||
-                 (Identification_State_Get() != IDENT_DONE))
+                 !Identification_Result_Valid())
         {
             Status = AXDR_ERR_STATE;
         }
+        else if (Motor_Action_Cmd_Send(MOTOR_CMD_IDENT_APPLY,
+                                       0U,
+                                       0U,
+                                       Txn,
+                                       AXDR_MSG_IDENTIFICATION,
+                                       Op,
+                                       true))
+        {
+            return;
+        }
         else
         {
-            Result_Valid = (Identification_Mode_Get() == IDENT_FLUX) ?
-                               Flux_Result_Get()->Valid :
-                               Rs_Ls_Result_Get()->Valid;
-
-            if (!Result_Valid)
-            {
-                Status = AXDR_ERR_CONFIG;
-            }
-            else if (Motor_Action_Cmd_Send(MOTOR_CMD_IDENT_APPLY,
-                                           0U,
-                                           0U,
-                                           Txn,
-                                           AXDR_MSG_IDENTIFICATION,
-                                           Op,
-                                           true))
-            {
-                return;
-            }
-            else
-            {
-                Status = AXDR_ERR_CONFIG;
-            }
+            Status = AXDR_ERR_CONFIG;
         }
     }
     else

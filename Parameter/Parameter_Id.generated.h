@@ -148,6 +148,21 @@ typedef enum
     /* Protection.Trip: 当前硬件快速关断级事件位图。 */
     PARAM_EVENT_TRIP = 0x0804U,
 
+    /* Identification_Rs_Ls_Valid_Get(): 最近一次Rs/Ls辨识结果是否有效。 */
+    PARAM_IDENT_RS_LS_VALID = 0x0901U,
+
+    /* Identification_Rs_Get(): 最近一次Rs/Ls辨识得到的相电阻结果。 */
+    PARAM_IDENT_RS_RESULT = 0x0902U,
+
+    /* Identification_Ls_Get(): 最近一次Rs/Ls辨识得到的等效相电感结果。 */
+    PARAM_IDENT_LS_RESULT = 0x0903U,
+
+    /* Identification_Flux_Valid_Get(): 最近一次Flux辨识结果是否有效。 */
+    PARAM_IDENT_FLUX_VALID = 0x0910U,
+
+    /* Identification_Flux_Get(): 最近一次Flux辨识得到的永磁磁链结果。 */
+    PARAM_IDENT_FLUX_RESULT = 0x0911U,
+
     /* Sensorless_State_Get(): 当前Sensorless状态机状态。 */
     PARAM_SENSORLESS_STATE = 0x0C01U,
 

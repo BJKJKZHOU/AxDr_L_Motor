@@ -5,6 +5,7 @@
 
 #include "motor_thread.h"
 
+#include <stdbool.h>
 #include <string.h>
 
 #include "Motor_Control.h"
@@ -25,6 +26,8 @@ volatile ULONG Motor_Ready = 0U;
 
 static TX_THREAD Motor_Thread;
 static uint8_t Normal_Div = 0U;
+static bool Ident_Action_Pending = false;
+static Motor_Cmd_Msg_T Ident_Action_Msg = { 0 };
 
 static void Motor_Entry(ULONG thread_input);
 
@@ -43,6 +46,26 @@ static void Motor_Action_Response(const Motor_Cmd_Msg_T *Msg, AxDr_Status_e Stat
         (uint8_t)((Reserved >> MOTOR_ACTION_MSG_SHIFT) & MOTOR_ACTION_BYTE_MASK),
         (uint8_t)((Reserved >> MOTOR_ACTION_OP_SHIFT) & MOTOR_ACTION_BYTE_MASK),
         Status);
+}
+
+static void Motor_Async_Action_Poll(void)
+{
+    ULONG Reserved;
+    AxDr_Status_e Status;
+
+    if (!Ident_Action_Pending || Identification_Active())
+    {
+        return;
+    }
+
+    Reserved = Ident_Action_Msg.Reserved;
+    Status = Identification_Result_Valid() ? AXDR_OK : AXDR_ERR_CONFIG;
+    Protocol_Action_Complete(
+        (uint8_t)((Reserved >> MOTOR_ACTION_TXN_SHIFT) & MOTOR_ACTION_BYTE_MASK),
+        (uint8_t)((Reserved >> MOTOR_ACTION_MSG_SHIFT) & MOTOR_ACTION_BYTE_MASK),
+        (uint8_t)((Reserved >> MOTOR_ACTION_OP_SHIFT) & MOTOR_ACTION_BYTE_MASK),
+        Status);
+    Ident_Action_Pending = false;
 }
 
 static void Motor_Cmd_Run(void)
@@ -155,6 +178,11 @@ static void Motor_Cmd_Run(void)
                 {
                     Action_Status = AXDR_ERR_CONFIG;
                 }
+                else
+                {
+                    Ident_Action_Msg = Msg;
+                    Ident_Action_Pending = true;
+                }
                 Motor_Action_Response(&Msg, Action_Status);
                 break;
 
@@ -192,7 +220,7 @@ static void Motor_Cmd_Run(void)
                 Action_Status = AXDR_OK;
                 if ((Motor_State_Get() == RUN) ||
                     (Motor_Mode_Get() != IDENT) ||
-                    (Identification_State_Get() != IDENT_DONE))
+                    !Identification_Result_Valid())
                 {
                     Action_Status = AXDR_ERR_STATE;
                 }
@@ -283,6 +311,7 @@ static void Motor_Entry(ULONG thread_input)
             Protection_Control();
             Motor_Cmd_Run();
             Motor_Control();
+            Motor_Async_Action_Poll();
             Protocol_Event_Poll();
             USB_Tx_Poll();
 
