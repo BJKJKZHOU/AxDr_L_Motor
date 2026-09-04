@@ -349,30 +349,21 @@ objects:
     unit: rad
     description: "最近一次伺服寻相最终正Iq方向验证得到的机械位移。"
 
-  PARAM_RUN_THETA_M:
+  PARAM_RUN_POSITION:
     id: 0x0501
-    type: f32
+    type: position
     access: ro
-    binding: Motor_Run.Theta_m
-    unit: rad
-    description: "当前机械角度反馈。"
-    plot_scale: 0.0002
+    getter: Parameter_Run_Position_Get
+    unit: turn+rad
+    description: "当前用户机械坐标下的位置反馈。"
 
   PARAM_RUN_WM:
     id: 0x0502
     type: f32
     access: ro
-    binding: Motor_Run.Wm
+    getter: Motor_Wm_Get
     unit: rad/s
-    description: "当前机械角速度反馈。"
-    plot_scale: 0.1
-
-  PARAM_RUN_TURN:
-    id: 0x0503
-    type: i32
-    access: ro
-    binding: Motor_Run.Turn
-    description: "上电后累计的内部机械整圈计数，不跨掉电保存。"
+    description: "当前用户机械坐标下的机械角速度反馈。"
 
   PARAM_REF_IQ:
     id: 0x0510

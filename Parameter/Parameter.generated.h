@@ -115,14 +115,11 @@ typedef enum
     /* Servo_Phase_Verify_Move_Get(): 最近一次伺服寻相最终正Iq方向验证得到的机械位移。 */
     PARAM_PHASE_VERIFY_MOVE = 0x0411U,
 
-    /* Motor_Run.Theta_m: 当前机械角度反馈。 */
-    PARAM_RUN_THETA_M = 0x0501U,
+    /* Parameter_Run_Position_Get(): 当前用户机械坐标下的位置反馈。 */
+    PARAM_RUN_POSITION = 0x0501U,
 
-    /* Motor_Run.Wm: 当前机械角速度反馈。 */
+    /* Motor_Wm_Get(): 当前用户机械坐标下的机械角速度反馈。 */
     PARAM_RUN_WM = 0x0502U,
-
-    /* Motor_Run.Turn: 上电后累计的内部机械整圈计数，不跨掉电保存。 */
-    PARAM_RUN_TURN = 0x0503U,
 
     /* Motor_Iq_Ref_Get(): 最近一次快环实际使用的q轴电流参考。 */
     PARAM_REF_IQ = 0x0510U,

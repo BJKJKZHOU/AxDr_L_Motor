@@ -44,6 +44,14 @@ typedef struct
 
 } Parameter_Entry_T;
 
+static Motor_Position_T Parameter_Run_Position_Get(void)
+{
+    Motor_Position_T Position;
+
+    Motor_Position_Get(&Position.Turn, &Position.Theta);
+    return Position;
+}
+
 static const Parameter_Entry_T Parameter_Table[] =
 {
 #define PARAM_GENERATE_TABLE
