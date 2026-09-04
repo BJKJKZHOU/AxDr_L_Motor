@@ -8,6 +8,7 @@
 
 #include <stdint.h>
 
+#include "Motor_Type.h"
 #include "Parameter_Id.generated.h"
 
 #define PARAM_MOTOR_PP_MAX 64U
@@ -19,6 +20,7 @@ typedef enum
     PARAM_FLOAT,
     PARAM_I32,
     PARAM_U32,
+    PARAM_POSITION,
 
 } Parameter_Type_e;
 
@@ -29,6 +31,7 @@ typedef union
     float F32;
     int32_t I32;
     uint32_t U32;
+    Motor_Position_T Position;
 
 } Parameter_Value_T;
 

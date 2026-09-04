@@ -24,12 +24,11 @@
 #define AXDR_MSG_NORMAL_DATA    0x10U
 #define AXDR_MSG_FAST_DATA      0x18U
 
-#define AXDR_CTRL_ENABLE        0x01U
-#define AXDR_CTRL_RUN           0x02U
-#define AXDR_CTRL_STOP          0x03U
-#define AXDR_CTRL_DISABLE       0x04U
-#define AXDR_CTRL_POSITION_SET  0x0BU
-#define AXDR_CTRL_PHASE_STATUS  0x10U
+#define AXDR_CTRL_ENABLE       0x01U
+#define AXDR_CTRL_RUN          0x02U
+#define AXDR_CTRL_STOP         0x03U
+#define AXDR_CTRL_DISABLE      0x04U
+#define AXDR_CTRL_PHASE_STATUS 0x10U
 
 #define AXDR_PARAM_READ  0x01U
 #define AXDR_PARAM_WRITE 0x02U

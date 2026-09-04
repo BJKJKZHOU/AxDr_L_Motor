@@ -77,21 +77,6 @@ static void Response(uint8_t Txn,
     (void)Response_Push(&Msg);
 }
 
-static bool Motor_Cmd_Send2(Motor_Cmd_e Cmd_Id, uint32_t Arg, uint32_t Arg2)
-{
-    Motor_Cmd_Msg_T Msg = { 0 };
-
-    Msg.Cmd = (ULONG)Cmd_Id;
-    Msg.Arg = (ULONG)Arg;
-    Msg.Arg2 = (ULONG)Arg2;
-    return tx_queue_send(&Motor_Cmd_Q, &Msg, TX_NO_WAIT) == TX_SUCCESS;
-}
-
-static bool Motor_Cmd_Send(Motor_Cmd_e Cmd_Id, uint32_t Arg)
-{
-    return Motor_Cmd_Send2(Cmd_Id, Arg, 0U);
-}
-
 static bool Motor_Action_Cmd_Send(Motor_Cmd_e Cmd_Id,
                                   uint32_t Arg,
                                   uint32_t Arg2,
@@ -119,7 +104,7 @@ static bool Motor_Action_Cmd_Send(Motor_Cmd_e Cmd_Id,
 
 static bool Parameter_Cmd_Send(uint16_t Id,
                                Parameter_Type_e Type,
-                               uint32_t Raw,
+                               const Parameter_Value_T *Value,
                                uint8_t Txn,
                                bool Reply)
 {
@@ -127,7 +112,10 @@ static bool Parameter_Cmd_Send(uint16_t Id,
 
     Msg.Cmd = (ULONG)MOTOR_CMD_PARAMETER_WRITE;
     Msg.Arg = (ULONG)Id;
-    Msg.Arg2 = (ULONG)Raw;
+    memcpy(&Msg.Arg2, Value, sizeof(Msg.Arg2));
+    memcpy(&Msg.Arg3,
+           (const uint8_t *)Value + sizeof(Msg.Arg2),
+           sizeof(Msg.Arg3));
     Msg.Reserved = (ULONG)Type | ((ULONG)Txn << MOTOR_PARAM_TXN_SHIFT);
 
     if (Reply)
@@ -162,10 +150,6 @@ static void Control_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
 {
     uint8_t Txn;
     uint8_t Op;
-    uint32_t Arg;
-    uint32_t Arg2;
-    int32_t Turn;
-    float Theta;
     Motor_Cmd_e Cmd;
     AxDr_Status_e Status;
 
@@ -221,45 +205,6 @@ static void Control_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
         {
             Cmd = MOTOR_CMD_DISABLE;
         }
-    }
-    else if (Op == AXDR_CTRL_POSITION_SET)
-    {
-        if (Len != 10U)
-        {
-            Status = AXDR_ERR_LENGTH;
-        }
-        else
-        {
-            memcpy(&Turn, &Data[2], sizeof(Turn));
-            memcpy(&Theta, &Data[6], sizeof(Theta));
-
-            if (!__builtin_isfinite(Theta))
-            {
-                Status = AXDR_ERR_VALUE;
-            }
-            else
-            {
-                memcpy(&Arg, &Turn, sizeof(Arg));
-                memcpy(&Arg2, &Theta, sizeof(Arg2));
-                if (Motor_Action_Cmd_Send(MOTOR_CMD_POSITION_SET,
-                                          Arg,
-                                          Arg2,
-                                          Txn,
-                                          AXDR_MSG_CONTROL,
-                                          Op,
-                                          Broadcast == 0U))
-                {
-                    return;
-                }
-                Status = AXDR_ERR_CONFIG;
-            }
-        }
-
-        if (Broadcast == 0U)
-        {
-            Response(Txn, AXDR_MSG_CONTROL, Op, Status, 0, 0U);
-        }
-        return;
     }
     else if (Op == AXDR_CTRL_PHASE_STATUS)
     {
@@ -333,12 +278,11 @@ static void Parameter_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
     uint8_t Op;
     uint8_t Value_Size;
     uint16_t Id;
-    uint32_t Raw;
     Parameter_Type_e Type;
     Parameter_Value_T Value = { 0 };
     Parameter_Status_e Parameter_Status;
     AxDr_Status_e Status;
-    uint8_t Resp[7];
+    uint8_t Resp[3U + sizeof(Parameter_Value_T)];
 
     Txn = (Len > 0U) ? Data[0] : 0U;
     Op = (Len > 1U) ? Data[1] : 0U;
@@ -395,10 +339,9 @@ static void Parameter_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
             }
             else
             {
-                Raw = 0U;
-                memcpy(&Raw, &Data[5], Value_Size);
+                memcpy(&Value, &Data[5], Value_Size);
 
-                if (!Parameter_Cmd_Send(Id, Type, Raw, Txn, Broadcast == 0U))
+                if (!Parameter_Cmd_Send(Id, Type, &Value, Txn, Broadcast == 0U))
                 {
                     Status = AXDR_ERR_CONFIG;
                 }

@@ -130,6 +130,9 @@ typedef enum
     /* Motor_Cmd.Wm_Target: Speed、Open-loop、Sensorless及Flux辨识流程使用的用户机械速度目标。 */
     PARAM_TARGET_SPEED = 0x0703U,
 
+    /* Motor_Cmd.Position_Target: Position模式的用户机械位置目标；wire格式固定为little-endian int32 Turn + float32 Theta，一次写入。 */
+    PARAM_TARGET_POSITION = 0x0704U,
+
     /* Motor_State_Get(): 电机顶级生命周期状态，只读：DISABLED、ENABLED或RUN。状态迁移通过Action完成。 */
     PARAM_MOTOR_STATE = 0x0710U,
 

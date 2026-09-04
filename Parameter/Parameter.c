@@ -11,6 +11,7 @@
 
 #include "Encoder.h"
 #include "Flux.h"
+#include "Math.h"
 #include "Motion_Type.h"
 #include "Motor_ADC.h"
 #include "Motor_Config.h"
@@ -72,6 +73,17 @@ static Parameter_Status_e Parameter_Value_Check(const Parameter_Entry_T *Entry,
     if (Type != Entry->Type)
     {
         return PARAM_ERR_TYPE;
+    }
+
+    if (Type == PARAM_POSITION)
+    {
+        if (!__builtin_isfinite(Value.Position.Theta) ||
+            (Value.Position.Theta < 0.0f) ||
+            (Value.Position.Theta >= TWO_PI_F))
+        {
+            return PARAM_ERR_VALUE;
+        }
+        return PARAM_OK;
     }
 
     switch (Type)
@@ -191,6 +203,13 @@ static bool Parameter_Value_Equal(const Parameter_Entry_T *Entry,
             return *(const volatile int32_t *)Entry->Data == Value.I32;
         case PARAM_U32:
             return *(const volatile uint32_t *)Entry->Data == Value.U32;
+        case PARAM_POSITION:
+        {
+            const volatile Motor_Position_T *Position =
+                (const volatile Motor_Position_T *)Entry->Data;
+            return (Position->Turn == Value.Position.Turn) &&
+                   (Position->Theta == Value.Position.Theta);
+        }
         default:
             return false;
     }
@@ -216,6 +235,13 @@ static void Parameter_Value_Write(const Parameter_Entry_T *Entry,
         case PARAM_U32:
             *(volatile uint32_t *)Entry->Data = Value.U32;
             break;
+        case PARAM_POSITION:
+        {
+            volatile Motor_Position_T *Position = (volatile Motor_Position_T *)Entry->Data;
+            Position->Turn = Value.Position.Turn;
+            Position->Theta = Value.Position.Theta;
+            break;
+        }
         default:
             break;
     }
@@ -344,6 +370,14 @@ Parameter_Status_e Parameter_Read(uint16_t Id,
         case PARAM_U32:
             Value->U32 = *(const volatile uint32_t *)Entry->Data;
             break;
+        case PARAM_POSITION:
+        {
+            const volatile Motor_Position_T *Position =
+                (const volatile Motor_Position_T *)Entry->Data;
+            Value->Position.Turn = Position->Turn;
+            Value->Position.Theta = Position->Theta;
+            break;
+        }
         default:
             return PARAM_ERR_TYPE;
     }
@@ -376,6 +410,8 @@ uint8_t Parameter_Value_Size(Parameter_Type_e Type)
         case PARAM_I32:
         case PARAM_U32:
             return 4U;
+        case PARAM_POSITION:
+            return (uint8_t)sizeof(Motor_Position_T);
         default:
             return 0U;
     }

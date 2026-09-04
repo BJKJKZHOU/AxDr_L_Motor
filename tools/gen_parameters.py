@@ -28,6 +28,7 @@ TYPE_C = {
     "f32": "PARAM_FLOAT",
     "i32": "PARAM_I32",
     "u32": "PARAM_U32",
+    "position": "PARAM_POSITION",
 }
 
 VALUE_MEMBER_C = {
@@ -80,6 +81,8 @@ def load_objects():
             raise ValueError(f"{name}: exactly one of binding/getter is required")
         if "getter" in obj and obj["access"] != "ro":
             raise ValueError(f"{name}: getter-backed object must be read-only")
+        if "getter" in obj and obj["type"] == "position":
+            raise ValueError(f"{name}: position objects require direct binding")
         object_id = obj["id"]
         if not isinstance(object_id, int) or not 0 <= object_id <= 0xFFFF:
             raise ValueError(f"{name}: id must fit uint16")

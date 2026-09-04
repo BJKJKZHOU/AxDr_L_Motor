@@ -7,8 +7,6 @@
 
 #include <string.h>
 
-#include "Math.h"
-#include "Motor_ADC.h"
 #include "Motor_Control.h"
 #include "Parameter.h"
 #include "Plot.h"
@@ -19,6 +17,7 @@
 #define MOTOR_STACK_SIZE  512U
 #define MOTOR_THREAD_PRIO 5U
 #define MOTOR_CMD_Q_LEN   8U
+#define MOTOR_CMD_Q_WORDS 5U
 
 TX_SEMAPHORE Motor_Sem;
 TX_QUEUE Motor_Cmd_Q;
@@ -51,8 +50,6 @@ static void Motor_Cmd_Run(void)
     Motor_State_e State;
     Motor_Cmd_Msg_T Msg;
     AxDr_Status_e Action_Status;
-    float Value2;
-    int32_t Turn;
     Parameter_Value_T Parameter_Value;
     Parameter_Status_e Parameter_Status;
 
@@ -173,23 +170,12 @@ static void Motor_Cmd_Run(void)
                 Motor_Action_Response(&Msg, Action_Status);
                 break;
 
-            case MOTOR_CMD_POSITION_SET:
-                Action_Status = AXDR_OK;
-                memcpy(&Turn, &Msg.Arg, sizeof(Turn));
-                memcpy(&Value2, &Msg.Arg2, sizeof(Value2));
-                if (__builtin_isfinite(Value2))
-                {
-                    Position_Target_Set(Turn, Value2);
-                }
-                else
-                {
-                    Action_Status = AXDR_ERR_VALUE;
-                }
-                Motor_Action_Response(&Msg, Action_Status);
-                break;
-
             case MOTOR_CMD_PARAMETER_WRITE:
-                memcpy(&Parameter_Value, &Msg.Arg2, sizeof(Parameter_Value));
+                memset(&Parameter_Value, 0, sizeof(Parameter_Value));
+                memcpy(&Parameter_Value, &Msg.Arg2, sizeof(Msg.Arg2));
+                memcpy((uint8_t *)&Parameter_Value + sizeof(Msg.Arg2),
+                       &Msg.Arg3,
+                       sizeof(Msg.Arg3));
                 Parameter_Status = Parameter_Write((uint16_t)Msg.Arg,
                                                    (Parameter_Type_e)(Msg.Reserved & 0xFFU),
                                                    Parameter_Value);
@@ -255,7 +241,7 @@ UINT Motor_Thread_Init(VOID *memory_ptr)
 
     if (tx_queue_create(&Motor_Cmd_Q,
                         "Motor Command",
-                        TX_4_ULONG,
+                        MOTOR_CMD_Q_WORDS,
                         pointer,
                         MOTOR_CMD_Q_LEN * sizeof(Motor_Cmd_Msg_T)) != TX_SUCCESS)
     {

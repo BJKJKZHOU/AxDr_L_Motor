@@ -27,7 +27,6 @@ typedef enum
     MOTOR_CMD_RUN_TOGGLE,
     MOTOR_CMD_IDENT_START,
     MOTOR_CMD_IDENT_ABORT,
-    MOTOR_CMD_POSITION_SET,
     MOTOR_CMD_PARAMETER_WRITE,
     MOTOR_CMD_IDENT_APPLY,
     MOTOR_CMD_PROTECTION_CLEAR,
@@ -39,6 +38,7 @@ typedef struct
     ULONG Cmd;
     ULONG Arg;
     ULONG Arg2;
+    ULONG Arg3;
     ULONG Reserved;
 
 } Motor_Cmd_Msg_T;

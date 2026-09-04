@@ -37,6 +37,20 @@ typedef enum
 } Motor_Fast_Mode_e;
 
 /*
+ * Mechanical position represented as whole turns plus single-turn angle.
+ *
+ * Turn and Theta form one logical value and must be updated together whenever
+ * the position is used as a command or transferred across an interface.
+ * Theta uses rad in [0, 2pi).
+ */
+typedef struct
+{
+    int32_t Turn;
+    float Theta;
+
+} Motor_Position_T;
+
+/*
  * User motion targets.
  *
  * Targets may be modified in DISABLED, ENABLED and RUN.
@@ -44,7 +58,7 @@ typedef enum
  * Only RUN executes the saved target through the active motor mode.
  * Enable, Stop and Disable must not clear or overwrite these targets.
  *
- * Position target uses Pos_Turn + Pos_Theta to preserve single-turn angle precision.
+ * Position target uses Turn + Theta to preserve single-turn angle precision.
  * Targets are stored in the user mechanical coordinate. Motor_Config.Dir maps
  * them into the internal motor coordinate only when they are executed.
  */
@@ -53,8 +67,20 @@ typedef struct
     float Te_Target; /* N*m, user mechanical coordinate */
     float Wm_Target; /* rad/s, user mechanical coordinate */
 
-    int32_t Pos_Turn; /* User mechanical turns */
-    float Pos_Theta; /* rad, [0, 2pi), user mechanical coordinate */
+    /*
+     * Position_Target is the canonical representation. The anonymous legacy
+     * view keeps existing users of Pos_Turn / Pos_Theta source-compatible while
+     * callers are migrated to pass Motor_Position_T as one value.
+     */
+    union
+    {
+        Motor_Position_T Position_Target;
+        struct
+        {
+            int32_t Pos_Turn;
+            float Pos_Theta;
+        };
+    };
 
 } Motor_Cmd_T;
 
