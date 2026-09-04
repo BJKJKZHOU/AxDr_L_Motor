@@ -24,8 +24,6 @@ typedef enum
     PROT_PHASE_LOSS = (1UL << 7),
     PROT_DRIVER = (1UL << 8),
 
-    PROT_SENSORLESS_START_FAILED = (1UL << 11),
-
 } Protection_Event_e;
 
 typedef struct
