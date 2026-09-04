@@ -104,7 +104,7 @@ static AxDr_Status_e Motor_Parameter_Request_Status_Map(
     }
 }
 
-static void Parameter_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
+static void Parameter_Rx(const uint8_t *Data, uint8_t Len)
 {
     uint8_t Txn;
     uint8_t Op;
@@ -129,11 +129,6 @@ static void Parameter_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
     }
     else if (Op == AXDR_PARAM_READ)
     {
-        if (Broadcast != 0U)
-        {
-            return;
-        }
-
         if (Len != 4U)
         {
             Status = AXDR_ERR_LENGTH;
@@ -198,7 +193,7 @@ static void Parameter_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
                                                                Type,
                                                                &Value,
                                                                Txn,
-                                                               Broadcast == 0U);
+                                                               true);
                 Status = Motor_Parameter_Request_Status_Map(Request_Status);
                 if (Status == AXDR_OK)
                 {
@@ -212,18 +207,15 @@ static void Parameter_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
         Status = AXDR_ERR_OP;
     }
 
-    if (Broadcast == 0U)
+    if (Len >= 4U)
     {
-        if (Len >= 4U)
-        {
-            Id_Resp[0] = (uint8_t)Id;
-            Id_Resp[1] = (uint8_t)(Id >> 8);
-            Response(Txn, AXDR_MSG_PARAMETER, Op, Status, Id_Resp, sizeof(Id_Resp));
-        }
-        else
-        {
-            Response(Txn, AXDR_MSG_PARAMETER, Op, Status, NULL, 0U);
-        }
+        Id_Resp[0] = (uint8_t)Id;
+        Id_Resp[1] = (uint8_t)(Id >> 8);
+        Response(Txn, AXDR_MSG_PARAMETER, Op, Status, Id_Resp, sizeof(Id_Resp));
+    }
+    else
+    {
+        Response(Txn, AXDR_MSG_PARAMETER, Op, Status, NULL, 0U);
     }
 }
 
@@ -275,7 +267,7 @@ void Protocol_Action_Complete(uint8_t Txn,
     (void)Response_Push(&Msg);
 }
 
-static void Plot_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
+static void Plot_Rx(const uint8_t *Data, uint8_t Len)
 {
     uint8_t Txn;
     uint8_t Op;
@@ -321,7 +313,7 @@ static void Plot_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
 
                 Status = Plot_Config(Group, Config_ID, Var, Count);
 
-                if ((Status == AXDR_OK) && (Broadcast == 0U))
+                if (Status == AXDR_OK)
                 {
                     Resp[0] = Group;
                     Resp[1] = Config_ID;
@@ -364,10 +356,7 @@ static void Plot_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
         Status = AXDR_ERR_OP;
     }
 
-    if (Broadcast == 0U)
-    {
-        Response(Txn, AXDR_MSG_PLOT, Op, Status, NULL, 0U);
-    }
+    Response(Txn, AXDR_MSG_PLOT, Op, Status, NULL, 0U);
 }
 
 void Protocol_Rx(uint16_t Id, const uint8_t *Data, uint8_t Len)
@@ -383,18 +372,18 @@ void Protocol_Rx(uint16_t Id, const uint8_t *Data, uint8_t Len)
     Msg_Type = (uint8_t)((Id >> 6) & 0x1FU);
     Node = (uint8_t)(Id & 0x3FU);
 
-    if ((Node != 0U) && (Node != AXDR_NODE_ID))
+    if (Node != AXDR_NODE_ID)
     {
         return;
     }
 
     if (Msg_Type == AXDR_MSG_PARAMETER)
     {
-        Parameter_Rx(Data, Len, (Node == 0U) ? 1U : 0U);
+        Parameter_Rx(Data, Len);
     }
     else if (Msg_Type == AXDR_MSG_PLOT)
     {
-        Plot_Rx(Data, Len, (Node == 0U) ? 1U : 0U);
+        Plot_Rx(Data, Len);
     }
 }
 
