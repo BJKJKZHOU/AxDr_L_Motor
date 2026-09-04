@@ -178,7 +178,7 @@ static void Rough_RL_Apply(float Rs, float Ls)
     Motor_Para.Rs = Rs;
     Motor_Para.Ld = Ls;
     Motor_Para.Lq = Ls;
-    Motor_Para_Changed(MOTOR_PARA_RL);
+    Motor_Para_Update();
     Current_Loop_State_Reset();
 }
 
@@ -192,7 +192,7 @@ static void Rough_RL_Restore(void)
     Motor_Para.Rs = Rs_Save;
     Motor_Para.Ld = Ld_Save;
     Motor_Para.Lq = Lq_Save;
-    Motor_Para_Changed(MOTOR_PARA_RL);
+    Motor_Para_Update();
     Current_Loop_State_Reset();
     RL_Temporary = false;
 }

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from collections import defaultdict
 from pathlib import Path
 import sys
 
@@ -30,12 +31,10 @@ TYPE_C = {
 }
 VALUE_MEMBER_C = {"u8": "U8", "i8": "I8", "f32": "F32", "i32": "I32", "u32": "U32"}
 CAST_C = {"u8": "uint8_t", "i8": "int8_t", "f32": "float", "i32": "int32_t", "u32": "uint32_t"}
-CHANGE_C = {
-    "MOTOR_PARA_RL": "PARAM_CHANGE_MOTOR_RL",
-    "MOTOR_PARA_FLUX": "PARAM_CHANGE_MOTOR_FLUX",
-    "MOTOR_PARA_JB": "PARAM_CHANGE_MOTOR_JB",
-    "MOTOR_PARA_PP": "PARAM_CHANGE_MOTOR_PP",
-    "ENCODER_CONFIG": "PARAM_CHANGE_ENCODER",
+ON_CHANGE_C = {
+    "MOTOR_PARA": "Motor_Para_Update();",
+    "MOTOR_PP": "Motor_Pp_Changed();",
+    "ENCODER_CONFIG": "Encoder_Config_Changed();",
 }
 
 
@@ -78,6 +77,9 @@ def load_objects():
             raise ValueError(f"{name}: exactly one of binding/getter is required")
         if "getter" in obj and obj["access"] != "ro":
             raise ValueError(f"{name}: getter-backed object must be read-only")
+        on_change = obj.get("on_change")
+        if on_change is not None and on_change not in ON_CHANGE_C:
+            raise ValueError(f"{name}: unsupported on_change {on_change}")
     return objects
 
 
@@ -123,15 +125,6 @@ def flags_expr(obj):
     if obj.get("write_state") == "disabled":
         flags.append("PARAM_FLAG_DISABLED_ONLY")
     return " | ".join(flags) if flags else "0U"
-
-
-def change_expr(obj):
-    value = obj.get("on_change")
-    if value is None:
-        return "PARAM_CHANGE_NONE"
-    if value not in CHANGE_C:
-        raise ValueError(f"unsupported on_change {value}")
-    return CHANGE_C[value]
 
 
 def validate_conditions(obj):
@@ -185,7 +178,7 @@ def render_inc(objects):
     lines.append("#if defined(PARAM_GENERATE_TABLE)")
     for name, obj in values(objects):
         data = f"&{obj['binding']}" if "binding" in obj else "NULL"
-        lines.append("{ " + f"{name}, {TYPE_C[obj['type']]}, {data}, {min_expr(obj)}, {max_expr(obj)}, {flags_expr(obj)}, {change_expr(obj)} " + "},")
+        lines.append("{ " + f"{name}, {TYPE_C[obj['type']]}, {data}, {min_expr(obj)}, {max_expr(obj)}, {flags_expr(obj)} " + "},")
 
     lines += ["", "#elif defined(PARAM_GENERATE_VALIDATE)"]
     for name, obj in values(objects):
@@ -193,6 +186,16 @@ def render_inc(objects):
         if not conditions:
             continue
         lines += [f"case {name}:", "    if (" + " ||\n        ".join(conditions) + ")", "    {", "        return PARAM_ERR_VALUE;", "    }", "    break;", ""]
+
+    lines += ["#elif defined(PARAM_GENERATE_ON_CHANGE)"]
+    groups = defaultdict(list)
+    for name, obj in values(objects):
+        if "on_change" in obj:
+            groups[obj["on_change"]].append(name)
+    for on_change, names in groups.items():
+        for name in names:
+            lines.append(f"case {name}:")
+        lines += [f"    {ON_CHANGE_C[on_change]}", "    break;", ""]
 
     lines += ["#elif defined(PARAM_GENERATE_READ)"]
     for name, obj in values(objects):

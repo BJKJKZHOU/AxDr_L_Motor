@@ -656,7 +656,7 @@ bool Motor_Pp_Set(uint8_t Pp)
     }
 
     Motor_Para.Pp = Pp;
-    Motor_Para_Changed(MOTOR_PARA_PP);
+    Motor_Pp_Changed();
     return true;
 }
 

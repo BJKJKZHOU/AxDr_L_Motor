@@ -153,7 +153,7 @@ objects:
     range:
       min: 1
       max: 64
-    on_change: MOTOR_PARA_PP
+    on_change: MOTOR_PP
 
   PARAM_MOTOR_RS:
     id: 0x0110
@@ -164,7 +164,7 @@ objects:
     description: "电机相电阻Rs，供电机模型、电流控制及无感相关算法使用。"
     write_state: disabled
     range: { min: 0.0, exclusive_min: true }
-    on_change: MOTOR_PARA_RL
+    on_change: MOTOR_PARA
 
   PARAM_MOTOR_LD:
     id: 0x0111
@@ -175,7 +175,7 @@ objects:
     description: "电机d轴电感Ld。"
     write_state: disabled
     range: { min: 0.0, exclusive_min: true }
-    on_change: MOTOR_PARA_RL
+    on_change: MOTOR_PARA
 
   PARAM_MOTOR_LQ:
     id: 0x0112
@@ -186,7 +186,7 @@ objects:
     description: "电机q轴电感Lq。"
     write_state: disabled
     range: { min: 0.0, exclusive_min: true }
-    on_change: MOTOR_PARA_RL
+    on_change: MOTOR_PARA
 
   PARAM_MOTOR_FLUX:
     id: 0x0113
@@ -197,7 +197,7 @@ objects:
     description: "电机永磁磁链参数。"
     write_state: disabled
     range: { min: 0.0, exclusive_min: true }
-    on_change: MOTOR_PARA_FLUX
+    on_change: MOTOR_PARA
 
   PARAM_MOTOR_J:
     id: 0x0114
@@ -208,7 +208,7 @@ objects:
     description: "电机及等效负载转动惯量参数J。"
     write_state: disabled
     range: { min: 0.0, exclusive_min: true }
-    on_change: MOTOR_PARA_JB
+    on_change: MOTOR_PARA
 
   PARAM_MOTOR_B:
     id: 0x0115
@@ -218,7 +218,7 @@ objects:
     description: "电机粘性阻尼/摩擦模型参数B。"
     write_state: disabled
     range: { min: 0.0 }
-    on_change: MOTOR_PARA_JB
+    on_change: MOTOR_PARA
 
   PARAM_MOTOR_DIR:
     id: 0x0116

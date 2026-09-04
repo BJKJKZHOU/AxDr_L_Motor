@@ -25,13 +25,6 @@
 #define PARAM_FLAG_HOST_WRITE    (1U << 0)
 #define PARAM_FLAG_DISABLED_ONLY (1U << 1)
 
-#define PARAM_CHANGE_NONE        0U
-#define PARAM_CHANGE_MOTOR_RL    (1U << 0)
-#define PARAM_CHANGE_MOTOR_FLUX  (1U << 1)
-#define PARAM_CHANGE_MOTOR_JB    (1U << 2)
-#define PARAM_CHANGE_MOTOR_PP    (1U << 3)
-#define PARAM_CHANGE_ENCODER     (1U << 4)
-
 typedef struct
 {
     uint16_t Id;
@@ -40,7 +33,6 @@ typedef struct
     float Min;
     float Max;
     uint8_t Flags;
-    uint32_t Change;
 
 } Parameter_Entry_T;
 
@@ -202,27 +194,15 @@ static void Parameter_Value_Write(const Parameter_Entry_T *Entry,
     }
 }
 
-static void Parameter_Change_Apply(uint32_t Change)
+static void Parameter_On_Change(uint16_t Id)
 {
-    if ((Change & PARAM_CHANGE_MOTOR_RL) != 0U)
+    switch (Id)
     {
-        Motor_Para_Changed(MOTOR_PARA_RL);
-    }
-    if ((Change & PARAM_CHANGE_MOTOR_FLUX) != 0U)
-    {
-        Motor_Para_Changed(MOTOR_PARA_FLUX);
-    }
-    if ((Change & PARAM_CHANGE_MOTOR_JB) != 0U)
-    {
-        Motor_Para_Changed(MOTOR_PARA_JB);
-    }
-    if ((Change & PARAM_CHANGE_MOTOR_PP) != 0U)
-    {
-        Motor_Para_Changed(MOTOR_PARA_PP);
-    }
-    if ((Change & PARAM_CHANGE_ENCODER) != 0U)
-    {
-        Encoder_Config_Changed();
+#define PARAM_GENERATE_ON_CHANGE
+#include "Parameter.generated.inc"
+#undef PARAM_GENERATE_ON_CHANGE
+        default:
+            break;
     }
 }
 
@@ -267,7 +247,7 @@ static Parameter_Status_e Parameter_Write_Common(uint16_t Id,
     }
 
     Parameter_Value_Write(Entry, Value);
-    Parameter_Change_Apply(Entry->Change);
+    Parameter_On_Change(Entry->Id);
 
     return PARAM_OK;
 }

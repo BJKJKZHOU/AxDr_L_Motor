@@ -28,42 +28,39 @@ Motor_Para_T Motor_Para = MOTOR_PARA_DEFAULT;
 
 static float IF_We_RL_Base = MOTOR_IF_WE_RL_RATIO * MOTOR_RS_DEFAULT / MOTOR_LQ_DEFAULT;
 
-void Motor_Para_Changed(uint32_t Changed)
+void Motor_Para_Update(void)
 {
     float Kt;
     float Den;
 
-    if ((Changed & MOTOR_PARA_PP) != 0U)
+    Id_Ctrl.Para.Kp = Motor_Para.Ld * CUR_WC_DEFAULT;
+    Id_Ctrl.Para.Ki = Motor_Para.Rs * CUR_WC_DEFAULT;
+    Iq_Ctrl.Para.Kp = Motor_Para.Lq * CUR_WC_DEFAULT;
+    Iq_Ctrl.Para.Ki = Motor_Para.Rs * CUR_WC_DEFAULT;
+
+    IF_We_RL_Base = (Motor_Para.Lq > 0.0f) ?
+                        MOTOR_IF_WE_RL_RATIO * Motor_Para.Rs / Motor_Para.Lq :
+                        0.0f;
+
+    Kt = 1.5f * (float)Motor_Para.Pp * Motor_Para.Flux;
+    Den = (float)Motor_Para.Pp * Kt;
+
+    if (Den > 0.0f)
     {
-        Motor_Cal_Invalidate();
+        Speed_Ctrl.Para.Kp = Motor_Para.J * SPD_WC_DEFAULT / Den;
+        Speed_Ctrl.Para.Ki = Motor_Para.B * SPD_WC_DEFAULT / Den;
     }
-
-    if ((Changed & MOTOR_PARA_RL) != 0U)
+    else
     {
-        Id_Ctrl.Para.Kp = Motor_Para.Ld * CUR_WC_DEFAULT;
-        Id_Ctrl.Para.Ki = Motor_Para.Rs * CUR_WC_DEFAULT;
-        Iq_Ctrl.Para.Kp = Motor_Para.Lq * CUR_WC_DEFAULT;
-        Iq_Ctrl.Para.Ki = Motor_Para.Rs * CUR_WC_DEFAULT;
-
-        IF_We_RL_Base = (Motor_Para.Lq > 0.0f) ? MOTOR_IF_WE_RL_RATIO * Motor_Para.Rs / Motor_Para.Lq : 0.0f;
+        Speed_Ctrl.Para.Kp = 0.0f;
+        Speed_Ctrl.Para.Ki = 0.0f;
     }
+}
 
-    if ((Changed & (MOTOR_PARA_PP | MOTOR_PARA_FLUX | MOTOR_PARA_JB)) != 0U)
-    {
-        Kt = 1.5f * (float)Motor_Para.Pp * Motor_Para.Flux;
-        Den = (float)Motor_Para.Pp * Kt;
-
-        if (Den > 0.0f)
-        {
-            Speed_Ctrl.Para.Kp = Motor_Para.J * SPD_WC_DEFAULT / Den;
-            Speed_Ctrl.Para.Ki = Motor_Para.B * SPD_WC_DEFAULT / Den;
-        }
-        else
-        {
-            Speed_Ctrl.Para.Kp = 0.0f;
-            Speed_Ctrl.Para.Ki = 0.0f;
-        }
-    }
+void Motor_Pp_Changed(void)
+{
+    Motor_Cal_Invalidate();
+    Motor_Para_Update();
 }
 
 bool Motor_IF_Para_Build(float Vbus_V, float I_Max_A, Motor_IF_Para_T *Para)

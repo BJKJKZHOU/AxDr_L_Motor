@@ -150,7 +150,7 @@ bool Identification_Apply(void)
         Motor_Para.Rs = Rs_Ls_Result->Rs_Ohm;
         Motor_Para.Ld = Rs_Ls_Result->Ls_H;
         Motor_Para.Lq = Rs_Ls_Result->Ls_H;
-        Motor_Para_Changed(MOTOR_PARA_RL);
+        Motor_Para_Update();
         return true;
     }
 
@@ -163,7 +163,7 @@ bool Identification_Apply(void)
         }
 
         Motor_Para.Flux = Flux_Result->Flux_Wb;
-        Motor_Para_Changed(MOTOR_PARA_FLUX);
+        Motor_Para_Update();
         return true;
     }
 
