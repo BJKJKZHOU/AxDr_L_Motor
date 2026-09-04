@@ -13,6 +13,7 @@
 #include "Plot.h"
 #include "Protocol.h"
 #include "Protection.h"
+#include "Servo_Phase.h"
 #include "USB_Thread.h"
 
 #define MOTOR_STACK_SIZE  512U
@@ -28,6 +29,8 @@ static TX_THREAD Motor_Thread;
 static uint8_t Normal_Div = 0U;
 static bool Ident_Action_Pending = false;
 static Motor_Cmd_Msg_T Ident_Action_Msg = { 0 };
+static bool Phase_Action_Pending = false;
+static Motor_Cmd_Msg_T Phase_Action_Msg = { 0 };
 
 static void Motor_Entry(ULONG thread_input);
 
@@ -48,24 +51,33 @@ static void Motor_Action_Response(const Motor_Cmd_Msg_T *Msg, AxDr_Status_e Stat
         Status);
 }
 
-static void Motor_Async_Action_Poll(void)
+static void Motor_Action_Complete(const Motor_Cmd_Msg_T *Msg, AxDr_Status_e Status)
 {
     ULONG Reserved;
-    AxDr_Status_e Status;
 
-    if (!Ident_Action_Pending || Identification_Active())
-    {
-        return;
-    }
-
-    Reserved = Ident_Action_Msg.Reserved;
-    Status = Identification_Result_Valid() ? AXDR_OK : AXDR_ERR_CONFIG;
+    Reserved = Msg->Reserved;
     Protocol_Action_Complete(
         (uint8_t)((Reserved >> MOTOR_ACTION_TXN_SHIFT) & MOTOR_ACTION_BYTE_MASK),
         (uint8_t)((Reserved >> MOTOR_ACTION_MSG_SHIFT) & MOTOR_ACTION_BYTE_MASK),
         (uint8_t)((Reserved >> MOTOR_ACTION_OP_SHIFT) & MOTOR_ACTION_BYTE_MASK),
         Status);
-    Ident_Action_Pending = false;
+}
+
+static void Motor_Async_Action_Poll(void)
+{
+    if (Ident_Action_Pending && !Identification_Active())
+    {
+        Motor_Action_Complete(&Ident_Action_Msg,
+                              Identification_Result_Valid() ? AXDR_OK : AXDR_ERR_CONFIG);
+        Ident_Action_Pending = false;
+    }
+
+    if (Phase_Action_Pending && !Servo_Phase_Active())
+    {
+        Motor_Action_Complete(&Phase_Action_Msg,
+                              Servo_Phase_Result_Valid() ? AXDR_OK : AXDR_ERR_CONFIG);
+        Phase_Action_Pending = false;
+    }
 }
 
 static void Motor_Cmd_Run(void)
@@ -109,6 +121,11 @@ static void Motor_Cmd_Run(void)
                     if (Motor_State_Get() != RUN)
                     {
                         Action_Status = AXDR_ERR_CONFIG;
+                    }
+                    else if (Motor_Mode_Get() == PHASE_SEARCH)
+                    {
+                        Phase_Action_Msg = Msg;
+                        Phase_Action_Pending = true;
                     }
                 }
                 Motor_Action_Response(&Msg, Action_Status);

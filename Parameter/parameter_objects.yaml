@@ -328,6 +328,22 @@ objects:
     unit: rad
     description: "寻相/校准得到的编码器到电角度的零位偏置。"
 
+  PARAM_PHASE_THETA_OFF_ERROR:
+    id: 0x0410
+    type: f32
+    access: ro
+    getter: Servo_Phase_Theta_Off_Error_Get
+    unit: rad
+    description: "最近一次伺服寻相正反扫描得到的电角零偏一致性误差。"
+
+  PARAM_PHASE_VERIFY_MOVE:
+    id: 0x0411
+    type: f32
+    access: ro
+    getter: Servo_Phase_Verify_Move_Get
+    unit: rad
+    description: "最近一次伺服寻相最终正Iq方向验证得到的机械位移。"
+
   PARAM_RUN_THETA_M:
     id: 0x0501
     type: f32

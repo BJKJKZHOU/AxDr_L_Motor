@@ -74,6 +74,21 @@ bool Servo_Phase_Result_Get(int8_t *Enc_Dir, float *Theta_Off);
 const Servo_Phase_Result_T *Servo_Phase_Last_Result_Get(void);
 void Servo_Phase_Clear(void);
 
+static inline bool Servo_Phase_Result_Valid(void)
+{
+    return Servo_Phase_Last_Result_Get()->State == SERVO_PHASE_RESULT_PASS;
+}
+
+static inline float Servo_Phase_Theta_Off_Error_Get(void)
+{
+    return Servo_Phase_Last_Result_Get()->Theta_Off_Error;
+}
+
+static inline float Servo_Phase_Verify_Move_Get(void)
+{
+    return Servo_Phase_Last_Result_Get()->Verify_Move;
+}
+
 Motor_Fast_Mode_e Servo_Phase_Fast_Run(float *Theta_e,
                                        float *Id_Ref,
                                        float *Iq_Ref,

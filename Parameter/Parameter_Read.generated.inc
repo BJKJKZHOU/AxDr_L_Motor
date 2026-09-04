@@ -1,4 +1,12 @@
 /* Generated from Parameter/parameter_objects.yaml. DO NOT EDIT. */
+case PARAM_PHASE_THETA_OFF_ERROR:
+    Value->F32 = (float)Servo_Phase_Theta_Off_Error_Get();
+    return PARAM_OK;
+
+case PARAM_PHASE_VERIFY_MOVE:
+    Value->F32 = (float)Servo_Phase_Verify_Move_Get();
+    return PARAM_OK;
+
 case PARAM_MOTOR_STATE:
     Value->U8 = (uint8_t)Motor_State_Get();
     return PARAM_OK;

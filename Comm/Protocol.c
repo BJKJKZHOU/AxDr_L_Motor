@@ -7,7 +7,6 @@
 
 #include <string.h>
 
-#include "Encoder.h"
 #include "Identification.h"
 #include "IF_Start.h"
 #include "Motor_Control.h"
@@ -15,7 +14,6 @@
 #include "Plot.h"
 #include "Protection.h"
 #include "Sensorless.h"
-#include "Servo_Phase.h"
 #include "USB_Thread.h"
 #include "motor_thread.h"
 
@@ -202,46 +200,6 @@ static void Control_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
         {
             Cmd = MOTOR_CMD_DISABLE;
         }
-    }
-    else if (Op == AXDR_CTRL_PHASE_STATUS)
-    {
-        uint8_t Resp[40];
-        const Servo_Phase_Result_T *Result;
-
-        if (Len != 2U)
-        {
-            Status = AXDR_ERR_LENGTH;
-        }
-
-        if (Broadcast == 0U)
-        {
-            if (Status == AXDR_OK)
-            {
-                Result = Servo_Phase_Last_Result_Get();
-                Resp[0] = (uint8_t)Result->State;
-                Resp[1] = (uint8_t)Result->Fail;
-                Resp[2] = Motor_Cal.Valid;
-                Resp[3] = (uint8_t)Result->Enc_Dir;
-                Resp[4] = Encoder.Ready;
-                Resp[5] = Encoder.Fault;
-                Resp[6] = Encoder.Valid;
-                Resp[7] = (uint8_t)Encoder_Config.Type;
-                memcpy(&Resp[8], &Result->Theta_Off_Pos, sizeof(float));
-                memcpy(&Resp[12], &Result->Theta_Off_Neg, sizeof(float));
-                memcpy(&Resp[16], &Result->Theta_Off_Error, sizeof(float));
-                memcpy(&Resp[20], &Result->Theta_Off, sizeof(float));
-                memcpy(&Resp[24], &Result->Pos_Move, sizeof(float));
-                memcpy(&Resp[28], &Result->Neg_Move, sizeof(float));
-                memcpy(&Resp[32], &Result->Verify_Move, sizeof(float));
-                memcpy(&Resp[36], &Result->I_Search_A, sizeof(float));
-                Response(Txn, AXDR_MSG_CONTROL, Op, Status, Resp, sizeof(Resp));
-            }
-            else
-            {
-                Response(Txn, AXDR_MSG_CONTROL, Op, Status, 0, 0U);
-            }
-        }
-        return;
     }
     else
     {
