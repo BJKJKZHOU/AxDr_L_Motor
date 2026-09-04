@@ -298,6 +298,9 @@ static void Motor_Cmd_Run(void)
             default:
                 break;
         }
+
+        /* Close any finite action ended by this command before another command can reuse its context. */
+        Motor_Async_Action_Poll();
     }
 }
 
