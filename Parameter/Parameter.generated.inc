@@ -14,8 +14,6 @@
 { PARAM_RUN_UBETA, PARAM_FLOAT, &Motor_Run.Ubeta, -INFINITY, INFINITY, 0U },
 { PARAM_OBS_THETA, PARAM_FLOAT, &Flux_PLL.State.Theta, -INFINITY, INFINITY, 0U },
 { PARAM_OBS_WE, PARAM_FLOAT, &Flux_PLL.State.We, -INFINITY, INFINITY, 0U },
-{ PARAM_OBS_PLL_ERR, PARAM_FLOAT, &Flux_PLL.State.Err, -INFINITY, INFINITY, 0U },
-{ PARAM_OBS_FLUX_ERR, PARAM_FLOAT, &Flux_Obs.State.Flux_Err, -INFINITY, INFINITY, 0U },
 { PARAM_MOTOR_PP, PARAM_U8, &Motor_Para.Pp, 1.0f, 255.0f, PARAM_FLAG_HOST_WRITE | PARAM_FLAG_DISABLED_ONLY },
 { PARAM_MOTOR_RS, PARAM_FLOAT, &Motor_Para.Rs, 0.0f, INFINITY, PARAM_FLAG_HOST_WRITE | PARAM_FLAG_DISABLED_ONLY },
 { PARAM_MOTOR_LD, PARAM_FLOAT, &Motor_Para.Ld, 0.0f, INFINITY, PARAM_FLAG_HOST_WRITE | PARAM_FLAG_DISABLED_ONLY },
@@ -347,14 +345,6 @@ case PARAM_OBS_THETA:
 case PARAM_OBS_WE:
     *Scale = 0.1f;
     return &Flux_PLL.State.We;
-
-case PARAM_OBS_PLL_ERR:
-    *Scale = 0.0001f;
-    return &Flux_PLL.State.Err;
-
-case PARAM_OBS_FLUX_ERR:
-    *Scale = 1e-09f;
-    return &Flux_Obs.State.Flux_Err;
 
 #else
 #error "Parameter.generated.inc section not selected"

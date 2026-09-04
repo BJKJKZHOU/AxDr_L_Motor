@@ -127,22 +127,6 @@ objects:
     description: "磁链观测器PLL估算的电角速度。"
     plot_scale: 0.1
 
-  PARAM_OBS_PLL_ERR:
-    id: 0x0022
-    type: f32
-    access: ro
-    binding: Flux_PLL.State.Err
-    description: "磁链观测器PLL的相位误差信号。"
-    plot_scale: 0.0001
-
-  PARAM_OBS_FLUX_ERR:
-    id: 0x0023
-    type: f32
-    access: ro
-    binding: Flux_Obs.State.Flux_Err
-    description: "磁链观测器内部的磁链误差信号。"
-    plot_scale: 1.0e-9
-
   PARAM_MOTOR_PP:
     id: 0x0101
     type: u8

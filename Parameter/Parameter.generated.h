@@ -43,12 +43,6 @@ typedef enum
     /* Flux_PLL.State.We: 磁链观测器PLL估算的电角速度。 */
     PARAM_OBS_WE = 0x0021U,
 
-    /* Flux_PLL.State.Err: 磁链观测器PLL的相位误差信号。 */
-    PARAM_OBS_PLL_ERR = 0x0022U,
-
-    /* Flux_Obs.State.Flux_Err: 磁链观测器内部的磁链误差信号。 */
-    PARAM_OBS_FLUX_ERR = 0x0023U,
-
     /* Motor_Para.Pp: 电机极对数。 */
     PARAM_MOTOR_PP = 0x0101U,
 
