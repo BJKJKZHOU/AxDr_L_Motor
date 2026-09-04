@@ -5,15 +5,12 @@
 
 #include "Protocol.h"
 
+#include <stddef.h>
 #include <string.h>
 
-#include "Identification.h"
-#include "IF_Start.h"
-#include "Motor_Control.h"
 #include "Parameter.h"
 #include "Plot.h"
 #include "Protection.h"
-#include "Sensorless.h"
 #include "USB_Thread.h"
 #include "motor_thread.h"
 
@@ -64,61 +61,12 @@ static void Response(uint8_t Txn,
     Msg.Data[2] = Req_Op;
     Msg.Data[3] = (uint8_t)Status;
 
-    if ((Data != 0) && (Len != 0U))
+    if ((Data != NULL) && (Len != 0U))
     {
         memcpy(&Msg.Data[4], Data, Len);
     }
 
     (void)Response_Push(&Msg);
-}
-
-static bool Motor_Action_Cmd_Send(Motor_Cmd_e Cmd_Id,
-                                  uint32_t Arg,
-                                  uint32_t Arg2,
-                                  uint8_t Txn,
-                                  uint8_t Req_Msg,
-                                  uint8_t Req_Op,
-                                  bool Reply)
-{
-    Motor_Cmd_Msg_T Msg = { 0 };
-
-    Msg.Cmd = (ULONG)Cmd_Id;
-    Msg.Arg = (ULONG)Arg;
-    Msg.Arg2 = (ULONG)Arg2;
-    Msg.Reserved = ((ULONG)Req_Op << MOTOR_ACTION_OP_SHIFT) |
-                   ((ULONG)Req_Msg << MOTOR_ACTION_MSG_SHIFT) |
-                   ((ULONG)Txn << MOTOR_ACTION_TXN_SHIFT);
-
-    if (Reply)
-    {
-        Msg.Reserved |= MOTOR_ACTION_RESPONSE;
-    }
-
-    return tx_queue_send(&Motor_Cmd_Q, &Msg, TX_NO_WAIT) == TX_SUCCESS;
-}
-
-static bool Parameter_Cmd_Send(uint16_t Id,
-                               Parameter_Type_e Type,
-                               const Parameter_Value_T *Value,
-                               uint8_t Txn,
-                               bool Reply)
-{
-    Motor_Cmd_Msg_T Msg = { 0 };
-
-    Msg.Cmd = (ULONG)MOTOR_CMD_PARAMETER_WRITE;
-    Msg.Arg = (ULONG)Id;
-    memcpy(&Msg.Arg2, Value, sizeof(Msg.Arg2));
-    memcpy(&Msg.Arg3,
-           (const uint8_t *)Value + sizeof(Msg.Arg2),
-           sizeof(Msg.Arg3));
-    Msg.Reserved = (ULONG)Type | ((ULONG)Txn << MOTOR_PARAM_TXN_SHIFT);
-
-    if (Reply)
-    {
-        Msg.Reserved |= MOTOR_PARAM_RESPONSE;
-    }
-
-    return tx_queue_send(&Motor_Cmd_Q, &Msg, TX_NO_WAIT) == TX_SUCCESS;
 }
 
 static AxDr_Status_e Parameter_Status_Map(Parameter_Status_e Status)
@@ -141,89 +89,18 @@ static AxDr_Status_e Parameter_Status_Map(Parameter_Status_e Status)
     }
 }
 
-static void Control_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
+static AxDr_Status_e Motor_Parameter_Request_Status_Map(
+    Motor_Parameter_Request_Status_e Status)
 {
-    uint8_t Txn;
-    uint8_t Op;
-    Motor_Cmd_e Cmd;
-    AxDr_Status_e Status;
-
-    Txn = (Len > 0U) ? Data[0] : 0U;
-    Op = (Len > 1U) ? Data[1] : 0U;
-    Status = AXDR_OK;
-    Cmd = MOTOR_CMD_ENABLE;
-
-    if (Len < 2U)
+    switch (Status)
     {
-        Status = AXDR_ERR_LENGTH;
-    }
-    else if (Op == AXDR_CTRL_ENABLE)
-    {
-        if (Len != 2U)
-        {
-            Status = AXDR_ERR_LENGTH;
-        }
-        else
-        {
-            Cmd = MOTOR_CMD_ENABLE;
-        }
-    }
-    else if (Op == AXDR_CTRL_RUN)
-    {
-        if (Len != 2U)
-        {
-            Status = AXDR_ERR_LENGTH;
-        }
-        else
-        {
-            Cmd = MOTOR_CMD_RUN;
-        }
-    }
-    else if (Op == AXDR_CTRL_STOP)
-    {
-        if (Len != 2U)
-        {
-            Status = AXDR_ERR_LENGTH;
-        }
-        else
-        {
-            Cmd = MOTOR_CMD_STOP;
-        }
-    }
-    else if (Op == AXDR_CTRL_DISABLE)
-    {
-        if (Len != 2U)
-        {
-            Status = AXDR_ERR_LENGTH;
-        }
-        else
-        {
-            Cmd = MOTOR_CMD_DISABLE;
-        }
-    }
-    else
-    {
-        Status = AXDR_ERR_OP;
-    }
-
-    if (Status == AXDR_OK)
-    {
-        if (Motor_Action_Cmd_Send(Cmd,
-                                  0U,
-                                  0U,
-                                  Txn,
-                                  AXDR_MSG_CONTROL,
-                                  Op,
-                                  Broadcast == 0U))
-        {
-            return;
-        }
-        Status = AXDR_ERR_CONFIG;
-    }
-
-    if (Broadcast == 0U)
-    {
-        Response(Txn, AXDR_MSG_CONTROL, Op, Status, 0, 0U);
+        case MOTOR_PARAM_REQUEST_OK:
+            return AXDR_OK;
+        case MOTOR_PARAM_REQUEST_ERR_ID:
+            return AXDR_ERR_VAR_ID;
+        case MOTOR_PARAM_REQUEST_ERR_QUEUE:
+        default:
+            return AXDR_ERR_CONFIG;
     }
 }
 
@@ -236,11 +113,14 @@ static void Parameter_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
     Parameter_Type_e Type;
     Parameter_Value_T Value = { 0 };
     Parameter_Status_e Parameter_Status;
+    Motor_Parameter_Request_Status_e Request_Status;
     AxDr_Status_e Status;
     uint8_t Resp[3U + sizeof(Parameter_Value_T)];
+    uint8_t Id_Resp[2];
 
     Txn = (Len > 0U) ? Data[0] : 0U;
     Op = (Len > 1U) ? Data[1] : 0U;
+    Id = 0U;
     Status = AXDR_OK;
 
     if (Len < 2U)
@@ -271,7 +151,12 @@ static void Parameter_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
                 Resp[1] = (uint8_t)(Id >> 8);
                 Resp[2] = (uint8_t)Type;
                 memcpy(&Resp[3], &Value, Value_Size);
-                Response(Txn, AXDR_MSG_PARAMETER, Op, Status, Resp, (uint8_t)(3U + Value_Size));
+                Response(Txn,
+                         AXDR_MSG_PARAMETER,
+                         Op,
+                         Status,
+                         Resp,
+                         (uint8_t)(3U + Value_Size));
                 return;
             }
         }
@@ -286,21 +171,36 @@ static void Parameter_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
         {
             Id = (uint16_t)Data[2] | ((uint16_t)Data[3] << 8);
             Type = (Parameter_Type_e)Data[4];
-            Value_Size = Parameter_Value_Size(Type);
 
-            if ((Value_Size == 0U) || (Len != (uint8_t)(5U + Value_Size)))
+            if (Type == PARAM_ACTION)
             {
-                Status = (Value_Size == 0U) ? AXDR_ERR_VALUE : AXDR_ERR_LENGTH;
+                if (Len != 5U)
+                {
+                    Status = AXDR_ERR_LENGTH;
+                }
             }
             else
             {
-                memcpy(&Value, &Data[5], Value_Size);
-
-                if (!Parameter_Cmd_Send(Id, Type, &Value, Txn, Broadcast == 0U))
+                Value_Size = Parameter_Value_Size(Type);
+                if ((Value_Size == 0U) || (Len != (uint8_t)(5U + Value_Size)))
                 {
-                    Status = AXDR_ERR_CONFIG;
+                    Status = (Value_Size == 0U) ? AXDR_ERR_VALUE : AXDR_ERR_LENGTH;
                 }
                 else
+                {
+                    memcpy(&Value, &Data[5], Value_Size);
+                }
+            }
+
+            if (Status == AXDR_OK)
+            {
+                Request_Status = Motor_Parameter_Write_Request(Id,
+                                                               Type,
+                                                               &Value,
+                                                               Txn,
+                                                               Broadcast == 0U);
+                Status = Motor_Parameter_Request_Status_Map(Request_Status);
+                if (Status == AXDR_OK)
                 {
                     return;
                 }
@@ -314,31 +214,53 @@ static void Parameter_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
 
     if (Broadcast == 0U)
     {
-        Response(Txn, AXDR_MSG_PARAMETER, Op, Status, 0, 0U);
+        if (Len >= 4U)
+        {
+            Id_Resp[0] = (uint8_t)Id;
+            Id_Resp[1] = (uint8_t)(Id >> 8);
+            Response(Txn, AXDR_MSG_PARAMETER, Op, Status, Id_Resp, sizeof(Id_Resp));
+        }
+        else
+        {
+            Response(Txn, AXDR_MSG_PARAMETER, Op, Status, NULL, 0U);
+        }
     }
 }
 
-void Protocol_Parameter_Write_Response(uint8_t Txn, Parameter_Status_e Status)
+void Protocol_Parameter_Write_Response(uint8_t Txn,
+                                       uint16_t Parameter_Id,
+                                       Parameter_Status_e Status)
 {
+    uint8_t Resp[2];
+
+    Resp[0] = (uint8_t)Parameter_Id;
+    Resp[1] = (uint8_t)(Parameter_Id >> 8);
     Response(Txn,
              AXDR_MSG_PARAMETER,
              AXDR_PARAM_WRITE,
              Parameter_Status_Map(Status),
-             0,
-             0U);
+             Resp,
+             sizeof(Resp));
 }
 
 void Protocol_Action_Response(uint8_t Txn,
-                              uint8_t Req_Msg,
-                              uint8_t Req_Op,
+                              uint16_t Action_Id,
                               AxDr_Status_e Status)
 {
-    Response(Txn, Req_Msg, Req_Op, Status, 0, 0U);
+    uint8_t Resp[2];
+
+    Resp[0] = (uint8_t)Action_Id;
+    Resp[1] = (uint8_t)(Action_Id >> 8);
+    Response(Txn,
+             AXDR_MSG_PARAMETER,
+             AXDR_PARAM_WRITE,
+             Status,
+             Resp,
+             sizeof(Resp));
 }
 
 void Protocol_Action_Complete(uint8_t Txn,
-                              uint8_t Req_Msg,
-                              uint8_t Req_Op,
+                              uint16_t Action_Id,
                               AxDr_Status_e Status)
 {
     AxDr_Msg_T Msg = { 0 };
@@ -347,234 +269,10 @@ void Protocol_Action_Complete(uint8_t Txn,
     Msg.Len = 5U;
     Msg.Data[0] = AXDR_EVENT_ACTION_COMPLETE;
     Msg.Data[1] = Txn;
-    Msg.Data[2] = Req_Msg;
-    Msg.Data[3] = Req_Op;
+    Msg.Data[2] = (uint8_t)Action_Id;
+    Msg.Data[3] = (uint8_t)(Action_Id >> 8);
     Msg.Data[4] = (uint8_t)Status;
     (void)Response_Push(&Msg);
-}
-
-static void Identification_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
-{
-    uint8_t Txn;
-    uint8_t Op;
-    Ident_Mode_e Start_Mode;
-    AxDr_Status_e Status;
-
-    Txn = (Len > 0U) ? Data[0] : 0U;
-    Op = (Len > 1U) ? Data[1] : 0U;
-    Status = AXDR_OK;
-
-    if (Broadcast != 0U)
-    {
-        return;
-    }
-
-    if (Len < 2U)
-    {
-        Status = AXDR_ERR_LENGTH;
-    }
-    else if ((Op == AXDR_IDENT_RS_LS_START) || (Op == AXDR_IDENT_FLUX_START))
-    {
-        if (Len != 2U)
-        {
-            Status = AXDR_ERR_LENGTH;
-        }
-        else if ((Motor_State_Get() != ENABLED) || (Motor_Mode_Get() != IDENT))
-        {
-            Status = AXDR_ERR_STATE;
-        }
-        else
-        {
-            Start_Mode = (Op == AXDR_IDENT_RS_LS_START) ? IDENT_RS_LS : IDENT_FLUX;
-
-            if (Motor_Action_Cmd_Send(MOTOR_CMD_IDENT_START,
-                                      (uint32_t)Start_Mode,
-                                      0U,
-                                      Txn,
-                                      AXDR_MSG_IDENTIFICATION,
-                                      Op,
-                                      true))
-            {
-                return;
-            }
-            Status = AXDR_ERR_CONFIG;
-        }
-    }
-    else if (Op == AXDR_IDENT_ABORT)
-    {
-        if (Len != 2U)
-        {
-            Status = AXDR_ERR_LENGTH;
-        }
-        else if ((Motor_State_Get() != RUN) || (Motor_Mode_Get() != IDENT) || !Identification_Active())
-        {
-            Status = AXDR_ERR_STATE;
-        }
-        else if (Motor_Action_Cmd_Send(MOTOR_CMD_IDENT_ABORT,
-                                       0U,
-                                       0U,
-                                       Txn,
-                                       AXDR_MSG_IDENTIFICATION,
-                                       Op,
-                                       true))
-        {
-            return;
-        }
-        else
-        {
-            Status = AXDR_ERR_CONFIG;
-        }
-    }
-    else if (Op == AXDR_IDENT_APPLY)
-    {
-        if (Len != 2U)
-        {
-            Status = AXDR_ERR_LENGTH;
-        }
-        else if ((Motor_State_Get() == RUN) ||
-                 (Motor_Mode_Get() != IDENT) ||
-                 !Identification_Result_Valid())
-        {
-            Status = AXDR_ERR_STATE;
-        }
-        else if (Motor_Action_Cmd_Send(MOTOR_CMD_IDENT_APPLY,
-                                       0U,
-                                       0U,
-                                       Txn,
-                                       AXDR_MSG_IDENTIFICATION,
-                                       Op,
-                                       true))
-        {
-            return;
-        }
-        else
-        {
-            Status = AXDR_ERR_CONFIG;
-        }
-    }
-    else
-    {
-        Status = AXDR_ERR_OP;
-    }
-
-    Response(Txn, AXDR_MSG_IDENTIFICATION, Op, Status, 0, 0U);
-}
-
-static void Sensorless_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
-{
-    uint8_t Txn;
-    uint8_t Op;
-    AxDr_Status_e Status;
-
-    Txn = (Len > 0U) ? Data[0] : 0U;
-    Op = (Len > 1U) ? Data[1] : 0U;
-    Status = AXDR_OK;
-
-    if (Broadcast != 0U)
-    {
-        return;
-    }
-
-    if (Len < 2U)
-    {
-        Status = AXDR_ERR_LENGTH;
-    }
-    else if (Op == AXDR_SENSORLESS_STATUS)
-    {
-        uint8_t Resp[7];
-        float We;
-
-        if (Len != 2U)
-        {
-            Status = AXDR_ERR_LENGTH;
-        }
-        else
-        {
-            We = IF_Start_We_Get();
-            Resp[0] = Sensorless_Active() ? 1U : 0U;
-            Resp[1] = (uint8_t)Sensorless_State_Get();
-            Resp[2] = (uint8_t)IF_Start_State_Get();
-            memcpy(&Resp[3], &We, sizeof(float));
-            Response(Txn, AXDR_MSG_SENSORLESS, Op, AXDR_OK, Resp, sizeof(Resp));
-            return;
-        }
-    }
-    else if (Op == AXDR_SENSORLESS_STOP)
-    {
-        if (Len != 2U)
-        {
-            Status = AXDR_ERR_LENGTH;
-        }
-        else if ((Motor_State_Get() != RUN) || (Motor_Mode_Get() != SENSORLESS_SPEED))
-        {
-            Status = AXDR_ERR_STATE;
-        }
-        else if (Motor_Action_Cmd_Send(MOTOR_CMD_STOP,
-                                       0U,
-                                       0U,
-                                       Txn,
-                                       AXDR_MSG_SENSORLESS,
-                                       Op,
-                                       true))
-        {
-            return;
-        }
-        else
-        {
-            Status = AXDR_ERR_CONFIG;
-        }
-    }
-    else
-    {
-        Status = AXDR_ERR_OP;
-    }
-
-    Response(Txn, AXDR_MSG_SENSORLESS, Op, Status, 0, 0U);
-}
-
-static void Event_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
-{
-    uint8_t Txn;
-    uint8_t Op;
-    AxDr_Status_e Status;
-
-    if (Broadcast != 0U)
-    {
-        return;
-    }
-
-    Txn = (Len > 0U) ? Data[0] : 0U;
-    Op = (Len > 1U) ? Data[1] : 0U;
-    Status = AXDR_OK;
-
-    if (Len != 2U)
-    {
-        Status = AXDR_ERR_LENGTH;
-    }
-    else if (Op != AXDR_EVENT_CLEAR)
-    {
-        Status = AXDR_ERR_OP;
-    }
-    else if (Motor_State_Get() != DISABLED)
-    {
-        Status = AXDR_ERR_STATE;
-    }
-    else if (Motor_Action_Cmd_Send(MOTOR_CMD_PROTECTION_CLEAR,
-                                   0U,
-                                   0U,
-                                   Txn,
-                                   AXDR_MSG_EVENT,
-                                   Op,
-                                   true))
-    {
-        return;
-    }
-    else
-    {
-        Status = AXDR_ERR_CONFIG;
-    }
-
-    Response(Txn, AXDR_MSG_EVENT, Op, Status, 0, 0U);
 }
 
 static void Plot_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
@@ -668,7 +366,7 @@ static void Plot_Rx(const uint8_t *Data, uint8_t Len, uint8_t Broadcast)
 
     if (Broadcast == 0U)
     {
-        Response(Txn, AXDR_MSG_PLOT, Op, Status, 0, 0U);
+        Response(Txn, AXDR_MSG_PLOT, Op, Status, NULL, 0U);
     }
 }
 
@@ -690,29 +388,13 @@ void Protocol_Rx(uint16_t Id, const uint8_t *Data, uint8_t Len)
         return;
     }
 
-    if (Msg_Type == AXDR_MSG_CONTROL)
+    if (Msg_Type == AXDR_MSG_PARAMETER)
     {
-        Control_Rx(Data, Len, (Node == 0U) ? 1U : 0U);
+        Parameter_Rx(Data, Len, (Node == 0U) ? 1U : 0U);
     }
     else if (Msg_Type == AXDR_MSG_PLOT)
     {
         Plot_Rx(Data, Len, (Node == 0U) ? 1U : 0U);
-    }
-    else if (Msg_Type == AXDR_MSG_IDENTIFICATION)
-    {
-        Identification_Rx(Data, Len, (Node == 0U) ? 1U : 0U);
-    }
-    else if (Msg_Type == AXDR_MSG_SENSORLESS)
-    {
-        Sensorless_Rx(Data, Len, (Node == 0U) ? 1U : 0U);
-    }
-    else if (Msg_Type == AXDR_MSG_PARAMETER)
-    {
-        Parameter_Rx(Data, Len, (Node == 0U) ? 1U : 0U);
-    }
-    else if (Msg_Type == AXDR_MSG_EVENT)
-    {
-        Event_Rx(Data, Len, (Node == 0U) ? 1U : 0U);
     }
 }
 

@@ -14,35 +14,18 @@
 #define AXDR_NODE_ID      1U
 #define AXDR_MAX_DATA_LEN 64U
 
-#define AXDR_MSG_RESPONSE       0x02U
-#define AXDR_MSG_CONTROL        0x03U
-#define AXDR_MSG_PLOT           0x04U
-#define AXDR_MSG_IDENTIFICATION 0x05U
-#define AXDR_MSG_SENSORLESS     0x06U
-#define AXDR_MSG_PARAMETER      0x07U
-#define AXDR_MSG_EVENT          0x08U
-#define AXDR_MSG_NORMAL_DATA    0x10U
-#define AXDR_MSG_FAST_DATA      0x18U
-
-#define AXDR_CTRL_ENABLE  0x01U
-#define AXDR_CTRL_RUN     0x02U
-#define AXDR_CTRL_STOP    0x03U
-#define AXDR_CTRL_DISABLE 0x04U
+#define AXDR_MSG_RESPONSE    0x02U
+#define AXDR_MSG_PLOT        0x04U
+#define AXDR_MSG_PARAMETER   0x07U
+#define AXDR_MSG_EVENT       0x08U
+#define AXDR_MSG_NORMAL_DATA 0x10U
+#define AXDR_MSG_FAST_DATA   0x18U
 
 #define AXDR_PARAM_READ  0x01U
 #define AXDR_PARAM_WRITE 0x02U
 
-#define AXDR_IDENT_RS_LS_START 0x01U
-#define AXDR_IDENT_FLUX_START  0x02U
-#define AXDR_IDENT_ABORT       0x04U
-#define AXDR_IDENT_APPLY       0x05U
-
-#define AXDR_SENSORLESS_STATUS 0x02U
-#define AXDR_SENSORLESS_STOP   0x03U
-
 /* Unsolicited Event payloads. */
 #define AXDR_EVENT_NOTIFY          0x01U
-#define AXDR_EVENT_CLEAR           0x02U
 #define AXDR_EVENT_ACTION_COMPLETE 0x03U
 
 #define AXDR_PLOT_CONFIG 0x01U
@@ -77,14 +60,14 @@ typedef struct
 } AxDr_Msg_T;
 
 void Protocol_Rx(uint16_t Id, const uint8_t *Data, uint8_t Len);
-void Protocol_Parameter_Write_Response(uint8_t Txn, Parameter_Status_e Status);
+void Protocol_Parameter_Write_Response(uint8_t Txn,
+                                       uint16_t Parameter_Id,
+                                       Parameter_Status_e Status);
 void Protocol_Action_Response(uint8_t Txn,
-                              uint8_t Req_Msg,
-                              uint8_t Req_Op,
+                              uint16_t Action_Id,
                               AxDr_Status_e Status);
 void Protocol_Action_Complete(uint8_t Txn,
-                              uint8_t Req_Msg,
-                              uint8_t Req_Op,
+                              uint16_t Action_Id,
                               AxDr_Status_e Status);
 void Protocol_Event_Poll(void);
 bool Protocol_Tx_Pop(AxDr_Msg_T *Msg);

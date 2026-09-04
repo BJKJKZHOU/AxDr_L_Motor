@@ -1,4 +1,4 @@
-/* Generated from Parameter/parameter_objects.yaml. DO NOT EDIT. */
+/* Generated from Parameter/*.yaml. DO NOT EDIT. */
 #ifndef PARAMETER_ID_GENERATED_H
 #define PARAMETER_ID_GENERATED_H
 
@@ -171,6 +171,33 @@ typedef enum
 
     /* Sensorless_State_Get(): 当前Sensorless状态机状态。 */
     PARAM_SENSORLESS_STATE = 0x0C01U,
+
+    /* MOTOR_CMD_ENABLE: 使能电机功率级。 */
+    ACTION_MOTOR_ENABLE = 0x1001U,
+
+    /* MOTOR_CMD_RUN: 按当前Motor Mode启动运行；PHASE_SEARCH模式下作为异步寻相启动动作。 */
+    ACTION_MOTOR_RUN = 0x1002U,
+
+    /* MOTOR_CMD_STOP: 停止当前运行并回到ENABLED。 */
+    ACTION_MOTOR_STOP = 0x1003U,
+
+    /* MOTOR_CMD_DISABLE: 立即关闭PWM并进入DISABLED。 */
+    ACTION_MOTOR_DISABLE = 0x1004U,
+
+    /* MOTOR_CMD_IDENT_START: 启动Rs/Ls辨识。 */
+    ACTION_IDENT_RS_LS_START = 0x1101U,
+
+    /* MOTOR_CMD_IDENT_START: 启动Flux辨识。 */
+    ACTION_IDENT_FLUX_START = 0x1102U,
+
+    /* MOTOR_CMD_IDENT_ABORT: 中止当前辨识。 */
+    ACTION_IDENT_ABORT = 0x1103U,
+
+    /* MOTOR_CMD_IDENT_APPLY: 将最近一次有效辨识结果应用到Motor参数。 */
+    ACTION_IDENT_APPLY = 0x1104U,
+
+    /* MOTOR_CMD_PROTECTION_CLEAR: 在DISABLED状态清除可清除的保护状态。 */
+    ACTION_PROTECTION_CLEAR = 0x1201U,
 
 } Parameter_Id_e;
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate Parameter IDs and lookup tables from parameter_objects.yaml."""
+"""Generate AxDr_L host parameter/action IDs and tables from YAML."""
 
 from __future__ import annotations
 
@@ -13,11 +13,13 @@ except ImportError as exc:
     raise SystemExit("PyYAML is required: python -m pip install PyYAML") from exc
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "Parameter" / "parameter_objects.yaml"
+VALUE_SOURCE = ROOT / "Parameter" / "parameter_objects.yaml"
+ACTION_SOURCE = ROOT / "Parameter" / "action_objects.yaml"
 OUTPUTS = {
     ROOT / "Parameter" / "Parameter_Id.generated.h": "c_ids",
     ROOT / "Parameter" / "Parameter_Table.generated.inc": "c_table",
     ROOT / "Parameter" / "Parameter_Read.generated.inc": "c_read",
+    ROOT / "Parameter" / "Parameter_Action.generated.inc": "c_action",
     ROOT / "Parameter" / "Plot_Data.generated.inc": "c_plot",
     ROOT / "tools" / "parameter_ids_generated.py": "py_ids",
 }
@@ -56,18 +58,25 @@ CHANGE_C = {
 }
 
 
-def load_objects():
-    data = yaml.safe_load(SOURCE.read_text(encoding="utf-8"))
+def load_yaml(path: Path):
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict) or data.get("schema") != 1:
-        raise ValueError("unsupported parameter object schema")
+        raise ValueError(f"{path.name}: unsupported schema")
     objects = data.get("objects")
     if not isinstance(objects, dict) or not objects:
-        raise ValueError("objects must be a non-empty mapping")
+        raise ValueError(f"{path.name}: objects must be a non-empty mapping")
+    return objects
 
+
+def load_objects():
+    values = load_yaml(VALUE_SOURCE)
+    actions = load_yaml(ACTION_SOURCE)
+    objects = {}
     seen_ids = {}
-    for name, obj in objects.items():
+
+    for name, obj in values.items():
         if not name.startswith("PARAM_"):
-            raise ValueError(f"{name}: object name must start with PARAM_")
+            raise ValueError(f"{name}: value object name must start with PARAM_")
         if not isinstance(obj, dict):
             raise ValueError(f"{name}: object must be a mapping")
         for field in ("id", "type", "access", "description"):
@@ -83,6 +92,27 @@ def load_objects():
             raise ValueError(f"{name}: getter-backed object must be read-only")
         if "getter" in obj and obj["type"] == "position":
             raise ValueError(f"{name}: position objects require direct binding")
+        obj = dict(obj)
+        obj["kind"] = "value"
+        objects[name] = obj
+
+    for name, obj in actions.items():
+        if not name.startswith("ACTION_"):
+            raise ValueError(f"{name}: action object name must start with ACTION_")
+        if not isinstance(obj, dict):
+            raise ValueError(f"{name}: object must be a mapping")
+        for field in ("id", "command", "description"):
+            if field not in obj:
+                raise ValueError(f"{name}: missing {field}")
+        if obj.get("access", "wo") != "wo":
+            raise ValueError(f"{name}: action access must be wo")
+        obj = dict(obj)
+        obj["kind"] = "action"
+        obj["type"] = "action"
+        obj["access"] = "wo"
+        objects[name] = obj
+
+    for name, obj in objects.items():
         object_id = obj["id"]
         if not isinstance(object_id, int) or not 0 <= object_id <= 0xFFFF:
             raise ValueError(f"{name}: id must fit uint16")
@@ -91,7 +121,16 @@ def load_objects():
                 f"duplicate id 0x{object_id:04X}: {seen_ids[object_id]} and {name}"
             )
         seen_ids[object_id] = name
+
     return objects
+
+
+def value_objects(objects):
+    return ((name, obj) for name, obj in objects.items() if obj["kind"] == "value")
+
+
+def action_objects(objects):
+    return ((name, obj) for name, obj in objects.items() if obj["kind"] == "action")
 
 
 def c_number(value):
@@ -146,7 +185,7 @@ def change_expr(obj):
 
 def render_c_ids(objects):
     lines = [
-        "/* Generated from Parameter/parameter_objects.yaml. DO NOT EDIT. */",
+        "/* Generated from Parameter/*.yaml. DO NOT EDIT. */",
         "#ifndef PARAMETER_ID_GENERATED_H",
         "#define PARAMETER_ID_GENERATED_H",
         "",
@@ -154,7 +193,10 @@ def render_c_ids(objects):
         "{",
     ]
     for name, obj in objects.items():
-        source = obj["binding"] if "binding" in obj else f"{obj['getter']}()"
+        if obj["kind"] == "action":
+            source = obj["command"]
+        else:
+            source = obj["binding"] if "binding" in obj else f"{obj['getter']}()"
         lines.append(f"    /* {source}: {obj['description']} */")
         lines.append(f"    {name} = 0x{obj['id']:04X}U,")
         lines.append("")
@@ -164,7 +206,7 @@ def render_c_ids(objects):
 
 def render_c_table(objects):
     lines = ["/* Generated from Parameter/parameter_objects.yaml. DO NOT EDIT. */"]
-    for name, obj in objects.items():
+    for name, obj in value_objects(objects):
         data = f"&{obj['binding']}" if "binding" in obj else "NULL"
         lines.append(
             "{ "
@@ -178,7 +220,7 @@ def render_c_table(objects):
 
 def render_c_read(objects):
     lines = ["/* Generated from Parameter/parameter_objects.yaml. DO NOT EDIT. */"]
-    for name, obj in objects.items():
+    for name, obj in value_objects(objects):
         if "getter" not in obj:
             continue
         member = VALUE_MEMBER_C[obj["type"]]
@@ -192,9 +234,22 @@ def render_c_read(objects):
     return "\n".join(lines)
 
 
+def render_c_action(objects):
+    lines = ["/* Generated from Parameter/action_objects.yaml. DO NOT EDIT. */"]
+    for name, obj in action_objects(objects):
+        lines += [
+            f"case {name}:",
+            f"    Msg.Cmd = (ULONG){obj['command']};",
+            f"    Msg.Arg = (ULONG){obj.get('arg', '0U')};",
+            "    break;",
+            "",
+        ]
+    return "\n".join(lines)
+
+
 def render_c_plot(objects):
     lines = ["/* Generated from Parameter/parameter_objects.yaml. DO NOT EDIT. */"]
-    for name, obj in objects.items():
+    for name, obj in value_objects(objects):
         if "plot_scale" not in obj:
             continue
         if "binding" not in obj or obj["type"] != "f32":
@@ -210,7 +265,7 @@ def render_c_plot(objects):
 
 def render_py_ids(objects):
     lines = [
-        '"""Generated from Parameter/parameter_objects.yaml. DO NOT EDIT."""',
+        '"""Generated from Parameter/*.yaml. DO NOT EDIT."""',
         "",
     ]
     for name, obj in objects.items():
@@ -224,6 +279,7 @@ def generate(objects):
         "c_ids": render_c_ids,
         "c_table": render_c_table,
         "c_read": render_c_read,
+        "c_action": render_c_action,
         "c_plot": render_c_plot,
         "py_ids": render_py_ids,
     }

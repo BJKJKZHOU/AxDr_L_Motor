@@ -34,33 +34,81 @@ static Motor_Cmd_Msg_T Phase_Action_Msg = { 0 };
 
 static void Motor_Entry(ULONG thread_input);
 
+Motor_Parameter_Request_Status_e Motor_Parameter_Write_Request(
+    uint16_t Id,
+    Parameter_Type_e Type,
+    const Parameter_Value_T *Value,
+    uint8_t Txn,
+    bool Reply)
+{
+    Motor_Cmd_Msg_T Msg = { 0 };
+
+    if (Type == PARAM_ACTION)
+    {
+        switch (Id)
+        {
+#include "Parameter_Action.generated.inc"
+            default:
+                return MOTOR_PARAM_REQUEST_ERR_ID;
+        }
+
+        Msg.Reserved = ((ULONG)Id << MOTOR_ACTION_ID_SHIFT) |
+                       ((ULONG)Txn << MOTOR_ACTION_TXN_SHIFT);
+        if (Reply)
+        {
+            Msg.Reserved |= MOTOR_ACTION_RESPONSE;
+        }
+    }
+    else
+    {
+        Msg.Cmd = (ULONG)MOTOR_CMD_PARAMETER_WRITE;
+        Msg.Arg = (ULONG)Id;
+        memcpy(&Msg.Arg2, Value, sizeof(Msg.Arg2));
+        memcpy(&Msg.Arg3,
+               (const uint8_t *)Value + sizeof(Msg.Arg2),
+               sizeof(Msg.Arg3));
+        Msg.Reserved = (ULONG)Type | ((ULONG)Txn << MOTOR_PARAM_TXN_SHIFT);
+        if (Reply)
+        {
+            Msg.Reserved |= MOTOR_PARAM_RESPONSE;
+        }
+    }
+
+    if (tx_queue_send(&Motor_Cmd_Q, &Msg, TX_NO_WAIT) != TX_SUCCESS)
+    {
+        return MOTOR_PARAM_REQUEST_ERR_QUEUE;
+    }
+
+    return MOTOR_PARAM_REQUEST_OK;
+}
+
+static uint16_t Motor_Action_Id_Get(const Motor_Cmd_Msg_T *Msg)
+{
+    return (uint16_t)((Msg->Reserved >> MOTOR_ACTION_ID_SHIFT) & MOTOR_ACTION_ID_MASK);
+}
+
+static uint8_t Motor_Action_Txn_Get(const Motor_Cmd_Msg_T *Msg)
+{
+    return (uint8_t)((Msg->Reserved >> MOTOR_ACTION_TXN_SHIFT) & MOTOR_ACTION_TXN_MASK);
+}
+
 static void Motor_Action_Response(const Motor_Cmd_Msg_T *Msg, AxDr_Status_e Status)
 {
-    ULONG Reserved;
-
-    Reserved = Msg->Reserved;
-    if ((Reserved & MOTOR_ACTION_RESPONSE) == 0U)
+    if ((Msg->Reserved & MOTOR_ACTION_RESPONSE) == 0U)
     {
         return;
     }
 
-    Protocol_Action_Response(
-        (uint8_t)((Reserved >> MOTOR_ACTION_TXN_SHIFT) & MOTOR_ACTION_BYTE_MASK),
-        (uint8_t)((Reserved >> MOTOR_ACTION_MSG_SHIFT) & MOTOR_ACTION_BYTE_MASK),
-        (uint8_t)((Reserved >> MOTOR_ACTION_OP_SHIFT) & MOTOR_ACTION_BYTE_MASK),
-        Status);
+    Protocol_Action_Response(Motor_Action_Txn_Get(Msg),
+                             Motor_Action_Id_Get(Msg),
+                             Status);
 }
 
 static void Motor_Action_Complete(const Motor_Cmd_Msg_T *Msg, AxDr_Status_e Status)
 {
-    ULONG Reserved;
-
-    Reserved = Msg->Reserved;
-    Protocol_Action_Complete(
-        (uint8_t)((Reserved >> MOTOR_ACTION_TXN_SHIFT) & MOTOR_ACTION_BYTE_MASK),
-        (uint8_t)((Reserved >> MOTOR_ACTION_MSG_SHIFT) & MOTOR_ACTION_BYTE_MASK),
-        (uint8_t)((Reserved >> MOTOR_ACTION_OP_SHIFT) & MOTOR_ACTION_BYTE_MASK),
-        Status);
+    Protocol_Action_Complete(Motor_Action_Txn_Get(Msg),
+                             Motor_Action_Id_Get(Msg),
+                             Status);
 }
 
 static void Motor_Async_Action_Poll(void)
@@ -229,6 +277,7 @@ static void Motor_Cmd_Run(void)
                 {
                     Protocol_Parameter_Write_Response(
                         (uint8_t)(Msg.Reserved >> MOTOR_PARAM_TXN_SHIFT),
+                        (uint16_t)Msg.Arg,
                         Parameter_Status);
                 }
                 break;

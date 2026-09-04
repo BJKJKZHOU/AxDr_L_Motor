@@ -21,6 +21,7 @@ typedef enum
     PARAM_I32,
     PARAM_U32,
     PARAM_POSITION,
+    PARAM_ACTION,
 
 } Parameter_Type_e;
 
