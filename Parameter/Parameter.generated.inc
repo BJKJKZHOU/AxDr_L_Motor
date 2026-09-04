@@ -61,6 +61,115 @@
 { PARAM_IDENT_FLUX_VALID, PARAM_U8, NULL, 0.0f, 1.0f, 0U, PARAM_CHANGE_NONE },
 { PARAM_IDENT_FLUX_RESULT, PARAM_FLOAT, NULL, -INFINITY, INFINITY, 0U, PARAM_CHANGE_NONE },
 
+#elif defined(PARAM_GENERATE_VALIDATE)
+case PARAM_MOTOR_RS:
+    if ((Number <= 0.0f))
+    {
+        return PARAM_ERR_VALUE;
+    }
+    break;
+
+case PARAM_MOTOR_LD:
+    if ((Number <= 0.0f))
+    {
+        return PARAM_ERR_VALUE;
+    }
+    break;
+
+case PARAM_MOTOR_LQ:
+    if ((Number <= 0.0f))
+    {
+        return PARAM_ERR_VALUE;
+    }
+    break;
+
+case PARAM_MOTOR_FLUX:
+    if ((Number <= 0.0f))
+    {
+        return PARAM_ERR_VALUE;
+    }
+    break;
+
+case PARAM_MOTOR_J:
+    if ((Number <= 0.0f))
+    {
+        return PARAM_ERR_VALUE;
+    }
+    break;
+
+case PARAM_MOTOR_DIR:
+    if ((Value.I8 != (int8_t)-1.0f) && (Value.I8 != (int8_t)1.0f))
+    {
+        return PARAM_ERR_VALUE;
+    }
+    break;
+
+case PARAM_LIMIT_I_MAX:
+    if ((Number <= 0.0f) ||
+        (Number > (float)Motor_Lim.I_Max))
+    {
+        return PARAM_ERR_VALUE;
+    }
+    break;
+
+case PARAM_LIMIT_WM_MAX:
+    if ((Number <= 0.0f) ||
+        (Number > (float)Motor_Lim.Wm_Max))
+    {
+        return PARAM_ERR_VALUE;
+    }
+    break;
+
+case PARAM_ENCODER_TYPE:
+    if ((Value.U8 != (uint8_t)ENC_MT6816) && (Value.U8 != (uint8_t)ENC_MT6835))
+    {
+        return PARAM_ERR_VALUE;
+    }
+    break;
+
+case PARAM_PHASE_I_SEARCH:
+    if ((Number <= 0.0f))
+    {
+        return PARAM_ERR_VALUE;
+    }
+    break;
+
+case PARAM_MOTION_WM_MAX:
+    if ((Number > (float)User_Lim.Wm_Max) ||
+        (Number > (float)Motor_Lim.Wm_Max))
+    {
+        return PARAM_ERR_VALUE;
+    }
+    break;
+
+case PARAM_MOTION_WM_ACC:
+    if ((Number <= 0.0f))
+    {
+        return PARAM_ERR_VALUE;
+    }
+    break;
+
+case PARAM_MOTION_WM_DEC:
+    if ((Number <= 0.0f))
+    {
+        return PARAM_ERR_VALUE;
+    }
+    break;
+
+case PARAM_MOTOR_MODE:
+    if ((Value.U8 != (uint8_t)TORQUE) && (Value.U8 != (uint8_t)SPEED) && (Value.U8 != (uint8_t)POSITION) && (Value.U8 != (uint8_t)OPEN_LOOP) && (Value.U8 != (uint8_t)IDENT) && (Value.U8 != (uint8_t)SENSORLESS_SPEED) && (Value.U8 != (uint8_t)PHASE_SEARCH))
+    {
+        return PARAM_ERR_VALUE;
+    }
+    break;
+
+case PARAM_MOTOR_STATE:
+    if ((Value.U8 != (uint8_t)DISABLED) && (Value.U8 != (uint8_t)ENABLED) && (Value.U8 != (uint8_t)RUN))
+    {
+        return PARAM_ERR_VALUE;
+    }
+    break;
+
 #elif defined(PARAM_GENERATE_READ)
 case PARAM_LIMIT_I_EFFECTIVE:
     Value->F32 = (float)Motor_I_Limit_Effective_Get();

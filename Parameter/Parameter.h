@@ -11,7 +11,8 @@
 #include "Motor_Type.h"
 #include "Parameter.generated.h"
 
-#define PARAM_MOTOR_PP_MAX 64U
+_Static_assert(sizeof(Motor_Position_T) == 8U,
+               "Motor_Position_T wire ABI must be 8 bytes");
 
 typedef enum
 {
@@ -53,9 +54,6 @@ Parameter_Status_e Parameter_Read(uint16_t Id,
 Parameter_Status_e Parameter_Write(uint16_t Id,
                                    Parameter_Type_e Type,
                                    Parameter_Value_T Value);
-Parameter_Status_e Parameter_Write_Internal(uint16_t Id,
-                                            Parameter_Type_e Type,
-                                            Parameter_Value_T Value);
 uint8_t Parameter_Value_Size(Parameter_Type_e Type);
 
 #endif /* PARAMETER_H */

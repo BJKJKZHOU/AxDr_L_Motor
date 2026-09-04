@@ -134,6 +134,35 @@ def change_expr(obj):
     return CHANGE_C[value]
 
 
+def validate_conditions(obj):
+    if obj["type"] == "position":
+        return []
+
+    member = f"Value.{VALUE_MEMBER_C[obj['type']]}"
+    cast = CAST_C[obj["type"]]
+    conditions = []
+
+    if "allowed" in obj:
+        allowed = [f"({member} != ({cast}){c_number(value)})" for value in obj["allowed"]]
+        conditions.append(" && ".join(allowed))
+
+    if "allowed_symbols" in obj:
+        allowed = [f"({member} != ({cast}){symbol})" for symbol in obj["allowed_symbols"]]
+        conditions.append(" && ".join(allowed))
+
+    rng = obj.get("range", {})
+    if rng.get("exclusive_min") and "min" in rng:
+        conditions.append(f"(Number <= {c_number(rng['min'])})")
+    if rng.get("exclusive_max") and "max" in rng:
+        conditions.append(f"(Number >= {c_number(rng['max'])})")
+    if "max_binding" in rng:
+        conditions.append(f"(Number > (float){rng['max_binding']})")
+    for binding in rng.get("max_bindings", []):
+        conditions.append(f"(Number > (float){binding})")
+
+    return conditions
+
+
 def render_header(objects):
     lines = [
         "/* Generated from Parameter/parameter.yaml. DO NOT EDIT. */",
@@ -158,7 +187,14 @@ def render_inc(objects):
         data = f"&{obj['binding']}" if "binding" in obj else "NULL"
         lines.append("{ " + f"{name}, {TYPE_C[obj['type']]}, {data}, {min_expr(obj)}, {max_expr(obj)}, {flags_expr(obj)}, {change_expr(obj)} " + "},")
 
-    lines += ["", "#elif defined(PARAM_GENERATE_READ)"]
+    lines += ["", "#elif defined(PARAM_GENERATE_VALIDATE)"]
+    for name, obj in values(objects):
+        conditions = validate_conditions(obj)
+        if not conditions:
+            continue
+        lines += [f"case {name}:", "    if (" + " ||\n        ".join(conditions) + ")", "    {", "        return PARAM_ERR_VALUE;", "    }", "    break;", ""]
+
+    lines += ["#elif defined(PARAM_GENERATE_READ)"]
     for name, obj in values(objects):
         if "getter" not in obj:
             continue

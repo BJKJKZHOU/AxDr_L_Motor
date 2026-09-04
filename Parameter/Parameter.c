@@ -131,68 +131,13 @@ static Parameter_Status_e Parameter_Value_Check(const Parameter_Entry_T *Entry,
         return PARAM_ERR_VALUE;
     }
 
-    if (((Entry->Id == PARAM_MOTOR_RS) ||
-         (Entry->Id == PARAM_MOTOR_LD) ||
-         (Entry->Id == PARAM_MOTOR_LQ) ||
-         (Entry->Id == PARAM_MOTOR_FLUX) ||
-         (Entry->Id == PARAM_MOTOR_J)) &&
-        (Number <= 0.0f))
+    switch (Entry->Id)
     {
-        return PARAM_ERR_VALUE;
-    }
-
-    if ((Entry->Id == PARAM_MOTOR_DIR) &&
-        (Value.I8 != -1) && (Value.I8 != 1))
-    {
-        return PARAM_ERR_VALUE;
-    }
-
-    if ((Entry->Id == PARAM_LIMIT_I_MAX) &&
-        ((Number <= 0.0f) || (Number > Motor_Lim.I_Max)))
-    {
-        return PARAM_ERR_VALUE;
-    }
-
-    if ((Entry->Id == PARAM_LIMIT_WM_MAX) &&
-        ((Number <= 0.0f) || (Number > Motor_Lim.Wm_Max)))
-    {
-        return PARAM_ERR_VALUE;
-    }
-
-    if ((Entry->Id == PARAM_PHASE_I_SEARCH) && (Number <= 0.0f))
-    {
-        return PARAM_ERR_VALUE;
-    }
-
-    if ((Entry->Id == PARAM_MOTION_WM_MAX) &&
-        ((Number > User_Lim.Wm_Max) || (Number > Motor_Lim.Wm_Max)))
-    {
-        return PARAM_ERR_VALUE;
-    }
-
-    if (((Entry->Id == PARAM_MOTION_WM_ACC) ||
-         (Entry->Id == PARAM_MOTION_WM_DEC)) &&
-        (Number <= 0.0f))
-    {
-        return PARAM_ERR_VALUE;
-    }
-
-    if (Entry->Id == PARAM_MOTOR_MODE)
-    {
-        switch ((Motor_Mode_e)Value.U8)
-        {
-            case TORQUE:
-            case SPEED:
-            case POSITION:
-            case OPEN_LOOP:
-            case IDENT:
-            case SENSORLESS_SPEED:
-            case PHASE_SEARCH:
-                break;
-
-            default:
-                return PARAM_ERR_VALUE;
-        }
+#define PARAM_GENERATE_VALIDATE
+#include "Parameter.generated.inc"
+#undef PARAM_GENERATE_VALIDATE
+        default:
+            break;
     }
 
     return PARAM_OK;
@@ -283,8 +228,7 @@ static void Parameter_Change_Apply(uint32_t Change)
 
 static Parameter_Status_e Parameter_Write_Common(uint16_t Id,
                                                  Parameter_Type_e Type,
-                                                 Parameter_Value_T Value,
-                                                 bool Host)
+                                                 Parameter_Value_T Value)
 {
     const Parameter_Entry_T *Entry;
     Parameter_Status_e Status;
@@ -295,7 +239,7 @@ static Parameter_Status_e Parameter_Write_Common(uint16_t Id,
         return PARAM_ERR_ID;
     }
 
-    if (Host && ((Entry->Flags & PARAM_FLAG_HOST_WRITE) == 0U))
+    if ((Entry->Flags & PARAM_FLAG_HOST_WRITE) == 0U)
     {
         return PARAM_ERR_READ_ONLY;
     }
@@ -401,14 +345,7 @@ Parameter_Status_e Parameter_Write(uint16_t Id,
                                    Parameter_Type_e Type,
                                    Parameter_Value_T Value)
 {
-    return Parameter_Write_Common(Id, Type, Value, true);
-}
-
-Parameter_Status_e Parameter_Write_Internal(uint16_t Id,
-                                            Parameter_Type_e Type,
-                                            Parameter_Value_T Value)
-{
-    return Parameter_Write_Common(Id, Type, Value, false);
+    return Parameter_Write_Common(Id, Type, Value);
 }
 
 uint8_t Parameter_Value_Size(Parameter_Type_e Type)
