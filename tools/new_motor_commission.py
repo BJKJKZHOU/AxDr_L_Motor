@@ -525,8 +525,8 @@ def parse_args():
         parser.error("--run is required to energize the motor")
     if not 120 <= args.target_we <= 3000:
         parser.error("--target-we must be between 120 and 3000 electrical rad/s")
-    if not 1 <= args.pole_pairs <= 64:
-        parser.error("--pole-pairs must be between 1 and 64")
+    if not 1 <= args.pole_pairs <= 255:
+        parser.error("--pole-pairs must be between 1 and 255")
     if args.duration < 0.0:
         parser.error("--duration must be non-negative")
     for name in (

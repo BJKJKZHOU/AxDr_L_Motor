@@ -38,8 +38,7 @@ Motor_Parameter_Request_Status_e Motor_Parameter_Write_Request(
     uint16_t Id,
     Parameter_Type_e Type,
     const Parameter_Value_T *Value,
-    uint8_t Txn,
-    bool Reply)
+    uint8_t Txn)
 {
     Motor_Cmd_Msg_T Msg = { 0 };
 
@@ -56,10 +55,6 @@ Motor_Parameter_Request_Status_e Motor_Parameter_Write_Request(
 
         Msg.Reserved = ((ULONG)Id << MOTOR_ACTION_ID_SHIFT) |
                        ((ULONG)Txn << MOTOR_ACTION_TXN_SHIFT);
-        if (Reply)
-        {
-            Msg.Reserved |= MOTOR_ACTION_RESPONSE;
-        }
     }
     else
     {
@@ -70,10 +65,6 @@ Motor_Parameter_Request_Status_e Motor_Parameter_Write_Request(
                (const uint8_t *)Value + sizeof(Msg.Arg2),
                sizeof(Msg.Arg3));
         Msg.Reserved = (ULONG)Type | ((ULONG)Txn << MOTOR_PARAM_TXN_SHIFT);
-        if (Reply)
-        {
-            Msg.Reserved |= MOTOR_PARAM_RESPONSE;
-        }
     }
 
     if (tx_queue_send(&Motor_Cmd_Q, &Msg, TX_NO_WAIT) != TX_SUCCESS)
@@ -96,11 +87,6 @@ static uint8_t Motor_Action_Txn_Get(const Motor_Cmd_Msg_T *Msg)
 
 static void Motor_Action_Response(const Motor_Cmd_Msg_T *Msg, AxDr_Status_e Status)
 {
-    if ((Msg->Reserved & MOTOR_ACTION_RESPONSE) == 0U)
-    {
-        return;
-    }
-
     Protocol_Action_Response(Motor_Action_Txn_Get(Msg),
                              Motor_Action_Id_Get(Msg),
                              Status);
@@ -275,13 +261,10 @@ static void Motor_Cmd_Run(void)
                                                    (Parameter_Type_e)(Msg.Reserved & 0xFFU),
                                                    Parameter_Value);
 
-                if ((Msg.Reserved & MOTOR_PARAM_RESPONSE) != 0U)
-                {
-                    Protocol_Parameter_Write_Response(
-                        (uint8_t)(Msg.Reserved >> MOTOR_PARAM_TXN_SHIFT),
-                        (uint16_t)Msg.Arg,
-                        Parameter_Status);
-                }
+                Protocol_Parameter_Write_Response(
+                    (uint8_t)(Msg.Reserved >> MOTOR_PARAM_TXN_SHIFT),
+                    (uint16_t)Msg.Arg,
+                    Parameter_Status);
                 break;
 
             case MOTOR_CMD_IDENT_APPLY:

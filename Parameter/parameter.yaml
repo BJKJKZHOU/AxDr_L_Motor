@@ -152,7 +152,7 @@ objects:
     write_state: disabled
     range:
       min: 1
-      max: 64
+      max: 255
     on_change: MOTOR_PP
 
   PARAM_MOTOR_RS:
@@ -559,7 +559,6 @@ objects:
     access: wo
     command: MOTOR_CMD_IDENT_START
     arg: IDENT_RS_LS
-    async: true
     description: "启动Rs/Ls辨识。"
 
   ACTION_IDENT_FLUX_START:
@@ -568,7 +567,6 @@ objects:
     access: wo
     command: MOTOR_CMD_IDENT_START
     arg: IDENT_FLUX
-    async: true
     description: "启动Flux辨识。"
 
   ACTION_IDENT_ABORT:

@@ -7,7 +7,6 @@
 
 #include "Encoder.h"
 #include "Math.h"
-#include "Protection.h"
 #include "Sin_LUT.h"
 #include "control_params.h"
 #include "motor_params.h"
@@ -153,7 +152,6 @@ static void Fail(Servo_Phase_Fail_e Reason)
 {
     Phase.State = PHASE_FAILED;
     Result_Snapshot(SERVO_PHASE_RESULT_FAIL, Reason);
-    Protection_Report_Set(PROT_PHASE_SEARCH_FAILED);
 }
 
 bool Servo_Phase_Start(void)
@@ -191,8 +189,6 @@ bool Servo_Phase_Start(void)
     {
         return false;
     }
-
-    Protection_Report_Clear(PROT_PHASE_SEARCH_FAILED);
 
     Phase = (Servo_Phase_T){ 0 };
     Last_Result = (Servo_Phase_Result_T){ 0 };

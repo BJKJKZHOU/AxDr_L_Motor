@@ -24,9 +24,6 @@ typedef enum
     PROT_PHASE_LOSS = (1UL << 7),
     PROT_DRIVER = (1UL << 8),
 
-    /* Non-fatal workflow results. These belong in Protection.Report only. */
-    PROT_PHASE_SEARCH_FAILED = (1UL << 9),
-    PROT_IDENT_FAILED = (1UL << 10),
     PROT_SENSORLESS_START_FAILED = (1UL << 11),
 
 } Protection_Event_e;

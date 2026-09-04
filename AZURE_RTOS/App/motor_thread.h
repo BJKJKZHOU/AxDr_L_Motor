@@ -6,21 +6,18 @@
 #ifndef MOTOR_THREAD_H
 #define MOTOR_THREAD_H
 
-#include <stdbool.h>
 #include <stdint.h>
 
 #include "Parameter.h"
 #include "tx_api.h"
 
 #define MOTOR_PARAM_TXN_SHIFT 8U
-#define MOTOR_PARAM_RESPONSE  (1UL << 16)
 
 /* Action context carried with the internal Motor queue message. */
-#define MOTOR_ACTION_ID_SHIFT   0U
-#define MOTOR_ACTION_ID_MASK    0xFFFFUL
-#define MOTOR_ACTION_TXN_SHIFT  16U
-#define MOTOR_ACTION_TXN_MASK   0xFFUL
-#define MOTOR_ACTION_RESPONSE   (1UL << 24)
+#define MOTOR_ACTION_ID_SHIFT  0U
+#define MOTOR_ACTION_ID_MASK   0xFFFFUL
+#define MOTOR_ACTION_TXN_SHIFT 16U
+#define MOTOR_ACTION_TXN_MASK  0xFFUL
 
 typedef enum
 {
@@ -64,8 +61,7 @@ Motor_Parameter_Request_Status_e Motor_Parameter_Write_Request(
     uint16_t Id,
     Parameter_Type_e Type,
     const Parameter_Value_T *Value,
-    uint8_t Txn,
-    bool Reply);
+    uint8_t Txn);
 UINT Motor_Thread_Init(VOID *memory_ptr);
 
 #endif /* MOTOR_THREAD_H */

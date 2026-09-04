@@ -249,8 +249,8 @@ def parse_args():
 
     if not args.run:
         parser.error("--run is required to energize the motor")
-    if not 1 <= args.pole_pairs <= 64:
-        parser.error("--pole-pairs must be in 1..64")
+    if not 1 <= args.pole_pairs <= 255:
+        parser.error("--pole-pairs must be in 1..255")
     if args.phase_current is not None and args.phase_current <= 0.0:
         parser.error("--phase-current must be positive")
     if args.current_limit is not None and args.current_limit <= 0.0:

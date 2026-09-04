@@ -192,8 +192,7 @@ static void Parameter_Rx(const uint8_t *Data, uint8_t Len)
                 Request_Status = Motor_Parameter_Write_Request(Id,
                                                                Type,
                                                                &Value,
-                                                               Txn,
-                                                               true);
+                                                               Txn);
                 Status = Motor_Parameter_Request_Status_Map(Request_Status);
                 if (Status == AXDR_OK)
                 {
