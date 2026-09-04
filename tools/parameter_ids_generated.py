@@ -1,4 +1,4 @@
-"""Generated from Parameter/*.yaml. DO NOT EDIT."""
+"""Generated from Parameter/parameter.yaml. DO NOT EDIT."""
 
 PARAM_ADC_IA = 0x0001
 PARAM_ADC_IB = 0x0002

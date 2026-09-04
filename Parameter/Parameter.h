@@ -9,7 +9,7 @@
 #include <stdint.h>
 
 #include "Motor_Type.h"
-#include "Parameter_Id.generated.h"
+#include "Parameter.generated.h"
 
 #define PARAM_MOTOR_PP_MAX 64U
 

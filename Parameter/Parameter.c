@@ -46,7 +46,9 @@ typedef struct
 
 static const Parameter_Entry_T Parameter_Table[] =
 {
-#include "Parameter_Table.generated.inc"
+#define PARAM_GENERATE_TABLE
+#include "Parameter.generated.inc"
+#undef PARAM_GENERATE_TABLE
 };
 
 static const Parameter_Entry_T *Parameter_Find(uint16_t Id)
@@ -323,7 +325,9 @@ static Parameter_Status_e Parameter_Read_Indirect(uint16_t Id,
 {
     switch (Id)
     {
-#include "Parameter_Read.generated.inc"
+#define PARAM_GENERATE_READ
+#include "Parameter.generated.inc"
+#undef PARAM_GENERATE_READ
         default:
             return PARAM_ERR_ID;
     }

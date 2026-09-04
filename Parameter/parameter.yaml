@@ -1,22 +1,11 @@
-# AxDr_L host-visible parameter object dictionary.
+# AxDr_L host-visible parameter dictionary.
 #
-# This file is the single source of truth for Parameter object IDs and metadata.
-# Generated firmware/host files must be produced by tools/gen_parameters.py and
-# must not be edited directly.
+# Single source of truth for value parameters and write-trigger actions.
+# Generated firmware/host files are produced by tools/gen_parameters.py.
 #
-# Conventions:
-#   id          Stable 16-bit host-visible object ID. Do not reuse retired IDs.
-#   type        Wire/storage type used by Parameter: u8, i8, f32, i32, u32, position.
-#   access      Host access permission: ro or rw.
-#   binding     Direct C object backing the parameter.
-#   getter      C getter used when no direct backing object is exposed.
-#   write_state Motor state in which host writes are accepted.
-#   range       Current numeric acceptance range. "exclusive_min" means > min.
-#   on_change   Current Parameter.c change notification after a successful write.
-#   plot_scale  Plot mapping scale. 0 means Normal Plot only; >0 also permits Fast Plot.
-#
-# Actions such as ENABLE/RUN/STOP/DISABLE and identification START/ABORT/APPLY
-# are intentionally not Parameter objects and do not belong in this dictionary.
+# Value types: u8, i8, f32, i32, u32, position.
+# Actions use type: action, access: wo. Every valid WRITE is one trigger;
+# actions do not store a value and do not depend on value changes.
 
 schema: 1
 
@@ -512,3 +501,70 @@ objects:
     getter: Sensorless_State_Get
     description: "当前Sensorless状态机状态。"
     allowed_symbols: [SL_ALIGN, SL_IF, SL_IF_TO_OBS, SL_OBS, SL_OBS_TO_IF, SL_FAILED, SL_IDLE]
+
+  ACTION_MOTOR_ENABLE:
+    id: 0x1001
+    type: action
+    access: wo
+    command: MOTOR_CMD_ENABLE
+    description: "使能电机功率级。"
+
+  ACTION_MOTOR_RUN:
+    id: 0x1002
+    type: action
+    access: wo
+    command: MOTOR_CMD_RUN
+    description: "按当前Motor Mode启动运行；PHASE_SEARCH模式下作为异步寻相启动动作。"
+
+  ACTION_MOTOR_STOP:
+    id: 0x1003
+    type: action
+    access: wo
+    command: MOTOR_CMD_STOP
+    description: "停止当前运行并回到ENABLED。"
+
+  ACTION_MOTOR_DISABLE:
+    id: 0x1004
+    type: action
+    access: wo
+    command: MOTOR_CMD_DISABLE
+    description: "立即关闭PWM并进入DISABLED。"
+
+  ACTION_IDENT_RS_LS_START:
+    id: 0x1101
+    type: action
+    access: wo
+    command: MOTOR_CMD_IDENT_START
+    arg: IDENT_RS_LS
+    async: true
+    description: "启动Rs/Ls辨识。"
+
+  ACTION_IDENT_FLUX_START:
+    id: 0x1102
+    type: action
+    access: wo
+    command: MOTOR_CMD_IDENT_START
+    arg: IDENT_FLUX
+    async: true
+    description: "启动Flux辨识。"
+
+  ACTION_IDENT_ABORT:
+    id: 0x1103
+    type: action
+    access: wo
+    command: MOTOR_CMD_IDENT_ABORT
+    description: "中止当前辨识。"
+
+  ACTION_IDENT_APPLY:
+    id: 0x1104
+    type: action
+    access: wo
+    command: MOTOR_CMD_IDENT_APPLY
+    description: "将最近一次有效辨识结果应用到Motor参数。"
+
+  ACTION_PROTECTION_CLEAR:
+    id: 0x1201
+    type: action
+    access: wo
+    command: MOTOR_CMD_PROTECTION_CLEAR
+    description: "在DISABLED状态清除可清除的保护状态。"

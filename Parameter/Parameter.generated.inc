@@ -1,4 +1,6 @@
-/* Generated from Parameter/parameter_objects.yaml. DO NOT EDIT. */
+/* Generated from Parameter/parameter.yaml. DO NOT EDIT. */
+
+#if defined(PARAM_GENERATE_TABLE)
 { PARAM_ADC_IA, PARAM_FLOAT, &ADC.Ia_A, -INFINITY, INFINITY, 0U, PARAM_CHANGE_NONE },
 { PARAM_ADC_IB, PARAM_FLOAT, &ADC.Ib_A, -INFINITY, INFINITY, 0U, PARAM_CHANGE_NONE },
 { PARAM_ADC_IC, PARAM_FLOAT, &ADC.Ic_A, -INFINITY, INFINITY, 0U, PARAM_CHANGE_NONE },
@@ -55,3 +57,159 @@
 { PARAM_IDENT_FLUX_VALID, PARAM_U8, NULL, 0.0f, 1.0f, 0U, PARAM_CHANGE_NONE },
 { PARAM_IDENT_FLUX_RESULT, PARAM_FLOAT, NULL, -INFINITY, INFINITY, 0U, PARAM_CHANGE_NONE },
 { PARAM_SENSORLESS_STATE, PARAM_U8, NULL, (float)SL_ALIGN, (float)SL_IDLE, 0U, PARAM_CHANGE_NONE },
+
+#elif defined(PARAM_GENERATE_READ)
+case PARAM_PHASE_THETA_OFF_ERROR:
+    Value->F32 = (float)Servo_Phase_Theta_Off_Error_Get();
+    return PARAM_OK;
+
+case PARAM_PHASE_VERIFY_MOVE:
+    Value->F32 = (float)Servo_Phase_Verify_Move_Get();
+    return PARAM_OK;
+
+case PARAM_MOTOR_STATE:
+    Value->U8 = (uint8_t)Motor_State_Get();
+    return PARAM_OK;
+
+case PARAM_IDENT_RS_LS_VALID:
+    Value->U8 = (uint8_t)Identification_Rs_Ls_Valid_Get();
+    return PARAM_OK;
+
+case PARAM_IDENT_RS_RESULT:
+    Value->F32 = (float)Identification_Rs_Get();
+    return PARAM_OK;
+
+case PARAM_IDENT_LS_RESULT:
+    Value->F32 = (float)Identification_Ls_Get();
+    return PARAM_OK;
+
+case PARAM_IDENT_FLUX_VALID:
+    Value->U8 = (uint8_t)Identification_Flux_Valid_Get();
+    return PARAM_OK;
+
+case PARAM_IDENT_FLUX_RESULT:
+    Value->F32 = (float)Identification_Flux_Get();
+    return PARAM_OK;
+
+case PARAM_SENSORLESS_STATE:
+    Value->U8 = (uint8_t)Sensorless_State_Get();
+    return PARAM_OK;
+
+#elif defined(PARAM_GENERATE_ACTION)
+case ACTION_MOTOR_ENABLE:
+    Msg.Cmd = (ULONG)MOTOR_CMD_ENABLE;
+    Msg.Arg = (ULONG)0U;
+    break;
+
+case ACTION_MOTOR_RUN:
+    Msg.Cmd = (ULONG)MOTOR_CMD_RUN;
+    Msg.Arg = (ULONG)0U;
+    break;
+
+case ACTION_MOTOR_STOP:
+    Msg.Cmd = (ULONG)MOTOR_CMD_STOP;
+    Msg.Arg = (ULONG)0U;
+    break;
+
+case ACTION_MOTOR_DISABLE:
+    Msg.Cmd = (ULONG)MOTOR_CMD_DISABLE;
+    Msg.Arg = (ULONG)0U;
+    break;
+
+case ACTION_IDENT_RS_LS_START:
+    Msg.Cmd = (ULONG)MOTOR_CMD_IDENT_START;
+    Msg.Arg = (ULONG)IDENT_RS_LS;
+    break;
+
+case ACTION_IDENT_FLUX_START:
+    Msg.Cmd = (ULONG)MOTOR_CMD_IDENT_START;
+    Msg.Arg = (ULONG)IDENT_FLUX;
+    break;
+
+case ACTION_IDENT_ABORT:
+    Msg.Cmd = (ULONG)MOTOR_CMD_IDENT_ABORT;
+    Msg.Arg = (ULONG)0U;
+    break;
+
+case ACTION_IDENT_APPLY:
+    Msg.Cmd = (ULONG)MOTOR_CMD_IDENT_APPLY;
+    Msg.Arg = (ULONG)0U;
+    break;
+
+case ACTION_PROTECTION_CLEAR:
+    Msg.Cmd = (ULONG)MOTOR_CMD_PROTECTION_CLEAR;
+    Msg.Arg = (ULONG)0U;
+    break;
+
+#elif defined(PARAM_GENERATE_PLOT)
+case PARAM_ADC_IA:
+    *Scale = 0.001f;
+    return &ADC.Ia_A;
+
+case PARAM_ADC_IB:
+    *Scale = 0.001f;
+    return &ADC.Ib_A;
+
+case PARAM_ADC_IC:
+    *Scale = 0.001f;
+    return &ADC.Ic_A;
+
+case PARAM_ADC_VBUS:
+    *Scale = 0.0f;
+    return &ADC.Vbus_V;
+
+case PARAM_RUN_ID:
+    *Scale = 0.001f;
+    return &Motor_Run.Id;
+
+case PARAM_RUN_IQ:
+    *Scale = 0.001f;
+    return &Motor_Run.Iq;
+
+case PARAM_RUN_UD:
+    *Scale = 0.001f;
+    return &Motor_Run.Ud;
+
+case PARAM_RUN_UQ:
+    *Scale = 0.001f;
+    return &Motor_Run.Uq;
+
+case PARAM_RUN_THETA_E:
+    *Scale = 0.0002f;
+    return &Motor_Run.Theta_e;
+
+case PARAM_RUN_UALPHA:
+    *Scale = 0.001f;
+    return &Motor_Run.Ualpha;
+
+case PARAM_RUN_UBETA:
+    *Scale = 0.001f;
+    return &Motor_Run.Ubeta;
+
+case PARAM_OBS_THETA:
+    *Scale = 0.0002f;
+    return &Flux_PLL.State.Theta;
+
+case PARAM_OBS_WE:
+    *Scale = 0.1f;
+    return &Flux_PLL.State.We;
+
+case PARAM_OBS_PLL_ERR:
+    *Scale = 0.0001f;
+    return &Flux_PLL.State.Err;
+
+case PARAM_OBS_FLUX_ERR:
+    *Scale = 1e-09f;
+    return &Flux_Obs.State.Flux_Err;
+
+case PARAM_RUN_THETA_M:
+    *Scale = 0.0002f;
+    return &Motor_Run.Theta_m;
+
+case PARAM_RUN_WM:
+    *Scale = 0.1f;
+    return &Motor_Run.Wm;
+
+#else
+#error "Parameter.generated.inc section not selected"
+#endif

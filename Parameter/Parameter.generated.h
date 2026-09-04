@@ -1,6 +1,6 @@
-/* Generated from Parameter/*.yaml. DO NOT EDIT. */
-#ifndef PARAMETER_ID_GENERATED_H
-#define PARAMETER_ID_GENERATED_H
+/* Generated from Parameter/parameter.yaml. DO NOT EDIT. */
+#ifndef PARAMETER_GENERATED_H
+#define PARAMETER_GENERATED_H
 
 typedef enum
 {
@@ -201,4 +201,4 @@ typedef enum
 
 } Parameter_Id_e;
 
-#endif /* PARAMETER_ID_GENERATED_H */
+#endif /* PARAMETER_GENERATED_H */

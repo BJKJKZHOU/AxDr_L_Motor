@@ -47,7 +47,9 @@ Motor_Parameter_Request_Status_e Motor_Parameter_Write_Request(
     {
         switch (Id)
         {
-#include "Parameter_Action.generated.inc"
+#define PARAM_GENERATE_ACTION
+#include "Parameter.generated.inc"
+#undef PARAM_GENERATE_ACTION
             default:
                 return MOTOR_PARAM_REQUEST_ERR_ID;
         }

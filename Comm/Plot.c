@@ -48,7 +48,9 @@ static const volatile float *Plot_Data_Get(uint16_t Var_ID, float *Scale)
 {
     switch (Var_ID)
     {
-#include "Plot_Data.generated.inc"
+#define PARAM_GENERATE_PLOT
+#include "Parameter.generated.inc"
+#undef PARAM_GENERATE_PLOT
         default:
             *Scale = 0.0f;
             return 0;
