@@ -27,17 +27,11 @@ MAGIC = b"AXDR"
 NODE_ID = 1
 
 MSG_RESPONSE = 0x02
-MSG_CONTROL = 0x03
 MSG_PLOT = 0x04
 MSG_NORMAL_DATA = 0x10
 MSG_FAST_DATA = 0x18
-MSG_SENSORLESS = 0x06
 MSG_PARAMETER = 0x07
-
-CTRL_ENABLE = 0x01
-CTRL_RUN = 0x02
-CTRL_STOP = 0x03
-CTRL_DISABLE = 0x04
+MSG_EVENT = 0x08
 
 PARAM_READ = 0x01
 PARAM_WRITE = 0x02
@@ -45,11 +39,18 @@ PARAM_WRITE = 0x02
 PARAM_U8 = 0
 PARAM_I8 = 1
 PARAM_FLOAT = 2
+PARAM_I32 = 3
+PARAM_U32 = 4
+PARAM_POSITION = 5
+PARAM_ACTION = 6
 
 PARAM_FORMAT = {
     PARAM_U8: "<B",
     PARAM_I8: "<b",
     PARAM_FLOAT: "<f",
+    PARAM_I32: "<i",
+    PARAM_U32: "<I",
+    PARAM_POSITION: "<if",
 }
 
 MODE_SENSORLESS_SPEED = 5
@@ -58,7 +59,7 @@ PLOT_CONFIG = 0x01
 PLOT_START = 0x02
 PLOT_STOP = 0x03
 
-SENSORLESS_STATUS = 0x02
+EVENT_ACTION_COMPLETE = 0x03
 
 FAST_GROUP = 0
 NORMAL_GROUP = 1
@@ -176,6 +177,7 @@ class SensorlessTest:
         self.args = args
         self.parser = StreamParser()
         self.txn = 1
+        self.action_completions = []
 
         self.motion_active = False
         self.stage = 0
@@ -273,14 +275,22 @@ class SensorlessTest:
                 self.process_normal(payload)
             elif msg_type == MSG_RESPONSE:
                 responses.append(payload)
+            elif (msg_type == MSG_EVENT and len(payload) == 5 and
+                  payload[0] == EVENT_ACTION_COMPLETE):
+                txn = payload[1]
+                action_id, = struct.unpack_from("<H", payload, 2)
+                self.action_completions.append((txn, action_id, payload[4]))
         return responses
 
     def request(self, msg_type, op, data=b""):
         txn = self.txn
         payload = bytes([txn, op]) + data
         self.ser.write(usb_frame(msg_type, payload))
-        self.ser.flush()
 
+        # Do not call Serial.flush() here. On POSIX it drains the TTY output
+        # queue and may block independently of pyserial's write_timeout. A
+        # request already has two bounded waits: write_timeout for write() and
+        # args.timeout below for the matching protocol response.
         deadline = time.monotonic() + self.args.timeout
         while time.monotonic() < deadline:
             rx = self.ser.read(4096)
@@ -317,12 +327,49 @@ class SensorlessTest:
         return struct.unpack_from(PARAM_FORMAT[param_type], data, 3)[0]
 
     def parameter_write(self, param_id, param_type, value):
+        if param_type == PARAM_ACTION:
+            raise ValueError("use parameter_action() for actions")
         encoded = struct.pack(PARAM_FORMAT[param_type], value)
-        self.request(
+        data = self.request(
             MSG_PARAMETER,
             PARAM_WRITE,
             struct.pack("<HB", param_id, param_type) + encoded,
         )
+        if len(data) != 2:
+            raise RuntimeError(
+                f"invalid parameter write response length: {len(data)}"
+            )
+        response_id, = struct.unpack("<H", data)
+        if response_id != param_id:
+            raise RuntimeError(
+                f"parameter write response mismatch: id=0x{response_id:04X}"
+            )
+
+    def parameter_action(self, action_id):
+        txn = self.txn
+        data = self.request(
+            MSG_PARAMETER,
+            PARAM_WRITE,
+            struct.pack("<HB", action_id, PARAM_ACTION),
+        )
+        if len(data) != 2:
+            raise RuntimeError(
+                f"invalid action response length: {len(data)}"
+            )
+        response_id, = struct.unpack("<H", data)
+        if response_id != action_id:
+            raise RuntimeError(
+                f"action response mismatch: id=0x{response_id:04X}"
+            )
+        return txn
+
+    def action_complete_status(self, txn, action_id):
+        for index, event in enumerate(self.action_completions):
+            event_txn, event_id, status = event
+            if event_txn == txn and event_id == action_id:
+                del self.action_completions[index]
+                return status
+        return None
 
     def speed_set(self, wm):
         self.parameter_write(PARAM_TARGET_SPEED, PARAM_FLOAT, wm)
@@ -355,19 +402,18 @@ class SensorlessTest:
             )
 
     def read_status(self):
-        data = self.request(MSG_SENSORLESS, SENSORLESS_STATUS)
-        if len(data) != 8:
-            raise RuntimeError(f"invalid Sensorless status length: {len(data)}")
-
-        active, ready, stage, if_stage = data[:4]
-        we, = struct.unpack_from("<f", data, 4)
+        motor_state = self.parameter_read(PARAM_MOTOR_STATE, PARAM_U8)
+        we = self.parameter_read(PARAM_OBS_WE, PARAM_FLOAT)
         now = time.monotonic()
 
-        changed = (stage != self.stage or if_stage != self.if_stage
-                   or bool(ready) != self.ready)
+        stage = 0 if abs(we) < 0.1 * IF_WE_RAD_S else 1
+        if_stage = 0 if abs(we) < 0.9 * IF_WE_RAD_S else 1
+        ready = if_stage == 1
+        changed = (stage != self.stage or if_stage != self.if_stage or
+                   ready != self.ready)
         self.stage = stage
         self.if_stage = if_stage
-        self.ready = bool(ready)
+        self.ready = ready
         self.we = we
 
         elapsed = now - self.start_time
@@ -386,17 +432,17 @@ class SensorlessTest:
             print(f"t={elapsed:.3f} s stage={stage_text}/{if_text} "
                   f"We={we:.3f} rad/s ready={int(ready)}")
 
-        if not active:
+        if motor_state != 2:
             raise RuntimeError("Sensorless stopped before test completion")
 
     def run(self, wm_target):
         self.parameter_write(PARAM_MOTOR_MODE, PARAM_U8, MODE_SENSORLESS_SPEED)
         self.speed_set(wm_target)
-        self.request(MSG_CONTROL, CTRL_ENABLE)
+        self.parameter_action(ACTION_MOTOR_ENABLE)
 
         self.start_time = time.monotonic()
         self.motion_active = True
-        self.request(MSG_CONTROL, CTRL_RUN)
+        self.parameter_action(ACTION_MOTOR_RUN)
         print("t=0.000 s stage=ALIGN")
 
         next_status = self.start_time
@@ -423,15 +469,19 @@ class SensorlessTest:
 
     def stop(self):
         self.motion_active = False
-        for msg_type, op, data in (
-            (MSG_CONTROL, CTRL_STOP, b""),
-            (MSG_CONTROL, CTRL_DISABLE, b""),
-            (MSG_PLOT, PLOT_STOP, bytes([FAST_MASK | NORMAL_MASK])),
+        for name, action_id in (
+            ("STOP", ACTION_MOTOR_STOP),
+            ("DISABLE", ACTION_MOTOR_DISABLE),
         ):
             try:
-                self.request(msg_type, op, data)
+                self.parameter_action(action_id)
             except (TimeoutError, RuntimeError) as exc:
-                print(f"STOP warning: {exc}", file=sys.stderr)
+                print(f"{name} warning: {exc}", file=sys.stderr)
+        try:
+            self.request(MSG_PLOT, PLOT_STOP,
+                         bytes([FAST_MASK | NORMAL_MASK]))
+        except (TimeoutError, RuntimeError) as exc:
+            print(f"PLOT_STOP warning: {exc}", file=sys.stderr)
 
     def print_summary(self):
         print("\nResult")

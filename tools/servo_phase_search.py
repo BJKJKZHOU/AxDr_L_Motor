@@ -155,7 +155,9 @@ class PhaseSearch(base.SensorlessTest):
         )
 
     def run_phase_search(self):
-        self.request(base.MSG_CONTROL, base.CTRL_MODE_SET, bytes([MODE_PHASE_SEARCH]))
+        self.parameter_write(
+            base.PARAM_MOTOR_MODE, base.PARAM_U8, MODE_PHASE_SEARCH
+        )
         self.request(base.MSG_CONTROL, base.CTRL_ENABLE)
         self.request(base.MSG_CONTROL, base.CTRL_RUN)
 
