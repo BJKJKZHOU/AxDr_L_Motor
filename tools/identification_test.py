@@ -1,0 +1,1200 @@
+#!/usr/bin/env python3
+"""Identify an unknown motor and optionally apply results to firmware RAM.
+
+The tool ends after Rs/Ls and optional Flux identification. It never starts a
+sensorless or servo run. Motor output is disabled on normal exit, failure, and
+user interruption.
+
+Examples:
+    python3 tools/identification_test.py \
+        --port /dev/ttyACM1 --pole-pairs 7 --current-limit 2.0 \
+        --rs-ls-count 5 --run
+
+    python3 tools/identification_test.py \
+        --port /dev/ttyACM1 --pole-pairs 7 --current-limit 2.0 \
+        --rs-ls-count 5 --apply-rl \
+        --flux-forward-count 2 --flux-reverse-count 2 --apply-flux --run
+
+    python3 tools/identification_test.py \
+        --port /dev/ttyACM1 --pole-pairs 7 --current-limit 2.0 \
+        --rs-ls-count 500 --progress-every 10 --run
+"""
+
+import argparse
+import json
+import math
+from pathlib import Path
+import statistics
+import struct
+import sys
+import time
+
+try:
+    import serial
+except ImportError:
+    print("pyserial is required: python -m pip install pyserial", file=sys.stderr)
+    raise SystemExit(2)
+
+
+MAGIC = b"AXDR"
+NODE_ID = 1
+
+MSG_RESPONSE = 0x02
+MSG_PLOT = 0x04
+MSG_PARAMETER = 0x07
+MSG_EVENT = 0x08
+MSG_NORMAL_DATA = 0x10
+MSG_FAST_DATA = 0x18
+
+PARAM_READ = 0x01
+PARAM_WRITE = 0x02
+
+PARAM_U8 = 0
+PARAM_FLOAT = 2
+PARAM_ACTION = 6
+PARAM_FORMAT = {
+    PARAM_U8: "<B",
+    PARAM_FLOAT: "<f",
+}
+
+PLOT_CONFIG = 0x01
+PLOT_START = 0x02
+PLOT_STOP = 0x03
+
+EVENT_ACTION_COMPLETE = 0x03
+
+FAST_GROUP = 0
+NORMAL_GROUP = 1
+FAST_MASK = 1 << FAST_GROUP
+NORMAL_MASK = 1 << NORMAL_GROUP
+
+# Parameter IDs generated from Parameter/parameter.yaml.
+PARAM_ADC_IA = 0x0001
+PARAM_ADC_IB = 0x0002
+PARAM_ADC_IC = 0x0003
+PARAM_ADC_VBUS = 0x0004
+PARAM_MOTOR_PP = 0x0101
+PARAM_LIMIT_I_MAX = 0x0201
+PARAM_MOTOR_MODE = 0x0701
+PARAM_TARGET_SPEED = 0x0703
+PARAM_IDENT_RS_LS_VALID = 0x0901
+PARAM_IDENT_RS_RESULT = 0x0902
+PARAM_IDENT_LS_RESULT = 0x0903
+PARAM_IDENT_FLUX_VALID = 0x0910
+PARAM_IDENT_FLUX_RESULT = 0x0911
+
+ACTION_MOTOR_ENABLE = 0x1001
+ACTION_MOTOR_DISABLE = 0x1004
+ACTION_IDENT_RS_LS_START = 0x1101
+ACTION_IDENT_FLUX_START = 0x1102
+ACTION_IDENT_ABORT = 0x1103
+ACTION_IDENT_APPLY = 0x1104
+
+STATUS_NAME = {
+    0: "OK",
+    1: "ERR_OP",
+    2: "ERR_LENGTH",
+    3: "ERR_VAR_ID",
+    4: "ERR_READ_ONLY",
+    5: "ERR_VALUE",
+    6: "ERR_STATE",
+    7: "ERR_CONFIG",
+    8: "ERR_BANDWIDTH",
+    9: "ERR_NOT_SUPPORTED",
+}
+
+IDENT_RS_LS = 0x01
+IDENT_FLUX = 0x02
+IDENT_DONE = 2
+IDENT_FAILED = 3
+MODE_IDENT = 4
+
+HOST_CURRENT_GUARD_RATIO = 1.10
+IF_WE_RAD_S = 120.0
+
+FAST_CONFIG_ID = 13
+NORMAL_CONFIG_ID = 14
+FAST_VARS = (
+    ("Ia", PARAM_ADC_IA),
+    ("Ib", PARAM_ADC_IB),
+    ("Ic", PARAM_ADC_IC),
+)
+VBUS_ID = PARAM_ADC_VBUS
+
+
+DEFAULT_RS_LS_COUNT = 5
+DEFAULT_FLUX_COUNT = 2
+DEFAULT_RS_REPEAT_LIMIT = 0.10
+DEFAULT_LS_REPEAT_LIMIT = 0.15
+
+
+class QualityFailure(RuntimeError):
+    pass
+
+
+class IdentificationFailed(RuntimeError):
+    def __init__(self, message, result):
+        super().__init__(message)
+        self.result = result
+
+
+def can_id(msg_type):
+    return (msg_type << 6) | NODE_ID
+
+
+def usb_frame(msg_type, payload):
+    return MAGIC + struct.pack("<HB", can_id(msg_type), len(payload)) + payload
+
+
+class StreamParser:
+    def __init__(self):
+        self.buf = bytearray()
+
+    def feed(self, data):
+        self.buf += data
+        frames = []
+
+        while True:
+            pos = self.buf.find(MAGIC)
+            if pos < 0:
+                if len(self.buf) > 3:
+                    del self.buf[:-3]
+                break
+
+            if pos:
+                del self.buf[:pos]
+
+            if len(self.buf) < 7:
+                break
+
+            msg_id, length = struct.unpack_from("<HB", self.buf, 4)
+            if msg_id > 0x07FF or length > 64:
+                del self.buf[0]
+                continue
+
+            frame_len = 7 + length
+            if len(self.buf) < frame_len:
+                break
+
+            payload = bytes(self.buf[7:frame_len])
+            del self.buf[:frame_len]
+            frames.append((msg_id, payload))
+
+        return frames
+
+
+class IdentificationClient:
+    def __init__(self, ser, args):
+        self.ser = ser
+        self.args = args
+        self.parser = StreamParser()
+        self.txn = 1
+        self.action_completions = []
+
+        self.plot_started = False
+        self.ident_active = False
+        self.run_peak = 0.0
+        self.run_trip = False
+        self.vbus = []
+
+        self.fast_last = None
+        self.fast_lost = 0
+        self.fast_frames = 0
+        self.fast_samples = 0
+        self.normal_last = None
+        self.normal_lost = 0
+        self.normal_frames = 0
+
+    def process_fast(self, payload):
+        if len(payload) < 4 or payload[2] != FAST_CONFIG_ID:
+            return
+
+        seq, = struct.unpack_from("<H", payload, 0)
+        sample_count = payload[3]
+        count = len(FAST_VARS)
+        if len(payload) != 4 + sample_count * count * 2:
+            return
+
+        if self.fast_last is not None:
+            expected = (self.fast_last + 1) & 0xFFFF
+            self.fast_lost += (seq - expected) & 0xFFFF
+        self.fast_last = seq
+        self.fast_frames += 1
+        self.fast_samples += sample_count
+
+        raw = struct.unpack_from(f"<{sample_count * count}h", payload, 4)
+        if not self.ident_active:
+            return
+
+        for sample in range(sample_count):
+            start = sample * count
+            peak = max(
+                abs(raw[start + index] * 0.001)
+                for index in range(count)
+            )
+            self.run_peak = max(self.run_peak, peak)
+            if peak > self.args.ident_current_limit:
+                self.run_trip = True
+
+    def process_normal(self, payload):
+        if (
+            len(payload) != 8
+            or payload[2] != NORMAL_CONFIG_ID
+            or payload[3] != 1
+        ):
+            return
+
+        seq, = struct.unpack_from("<H", payload, 0)
+        if self.normal_last is not None:
+            expected = (self.normal_last + 1) & 0xFFFF
+            self.normal_lost += (seq - expected) & 0xFFFF
+        self.normal_last = seq
+        self.normal_frames += 1
+        value, = struct.unpack_from("<f", payload, 4)
+        self.vbus.append(value)
+
+    def process(self, frames):
+        responses = []
+        for msg_id, payload in frames:
+            msg_type = (msg_id >> 6) & 0x1F
+            if msg_type == MSG_FAST_DATA:
+                self.process_fast(payload)
+            elif msg_type == MSG_NORMAL_DATA:
+                self.process_normal(payload)
+            elif msg_type == MSG_RESPONSE:
+                responses.append(payload)
+            elif (
+                msg_type == MSG_EVENT
+                and len(payload) == 5
+                and payload[0] == EVENT_ACTION_COMPLETE
+            ):
+                txn = payload[1]
+                action_id, = struct.unpack_from("<H", payload, 2)
+                self.action_completions.append(
+                    (txn, action_id, payload[4])
+                )
+        return responses
+
+    def request(self, msg_type, op, data=b""):
+        txn = self.txn
+        payload = bytes([txn, op]) + data
+        self.ser.write(usb_frame(msg_type, payload))
+
+        deadline = time.monotonic() + self.args.timeout
+        while time.monotonic() < deadline:
+            rx = self.ser.read(4096)
+            for response in self.process(self.parser.feed(rx)):
+                if len(response) < 4:
+                    continue
+                rx_txn, req_msg, req_op, status = response[:4]
+                if rx_txn != txn or req_msg != msg_type or req_op != op:
+                    continue
+                if status != 0:
+                    name = STATUS_NAME.get(status, str(status))
+                    raise RuntimeError(f"request {msg_type}/{op}: {name}")
+                self.txn = (txn % 255) + 1
+                return response[4:]
+
+        raise TimeoutError(f"request {msg_type}/{op} timeout")
+
+    def parameter_read(self, param_id, param_type):
+        data = self.request(
+            MSG_PARAMETER,
+            PARAM_READ,
+            struct.pack("<H", param_id),
+        )
+        value_size = struct.calcsize(PARAM_FORMAT[param_type])
+        if len(data) != 3 + value_size:
+            raise RuntimeError(
+                f"invalid parameter response length: {len(data)}"
+            )
+
+        response_id, response_type = struct.unpack_from("<HB", data, 0)
+        if response_id != param_id or response_type != param_type:
+            raise RuntimeError(
+                "parameter response mismatch: "
+                f"id=0x{response_id:04X} type={response_type}"
+            )
+
+        return struct.unpack_from(PARAM_FORMAT[param_type], data, 3)[0]
+
+    def parameter_write(self, param_id, param_type, value):
+        encoded = struct.pack(PARAM_FORMAT[param_type], value)
+        data = self.request(
+            MSG_PARAMETER,
+            PARAM_WRITE,
+            struct.pack("<HB", param_id, param_type) + encoded,
+        )
+        if len(data) != 2:
+            raise RuntimeError(
+                f"invalid parameter write response length: {len(data)}"
+            )
+        response_id, = struct.unpack("<H", data)
+        if response_id != param_id:
+            raise RuntimeError(
+                f"parameter write response mismatch: id=0x{response_id:04X}"
+            )
+
+    def parameter_action(self, action_id):
+        txn = self.txn
+        data = self.request(
+            MSG_PARAMETER,
+            PARAM_WRITE,
+            struct.pack("<HB", action_id, PARAM_ACTION),
+        )
+        if len(data) != 2:
+            raise RuntimeError(
+                f"invalid action response length: {len(data)}"
+            )
+        response_id, = struct.unpack("<H", data)
+        if response_id != action_id:
+            raise RuntimeError(
+                f"action response mismatch: id=0x{response_id:04X}"
+            )
+        return txn
+
+    def action_complete_status(self, txn, action_id):
+        for index, event in enumerate(self.action_completions):
+            event_txn, event_id, status = event
+            if event_txn == txn and event_id == action_id:
+                del self.action_completions[index]
+                return status
+        return None
+
+    def prepare(self):
+        try:
+            self.parameter_action(ACTION_MOTOR_DISABLE)
+        except (TimeoutError, RuntimeError):
+            pass
+        try:
+            self.request(
+                MSG_PLOT,
+                PLOT_STOP,
+                bytes([FAST_MASK | NORMAL_MASK]),
+            )
+        except (TimeoutError, RuntimeError):
+            pass
+
+    def current_limit_set(self):
+        self.parameter_write(
+            PARAM_LIMIT_I_MAX,
+            PARAM_FLOAT,
+            self.args.current_limit,
+        )
+        print(
+            f"Commission current limit={self.args.current_limit:.3f} A; "
+            f"host guard={self.args.ident_current_limit:.3f} A"
+        )
+
+    def pole_pairs_set(self):
+        self.parameter_write(
+            PARAM_MOTOR_PP,
+            PARAM_U8,
+            self.args.pole_pairs,
+        )
+        value = self.parameter_read(PARAM_MOTOR_PP, PARAM_U8)
+        if value != self.args.pole_pairs:
+            raise RuntimeError(
+                f"pole-pairs readback {value} != {self.args.pole_pairs}"
+            )
+        print(f"Motor pole pairs={value} (RAM)")
+        return value
+
+    def configure_plot(self):
+        self.fast_last = None
+        self.normal_last = None
+        self.fast_lost = 0
+        self.normal_lost = 0
+
+        fast_data = bytes([FAST_GROUP, FAST_CONFIG_ID, len(FAST_VARS)])
+        fast_data += b"".join(
+            struct.pack("<H", var_id) for _, var_id in FAST_VARS
+        )
+        self.request(MSG_PLOT, PLOT_CONFIG, fast_data)
+
+        normal_data = bytes([NORMAL_GROUP, NORMAL_CONFIG_ID, 1])
+        normal_data += struct.pack("<H", VBUS_ID)
+        self.request(MSG_PLOT, PLOT_CONFIG, normal_data)
+        self.request(
+            MSG_PLOT,
+            PLOT_START,
+            bytes([FAST_MASK | NORMAL_MASK]),
+        )
+        self.plot_started = True
+
+    def stop_plot(self):
+        if not self.plot_started:
+            return
+        self.request(
+            MSG_PLOT,
+            PLOT_STOP,
+            bytes([FAST_MASK | NORMAL_MASK]),
+        )
+        self.plot_started = False
+
+    def check_vbus(self):
+        self.vbus.clear()
+        deadline = time.monotonic() + self.args.vbus_seconds
+        while time.monotonic() < deadline:
+            self.process(self.parser.feed(self.ser.read(4096)))
+
+        if not self.vbus:
+            raise RuntimeError("no Vbus samples")
+        mean = statistics.mean(self.vbus)
+        print(
+            f"Vbus={mean:.3f} V "
+            f"({min(self.vbus):.3f} .. {max(self.vbus):.3f} V)"
+        )
+        if not self.args.vbus_min <= mean <= self.args.vbus_max:
+            raise RuntimeError(
+                f"Vbus {mean:.3f} V outside "
+                f"{self.args.vbus_min:.3f} .. {self.args.vbus_max:.3f} V"
+            )
+
+    def ident_result(self, mode):
+        result = {"state": IDENT_DONE}
+        if mode == IDENT_RS_LS:
+            result["valid"] = bool(
+                self.parameter_read(PARAM_IDENT_RS_LS_VALID, PARAM_U8)
+            )
+            result["rs_ohm"] = self.parameter_read(
+                PARAM_IDENT_RS_RESULT,
+                PARAM_FLOAT,
+            )
+            result["ls_h"] = self.parameter_read(
+                PARAM_IDENT_LS_RESULT,
+                PARAM_FLOAT,
+            )
+        else:
+            result["valid"] = bool(
+                self.parameter_read(PARAM_IDENT_FLUX_VALID, PARAM_U8)
+            )
+            result["flux_wb"] = self.parameter_read(
+                PARAM_IDENT_FLUX_RESULT,
+                PARAM_FLOAT,
+            )
+        return result
+
+    def run_ident(self, mode, run_number, direction=None):
+        if direction is not None:
+            sign = 1.0 if direction == "forward" else -1.0
+            wm_test = sign * IF_WE_RAD_S / self.args.pole_pairs
+            self.parameter_write(
+                PARAM_TARGET_SPEED,
+                PARAM_FLOAT,
+                wm_test,
+            )
+
+        start_action = (
+            ACTION_IDENT_RS_LS_START
+            if mode == IDENT_RS_LS
+            else ACTION_IDENT_FLUX_START
+        )
+
+        self.parameter_write(PARAM_MOTOR_MODE, PARAM_U8, MODE_IDENT)
+        self.parameter_action(ACTION_MOTOR_ENABLE)
+
+        self.run_peak = 0.0
+        self.run_trip = False
+        fast_lost_start = self.fast_lost
+        normal_lost_start = self.normal_lost
+        fast_samples_start = self.fast_samples
+        normal_frames_start = self.normal_frames
+        start = time.monotonic()
+        self.ident_active = True
+        result = None
+        failure = None
+
+        try:
+            txn = self.parameter_action(start_action)
+            deadline = start + self.args.ident_timeout
+
+            while time.monotonic() < deadline:
+                self.process(self.parser.feed(self.ser.read(4096)))
+
+                if self.run_trip:
+                    failure = RuntimeError(
+                        "identification phase current exceeded host guard "
+                        f"{self.args.ident_current_limit:.3f} A"
+                    )
+                    break
+
+                status = self.action_complete_status(txn, start_action)
+                if status is not None:
+                    if status != 0:
+                        result = {
+                            "state": IDENT_FAILED,
+                            "valid": False,
+                        }
+                        status_name = STATUS_NAME.get(status, str(status))
+                        failure = RuntimeError(
+                            f"identification completion: {status_name}"
+                        )
+                    else:
+                        result = self.ident_result(mode)
+                        if not result["valid"]:
+                            result["state"] = IDENT_FAILED
+                            failure = RuntimeError(
+                                "identification completed without a valid result"
+                            )
+                    if failure is not None:
+                        name = "Rs/Ls" if mode == IDENT_RS_LS else "Flux"
+                        failure = RuntimeError(
+                            f"{name} identification failed; {failure}; "
+                            f"captured phase peak={self.run_peak:.3f} A"
+                        )
+                    break
+            else:
+                failure = TimeoutError("identification timeout")
+
+            if result is None and failure is None:
+                failure = RuntimeError("identification completion missing")
+        except (TimeoutError, RuntimeError) as exc:
+            failure = exc
+        finally:
+            self.ident_active = False
+            if failure is not None:
+                try:
+                    self.parameter_action(ACTION_IDENT_ABORT)
+                except (TimeoutError, RuntimeError):
+                    pass
+            try:
+                self.parameter_action(ACTION_MOTOR_DISABLE)
+            except (TimeoutError, RuntimeError) as exc:
+                print(f"DISABLE warning: {exc}", file=sys.stderr)
+
+        if result is None:
+            result = {
+                "state": -1,
+                "valid": False,
+            }
+        result["run"] = run_number
+        result["direction"] = direction
+        result["time_s"] = time.monotonic() - start
+        result["phase_peak_a"] = self.run_peak
+        result["fast_lost"] = self.fast_lost - fast_lost_start
+        result["normal_lost"] = self.normal_lost - normal_lost_start
+        result["fast_samples"] = self.fast_samples - fast_samples_start
+        result["normal_frames"] = self.normal_frames - normal_frames_start
+        if failure is not None:
+            result["error"] = str(failure)
+            raise IdentificationFailed(str(failure), result)
+        return result
+
+    def apply(self):
+        self.parameter_action(ACTION_IDENT_APPLY)
+
+    def stop_all(self):
+        self.ident_active = False
+        try:
+            self.parameter_action(ACTION_MOTOR_DISABLE)
+        except (TimeoutError, RuntimeError) as exc:
+            print(f"DISABLE warning: {exc}", file=sys.stderr)
+        try:
+            self.request(
+                MSG_PLOT,
+                PLOT_STOP,
+                bytes([FAST_MASK | NORMAL_MASK]),
+            )
+        except (TimeoutError, RuntimeError) as exc:
+            print(f"PLOT_STOP warning: {exc}", file=sys.stderr)
+        self.plot_started = False
+
+
+def max_relative_deviation(values):
+    median = statistics.median(values)
+    if median <= 0.0:
+        return math.inf
+    return max(abs(value - median) / median for value in values)
+
+
+def value_stats(values):
+    if not values:
+        return None
+
+    return {
+        "count": len(values),
+        "mean": statistics.mean(values),
+        "median": statistics.median(values),
+        "min": min(values),
+        "max": max(values),
+        "stdev": statistics.stdev(values) if len(values) > 1 else 0.0,
+        "max_relative_deviation": max_relative_deviation(values),
+    }
+
+
+def telemetry_reasons(results, max_lost):
+    reasons = []
+    if any(
+        item.get("fast_lost", 0) > max_lost
+        or item.get("normal_lost", 0) > max_lost
+        for item in results
+    ):
+        reasons.append("telemetry loss exceeds limit")
+    if any(
+        item.get("fast_samples", 0) == 0
+        or item.get("normal_frames", 0) == 0
+        for item in results
+    ):
+        reasons.append("one or more runs have no FAST/NORMAL telemetry")
+    return reasons
+
+
+def summarize_rs_ls(results, requested_count, args):
+    valid = [item for item in results if item.get("valid")]
+    rs = [
+        item["rs_ohm"]
+        for item in valid
+        if math.isfinite(item["rs_ohm"]) and item["rs_ohm"] > 0.0
+    ]
+    ls = [
+        item["ls_h"]
+        for item in valid
+        if math.isfinite(item["ls_h"]) and item["ls_h"] > 0.0
+    ]
+    reasons = []
+
+    if len(results) != requested_count:
+        reasons.append("not all requested runs were attempted")
+    if len(valid) != requested_count:
+        reasons.append("one or more Rs/Ls runs failed")
+    if len(rs) != len(valid) or not rs:
+        reasons.append("Rs contains a non-positive or non-finite result")
+    if len(ls) != len(valid) or not ls:
+        reasons.append("Ls contains a non-positive or non-finite result")
+
+    rs_stats = value_stats(rs)
+    ls_stats = value_stats(ls)
+    if (
+        rs_stats is not None
+        and rs_stats["max_relative_deviation"] > args.rs_repeat_limit
+    ):
+        reasons.append("Rs repeatability exceeds limit")
+    if (
+        ls_stats is not None
+        and ls_stats["max_relative_deviation"] > args.ls_repeat_limit
+    ):
+        reasons.append("Ls repeatability exceeds limit")
+    reasons.extend(telemetry_reasons(results, args.max_lost))
+
+    return {
+        "requested_count": requested_count,
+        "attempted_count": len(results),
+        "success_count": len(valid),
+        "failure_count": len(results) - len(valid),
+        "rs_repeatability_limit": args.rs_repeat_limit,
+        "ls_repeatability_limit": args.ls_repeat_limit,
+        "rs_ohm": rs_stats,
+        "ls_h": ls_stats,
+        "passed": not reasons,
+        "reasons": reasons,
+    }
+
+
+def summarize_flux(results, forward_count, reverse_count, args):
+    requested_count = forward_count + reverse_count
+    valid = [item for item in results if item.get("valid")]
+    numeric = [
+        item
+        for item in valid
+        if math.isfinite(item["flux_wb"]) and item["flux_wb"] > 0.0
+    ]
+    flux = [item["flux_wb"] for item in numeric]
+    forward = [
+        item["flux_wb"]
+        for item in numeric
+        if item.get("direction") == "forward"
+    ]
+    reverse = [
+        item["flux_wb"]
+        for item in numeric
+        if item.get("direction") == "reverse"
+    ]
+    reasons = []
+
+    if len(results) != requested_count:
+        reasons.append("not all requested runs were attempted")
+    if len(valid) != requested_count:
+        reasons.append("one or more Flux runs failed")
+    if len(numeric) != len(valid) or not flux:
+        reasons.append("Flux contains a non-positive or non-finite result")
+
+    flux_stats = value_stats(flux)
+    forward_stats = value_stats(forward)
+    reverse_stats = value_stats(reverse)
+    if (
+        flux_stats is not None
+        and flux_stats["max_relative_deviation"] > args.flux_repeat_limit
+    ):
+        reasons.append("Flux repeatability exceeds limit")
+
+    direction_difference = None
+    if forward_stats is not None and reverse_stats is not None:
+        denominator = flux_stats["median"] if flux_stats is not None else 0.0
+        if denominator > 0.0:
+            direction_difference = (
+                abs(forward_stats["mean"] - reverse_stats["mean"])
+                / denominator
+            )
+        else:
+            direction_difference = math.inf
+
+        if direction_difference > args.flux_direction_limit:
+            reasons.append("forward/reverse Flux difference exceeds limit")
+    else:
+        reasons.append("both Flux directions require a valid result")
+
+    reasons.extend(telemetry_reasons(results, args.max_lost))
+    return {
+        "requested_count": requested_count,
+        "requested_forward_count": forward_count,
+        "requested_reverse_count": reverse_count,
+        "attempted_count": len(results),
+        "success_count": len(valid),
+        "failure_count": len(results) - len(valid),
+        "repeatability_limit": args.flux_repeat_limit,
+        "direction_consistency_limit": args.flux_direction_limit,
+        "flux_wb": flux_stats,
+        "forward_flux_wb": forward_stats,
+        "reverse_flux_wb": reverse_stats,
+        "direction_relative_difference": direction_difference,
+        "passed": not reasons,
+        "reasons": reasons,
+    }
+
+
+def progress_print(name, index, count, results):
+    valid = [item for item in results if item.get("valid")]
+    failures = len(results) - len(valid)
+    text = f"{name} [{index}/{count}] success={len(valid)} failure={failures}"
+
+    if name == "Rs/Ls" and valid:
+        text += (
+            f" Rs_med={statistics.median(item['rs_ohm'] for item in valid):.7g} ohm"
+            f" Ls_med={statistics.median(item['ls_h'] for item in valid) * 1.0e6:.3f} uH"
+        )
+    elif name == "Flux" and valid:
+        text += (
+            f" Flux_med={statistics.median(item['flux_wb'] for item in valid):.7g} Wb"
+        )
+    print(text)
+
+
+def run_group(client, mode, count, args, results, direction=None, run_offset=0):
+    name = (
+        "Rs/Ls"
+        if mode == IDENT_RS_LS
+        else f"Flux {direction}"
+    )
+    group_start = len(results)
+
+    for index in range(1, count + 1):
+        run = run_offset + index
+        try:
+            result = client.run_ident(mode, run, direction=direction)
+        except IdentificationFailed as exc:
+            result = exc.result
+            results.append(result)
+            progress_print(name, index, count, results[group_start:])
+            if args.stop_on_error:
+                return False
+        else:
+            results.append(result)
+            if (
+                index == 1
+                or index % args.progress_every == 0
+                or index == count
+            ):
+                progress_print(name, index, count, results[group_start:])
+
+        if args.interval > 0.0 and index < count:
+            time.sleep(args.interval)
+
+    return True
+
+
+def print_rs_ls(summary):
+    print("\nRs/Ls summary")
+    print(
+        f" attempted={summary['attempted_count']}/{summary['requested_count']}"
+        f" success={summary['success_count']} failure={summary['failure_count']}"
+    )
+    print(
+        " limits:"
+        f" Rs={100.0 * summary['rs_repeatability_limit']:.2f}%"
+        f" Ls={100.0 * summary['ls_repeatability_limit']:.2f}%"
+    )
+    if summary["rs_ohm"] is not None and summary["ls_h"] is not None:
+        print(
+            f" Rs={summary['rs_ohm']['median']:.7g} ohm"
+            f" ({summary['rs_ohm']['min']:.7g} .. {summary['rs_ohm']['max']:.7g})"
+        )
+        print(
+            f" Ls={summary['ls_h']['median'] * 1.0e6:.4f} uH"
+            f" ({summary['ls_h']['min'] * 1.0e6:.4f} .."
+            f" {summary['ls_h']['max'] * 1.0e6:.4f})"
+        )
+        print(
+            " repeatability:"
+            f" Rs={100.0 * summary['rs_ohm']['max_relative_deviation']:.2f}%"
+            f" Ls={100.0 * summary['ls_h']['max_relative_deviation']:.2f}%"
+        )
+    print(f" quality={'PASS' if summary['passed'] else 'FAIL'}")
+    for reason in summary["reasons"]:
+        print(f"  - {reason}")
+
+
+def print_flux(summary):
+    print("\nFlux summary")
+    print(
+        f" attempted={summary['attempted_count']}/{summary['requested_count']}"
+        f" success={summary['success_count']} failure={summary['failure_count']}"
+    )
+    if summary["flux_wb"] is not None:
+        print(
+            f" Flux={summary['flux_wb']['median']:.7g} Wb"
+            f" ({summary['flux_wb']['min']:.7g} .. {summary['flux_wb']['max']:.7g})"
+        )
+        print(
+            " repeatability:"
+            f" {100.0 * summary['flux_wb']['max_relative_deviation']:.2f}%"
+        )
+    difference = summary["direction_relative_difference"]
+    if difference is not None:
+        print(f" direction difference={100.0 * difference:.2f}%")
+    print(f" quality={'PASS' if summary['passed'] else 'FAIL'}")
+    for reason in summary["reasons"]:
+        print(f"  - {reason}")
+
+
+def log_write(record, output):
+    if output:
+        path = Path(output).expanduser().resolve()
+    else:
+        path = (
+            Path(__file__).resolve().parents[1]
+            / "build"
+            / "Release"
+            / f"identification_test_{time.strftime('%Y%m%d_%H%M%S')}.json"
+        )
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as stream:
+        json.dump(record, stream, indent=2, ensure_ascii=False)
+        stream.write("\n")
+    print(f"Log: {path}")
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Identify an unknown motor without starting a motor run"
+    )
+    parser.add_argument("--port", required=True)
+    parser.add_argument(
+        "--run",
+        action="store_true",
+        help="required confirmation to energize the motor",
+    )
+    parser.add_argument("--pole-pairs", type=int, required=True)
+    parser.add_argument("--current-limit", type=float, required=True)
+    parser.add_argument(
+        "--rs-ls-count",
+        type=int,
+        default=DEFAULT_RS_LS_COUNT,
+        help=f"number of Rs/Ls runs, default {DEFAULT_RS_LS_COUNT}",
+    )
+    parser.add_argument(
+        "--flux-forward-count",
+        type=int,
+        default=DEFAULT_FLUX_COUNT,
+        help=f"number of forward Flux runs, default {DEFAULT_FLUX_COUNT}",
+    )
+    parser.add_argument(
+        "--flux-reverse-count",
+        type=int,
+        default=DEFAULT_FLUX_COUNT,
+        help=f"number of reverse Flux runs, default {DEFAULT_FLUX_COUNT}",
+    )
+    parser.add_argument(
+        "--apply-rl",
+        action="store_true",
+        help="apply accepted Rs/Ls to firmware RAM and allow Flux identification",
+    )
+    parser.add_argument(
+        "--skip-flux",
+        action="store_true",
+        help="finish after the Rs/Ls stage even when --apply-rl is used",
+    )
+    parser.add_argument(
+        "--apply-flux",
+        action="store_true",
+        help="apply accepted Flux to firmware RAM",
+    )
+    parser.add_argument(
+        "--rs-repeat-limit",
+        type=float,
+        default=DEFAULT_RS_REPEAT_LIMIT,
+        help="maximum Rs deviation from median, default 0.10",
+    )
+    parser.add_argument(
+        "--ls-repeat-limit",
+        type=float,
+        default=DEFAULT_LS_REPEAT_LIMIT,
+        help="maximum Ls deviation from median, default 0.15",
+    )
+    parser.add_argument(
+        "--rl-repeat-limit",
+        type=float,
+        help="deprecated: override both Rs and Ls repeatability limits",
+    )
+    parser.add_argument("--flux-repeat-limit", type=float, default=0.05)
+    parser.add_argument("--flux-direction-limit", type=float, default=0.05)
+    parser.add_argument("--vbus-min", type=float, default=10.0)
+    parser.add_argument("--vbus-max", type=float, default=20.0)
+    parser.add_argument("--vbus-seconds", type=float, default=0.2)
+    parser.add_argument(
+        "--ident-timeout",
+        type=float,
+        default=8.0,
+        help="maximum seconds for each identification run, default 8",
+    )
+    parser.add_argument(
+        "--interval",
+        type=float,
+        default=0.0,
+        help="delay between runs in seconds",
+    )
+    parser.add_argument("--progress-every", type=int, default=10)
+    parser.add_argument("--stop-on-error", action="store_true")
+    parser.add_argument("--max-lost", type=int, default=0)
+    parser.add_argument("--baud", type=int, default=115200)
+    parser.add_argument("--timeout", type=float, default=1.0)
+    parser.add_argument("--output")
+    args = parser.parse_args()
+
+    if args.rl_repeat_limit is not None:
+        args.rs_repeat_limit = args.rl_repeat_limit
+        args.ls_repeat_limit = args.rl_repeat_limit
+
+    if not args.run:
+        parser.error("--run is required to energize the motor")
+    if not 1 <= args.pole_pairs <= 255:
+        parser.error("--pole-pairs must be between 1 and 255")
+    if args.current_limit <= 0.0:
+        parser.error("--current-limit must be positive")
+    if args.rs_ls_count <= 0:
+        parser.error("--rs-ls-count must be positive")
+    if args.flux_forward_count <= 0 or args.flux_reverse_count <= 0:
+        parser.error("Flux direction counts must be positive")
+    if args.apply_flux and (args.skip_flux or not args.apply_rl):
+        parser.error("--apply-flux requires --apply-rl and Flux identification")
+    if args.vbus_min >= args.vbus_max:
+        parser.error("--vbus-min must be less than --vbus-max")
+    for name in (
+        "rs_repeat_limit",
+        "ls_repeat_limit",
+        "flux_repeat_limit",
+        "flux_direction_limit",
+        "vbus_seconds",
+        "ident_timeout",
+        "timeout",
+    ):
+        if getattr(args, name) <= 0.0:
+            parser.error(f"--{name.replace('_', '-')} must be positive")
+    if args.interval < 0.0:
+        parser.error("--interval must be non-negative")
+    if args.progress_every <= 0:
+        parser.error("--progress-every must be positive")
+    if args.max_lost < 0:
+        parser.error("--max-lost must be non-negative")
+
+    args.ident_current_limit = (
+        HOST_CURRENT_GUARD_RATIO * args.current_limit
+    )
+    return args
+
+
+def abort(client):
+    try:
+        client.parameter_action(ACTION_IDENT_ABORT)
+    except (TimeoutError, RuntimeError):
+        pass
+
+
+def main():
+    args = parse_args()
+    flux_requested = args.apply_rl and not args.skip_flux
+    record = {
+        "started": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "configuration": {
+            "pole_pairs": args.pole_pairs,
+            "current_limit_a": args.current_limit,
+            "host_current_guard_a": args.ident_current_limit,
+            "rs_ls_count": args.rs_ls_count,
+            "flux_forward_count": args.flux_forward_count,
+            "flux_reverse_count": args.flux_reverse_count,
+            "rs_repeatability_limit": args.rs_repeat_limit,
+            "ls_repeatability_limit": args.ls_repeat_limit,
+            "flux_repeat_limit": args.flux_repeat_limit,
+            "flux_direction_limit": args.flux_direction_limit,
+            "ident_timeout_s": args.ident_timeout,
+            "apply_rl": args.apply_rl,
+            "skip_flux": args.skip_flux,
+            "apply_flux": args.apply_flux,
+            "interval_s": args.interval,
+            "max_lost": args.max_lost,
+        },
+        "rs_ls": {
+            "results": [],
+            "applied": False,
+        },
+        "flux": {
+            "requested": flux_requested,
+            "results": [],
+            "applied": False,
+        },
+        "status": "running",
+    }
+    client = None
+    error = None
+    exit_code = 0
+
+    print(
+        "Unknown motor identification:"
+        f" Rs/Ls={args.rs_ls_count},"
+        f" Flux={args.flux_forward_count} forward +"
+        f" {args.flux_reverse_count} reverse"
+    )
+    print("RAM updates are temporary; reset restores compiled parameters.")
+
+    try:
+        with serial.Serial(
+            args.port,
+            args.baud,
+            timeout=0.003,
+            write_timeout=1.0,
+        ) as ser:
+            ser.reset_input_buffer()
+            ser.reset_output_buffer()
+            time.sleep(0.1)
+
+            client = IdentificationClient(ser, args)
+            try:
+                client.prepare()
+                client.configure_plot()
+                client.check_vbus()
+                record["firmware_pole_pairs"] = client.pole_pairs_set()
+                client.current_limit_set()
+
+                print(f"\nRs/Ls identification: {args.rs_ls_count} run(s)")
+                run_group(
+                    client,
+                    IDENT_RS_LS,
+                    args.rs_ls_count,
+                    args,
+                    record["rs_ls"]["results"],
+                )
+                client.stop_plot()
+                summary = summarize_rs_ls(
+                    record["rs_ls"]["results"], args.rs_ls_count, args
+                )
+                record["rs_ls"]["summary"] = summary
+                print_rs_ls(summary)
+                if not summary["passed"]:
+                    raise QualityFailure(
+                        "Rs/Ls quality gate: " + "; ".join(summary["reasons"])
+                    )
+
+                if args.apply_rl:
+                    client.apply()
+                    record["rs_ls"]["applied"] = True
+                    print("Rs/Ls applied to firmware RAM.")
+                else:
+                    record["flux"]["skip_reason"] = "Rs/Ls was not applied"
+                    print("Rs/Ls not applied; Flux identification skipped.")
+
+                if flux_requested:
+                    client.configure_plot()
+                    total = args.flux_forward_count + args.flux_reverse_count
+                    print(
+                        "\nFlux identification:"
+                        f" {args.flux_forward_count} forward +"
+                        f" {args.flux_reverse_count} reverse"
+                    )
+                    forward_complete = run_group(
+                        client,
+                        IDENT_FLUX,
+                        args.flux_forward_count,
+                        args,
+                        record["flux"]["results"],
+                        direction="forward",
+                    )
+                    if forward_complete:
+                        run_group(
+                            client,
+                            IDENT_FLUX,
+                            args.flux_reverse_count,
+                            args,
+                            record["flux"]["results"],
+                            direction="reverse",
+                            run_offset=args.flux_forward_count,
+                        )
+                    client.stop_plot()
+                    summary = summarize_flux(
+                        record["flux"]["results"],
+                        args.flux_forward_count,
+                        args.flux_reverse_count,
+                        args,
+                    )
+                    record["flux"]["summary"] = summary
+                    print_flux(summary)
+                    if not summary["passed"]:
+                        raise QualityFailure(
+                            "Flux quality gate: " + "; ".join(summary["reasons"])
+                        )
+
+                    if args.apply_flux:
+                        client.apply()
+                        record["flux"]["applied"] = True
+                        print("Flux applied to firmware RAM.")
+                    else:
+                        print("Flux not applied; results remain in the JSON log.")
+
+                elif args.skip_flux:
+                    record["flux"]["skip_reason"] = "disabled by --skip-flux"
+
+                record["status"] = "completed"
+            finally:
+                if record["status"] != "completed":
+                    abort(client)
+                client.stop_all()
+
+    except KeyboardInterrupt:
+        record["status"] = "interrupted"
+        record["error"] = "KeyboardInterrupt"
+        error = "interrupted by user"
+        exit_code = 130
+    except QualityFailure as exc:
+        record["status"] = "quality_failed"
+        record["error"] = str(exc)
+        error = str(exc)
+        exit_code = 1
+    except (serial.SerialException, OSError, TimeoutError, RuntimeError) as exc:
+        record["status"] = "failed"
+        record["error"] = str(exc) or type(exc).__name__
+        error = record["error"]
+        exit_code = 1
+    finally:
+        record["finished"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+        try:
+            log_write(record, args.output)
+        except OSError as exc:
+            print(f"Log warning: {exc}", file=sys.stderr)
+
+    if error is not None:
+        print(f"ERROR: {error}", file=sys.stderr)
+    raise SystemExit(exit_code)
+
+
+if __name__ == "__main__":
+    main()
