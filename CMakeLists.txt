@@ -55,6 +55,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Identification/Identification.c
     Identification/Rs_Ls.c
     Identification/Flux.c
+    Observer/Flux_Estimator.c
     Observer/Flux_Observer.c
     Observer/PLL.c
     Sensorless/IF_Start.c
