@@ -12,6 +12,7 @@
 #include "Current_Loop.h"
 #include "Flux_Estimator.h"
 #include "Flux_Observer.h"
+#include "Handover.h"
 #include "IF_Start.h"
 #include "Identification.h"
 #include "Math.h"
@@ -22,7 +23,6 @@
 #include "Motor_Type.h"
 #include "PLL.h"
 #include "Sensorless.h"
-#include "Sin_LUT.h"
 #include "control_params.h"
 
 #define FLUX_IF_ACCEL_S          6.0f
@@ -98,15 +98,11 @@ static volatile Flux_State_e State = FLUX_IDLE;
 static Flux_Result_T Result = { 0 };
 static Motor_IF_Para_T IF_Para = { 0 };
 static Flux_Estimator_T Flux_Estimator = { 0 };
+static Handover_T Handover = { 0 };
 static volatile float We_Target = 0.0f;
 static uint32_t Cnt = 0U;
 static float We_Obs_F = 0.0f;
 static float Emf_Ratio_F = 0.0f;
-static float Obs_We_Err_F = 0.0f;
-static float Obs_We_Err2_F = 0.0f;
-static float Obs_PLL_Err2_F = 0.0f;
-static float Obs_Theta_Err_F = 0.0f;
-static float Obs_Theta_Err2_F = 0.0f;
 static float Obs_Id_Ref = 0.0f;
 static volatile float Obs_Iq_Ref = 0.0f;
 static float Fine_Num = 0.0f;
@@ -115,14 +111,11 @@ static float Fine_Flux_Pre = 0.0f;
 static float Finish_Iq = 0.0f;
 static uint32_t Obs_Wait_Cnt = 0U;
 static uint32_t Motion_Lost_Cnt = 0U;
-static uint32_t Blend_Cnt = 0U;
 static uint32_t Fine_Cnt = 0U;
 static uint32_t Fine_Stable_Cnt = 0U;
 static uint8_t Finish_Init = 0U;
 static bool Model_U_Valid = false;
 static bool Emf_Valid = false;
-static bool Obs_Speed_Cmp_Valid = false;
-static bool Obs_Theta_Cmp_Valid = false;
 static bool Obs_Active = false;
 static bool PLL_Active = false;
 static bool Obs_Control = false;
@@ -131,34 +124,6 @@ static bool Emf_Target_Reached = false;
 static float Abs_Value(float Value)
 {
     return (Value >= 0.0f) ? Value : -Value;
-}
-
-static float Angle_Diff(float A, float B)
-{
-    float Diff;
-
-    Diff = A - B;
-    while (Diff > PI_F)
-    {
-        Diff -= TWO_PI_F;
-    }
-    while (Diff < -PI_F)
-    {
-        Diff += TWO_PI_F;
-    }
-    return Diff;
-}
-
-static void DQ_Rotate(float Theta_IF, float Theta_Use, float Id_IF, float Iq_IF, float *Id_Ref, float *Iq_Ref)
-{
-    float Diff;
-    float Sin;
-    float Cos;
-
-    Diff = Angle_Diff(Theta_IF, Theta_Use);
-    SinCos(Angle_Wrap(Diff), &Sin, &Cos);
-    *Id_Ref = Id_IF * Cos - Iq_IF * Sin;
-    *Iq_Ref = Id_IF * Sin + Iq_IF * Cos;
 }
 
 static bool Emf_Update(float Yd, float Yq)
@@ -210,73 +175,6 @@ static void Obs_Para_Update(void)
     Flux_Obs.Para.Gamma = Gamma;
 }
 
-static void Obs_Compare_Reset(void)
-{
-    Obs_We_Err_F = 0.0f;
-    Obs_We_Err2_F = 0.0f;
-    Obs_PLL_Err2_F = 0.0f;
-    Obs_Theta_Err_F = 0.0f;
-    Obs_Theta_Err2_F = 0.0f;
-    Obs_Speed_Cmp_Valid = false;
-    Obs_Theta_Cmp_Valid = false;
-}
-
-static void Qualification_Accumulate(uint32_t *Count, uint32_t Limit, bool Good)
-{
-    if (Good)
-    {
-        if (*Count < Limit)
-        {
-            (*Count)++;
-        }
-    }
-    else if (*Count > 0U)
-    {
-        (*Count)--;
-    }
-}
-
-static void Obs_Speed_Compare_Run(float We_Ref)
-{
-    float We_Err;
-    float PLL_Err2;
-
-    We_Err = We_Obs_F - We_Ref;
-    PLL_Err2 = Flux_PLL.State.Err * Flux_PLL.State.Err;
-    if (!Obs_Speed_Cmp_Valid)
-    {
-        Obs_We_Err_F = We_Err;
-        Obs_We_Err2_F = We_Err * We_Err;
-        Obs_PLL_Err2_F = PLL_Err2;
-        Obs_Speed_Cmp_Valid = true;
-        return;
-    }
-
-    Obs_We_Err_F += FLUX_OBS_CMP_ALPHA * (We_Err - Obs_We_Err_F);
-    Obs_We_Err2_F += FLUX_OBS_CMP_ALPHA * (We_Err * We_Err - Obs_We_Err2_F);
-    Obs_PLL_Err2_F += FLUX_OBS_CMP_ALPHA * (PLL_Err2 - Obs_PLL_Err2_F);
-}
-
-static void Obs_IF_Compare_Run(float Theta_IF)
-{
-    float Theta_Err;
-    float Theta_Ripple;
-
-    Obs_Speed_Compare_Run(IF_Start_We_Get());
-    Theta_Err = Angle_Diff(Flux_PLL.State.Theta, Theta_IF);
-    if (!Obs_Theta_Cmp_Valid)
-    {
-        Obs_Theta_Err_F = Angle_Wrap(Theta_Err);
-        Obs_Theta_Err2_F = 0.0f;
-        Obs_Theta_Cmp_Valid = true;
-        return;
-    }
-
-    Obs_Theta_Err_F = Angle_Wrap(Obs_Theta_Err_F + FLUX_OBS_CMP_ALPHA * Angle_Diff(Theta_Err, Obs_Theta_Err_F));
-    Theta_Ripple = Angle_Diff(Theta_Err, Obs_Theta_Err_F);
-    Obs_Theta_Err2_F += FLUX_OBS_CMP_ALPHA * (Theta_Ripple * Theta_Ripple - Obs_Theta_Err2_F);
-}
-
 static bool Obs_State_Stable(void)
 {
     return __builtin_isfinite(We_Obs_F) && __builtin_isfinite(Flux_PLL.State.Err);
@@ -284,35 +182,30 @@ static bool Obs_State_Stable(void)
 
 static bool Obs_Speed_Stable(float We_Ref)
 {
-    float We_Scale;
-
-    if (!Obs_Speed_Cmp_Valid || !__builtin_isfinite(Obs_We_Err_F) || !__builtin_isfinite(Obs_We_Err2_F) ||
-        !__builtin_isfinite(Obs_PLL_Err2_F) || (We_Ref * We_Obs_F <= 0.0f))
-    {
-        return false;
-    }
-
-    We_Scale = Abs_Value(We_Ref);
-    if (We_Scale < IF_Para.We_Base)
-    {
-        We_Scale = IF_Para.We_Base;
-    }
-
-    return (Abs_Value(Obs_We_Err_F) <= FLUX_OBS_WE_MEAN_RATIO * We_Scale) &&
-           (Obs_We_Err2_F <= FLUX_OBS_WE_RMS_RATIO * FLUX_OBS_WE_RMS_RATIO * We_Scale * We_Scale) &&
-           (Obs_PLL_Err2_F <= FLUX_OBS_PLL_RMS_MAX * FLUX_OBS_PLL_RMS_MAX);
+    return Obs_State_Stable() && (We_Ref * We_Obs_F > 0.0f) &&
+           Handover_Speed_Stable(&Handover,
+                                 We_Ref,
+                                 IF_Para.We_Base,
+                                 FLUX_OBS_WE_MEAN_RATIO,
+                                 FLUX_OBS_WE_RMS_RATIO,
+                                 FLUX_OBS_PLL_RMS_MAX);
 }
 
 static bool Obs_IF_Stable(void)
 {
-    return Obs_State_Stable() && Obs_Speed_Stable(IF_Start_We_Get()) && Obs_Theta_Cmp_Valid &&
-           __builtin_isfinite(Obs_Theta_Err2_F) &&
-           (Obs_Theta_Err2_F <= FLUX_OBS_THETA_RMS_MAX * FLUX_OBS_THETA_RMS_MAX);
+    return Obs_State_Stable() && (IF_Start_We_Get() * We_Obs_F > 0.0f) &&
+           Handover_IF_Stable(&Handover,
+                              IF_Start_We_Get(),
+                              IF_Para.We_Base,
+                              FLUX_OBS_WE_MEAN_RATIO,
+                              FLUX_OBS_WE_RMS_RATIO,
+                              FLUX_OBS_PLL_RMS_MAX,
+                              FLUX_OBS_THETA_RMS_MAX);
 }
 
 static bool Obs_Control_Stable(void)
 {
-    return Obs_State_Stable() && Obs_Speed_Stable(We_Target);
+    return Obs_Speed_Stable(We_Target);
 }
 
 static bool Obs_Run_Valid(void)
@@ -333,19 +226,6 @@ static bool Motion_Lost_Run(bool Motion_Valid)
         Motion_Lost_Cnt++;
     }
     return Motion_Lost_Cnt >= FLUX_MOTION_LOST_CNT;
-}
-
-static float Ramp_Zero(float Value, float Step)
-{
-    if (Value > Step)
-    {
-        return Value - Step;
-    }
-    if (Value < -Step)
-    {
-        return Value + Step;
-    }
-    return 0.0f;
 }
 
 static bool Coarse_Run(void)
@@ -514,11 +394,6 @@ bool Flux_Start(float Wm_Target)
     We_Target = 0.0f;
     We_Obs_F = 0.0f;
     Emf_Ratio_F = 0.0f;
-    Obs_We_Err_F = 0.0f;
-    Obs_We_Err2_F = 0.0f;
-    Obs_PLL_Err2_F = 0.0f;
-    Obs_Theta_Err_F = 0.0f;
-    Obs_Theta_Err2_F = 0.0f;
     Obs_Id_Ref = 0.0f;
     Obs_Iq_Ref = 0.0f;
     Fine_Num = 0.0f;
@@ -527,19 +402,17 @@ bool Flux_Start(float Wm_Target)
     Finish_Iq = 0.0f;
     Obs_Wait_Cnt = 0U;
     Motion_Lost_Cnt = 0U;
-    Blend_Cnt = 0U;
     Fine_Cnt = 0U;
     Fine_Stable_Cnt = 0U;
     Finish_Init = 0U;
     Model_U_Valid = false;
     Emf_Valid = false;
-    Obs_Speed_Cmp_Valid = false;
-    Obs_Theta_Cmp_Valid = false;
     Obs_Active = false;
     PLL_Active = false;
     Obs_Control = false;
     Emf_Target_Reached = false;
     Flux_Estimator_Reset(&Flux_Estimator);
+    Handover_Reset(&Handover);
 
     Envelope = Identification_Envelope_Get();
     We_Max = (float)Motor_Para.Pp * Motor_Wm_Limit_Effective_Get();
@@ -592,13 +465,11 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
     float Theta_IF;
     float Theta_Obs;
     float Theta_Rough;
-    float Theta_Err;
     float Id_IF;
     float Iq_IF;
     float Iq_Step;
     float Flux_Fine;
     float Emf_Ratio;
-    float Blend;
     float I_Max;
     float U_Mag2;
     bool Adapt_Valid;
@@ -746,7 +617,7 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
                 PLL_Reset(&Flux_PLL, Theta_Rough, IF_Start_We_Get());
                 We_Obs_F = IF_Start_We_Get();
                 Obs_Wait_Cnt = 0U;
-                Obs_Compare_Reset();
+                Handover_Compare_Reset(&Handover);
                 Obs_Active = true;
                 Theta_Obs = Theta_Rough;
             }
@@ -775,12 +646,18 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
             PLL_Reset(&Flux_PLL, Theta_Rough, IF_Start_We_Get());
             We_Obs_F = IF_Start_We_Get();
             Motion_Lost_Cnt = 0U;
-            Obs_Compare_Reset();
+            Handover_Compare_Reset(&Handover);
             PLL_Active = true;
         }
         if (PLL_Active)
         {
-            Obs_IF_Compare_Run(Theta_IF);
+            Handover_IF_Compare(&Handover,
+                                Theta_IF,
+                                IF_Start_We_Get(),
+                                Theta_Obs,
+                                We_Obs_F,
+                                Flux_PLL.State.Err,
+                                FLUX_OBS_CMP_ALPHA);
         }
 
         Motion_Valid = Emf_Valid && __builtin_isfinite(Emf_Ratio_F) && (Emf_Ratio_F >= FLUX_MOTION_LOST_RATIO);
@@ -797,31 +674,27 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
     if (State == FLUX_OBS_WAIT)
     {
         Emf_Ratio = Emf_Ratio_F;
-        Qualification_Accumulate(&Obs_Wait_Cnt,
-                                 FLUX_OBS_WAIT_CNT,
-                                 Emf_Target_Reached && PLL_Active &&
-                                     (Emf_Ratio >= FLUX_OBS_EMF_EXIT_RATIO) && Obs_IF_Stable());
+        Handover_Qualification_Accumulate(&Obs_Wait_Cnt,
+                                          FLUX_OBS_WAIT_CNT,
+                                          Emf_Target_Reached && PLL_Active &&
+                                              (Emf_Ratio >= FLUX_OBS_EMF_EXIT_RATIO) && Obs_IF_Stable());
         if (Obs_Wait_Cnt >= FLUX_OBS_WAIT_CNT)
         {
-            Blend_Cnt = 0U;
+            Handover_Blend_Reset(&Handover);
             State = FLUX_OBS_BLEND;
         }
     }
     else if (State == FLUX_OBS_BLEND)
     {
-        Blend = (FLUX_BLEND_CNT > 0U) ? (float)(Blend_Cnt + 1U) / (float)FLUX_BLEND_CNT : 1.0f;
-        if (Blend > 1.0f)
-        {
-            Blend = 1.0f;
-        }
-        Theta_Err = Angle_Diff(Theta_Obs, Theta_IF);
-        *Theta_e = Angle_Wrap(Theta_IF + Blend * Theta_Err);
-        DQ_Rotate(Theta_IF, *Theta_e, Id_IF, Iq_IF, Id_Ref, Iq_Ref);
-        if (Blend_Cnt < FLUX_BLEND_CNT)
-        {
-            Blend_Cnt++;
-        }
-        if (Blend_Cnt >= FLUX_BLEND_CNT)
+        if (Handover_Blend_Run(&Handover,
+                               FLUX_BLEND_CNT,
+                               Theta_IF,
+                               Theta_Obs,
+                               Id_IF,
+                               Iq_IF,
+                               Theta_e,
+                               Id_Ref,
+                               Iq_Ref))
         {
             Obs_Id_Ref = *Id_Ref;
             Obs_Iq_Ref = *Iq_Ref;
@@ -835,10 +708,10 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
     else if (State == FLUX_OBS_I_TRANS)
     {
         *Theta_e = Theta_Obs;
-        Obs_Id_Ref = Ramp_Zero(Obs_Id_Ref, FLUX_ID_RAMP_STEP);
+        Obs_Id_Ref = Handover_Ramp_Zero(Obs_Id_Ref, FLUX_ID_RAMP_STEP);
         *Id_Ref = Obs_Id_Ref;
         *Iq_Ref = Obs_Iq_Ref;
-        Obs_Speed_Compare_Run(We_Target);
+        Handover_Speed_Compare(&Handover, We_Target, We_Obs_F, Flux_PLL.State.Err, FLUX_OBS_CMP_ALPHA);
         Adapt_Valid = Obs_Run_Valid();
         Fine_Valid = Fine_Run(Adapt_Valid, false);
         Motion_Valid = Obs_Run_Valid();
@@ -863,7 +736,7 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
         *Theta_e = Theta_Obs;
         *Id_Ref = 0.0f;
         *Iq_Ref = Obs_Iq_Ref;
-        Obs_Speed_Compare_Run(We_Target);
+        Handover_Speed_Compare(&Handover, We_Target, We_Obs_F, Flux_PLL.State.Err, FLUX_OBS_CMP_ALPHA);
         Adapt_Valid = Obs_Run_Valid();
         Fine_Valid = Fine_Run(Adapt_Valid, false);
         Motion_Valid = Obs_Run_Valid();
@@ -876,9 +749,9 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
             return FAST_CURRENT;
         }
         Emf_Ratio = Emf_Ratio_F;
-        Qualification_Accumulate(&Cnt,
-                                 FLUX_FINE_SETTLE_CNT,
-                                 Fine_Valid && (Emf_Ratio >= FLUX_OBS_EMF_EXIT_RATIO) && Obs_Control_Stable());
+        Handover_Qualification_Accumulate(&Cnt,
+                                          FLUX_FINE_SETTLE_CNT,
+                                          Fine_Valid && (Emf_Ratio >= FLUX_OBS_EMF_EXIT_RATIO) && Obs_Control_Stable());
         if (Cnt >= FLUX_FINE_SETTLE_CNT)
         {
             Fine_Window_Reset();
@@ -890,7 +763,7 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
         *Theta_e = Theta_Obs;
         *Id_Ref = 0.0f;
         *Iq_Ref = Obs_Iq_Ref;
-        Obs_Speed_Compare_Run(We_Target);
+        Handover_Speed_Compare(&Handover, We_Target, We_Obs_F, Flux_PLL.State.Err, FLUX_OBS_CMP_ALPHA);
         Adapt_Valid = Obs_Run_Valid();
         Emf_Ratio = Emf_Ratio_F;
         U_Mag2 = Motor_Run.Ud * Motor_Run.Ud + Motor_Run.Uq * Motor_Run.Uq;

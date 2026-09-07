@@ -58,6 +58,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Observer/Flux_Estimator.c
     Observer/Flux_Observer.c
     Observer/PLL.c
+    Sensorless/Handover.c
     Sensorless/IF_Start.c
     Sensorless/Sensorless.c
     Motion/Motion.c

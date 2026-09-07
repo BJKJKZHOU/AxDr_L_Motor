@@ -8,6 +8,7 @@
 #include "Align.h"
 #include "Current_Loop.h"
 #include "Flux_Observer.h"
+#include "Handover.h"
 #include "IF_Start.h"
 #include "Math.h"
 #include "Motion_Loop.h"
@@ -15,7 +16,6 @@
 #include "Motor_Para.h"
 #include "Motor_Type.h"
 #include "PLL.h"
-#include "Sin_LUT.h"
 #include "control_params.h"
 
 #define FLUX_OBS_BW_HZ 200.0f
@@ -58,6 +58,7 @@ static bool Initial_IF = true;
 Flux_Observer_T Flux_Obs = { 0 };
 PLL_T Flux_PLL = { 0 };
 
+static Handover_T Handover = { 0 };
 static bool Flux_Obs_U_Valid = false;
 static Motor_IF_Para_T IF_Para = { 0 };
 static uint32_t Obs_Wait_Cnt = 0U;
@@ -66,25 +67,6 @@ static float Obs_Id_Ref = 0.0f;
 static volatile float Obs_Iq_Ref = 0.0f;
 static float Theta_Use_Last = 0.0f;
 static float We_Obs_F = 0.0f;
-
-static float Angle_Diff(float A, float B)
-{
-    float Diff;
-
-    Diff = A - B;
-
-    while (Diff > PI_F)
-    {
-        Diff -= TWO_PI_F;
-    }
-
-    while (Diff < -PI_F)
-    {
-        Diff += TWO_PI_F;
-    }
-
-    return Diff;
-}
 
 static float Abs_F(float X)
 {
@@ -133,34 +115,6 @@ static bool Obs_Stable(void)
     return true;
 }
 
-static void DQ_Rotate(float Theta_IF, float Theta_Use, float Id_IF, float Iq_IF, float *Id_Ref, float *Iq_Ref)
-{
-    float Diff;
-    float Sin;
-    float Cos;
-
-    Diff = Angle_Diff(Theta_IF, Theta_Use);
-    SinCos(Angle_Wrap(Diff), &Sin, &Cos);
-
-    *Id_Ref = Id_IF * Cos - Iq_IF * Sin;
-    *Iq_Ref = Id_IF * Sin + Iq_IF * Cos;
-}
-
-static float Ramp_Zero(float X, float Step)
-{
-    if (X > Step)
-    {
-        return X - Step;
-    }
-
-    if (X < -Step)
-    {
-        return X + Step;
-    }
-
-    return 0.0f;
-}
-
 static float IF_Target(float We_Ref)
 {
     float Target;
@@ -191,6 +145,7 @@ bool Sensorless_Begin(void)
     Obs_Iq_Ref = 0.0f;
     Theta_Use_Last = 0.0f;
     We_Obs_F = 0.0f;
+    Handover_Reset(&Handover);
 
     Align_Reset();
     Current_Loop_State_Reset();
@@ -248,7 +203,6 @@ void Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float 
     float Theta_Start;
     float Theta_IF;
     float Theta_Obs;
-    float Theta_Err;
     float Theta_Use;
     float Id_IF;
     float Iq_IF;
@@ -343,7 +297,7 @@ void Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float 
 
                 if (Obs_Wait_Cnt >= OBS_WAIT_CNT)
                 {
-                    Blend_Cnt = 0U;
+                    Handover_Blend_Reset(&Handover);
                     To_Obs_State = TO_OBS_BLEND;
                 }
             }
@@ -354,30 +308,15 @@ void Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float 
         }
         else if (To_Obs_State == TO_OBS_BLEND)
         {
-            if (BLEND_CNT > 0U)
-            {
-                Blend = (float)(Blend_Cnt + 1U) / (float)BLEND_CNT;
-            }
-            else
-            {
-                Blend = 1.0f;
-            }
-
-            if (Blend > 1.0f)
-            {
-                Blend = 1.0f;
-            }
-
-            Theta_Err = Angle_Diff(Theta_Obs, Theta_IF);
-            Theta_Use = Angle_Wrap(Theta_IF + Blend * Theta_Err);
-            DQ_Rotate(Theta_IF, Theta_Use, Id_IF, Iq_IF, Id_Ref, Iq_Ref);
-
-            if (Blend_Cnt < BLEND_CNT)
-            {
-                Blend_Cnt++;
-            }
-
-            if (Blend_Cnt >= BLEND_CNT)
+            if (Handover_Blend_Run(&Handover,
+                                   BLEND_CNT,
+                                   Theta_IF,
+                                   Theta_Obs,
+                                   Id_IF,
+                                   Iq_IF,
+                                   &Theta_Use,
+                                   Id_Ref,
+                                   Iq_Ref))
             {
                 Obs_Id_Ref = *Id_Ref;
                 Obs_Iq_Ref = *Iq_Ref;
@@ -389,7 +328,7 @@ void Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float 
         else
         {
             Theta_Use = Theta_Obs;
-            Obs_Id_Ref = Ramp_Zero(Obs_Id_Ref, ID_RAMP_STEP);
+            Obs_Id_Ref = Handover_Ramp_Zero(Obs_Id_Ref, ID_RAMP_STEP);
             *Id_Ref = Obs_Id_Ref;
             *Iq_Ref = Obs_Iq_Ref;
 
