@@ -5,6 +5,8 @@
 
 #include "Plot.h"
 
+#include <string.h>
+
 #include "Motor_ADC.h"
 #include "Motor_Type.h"
 #include "Parameter.h"
@@ -317,6 +319,7 @@ bool Plot_Fast_Pop(AxDr_Msg_T *Msg)
     uint8_t Max_Sample;
     uint8_t Sample_Count;
     uint8_t Remain;
+    uint8_t Required;
     uint16_t Src;
     uint16_t Dst;
     int16_t Raw;
@@ -334,9 +337,11 @@ bool Plot_Fast_Pop(AxDr_Msg_T *Msg)
     Max_Sample = (uint8_t)((AXDR_MAX_DATA_LEN - 4U) / (Count * 2U));
     Remain = (uint8_t)(AXDR_FAST_BLOCK_SAMPLE - Fast_Tx_Sample);
     Sample_Count = (Remain < Max_Sample) ? Remain : Max_Sample;
+    Required = (uint8_t)(4U + Sample_Count * Count * 2U);
 
     Msg->Id = (uint16_t)((AXDR_MSG_FAST_DATA << 6) | AXDR_NODE_ID);
-    Msg->Len = (uint8_t)(4U + Sample_Count * Count * 2U);
+    Msg->Len = AxDr_CANFD_Length(Required);
+    memset(Msg->Data, 0, Msg->Len);
     Msg->Data[0] = (uint8_t)Fast_Seq;
     Msg->Data[1] = (uint8_t)(Fast_Seq >> 8);
     Msg->Data[2] = Plot->Config_ID;
@@ -371,6 +376,7 @@ bool Plot_Fast_Pop(AxDr_Msg_T *Msg)
 bool Plot_Normal_Pop(AxDr_Msg_T *Msg)
 {
     uint8_t Ready;
+    uint8_t Required;
     uint16_t Dst;
     uint32_t Raw;
     union
@@ -388,9 +394,11 @@ bool Plot_Normal_Pop(AxDr_Msg_T *Msg)
     }
 
     Plot = &Plot_Group[AXDR_PLOT_NORMAL];
+    Required = (uint8_t)(4U + Plot->Count * 4U);
 
     Msg->Id = (uint16_t)((AXDR_MSG_NORMAL_DATA << 6) | AXDR_NODE_ID);
-    Msg->Len = (uint8_t)(4U + Plot->Count * 4U);
+    Msg->Len = AxDr_CANFD_Length(Required);
+    memset(Msg->Data, 0, Msg->Len);
     Msg->Data[0] = (uint8_t)Normal_Seq;
     Msg->Data[1] = (uint8_t)(Normal_Seq >> 8);
     Msg->Data[2] = Plot->Config_ID;
