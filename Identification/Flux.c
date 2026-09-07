@@ -51,15 +51,7 @@
 #define FLUX_MOTION_LOST_S       0.15f
 #define FLUX_MOTION_LOST_CNT     ((uint32_t)(FLUX_MOTION_LOST_S / CUR_TS + 0.5f))
 #define FLUX_U_SEARCH_RATIO      0.90f
-#define FLUX_IF_I_RATIO_MAX      0.75f
 
-#define FLUX_FIT_EMF_MIN_RATIO  0.02f
-#define FLUX_FIT_ERR_MAX_RATIO  0.30f
-#define FLUX_FIT_MOVE_MAX_RATIO 0.05f
-#define FLUX_FIT_TAU_S          0.050f
-#define FLUX_FIT_ALPHA          (CUR_TS / (FLUX_FIT_TAU_S + CUR_TS))
-#define FLUX_FIT_WAIT_S         0.10f
-#define FLUX_FIT_WAIT_CNT       ((uint32_t)(FLUX_FIT_WAIT_S / CUR_TS + 0.5f))
 #define FLUX_OBS_BW_HZ     200.0f
 #define FLUX_OBS_GAMMA_MAX 1.0e12f
 #define FLUX_PLL_BW_HZ     50.0f
@@ -84,12 +76,8 @@
 #define FLUX_OBS_WE_RMS_RATIO   0.015f
 #define FLUX_OBS_PLL_RMS_MAX    0.08f
 #define FLUX_OBS_THETA_RMS_MAX  0.08f
-#define FLUX_OBS_MAG_MIN_RATIO2 0.64f
-#define FLUX_OBS_MAG_MAX_RATIO2 1.44f
 #define FLUX_TARGET_TAU_S       0.10f
 #define FLUX_TARGET_ALPHA       (CUR_TS / (FLUX_TARGET_TAU_S + CUR_TS))
-#define FLUX_FINE_MIN_RATIO     0.50f
-#define FLUX_FINE_MAX_RATIO     1.50f
 
 typedef enum
 {
@@ -132,15 +120,11 @@ static float Fine_Id_F = 0.0f;
 static float Fine_Iq_F = 0.0f;
 static float Fine_Flux_Pre = 0.0f;
 static float Finish_Iq = 0.0f;
-static float Flux_Target = 0.0f;
-static float Flux_Track_F = 0.0f;
-static float Fit_Err2_F = 0.0f;
 static uint32_t Obs_Wait_Cnt = 0U;
 static uint32_t Motion_Lost_Cnt = 0U;
 static uint32_t Blend_Cnt = 0U;
 static uint32_t Fine_Cnt = 0U;
 static uint32_t Fine_Stable_Cnt = 0U;
-static uint32_t Fit_Cnt = 0U;
 static uint8_t Finish_Init = 0U;
 static bool Model_U_Valid = false;
 static bool Coarse_I_Valid = false;
@@ -151,9 +135,6 @@ static bool Obs_Theta_Cmp_Valid = false;
 static bool Obs_Active = false;
 static bool PLL_Active = false;
 static bool Obs_Control = false;
-static bool Fit_Track_Valid = false;
-static bool Fit_Healthy = false;
-static bool Flux_Target_Valid = false;
 static bool Emf_Target_Reached = false;
 
 static float Abs_Value(float Value)
@@ -300,24 +281,7 @@ static void Obs_IF_Compare_Run(float Theta_IF)
 
 static bool Obs_State_Stable(void)
 {
-    float Flux2;
-    float Flux_Ref2;
-
-    Flux2 = Flux_Obs.State.PsiAlpha * Flux_Obs.State.PsiAlpha + Flux_Obs.State.PsiBeta * Flux_Obs.State.PsiBeta;
-    Flux_Ref2 = Flux_Obs.Para.Flux * Flux_Obs.Para.Flux;
-
-    if (!__builtin_isfinite(We_Obs_F) || !__builtin_isfinite(Flux_PLL.State.Err) || !__builtin_isfinite(Flux2) ||
-        !__builtin_isfinite(Flux_Ref2) || (Flux_Ref2 <= 0.0f))
-    {
-        return false;
-    }
-
-    if ((Flux2 < FLUX_OBS_MAG_MIN_RATIO2 * Flux_Ref2) || (Flux2 > FLUX_OBS_MAG_MAX_RATIO2 * Flux_Ref2))
-    {
-        return false;
-    }
-
-    return true;
+    return __builtin_isfinite(We_Obs_F) && __builtin_isfinite(Flux_PLL.State.Err);
 }
 
 static bool Obs_Speed_Stable(float We_Ref)
@@ -390,88 +354,6 @@ static float Ramp_Zero(float Value, float Step)
     return 0.0f;
 }
 
-static bool IF_Run_Healthy(void)
-{
-    const Ident_Envelope_T *Envelope;
-    float I_Max;
-    float I2;
-    float U_Max;
-    float U2;
-
-    Envelope = Identification_Envelope_Get();
-    I_Max = FLUX_IF_I_RATIO_MAX * Envelope->I_Max;
-    U_Max = FLUX_U_SEARCH_RATIO * Envelope->U_Max;
-    I2 = Motor_Run.Id * Motor_Run.Id + Motor_Run.Iq * Motor_Run.Iq;
-    U2 = Motor_Run.Ud * Motor_Run.Ud + Motor_Run.Uq * Motor_Run.Uq;
-
-    return (I_Max > 0.0f) && (U_Max > 0.0f) && __builtin_isfinite(I2) && __builtin_isfinite(U2) &&
-           (I2 <= I_Max * I_Max) && (U2 <= U_Max * U_Max);
-}
-
-static void Fit_Update(float Yd, float Yq, float Err_d, float Err_q)
-{
-    const Ident_Envelope_T *Envelope;
-    float Den;
-    float Den_Min;
-    float Err2;
-    float Move;
-
-    Envelope = Identification_Envelope_Get();
-    Den = Yd * Yd + Yq * Yq;
-    Den_Min = FLUX_FIT_EMF_MIN_RATIO * Envelope->U_Available;
-    Den_Min *= Den_Min;
-    if (Den < Den_Min)
-    {
-        Den = Den_Min;
-    }
-    Err2 = Err_d * Err_d + Err_q * Err_q;
-
-    if (!Fit_Track_Valid)
-    {
-        Flux_Track_F = Flux_Est;
-        Fit_Err2_F = (Den > 0.0f) ? Err2 / Den : 1.0f;
-        Fit_Track_Valid = true;
-        Fit_Healthy = false;
-        Fit_Cnt = 0U;
-        return;
-    }
-
-    Flux_Track_F += FLUX_FIT_ALPHA * (Flux_Est - Flux_Track_F);
-    if (Den > 0.0f)
-    {
-        Fit_Err2_F += FLUX_FIT_ALPHA * (Err2 / Den - Fit_Err2_F);
-    }
-
-    Move = Abs_Value(Flux_Est - Flux_Track_F);
-    Fit_Healthy = Emf_Valid && (Envelope->U_Available > 0.0f) && __builtin_isfinite(Flux_Track_F) &&
-                  __builtin_isfinite(Fit_Err2_F) && (Flux_Track_F > FLUX_EST_NUM_MIN_WB) &&
-                  (Emf_Ratio_F >= FLUX_FIT_EMF_MIN_RATIO) &&
-                  (Fit_Err2_F <= FLUX_FIT_ERR_MAX_RATIO * FLUX_FIT_ERR_MAX_RATIO) &&
-                  (Move <= FLUX_FIT_MOVE_MAX_RATIO * Flux_Track_F) && IF_Run_Healthy();
-
-    if (Flux_Target_Valid)
-    {
-        return;
-    }
-
-    if (!Fit_Healthy)
-    {
-        Fit_Cnt = 0U;
-        return;
-    }
-
-    if (Fit_Cnt < FLUX_FIT_WAIT_CNT)
-    {
-        Fit_Cnt++;
-    }
-
-    if (Fit_Cnt >= FLUX_FIT_WAIT_CNT)
-    {
-        Flux_Target = Flux_Track_F;
-        Flux_Target_Valid = true;
-    }
-}
-
 static bool Coarse_Run(void)
 {
     float We;
@@ -520,11 +402,6 @@ static bool Coarse_Run(void)
     Psi_q_Est += FLUX_COARSE_GAIN * Norm * Err_q;
     Flux_Est = __builtin_sqrtf(Psi_d_Est * Psi_d_Est + Psi_q_Est * Psi_q_Est);
 
-    if (__builtin_isfinite(Flux_Est) && (Flux_Est > FLUX_EST_NUM_MIN_WB))
-    {
-        Fit_Update(Yd, Yq, Err_d, Err_q);
-    }
-
     return __builtin_isfinite(Flux_Est) && (Flux_Est > FLUX_EST_NUM_MIN_WB);
 }
 
@@ -547,7 +424,7 @@ static void IF_Target_Update(int8_t Dir)
     }
 
     We_Abs = Abs_Value(IF_Start_We_Get());
-    Flux_Use = Flux_Target_Valid ? Flux_Target : Flux_Est;
+    Flux_Use = Flux_Est;
     if (!__builtin_isfinite(Flux_Use) || (Flux_Use <= FLUX_EST_NUM_MIN_WB))
     {
         We_Target = (float)Dir * We_Abs;
@@ -667,7 +544,7 @@ static bool Fine_Calc(float *Flux_Out)
     }
 
     Flux = Fine_Num / Fine_Den;
-    if (!__builtin_isfinite(Flux) || (Flux < FLUX_FINE_MIN_RATIO * Flux_Est) || (Flux > FLUX_FINE_MAX_RATIO * Flux_Est))
+    if (!__builtin_isfinite(Flux) || (Flux <= 0.0f))
     {
         return false;
     }
@@ -705,15 +582,11 @@ bool Flux_Start(float Wm_Target)
     Fine_Iq_F = 0.0f;
     Fine_Flux_Pre = 0.0f;
     Finish_Iq = 0.0f;
-    Flux_Target = 0.0f;
-    Flux_Track_F = 0.0f;
-    Fit_Err2_F = 0.0f;
     Obs_Wait_Cnt = 0U;
     Motion_Lost_Cnt = 0U;
     Blend_Cnt = 0U;
     Fine_Cnt = 0U;
     Fine_Stable_Cnt = 0U;
-    Fit_Cnt = 0U;
     Finish_Init = 0U;
     Model_U_Valid = false;
     Coarse_I_Valid = false;
@@ -724,9 +597,6 @@ bool Flux_Start(float Wm_Target)
     Obs_Active = false;
     PLL_Active = false;
     Obs_Control = false;
-    Fit_Track_Valid = false;
-    Fit_Healthy = false;
-    Flux_Target_Valid = false;
     Emf_Target_Reached = false;
 
     Envelope = Identification_Envelope_Get();
@@ -1024,14 +894,6 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
     }
     else if (State == FLUX_OBS_BLEND)
     {
-        Emf_Ratio = Emf_Ratio_F;
-        if ((Emf_Ratio < FLUX_OBS_EMF_EXIT_RATIO) || !Obs_IF_Stable())
-        {
-            Obs_Wait_Cnt = 0U;
-            State = FLUX_OBS_WAIT;
-            return FAST_CURRENT;
-        }
-
         Blend = (FLUX_BLEND_CNT > 0U) ? (float)(Blend_Cnt + 1U) / (float)FLUX_BLEND_CNT : 1.0f;
         if (Blend > 1.0f)
         {
@@ -1055,7 +917,6 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
             Speed_Loop_Track(We_Target, Flux_PLL.State.We, Obs_Iq_Ref, -I_Max, I_Max);
             Fine_I_Valid = false;
             Fine_Window_Reset();
-            Obs_Compare_Reset();
             Obs_Control = true;
             State = FLUX_OBS_I_TRANS;
         }
