@@ -193,11 +193,14 @@ static UINT USB_Write(const AxDr_Msg_T *Msg)
 
     Cdc = Cdc_Acm;
 
-    if (Cdc == UX_NULL)
+    if ((Cdc == UX_NULL) || !AxDr_CANFD_Length_Valid(Msg->Len))
     {
         return UX_ERROR;
     }
 
+    /* USB is only a byte-stream envelope around one complete CAN FD frame.
+     * Id, Len and every data-field byte are preserved exactly.
+     */
     Buf[0] = 'A';
     Buf[1] = 'X';
     Buf[2] = 'D';
@@ -276,7 +279,7 @@ static void USB_Rx_Data(const uint8_t *Data, uint16_t Len)
         Can_ID = (uint16_t)USB_Rx_Stream[4] | ((uint16_t)USB_Rx_Stream[5] << 8);
         Data_Len = USB_Rx_Stream[6];
 
-        if ((Can_ID > 0x07FFU) || (Data_Len > AXDR_MAX_DATA_LEN))
+        if ((Can_ID > 0x07FFU) || !AxDr_CANFD_Length_Valid(Data_Len))
         {
             memmove(USB_Rx_Stream, &USB_Rx_Stream[1], USB_Rx_Len - 1U);
             USB_Rx_Len--;

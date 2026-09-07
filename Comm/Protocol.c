@@ -15,6 +15,7 @@
 #include "motor_thread.h"
 
 #define AXDR_RESP_NUM 8U
+#define AXDR_CANFD_INVALID_LEN 0xFFU
 
 static AxDr_Msg_T Resp_Buf[AXDR_RESP_NUM];
 static volatile uint8_t Resp_Wr = 0U;
@@ -24,6 +25,67 @@ static uint32_t Event_Last_Report = 0U;
 static uint32_t Event_Last_Warning = 0U;
 static uint32_t Event_Last_Error = 0U;
 static uint32_t Event_Last_Trip = 0U;
+
+uint8_t AxDr_CANFD_Length(uint8_t Required)
+{
+    if (Required <= 8U)
+    {
+        return Required;
+    }
+    if (Required <= 12U)
+    {
+        return 12U;
+    }
+    if (Required <= 16U)
+    {
+        return 16U;
+    }
+    if (Required <= 20U)
+    {
+        return 20U;
+    }
+    if (Required <= 24U)
+    {
+        return 24U;
+    }
+    if (Required <= 32U)
+    {
+        return 32U;
+    }
+    if (Required <= 48U)
+    {
+        return 48U;
+    }
+    if (Required <= 64U)
+    {
+        return 64U;
+    }
+
+    return AXDR_CANFD_INVALID_LEN;
+}
+
+bool AxDr_CANFD_Length_Valid(uint8_t Len)
+{
+    return AxDr_CANFD_Length(Len) == Len;
+}
+
+bool AxDr_CANFD_Padding_Zero(const uint8_t *Data, uint8_t Required, uint8_t Len)
+{
+    if ((Data == NULL) || (Required > Len) || (AxDr_CANFD_Length(Required) != Len))
+    {
+        return false;
+    }
+
+    for (uint8_t n = Required; n < Len; n++)
+    {
+        if (Data[n] != 0U)
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
 
 static bool Response_Push(const AxDr_Msg_T *Msg)
 {
@@ -52,10 +114,17 @@ static void Response(uint8_t Txn,
                      const uint8_t *Data,
                      uint8_t Len)
 {
+    uint8_t Required;
     AxDr_Msg_T Msg = { 0 };
 
+    Required = (uint8_t)(4U + Len);
     Msg.Id = (uint16_t)((AXDR_MSG_RESPONSE << 6) | AXDR_NODE_ID);
-    Msg.Len = (uint8_t)(4U + Len);
+    Msg.Len = AxDr_CANFD_Length(Required);
+    if (Msg.Len == AXDR_CANFD_INVALID_LEN)
+    {
+        return;
+    }
+
     Msg.Data[0] = Txn;
     Msg.Data[1] = Req_Msg;
     Msg.Data[2] = Req_Op;
@@ -108,6 +177,7 @@ static void Parameter_Rx(const uint8_t *Data, uint8_t Len)
 {
     uint8_t Txn;
     uint8_t Op;
+    uint8_t Required;
     uint8_t Value_Size;
     uint16_t Id;
     Parameter_Type_e Type;
@@ -129,7 +199,8 @@ static void Parameter_Rx(const uint8_t *Data, uint8_t Len)
     }
     else if (Op == AXDR_PARAM_READ)
     {
-        if (Len != 4U)
+        Required = 4U;
+        if (!AxDr_CANFD_Padding_Zero(Data, Required, Len))
         {
             Status = AXDR_ERR_LENGTH;
         }
@@ -169,7 +240,8 @@ static void Parameter_Rx(const uint8_t *Data, uint8_t Len)
 
             if (Type == PARAM_ACTION)
             {
-                if (Len != 5U)
+                Required = 5U;
+                if (!AxDr_CANFD_Padding_Zero(Data, Required, Len))
                 {
                     Status = AXDR_ERR_LENGTH;
                 }
@@ -177,9 +249,14 @@ static void Parameter_Rx(const uint8_t *Data, uint8_t Len)
             else
             {
                 Value_Size = Parameter_Value_Size(Type);
-                if ((Value_Size == 0U) || (Len != (uint8_t)(5U + Value_Size)))
+                Required = (uint8_t)(5U + Value_Size);
+                if (Value_Size == 0U)
                 {
-                    Status = (Value_Size == 0U) ? AXDR_ERR_VALUE : AXDR_ERR_LENGTH;
+                    Status = AXDR_ERR_VALUE;
+                }
+                else if (!AxDr_CANFD_Padding_Zero(Data, Required, Len))
+                {
+                    Status = AXDR_ERR_LENGTH;
                 }
                 else
                 {
@@ -257,7 +334,7 @@ void Protocol_Action_Complete(uint8_t Txn,
     AxDr_Msg_T Msg = { 0 };
 
     Msg.Id = (uint16_t)((AXDR_MSG_EVENT << 6) | AXDR_NODE_ID);
-    Msg.Len = 5U;
+    Msg.Len = AxDr_CANFD_Length(5U);
     Msg.Data[0] = AXDR_EVENT_ACTION_COMPLETE;
     Msg.Data[1] = Txn;
     Msg.Data[2] = (uint8_t)Action_Id;
@@ -270,6 +347,7 @@ static void Plot_Rx(const uint8_t *Data, uint8_t Len)
 {
     uint8_t Txn;
     uint8_t Op;
+    uint8_t Required;
     AxDr_Status_e Status;
 
     Txn = (Len > 0U) ? Data[0] : 0U;
@@ -297,8 +375,10 @@ static void Plot_Rx(const uint8_t *Data, uint8_t Len)
             Group = Data[2];
             Config_ID = Data[3];
             Count = Data[4];
+            Required = (uint8_t)(5U + Count * 2U);
 
-            if ((Count > AXDR_NORMAL_MAX_CH) || (Len != (uint8_t)(5U + Count * 2U)))
+            if ((Count > AXDR_NORMAL_MAX_CH) ||
+                !AxDr_CANFD_Padding_Zero(Data, Required, Len))
             {
                 Status = AXDR_ERR_LENGTH;
             }
@@ -330,7 +410,8 @@ static void Plot_Rx(const uint8_t *Data, uint8_t Len)
     }
     else if (Op == AXDR_PLOT_START)
     {
-        if (Len != 3U)
+        Required = 3U;
+        if (!AxDr_CANFD_Padding_Zero(Data, Required, Len))
         {
             Status = AXDR_ERR_LENGTH;
         }
@@ -341,7 +422,8 @@ static void Plot_Rx(const uint8_t *Data, uint8_t Len)
     }
     else if (Op == AXDR_PLOT_STOP)
     {
-        if (Len != 3U)
+        Required = 3U;
+        if (!AxDr_CANFD_Padding_Zero(Data, Required, Len))
         {
             Status = AXDR_ERR_LENGTH;
         }
@@ -363,7 +445,7 @@ void Protocol_Rx(uint16_t Id, const uint8_t *Data, uint8_t Len)
     uint8_t Msg_Type;
     uint8_t Node;
 
-    if ((Id > 0x07FFU) || (Len > AXDR_MAX_DATA_LEN))
+    if ((Id > 0x07FFU) || (Data == NULL) || !AxDr_CANFD_Length_Valid(Len))
     {
         return;
     }
@@ -408,7 +490,7 @@ void Protocol_Event_Poll(void)
     }
 
     Msg.Id = (uint16_t)((AXDR_MSG_EVENT << 6) | AXDR_NODE_ID);
-    Msg.Len = 17U;
+    Msg.Len = AxDr_CANFD_Length(17U);
     Msg.Data[0] = AXDR_EVENT_NOTIFY;
     memcpy(&Msg.Data[1], &Report, sizeof(Report));
     memcpy(&Msg.Data[5], &Warning, sizeof(Warning));
