@@ -82,12 +82,12 @@ typedef enum
 {
     FLUX_IDLE = 0,
     FLUX_ALIGN,
-    FLUX_IF,
-    FLUX_OBS_WAIT,
-    FLUX_OBS_BLEND,
-    FLUX_OBS_I_TRANS,
-    FLUX_FINE_SETTLE,
-    FLUX_FINE_MEASURE,
+    FLUX_INITIAL_IF,
+    FLUX_SEARCH,
+    FLUX_HANDOVER_BLEND,
+    FLUX_HANDOVER_CURRENT,
+    FLUX_REFINE_SETTLE,
+    FLUX_REFINE_MEASURE,
     FLUX_FINISH,
     FLUX_DONE,
     FLUX_FAILED,
@@ -109,7 +109,7 @@ static float Fine_Num = 0.0f;
 static float Fine_Den = 0.0f;
 static float Fine_Flux_Pre = 0.0f;
 static float Finish_Iq = 0.0f;
-static uint32_t Obs_Wait_Cnt = 0U;
+static uint32_t Handover_Ready_Cnt = 0U;
 static uint32_t Motion_Lost_Cnt = 0U;
 static uint32_t Fine_Cnt = 0U;
 static uint32_t Fine_Stable_Cnt = 0U;
@@ -400,7 +400,7 @@ bool Flux_Start(float Wm_Target)
     Fine_Den = 0.0f;
     Fine_Flux_Pre = 0.0f;
     Finish_Iq = 0.0f;
-    Obs_Wait_Cnt = 0U;
+    Handover_Ready_Cnt = 0U;
     Motion_Lost_Cnt = 0U;
     Fine_Cnt = 0U;
     Fine_Stable_Cnt = 0U;
@@ -446,7 +446,7 @@ bool Flux_Active(void)
 
 void Flux_Control(void)
 {
-    if ((State != FLUX_OBS_I_TRANS) && (State != FLUX_FINE_SETTLE) && (State != FLUX_FINE_MEASURE))
+    if ((State != FLUX_HANDOVER_CURRENT) && (State != FLUX_REFINE_SETTLE) && (State != FLUX_REFINE_MEASURE))
     {
         return;
     }
@@ -498,7 +498,7 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
             IF_Start_Reset(-0.5f * PI_F * (float)Dir, 0.0f);
             IF_Start_Para_Set(IF_Para.Iq_Start_A, IF_Para.Iq_Max_A, IF_Para.We_Base, IF_Para.Acc);
             IF_Start_Target_Set(We_Target);
-            State = FLUX_IF;
+            State = FLUX_INITIAL_IF;
         }
         return FAST_CURRENT;
     }
@@ -577,7 +577,7 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
     Iq_IF = 0.0f;
     Flux_Ready = false;
 
-    if (Model_U_Valid && ((State == FLUX_IF) || (State == FLUX_OBS_WAIT) || (State == FLUX_OBS_BLEND)))
+    if (Model_U_Valid && ((State == FLUX_INITIAL_IF) || (State == FLUX_SEARCH) || (State == FLUX_HANDOVER_BLEND)))
     {
         Flux_Ready = Coarse_Run();
         if (!__builtin_isfinite(Flux_Estimator.State.Psi_d) || !__builtin_isfinite(Flux_Estimator.State.Psi_q))
@@ -589,7 +589,7 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
 
         if (Flux_Ready)
         {
-            if ((State == FLUX_OBS_WAIT) && !Emf_Target_Reached)
+            if ((State == FLUX_SEARCH) && !Emf_Target_Reached)
             {
                 if (PLL_Active && Emf_Valid && __builtin_isfinite(Emf_Ratio_F) &&
                     (Emf_Ratio_F >= FLUX_OBS_EMF_ENTER_RATIO))
@@ -616,7 +616,7 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
                 Flux_Observer_Reset(&Flux_Obs, Theta_Rough, Ialpha, Ibeta);
                 PLL_Reset(&Flux_PLL, Theta_Rough, IF_Start_We_Get());
                 We_Obs_F = IF_Start_We_Get();
-                Obs_Wait_Cnt = 0U;
+                Handover_Ready_Cnt = 0U;
                 Handover_Compare_Reset(&Handover);
                 Obs_Active = true;
                 Theta_Obs = Theta_Rough;
@@ -628,16 +628,16 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
         }
     }
 
-    if ((State == FLUX_IF) || (State == FLUX_OBS_WAIT) || (State == FLUX_OBS_BLEND))
+    if ((State == FLUX_INITIAL_IF) || (State == FLUX_SEARCH) || (State == FLUX_HANDOVER_BLEND))
     {
         IF_Start_Run(&Theta_IF, &Id_IF, &Iq_IF);
         *Theta_e = Theta_IF;
         *Id_Ref = Id_IF;
         *Iq_Ref = Iq_IF;
         Model_U_Valid = true;
-        if ((State == FLUX_IF) && (IF_Start_State_Get() == IF_HOLD))
+        if ((State == FLUX_INITIAL_IF) && (IF_Start_State_Get() == IF_HOLD))
         {
-            State = FLUX_OBS_WAIT;
+            State = FLUX_SEARCH;
         }
 
         if (Obs_Active && !PLL_Active && Emf_Valid && (Emf_Ratio_F >= FLUX_OBS_PLL_START_RATIO))
@@ -671,20 +671,20 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
         }
     }
 
-    if (State == FLUX_OBS_WAIT)
+    if (State == FLUX_SEARCH)
     {
         Emf_Ratio = Emf_Ratio_F;
-        Handover_Qualification_Accumulate(&Obs_Wait_Cnt,
+        Handover_Qualification_Accumulate(&Handover_Ready_Cnt,
                                           FLUX_OBS_WAIT_CNT,
                                           Emf_Target_Reached && PLL_Active &&
                                               (Emf_Ratio >= FLUX_OBS_EMF_EXIT_RATIO) && Obs_IF_Stable());
-        if (Obs_Wait_Cnt >= FLUX_OBS_WAIT_CNT)
+        if (Handover_Ready_Cnt >= FLUX_OBS_WAIT_CNT)
         {
             Handover_Blend_Reset(&Handover);
-            State = FLUX_OBS_BLEND;
+            State = FLUX_HANDOVER_BLEND;
         }
     }
-    else if (State == FLUX_OBS_BLEND)
+    else if (State == FLUX_HANDOVER_BLEND)
     {
         if (Handover_Blend_Run(&Handover,
                                FLUX_BLEND_CNT,
@@ -702,10 +702,10 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
             Speed_Loop_Track(We_Target, Flux_PLL.State.We, Obs_Iq_Ref, -I_Max, I_Max);
             Fine_Begin();
             Obs_Control = true;
-            State = FLUX_OBS_I_TRANS;
+            State = FLUX_HANDOVER_CURRENT;
         }
     }
-    else if (State == FLUX_OBS_I_TRANS)
+    else if (State == FLUX_HANDOVER_CURRENT)
     {
         *Theta_e = Theta_Obs;
         Obs_Id_Ref = Handover_Ramp_Zero(Obs_Id_Ref, FLUX_ID_RAMP_STEP);
@@ -728,10 +728,10 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
             Cnt = 0U;
             Fine_Flux_Pre = 0.0f;
             Fine_Stable_Cnt = 0U;
-            State = FLUX_FINE_SETTLE;
+            State = FLUX_REFINE_SETTLE;
         }
     }
-    else if (State == FLUX_FINE_SETTLE)
+    else if (State == FLUX_REFINE_SETTLE)
     {
         *Theta_e = Theta_Obs;
         *Id_Ref = 0.0f;
@@ -755,10 +755,10 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
         if (Cnt >= FLUX_FINE_SETTLE_CNT)
         {
             Fine_Window_Reset();
-            State = FLUX_FINE_MEASURE;
+            State = FLUX_REFINE_MEASURE;
         }
     }
-    else if (State == FLUX_FINE_MEASURE)
+    else if (State == FLUX_REFINE_MEASURE)
     {
         *Theta_e = Theta_Obs;
         *Id_Ref = 0.0f;
@@ -812,7 +812,7 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
             Fine_Window_Reset();
         }
     }
-    else if (State != FLUX_IF)
+    else if (State != FLUX_INITIAL_IF)
     {
         State = FLUX_FAILED;
         Result.Valid = false;
