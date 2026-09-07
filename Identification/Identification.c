@@ -12,11 +12,14 @@
 #include "Rs_Ls.h"
 #include "control_params.h"
 
-#define IDENT_U_MAX_RATIO 0.80f
+#define IDENT_U_MAX_RATIO  0.80f
+#define IDENT_I_HARD_A     5.0f
+#define IDENT_I_OVER_COUNT 5U
 
 static volatile Ident_Mode_e Ident_Mode = IDENT_NONE;
 static volatile Ident_State_e Ident_State = IDENT_IDLE;
 static Ident_Envelope_T Ident_Envelope = { 0 };
+static uint8_t I_Over_Cnt = 0U;
 
 static float Abs_Value(float Value)
 {
@@ -64,6 +67,8 @@ bool Identification_Start(Ident_Mode_e Mode, float Wm_Target)
         return false;
     }
 
+    I_Over_Cnt = 0U;
+
     if (Mode == IDENT_RS_LS)
     {
         Rs_Ls_Start();
@@ -87,6 +92,7 @@ void Identification_Abort(void)
 
     Ident_Mode = IDENT_NONE;
     Ident_State = IDENT_IDLE;
+    I_Over_Cnt = 0U;
 }
 
 void Identification_Control(void)
@@ -111,6 +117,8 @@ void Identification_Control(void)
     }
     else if (Ident_Mode == IDENT_FLUX)
     {
+        Flux_Control();
+
         if (Flux_Active())
         {
             return;
@@ -197,6 +205,8 @@ Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
                                           float *Ubeta_V)
 {
     float I_Max;
+    float I_Peak;
+    bool I_Trip;
 
     *Theta_e = 0.0f;
     *Id_Ref = 0.0f;
@@ -211,8 +221,39 @@ Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
 
     Envelope_Voltage_Update();
     I_Max = Ident_Envelope.I_Max;
+    I_Peak = Abs_Value(Ia_A);
+    I_Trip = false;
 
-    if ((I_Max <= 0.0f) || (Abs_Value(Ia_A) > I_Max) || (Abs_Value(Ib_A) > I_Max) || (Abs_Value(Ic_A) > I_Max))
+    if (Abs_Value(Ib_A) > I_Peak)
+    {
+        I_Peak = Abs_Value(Ib_A);
+    }
+
+    if (Abs_Value(Ic_A) > I_Peak)
+    {
+        I_Peak = Abs_Value(Ic_A);
+    }
+
+    /* At 20 kHz, five samples limit the filtered trip delay to 250 us. */
+    if ((I_Max <= 0.0f) || (I_Peak > IDENT_I_HARD_A))
+    {
+        I_Trip = true;
+    }
+    else if (I_Peak > I_Max)
+    {
+        if (I_Over_Cnt < IDENT_I_OVER_COUNT)
+        {
+            I_Over_Cnt++;
+        }
+
+        I_Trip = I_Over_Cnt >= IDENT_I_OVER_COUNT;
+    }
+    else
+    {
+        I_Over_Cnt = 0U;
+    }
+
+    if (I_Trip)
     {
         if (Ident_Mode == IDENT_RS_LS)
         {

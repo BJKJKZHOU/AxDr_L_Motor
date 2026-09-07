@@ -21,6 +21,7 @@ Examples:
 """
 
 import argparse
+import csv
 import json
 import math
 from pathlib import Path
@@ -73,6 +74,12 @@ PARAM_ADC_IA = 0x0001
 PARAM_ADC_IB = 0x0002
 PARAM_ADC_IC = 0x0003
 PARAM_ADC_VBUS = 0x0004
+PARAM_RUN_ID = 0x0010
+PARAM_RUN_IQ = 0x0011
+PARAM_RUN_UD = 0x0012
+PARAM_RUN_UQ = 0x0013
+PARAM_RUN_THETA_E = 0x0014
+PARAM_OBS_WE = 0x0021
 PARAM_MOTOR_PP = 0x0101
 PARAM_LIMIT_I_MAX = 0x0201
 PARAM_MOTOR_MODE = 0x0701
@@ -110,22 +117,41 @@ IDENT_FAILED = 3
 MODE_IDENT = 4
 
 HOST_CURRENT_GUARD_RATIO = 1.10
+HOST_CURRENT_HARD_LIMIT_A = 5.0
+HOST_CURRENT_OVER_COUNT = 5
+TELEMETRY_RATE_MIN_RATIO = 0.95
 IF_WE_RAD_S = 120.0
 
 FAST_CONFIG_ID = 13
 NORMAL_CONFIG_ID = 14
-FAST_VARS = (
-    ("Ia", PARAM_ADC_IA),
-    ("Ib", PARAM_ADC_IB),
-    ("Ic", PARAM_ADC_IC),
+FAST_RATE_HZ = 20000.0
+NORMAL_RATE_HZ = 1000.0
+CURRENT_FAST_VARS = (
+    ("Ia", PARAM_ADC_IA, 0.001),
+    ("Ib", PARAM_ADC_IB, 0.001),
+    ("Ic", PARAM_ADC_IC, 0.001),
 )
-VBUS_ID = PARAM_ADC_VBUS
+FAST_INDEX = {
+    name: index for index, (name, _, _) in enumerate(CURRENT_FAST_VARS)
+}
+VBUS_NORMAL_VARS = (("Vbus", PARAM_ADC_VBUS),)
+FLUX_NORMAL_VARS = VBUS_NORMAL_VARS + (
+    ("Id", PARAM_RUN_ID),
+    ("Iq", PARAM_RUN_IQ),
+    ("Ud", PARAM_RUN_UD),
+    ("Uq", PARAM_RUN_UQ),
+    ("Theta_e", PARAM_RUN_THETA_E),
+    ("We_obs", PARAM_OBS_WE),
+)
+NORMAL_INDEX = {
+    name: index for index, (name, _) in enumerate(FLUX_NORMAL_VARS)
+}
 
 
 DEFAULT_RS_LS_COUNT = 5
 DEFAULT_FLUX_COUNT = 2
-DEFAULT_RS_REPEAT_LIMIT = 0.10
-DEFAULT_LS_REPEAT_LIMIT = 0.15
+DEFAULT_RS_REPEAT_LIMIT = 0.15
+DEFAULT_LS_REPEAT_LIMIT = 0.20
 
 
 class QualityFailure(RuntimeError):
@@ -195,15 +221,77 @@ class IdentificationClient:
         self.ident_active = False
         self.run_peak = 0.0
         self.run_trip = False
+        self.run_trip_reason = None
+        self.run_over_count = 0
         self.vbus = []
 
         self.fast_last = None
         self.fast_lost = 0
         self.fast_frames = 0
         self.fast_samples = 0
+        self.fast_vars = CURRENT_FAST_VARS
         self.normal_last = None
         self.normal_lost = 0
         self.normal_frames = 0
+        self.normal_vars = VBUS_NORMAL_VARS
+
+        self.flux_current_stream = None
+        self.flux_current_writer = None
+        self.flux_state_stream = None
+        self.flux_state_writer = None
+        self.flux_fast_sample = 0
+        self.flux_normal_sample = 0
+        self.flux_state_theta = None
+
+    def flux_plot_start(self, run_number, direction):
+        current_path = (
+            self.args.capture_dir
+            / f"flux_{direction}_{run_number:02d}_current.csv"
+        )
+        state_path = (
+            self.args.capture_dir
+            / f"flux_{direction}_{run_number:02d}_state.csv"
+        )
+        current_path.parent.mkdir(parents=True, exist_ok=True)
+
+        self.flux_current_stream = current_path.open(
+            "w", newline="", encoding="utf-8"
+        )
+        self.flux_current_writer = csv.writer(self.flux_current_stream)
+        self.flux_current_writer.writerow(("time_s", "Ia_A", "Ib_A", "Ic_A"))
+
+        self.flux_state_stream = state_path.open(
+            "w", newline="", encoding="utf-8"
+        )
+        self.flux_state_writer = csv.writer(self.flux_state_stream)
+        self.flux_state_writer.writerow(
+            (
+                "time_s",
+                "Vbus_V",
+                "Id_A",
+                "Iq_A",
+                "Ud_V",
+                "Uq_V",
+                "Theta_e_rad",
+                "We_ctrl_rad_s",
+                "We_obs_rad_s",
+            )
+        )
+
+        self.flux_fast_sample = 0
+        self.flux_normal_sample = 0
+        self.flux_state_theta = None
+        return current_path, state_path
+
+    def flux_plot_stop(self):
+        if self.flux_current_stream is not None:
+            self.flux_current_stream.close()
+        if self.flux_state_stream is not None:
+            self.flux_state_stream.close()
+        self.flux_current_stream = None
+        self.flux_current_writer = None
+        self.flux_state_stream = None
+        self.flux_state_writer = None
 
     def process_fast(self, payload):
         if len(payload) < 4 or payload[2] != FAST_CONFIG_ID:
@@ -211,7 +299,7 @@ class IdentificationClient:
 
         seq, = struct.unpack_from("<H", payload, 0)
         sample_count = payload[3]
-        count = len(FAST_VARS)
+        count = len(self.fast_vars)
         if len(payload) != 4 + sample_count * count * 2:
             return
 
@@ -228,20 +316,52 @@ class IdentificationClient:
 
         for sample in range(sample_count):
             start = sample * count
-            peak = max(
-                abs(raw[start + index] * 0.001)
+            values = tuple(
+                raw[start + index] * self.fast_vars[index][2]
                 for index in range(count)
             )
+            peak = max(
+                abs(values[FAST_INDEX[name]])
+                for name in ("Ia", "Ib", "Ic")
+            )
             self.run_peak = max(self.run_peak, peak)
-            if peak > self.args.ident_current_limit:
+
+            if self.flux_current_writer is not None:
+                self.flux_current_writer.writerow(
+                    (
+                        self.flux_fast_sample / FAST_RATE_HZ,
+                        values[FAST_INDEX["Ia"]],
+                        values[FAST_INDEX["Ib"]],
+                        values[FAST_INDEX["Ic"]],
+                    )
+                )
+
+            self.flux_fast_sample += 1
+            if self.run_trip:
+                continue
+
+            if peak > HOST_CURRENT_HARD_LIMIT_A:
                 self.run_trip = True
+                self.run_trip_reason = (
+                    "identification phase current exceeded host hard limit "
+                    f"{HOST_CURRENT_HARD_LIMIT_A:.3f} A"
+                )
+            elif peak > self.args.ident_current_limit:
+                self.run_over_count += 1
+                if self.run_over_count >= HOST_CURRENT_OVER_COUNT:
+                    self.run_trip = True
+                    self.run_trip_reason = (
+                        "identification phase current exceeded host guard "
+                        f"{self.args.ident_current_limit:.3f} A for "
+                        f"{HOST_CURRENT_OVER_COUNT} consecutive samples"
+                    )
+            else:
+                self.run_over_count = 0
 
     def process_normal(self, payload):
-        if (
-            len(payload) != 8
-            or payload[2] != NORMAL_CONFIG_ID
-            or payload[3] != 1
-        ):
+        count = len(self.normal_vars)
+        if (len(payload) != 4 + count * 4 or
+                payload[2] != NORMAL_CONFIG_ID or payload[3] != count):
             return
 
         seq, = struct.unpack_from("<H", payload, 0)
@@ -250,8 +370,38 @@ class IdentificationClient:
             self.normal_lost += (seq - expected) & 0xFFFF
         self.normal_last = seq
         self.normal_frames += 1
-        value, = struct.unpack_from("<f", payload, 4)
-        self.vbus.append(value)
+        values = struct.unpack_from(f"<{count}f", payload, 4)
+        self.vbus.append(values[NORMAL_INDEX["Vbus"]])
+
+        if not self.ident_active or self.flux_state_writer is None:
+            return
+
+        theta = values[NORMAL_INDEX["Theta_e"]]
+        if self.flux_state_theta is None:
+            we_ctrl = ""
+        else:
+            delta = theta - self.flux_state_theta
+            if delta > math.pi:
+                delta -= 2.0 * math.pi
+            elif delta < -math.pi:
+                delta += 2.0 * math.pi
+            we_ctrl = delta * NORMAL_RATE_HZ
+
+        self.flux_state_writer.writerow(
+            (
+                self.flux_normal_sample / NORMAL_RATE_HZ,
+                values[NORMAL_INDEX["Vbus"]],
+                values[NORMAL_INDEX["Id"]],
+                values[NORMAL_INDEX["Iq"]],
+                values[NORMAL_INDEX["Ud"]],
+                values[NORMAL_INDEX["Uq"]],
+                theta,
+                we_ctrl,
+                values[NORMAL_INDEX["We_obs"]],
+            )
+        )
+        self.flux_normal_sample += 1
+        self.flux_state_theta = theta
 
     def process(self, frames):
         responses = []
@@ -383,7 +533,9 @@ class IdentificationClient:
         )
         print(
             f"Commission current limit={self.args.current_limit:.3f} A; "
-            f"host guard={self.args.ident_current_limit:.3f} A"
+            f"host guard={self.args.ident_current_limit:.3f} A for "
+            f"{HOST_CURRENT_OVER_COUNT} samples; "
+            f"hard limit={HOST_CURRENT_HARD_LIMIT_A:.3f} A"
         )
 
     def pole_pairs_set(self):
@@ -400,20 +552,26 @@ class IdentificationClient:
         print(f"Motor pole pairs={value} (RAM)")
         return value
 
-    def configure_plot(self):
+    def configure_plot(self, flux=False):
         self.fast_last = None
         self.normal_last = None
         self.fast_lost = 0
         self.normal_lost = 0
+        self.fast_vars = CURRENT_FAST_VARS
+        self.normal_vars = FLUX_NORMAL_VARS if flux else VBUS_NORMAL_VARS
 
-        fast_data = bytes([FAST_GROUP, FAST_CONFIG_ID, len(FAST_VARS)])
+        fast_data = bytes([FAST_GROUP, FAST_CONFIG_ID, len(self.fast_vars)])
         fast_data += b"".join(
-            struct.pack("<H", var_id) for _, var_id in FAST_VARS
+            struct.pack("<H", var_id) for _, var_id, _ in self.fast_vars
         )
         self.request(MSG_PLOT, PLOT_CONFIG, fast_data)
 
-        normal_data = bytes([NORMAL_GROUP, NORMAL_CONFIG_ID, 1])
-        normal_data += struct.pack("<H", VBUS_ID)
+        normal_data = bytes(
+            [NORMAL_GROUP, NORMAL_CONFIG_ID, len(self.normal_vars)]
+        )
+        normal_data += b"".join(
+            struct.pack("<H", var_id) for _, var_id in self.normal_vars
+        )
         self.request(MSG_PLOT, PLOT_CONFIG, normal_data)
         self.request(
             MSG_PLOT,
@@ -496,11 +654,16 @@ class IdentificationClient:
 
         self.run_peak = 0.0
         self.run_trip = False
+        self.run_trip_reason = None
+        self.run_over_count = 0
         fast_lost_start = self.fast_lost
         normal_lost_start = self.normal_lost
         fast_samples_start = self.fast_samples
         normal_frames_start = self.normal_frames
         start = time.monotonic()
+        plot_paths = None
+        if mode == IDENT_FLUX:
+            plot_paths = self.flux_plot_start(run_number, direction)
         self.ident_active = True
         result = None
         failure = None
@@ -513,10 +676,7 @@ class IdentificationClient:
                 self.process(self.parser.feed(self.ser.read(4096)))
 
                 if self.run_trip:
-                    failure = RuntimeError(
-                        "identification phase current exceeded host guard "
-                        f"{self.args.ident_current_limit:.3f} A"
-                    )
+                    failure = RuntimeError(self.run_trip_reason)
                     break
 
                 status = self.action_complete_status(txn, start_action)
@@ -553,6 +713,7 @@ class IdentificationClient:
             failure = exc
         finally:
             self.ident_active = False
+            self.flux_plot_stop()
             if failure is not None:
                 try:
                     self.parameter_action(ACTION_IDENT_ABORT)
@@ -576,6 +737,13 @@ class IdentificationClient:
         result["normal_lost"] = self.normal_lost - normal_lost_start
         result["fast_samples"] = self.fast_samples - fast_samples_start
         result["normal_frames"] = self.normal_frames - normal_frames_start
+        result["fast_sample_rate_hz"] = result["fast_samples"] / result["time_s"]
+        result["normal_sample_rate_hz"] = result["normal_frames"] / result["time_s"]
+        if plot_paths is not None:
+            result["current_csv"] = str(plot_paths[0])
+            result["state_csv"] = str(plot_paths[1])
+            result["current_rate_hz"] = FAST_RATE_HZ
+            result["state_rate_hz"] = NORMAL_RATE_HZ
         if failure is not None:
             result["error"] = str(failure)
             raise IdentificationFailed(str(failure), result)
@@ -586,6 +754,7 @@ class IdentificationClient:
 
     def stop_all(self):
         self.ident_active = False
+        self.flux_plot_stop()
         try:
             self.parameter_action(ACTION_MOTOR_DISABLE)
         except (TimeoutError, RuntimeError) as exc:
@@ -637,6 +806,18 @@ def telemetry_reasons(results, max_lost):
         for item in results
     ):
         reasons.append("one or more runs have no FAST/NORMAL telemetry")
+    if any(
+        item.get("fast_sample_rate_hz", 0.0)
+        < TELEMETRY_RATE_MIN_RATIO * FAST_RATE_HZ
+        for item in results
+    ):
+        reasons.append("FAST plot sample rate below expected rate")
+    if any(
+        item.get("normal_sample_rate_hz", 0.0)
+        < TELEMETRY_RATE_MIN_RATIO * NORMAL_RATE_HZ
+        for item in results
+    ):
+        reasons.append("NORMAL plot sample rate below expected rate")
     return reasons
 
 
@@ -796,6 +977,9 @@ def run_group(client, mode, count, args, results, direction=None, run_offset=0):
             result = exc.result
             results.append(result)
             progress_print(name, index, count, results[group_start:])
+            if result.get("current_csv"):
+                print(f"  Current CSV: {result['current_csv']}")
+                print(f"  State CSV: {result['state_csv']}")
             if args.stop_on_error:
                 return False
         else:
@@ -806,6 +990,9 @@ def run_group(client, mode, count, args, results, direction=None, run_offset=0):
                 or index == count
             ):
                 progress_print(name, index, count, results[group_start:])
+            if result.get("current_csv"):
+                print(f"  Current CSV: {result['current_csv']}")
+                print(f"  State CSV: {result['state_csv']}")
 
         if args.interval > 0.0 and index < count:
             time.sleep(args.interval)
@@ -1023,6 +1210,17 @@ def abort(client):
 
 def main():
     args = parse_args()
+    if args.output:
+        log_path = Path(args.output).expanduser().resolve()
+    else:
+        log_path = (
+            Path(__file__).resolve().parents[1]
+            / "build"
+            / "Release"
+            / f"identification_test_{time.strftime('%Y%m%d_%H%M%S')}.json"
+        )
+    args.output = str(log_path)
+    args.capture_dir = log_path.parent / f"{log_path.stem}_plot"
     flux_requested = args.apply_rl and not args.skip_flux
     record = {
         "started": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
@@ -1030,6 +1228,8 @@ def main():
             "pole_pairs": args.pole_pairs,
             "current_limit_a": args.current_limit,
             "host_current_guard_a": args.ident_current_limit,
+            "host_current_guard_samples": HOST_CURRENT_OVER_COUNT,
+            "host_current_hard_limit_a": HOST_CURRENT_HARD_LIMIT_A,
             "rs_ls_count": args.rs_ls_count,
             "flux_forward_count": args.flux_forward_count,
             "flux_reverse_count": args.flux_reverse_count,
@@ -1043,6 +1243,8 @@ def main():
             "apply_flux": args.apply_flux,
             "interval_s": args.interval,
             "max_lost": args.max_lost,
+            "flux_current_rate_hz": FAST_RATE_HZ,
+            "flux_state_rate_hz": NORMAL_RATE_HZ,
         },
         "rs_ls": {
             "results": [],
@@ -1114,7 +1316,7 @@ def main():
                     print("Rs/Ls not applied; Flux identification skipped.")
 
                 if flux_requested:
-                    client.configure_plot()
+                    client.configure_plot(flux=True)
                     total = args.flux_forward_count + args.flux_reverse_count
                     print(
                         "\nFlux identification:"

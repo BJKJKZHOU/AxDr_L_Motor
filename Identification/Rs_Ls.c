@@ -26,8 +26,8 @@
 #define RS_LS_MEASURE_CYCLE       10U
 
 /* Rs/Ls working point is defined in the current domain. */
-#define RS_LS_I_PEAK_RATIO        0.30f
-#define RS_LS_I_DC_SHARE          0.75f
+#define RS_LS_I_PEAK_RATIO        0.35f
+#define RS_LS_I_DC_SHARE          0.65f
 #define RS_LS_I_AC_SHARE          0.25f
 #define RS_LS_I_MIN_RATIO         0.02f
 #define RS_LS_SNR_POWER_MIN       100.0f

@@ -10,35 +10,97 @@
 
 #include "Align.h"
 #include "Current_Loop.h"
+#include "Flux_Observer.h"
 #include "IF_Start.h"
 #include "Identification.h"
 #include "Math.h"
 #include "Motor_ADC.h"
+#include "Motor_Control.h"
+#include "Motion_Loop.h"
 #include "Motor_Para.h"
 #include "Motor_Type.h"
+#include "PLL.h"
+#include "Sensorless.h"
+#include "Sin_LUT.h"
 #include "control_params.h"
 
-#define FLUX_SETTLE_S           0.30f
-#define FLUX_MEASURE_S          0.20f
-#define FLUX_SETTLE_CNT         ((uint32_t)(FLUX_SETTLE_S / CUR_TS + 0.5f))
-#define FLUX_MEASURE_CNT        ((uint32_t)(FLUX_MEASURE_S / CUR_TS + 0.5f))
-#define FLUX_FINISH_IQ_SLEW_A_S 20.0f
-#define FLUX_FINISH_I           0.20f
-#define FLUX_FINISH_S           0.002f
-#define FLUX_FINISH_CNT         ((uint32_t)(FLUX_FINISH_S / CUR_TS + 0.5f))
+#define FLUX_IF_ACCEL_S          6.0f
+#define FLUX_COARSE_I_BW_HZ      200.0f
+#define FLUX_COARSE_BW_HZ        20.0f
+#define FLUX_COARSE_GAIN         (TWO_PI_F * FLUX_COARSE_BW_HZ * CUR_TS)
+#define FLUX_COARSE_WE_MIN_RATIO 0.25f
+#define FLUX_EST_NUM_MIN_WB      1.0e-12f
+#define FLUX_FINE_SETTLE_S       0.30f
+#define FLUX_FINE_MEASURE_S      0.20f
+#define FLUX_FINE_SETTLE_CNT     ((uint32_t)(FLUX_FINE_SETTLE_S / CUR_TS + 0.5f))
+#define FLUX_FINE_MEASURE_CNT    ((uint32_t)(FLUX_FINE_MEASURE_S / CUR_TS + 0.5f))
+#define FLUX_FINE_I_BW_HZ        200.0f
+#define FLUX_FINE_EST_BW_HZ      5.0f
+#define FLUX_FINE_EST_GAIN       (TWO_PI_F * FLUX_FINE_EST_BW_HZ * CUR_TS)
+#define FLUX_FINE_STABLE_RATIO   0.02f
+#define FLUX_FINE_STABLE_WINDOWS 2U
+#define FLUX_FINE_UPDATE_RATIO   0.25f
+#define FLUX_FINISH_IQ_SLEW_A_S  20.0f
+#define FLUX_FINISH_S            0.100f
+#define FLUX_FINISH_CNT          ((uint32_t)(FLUX_FINISH_S / CUR_TS + 0.5f))
 
-#define FLUX_EMF_TARGET_RATIO  0.35f
-#define FLUX_EMF_MIN_RATIO     0.20f
-#define FLUX_WE_STEP_MAX_RATIO 1.60f
-#define FLUX_U_SEARCH_RATIO    0.90f
+#define FLUX_OBS_EMF_ENTER_RATIO 0.30f
+#define FLUX_OBS_EMF_EXIT_RATIO  0.18f
+#define FLUX_OBS_PLL_START_RATIO 0.10f
+#define FLUX_MOTION_LOST_RATIO   0.05f
+#define FLUX_MOTION_LOST_S       0.15f
+#define FLUX_MOTION_LOST_CNT     ((uint32_t)(FLUX_MOTION_LOST_S / CUR_TS + 0.5f))
+#define FLUX_U_SEARCH_RATIO      0.90f
+#define FLUX_IF_I_RATIO_MAX      0.75f
+
+#define FLUX_FIT_EMF_MIN_RATIO  0.02f
+#define FLUX_FIT_ERR_MAX_RATIO  0.30f
+#define FLUX_FIT_MOVE_MAX_RATIO 0.05f
+#define FLUX_FIT_TAU_S          0.050f
+#define FLUX_FIT_ALPHA          (CUR_TS / (FLUX_FIT_TAU_S + CUR_TS))
+#define FLUX_FIT_WAIT_S         0.10f
+#define FLUX_FIT_WAIT_CNT       ((uint32_t)(FLUX_FIT_WAIT_S / CUR_TS + 0.5f))
+#define FLUX_OBS_BW_HZ     200.0f
+#define FLUX_OBS_GAMMA_MAX 1.0e12f
+#define FLUX_PLL_BW_HZ     50.0f
+#define FLUX_PLL_DAMP      0.707f
+#define FLUX_PLL_WN        (TWO_PI_F * FLUX_PLL_BW_HZ)
+#define FLUX_PLL_KP        (2.0f * FLUX_PLL_DAMP * FLUX_PLL_WN)
+#define FLUX_PLL_KI        (FLUX_PLL_WN * FLUX_PLL_WN)
+
+#define FLUX_OBS_WAIT_S         0.20f
+#define FLUX_OBS_WAIT_CNT       ((uint32_t)(FLUX_OBS_WAIT_S / CUR_TS + 0.5f))
+#define FLUX_BLEND_S            0.15f
+#define FLUX_BLEND_CNT          ((uint32_t)(FLUX_BLEND_S / CUR_TS + 0.5f))
+#define FLUX_ID_RAMP_A_S        5.0f
+#define FLUX_ID_RAMP_STEP       (FLUX_ID_RAMP_A_S * CUR_TS)
+#define FLUX_OBS_WE_TAU_S       0.020f
+#define FLUX_OBS_WE_ALPHA       (CUR_TS / (FLUX_OBS_WE_TAU_S + CUR_TS))
+#define FLUX_EMF_TAU_S          0.020f
+#define FLUX_EMF_ALPHA          (CUR_TS / (FLUX_EMF_TAU_S + CUR_TS))
+#define FLUX_OBS_CMP_TAU_S      0.050f
+#define FLUX_OBS_CMP_ALPHA      (CUR_TS / (FLUX_OBS_CMP_TAU_S + CUR_TS))
+#define FLUX_OBS_WE_MEAN_RATIO  0.010f
+#define FLUX_OBS_WE_RMS_RATIO   0.015f
+#define FLUX_OBS_PLL_RMS_MAX    0.08f
+#define FLUX_OBS_THETA_RMS_MAX  0.08f
+#define FLUX_OBS_MAG_MIN_RATIO2 0.64f
+#define FLUX_OBS_MAG_MAX_RATIO2 1.44f
+#define FLUX_TARGET_TAU_S       0.10f
+#define FLUX_TARGET_ALPHA       (CUR_TS / (FLUX_TARGET_TAU_S + CUR_TS))
+#define FLUX_FINE_MIN_RATIO     0.50f
+#define FLUX_FINE_MAX_RATIO     1.50f
 
 typedef enum
 {
     FLUX_IDLE = 0,
     FLUX_ALIGN,
-    FLUX_ACCEL,
-    FLUX_SETTLE,
-    FLUX_MEASURE,
+    FLUX_IF,
+    FLUX_OBS_WAIT,
+    FLUX_OBS_BLEND,
+    FLUX_OBS_I_TRANS,
+    FLUX_FINE_SETTLE,
+    FLUX_FINE_MEASURE,
     FLUX_FINISH,
     FLUX_DONE,
     FLUX_FAILED,
@@ -48,139 +110,569 @@ typedef enum
 static volatile Flux_State_e State = FLUX_IDLE;
 static Flux_Result_T Result = { 0 };
 static Motor_IF_Para_T IF_Para = { 0 };
-static float We_Target = 0.0f;
+static volatile float We_Target = 0.0f;
 static uint32_t Cnt = 0U;
-static uint32_t Meas_Cnt = 0U;
-static float We_Sum = 0.0f;
-static float Id_Sum = 0.0f;
-static float Iq_Sum = 0.0f;
-static float Ud_Sum = 0.0f;
-static float Uq_Sum = 0.0f;
-static float U_Mag_Sum = 0.0f;
+static float Flux_Est = 0.0f;
+static float Psi_d_Est = 0.0f;
+static float Psi_q_Est = 0.0f;
+static float Coarse_Id_F = 0.0f;
+static float Coarse_Iq_F = 0.0f;
+static float We_Obs_F = 0.0f;
+static float Emf_Ratio_F = 0.0f;
+static float Obs_We_Err_F = 0.0f;
+static float Obs_We_Err2_F = 0.0f;
+static float Obs_PLL_Err2_F = 0.0f;
+static float Obs_Theta_Err_F = 0.0f;
+static float Obs_Theta_Err2_F = 0.0f;
+static float Obs_Id_Ref = 0.0f;
+static volatile float Obs_Iq_Ref = 0.0f;
+static float Fine_Num = 0.0f;
+static float Fine_Den = 0.0f;
+static float Fine_Id_F = 0.0f;
+static float Fine_Iq_F = 0.0f;
+static float Fine_Flux_Pre = 0.0f;
 static float Finish_Iq = 0.0f;
+static float Flux_Target = 0.0f;
+static float Flux_Track_F = 0.0f;
+static float Fit_Err2_F = 0.0f;
+static uint32_t Obs_Wait_Cnt = 0U;
+static uint32_t Motion_Lost_Cnt = 0U;
+static uint32_t Blend_Cnt = 0U;
+static uint32_t Fine_Cnt = 0U;
+static uint32_t Fine_Stable_Cnt = 0U;
+static uint32_t Fit_Cnt = 0U;
 static uint8_t Finish_Init = 0U;
+static bool Model_U_Valid = false;
+static bool Coarse_I_Valid = false;
+static bool Fine_I_Valid = false;
+static bool Emf_Valid = false;
+static bool Obs_Speed_Cmp_Valid = false;
+static bool Obs_Theta_Cmp_Valid = false;
+static bool Obs_Active = false;
+static bool PLL_Active = false;
+static bool Obs_Control = false;
+static bool Fit_Track_Valid = false;
+static bool Fit_Healthy = false;
+static bool Flux_Target_Valid = false;
+static bool Emf_Target_Reached = false;
 
 static float Abs_Value(float Value)
 {
     return (Value >= 0.0f) ? Value : -Value;
 }
 
-static void Measure_Reset(void)
+static float Angle_Diff(float A, float B)
 {
-    Cnt = 0U;
-    Meas_Cnt = 0U;
-    We_Sum = 0.0f;
-    Id_Sum = 0.0f;
-    Iq_Sum = 0.0f;
-    Ud_Sum = 0.0f;
-    Uq_Sum = 0.0f;
-    U_Mag_Sum = 0.0f;
+    float Diff;
+
+    Diff = A - B;
+
+    while (Diff > PI_F)
+    {
+        Diff -= TWO_PI_F;
+    }
+
+    while (Diff < -PI_F)
+    {
+        Diff += TWO_PI_F;
+    }
+
+    return Diff;
 }
 
-static void Measure(void)
+static void DQ_Rotate(float Theta_IF, float Theta_Use, float Id_IF, float Iq_IF, float *Id_Ref, float *Iq_Ref)
 {
-    We_Sum += IF_Start_We_Get();
-    Id_Sum += Motor_Run.Id;
-    Iq_Sum += Motor_Run.Iq;
-    Ud_Sum += Motor_Run.Ud;
-    Uq_Sum += Motor_Run.Uq;
-    U_Mag_Sum += __builtin_sqrtf(Motor_Run.Ud * Motor_Run.Ud + Motor_Run.Uq * Motor_Run.Uq);
-    Meas_Cnt++;
+    float Diff;
+    float Sin;
+    float Cos;
+
+    Diff = Angle_Diff(Theta_IF, Theta_Use);
+    SinCos(Angle_Wrap(Diff), &Sin, &Cos);
+
+    *Id_Ref = Id_IF * Cos - Iq_IF * Sin;
+    *Iq_Ref = Id_IF * Sin + Iq_IF * Cos;
 }
 
-static bool Flux_Calc(float *We_Out, float *Flux_Out, float *U_Util_Out)
+static bool Emf_Update(float Yd, float Yq)
 {
     const Ident_Envelope_T *Envelope;
+    float Ratio;
+
+    Envelope = Identification_Envelope_Get();
+    if ((Envelope->U_Available <= 0.0f) || !__builtin_isfinite(Yd) || !__builtin_isfinite(Yq))
+    {
+        return false;
+    }
+
+    Ratio = __builtin_sqrtf(Yd * Yd + Yq * Yq) / Envelope->U_Available;
+    if (!__builtin_isfinite(Ratio))
+    {
+        return false;
+    }
+
+    if (!Emf_Valid)
+    {
+        Emf_Ratio_F = Ratio;
+        Emf_Valid = true;
+    }
+    else
+    {
+        Emf_Ratio_F += FLUX_EMF_ALPHA * (Ratio - Emf_Ratio_F);
+    }
+
+    return true;
+}
+
+static void Obs_Para_Update(void)
+{
+    float Gamma;
+
+    if (!__builtin_isfinite(Flux_Est) || (Flux_Est <= FLUX_EST_NUM_MIN_WB))
+    {
+        return;
+    }
+
+    Flux_Obs.Para.Flux = Flux_Est;
+    Gamma = TWO_PI_F * FLUX_OBS_BW_HZ / (Flux_Est * Flux_Est);
+    /* The cap only protects the first near-zero estimates from float overflow;
+     * it is not a motor-dependent flux qualification threshold. */
+    if (!__builtin_isfinite(Gamma) || (Gamma > FLUX_OBS_GAMMA_MAX))
+    {
+        Gamma = FLUX_OBS_GAMMA_MAX;
+    }
+    Flux_Obs.Para.Gamma = Gamma;
+}
+
+static void Obs_Compare_Reset(void)
+{
+    Obs_We_Err_F = 0.0f;
+    Obs_We_Err2_F = 0.0f;
+    Obs_PLL_Err2_F = 0.0f;
+    Obs_Theta_Err_F = 0.0f;
+    Obs_Theta_Err2_F = 0.0f;
+    Obs_Speed_Cmp_Valid = false;
+    Obs_Theta_Cmp_Valid = false;
+}
+
+static void Obs_Speed_Compare_Run(float We_Ref)
+{
+    float We_Err;
+    float PLL_Err2;
+
+    We_Err = We_Obs_F - We_Ref;
+    PLL_Err2 = Flux_PLL.State.Err * Flux_PLL.State.Err;
+
+    if (!Obs_Speed_Cmp_Valid)
+    {
+        Obs_We_Err_F = We_Err;
+        Obs_We_Err2_F = We_Err * We_Err;
+        Obs_PLL_Err2_F = PLL_Err2;
+        Obs_Speed_Cmp_Valid = true;
+        return;
+    }
+
+    Obs_We_Err_F += FLUX_OBS_CMP_ALPHA * (We_Err - Obs_We_Err_F);
+    Obs_We_Err2_F += FLUX_OBS_CMP_ALPHA * (We_Err * We_Err - Obs_We_Err2_F);
+    Obs_PLL_Err2_F += FLUX_OBS_CMP_ALPHA * (PLL_Err2 - Obs_PLL_Err2_F);
+}
+
+static void Obs_IF_Compare_Run(float Theta_IF)
+{
+    float Theta_Err;
+    float Theta_Ripple;
+
+    Obs_Speed_Compare_Run(IF_Start_We_Get());
+
+    Theta_Err = Angle_Diff(Flux_PLL.State.Theta, Theta_IF);
+    if (!Obs_Theta_Cmp_Valid)
+    {
+        Obs_Theta_Err_F = Angle_Wrap(Theta_Err);
+        Obs_Theta_Err2_F = 0.0f;
+        Obs_Theta_Cmp_Valid = true;
+        return;
+    }
+
+    /* I/F load angle need not be zero. Only its motion and ripple are compared. */
+    Obs_Theta_Err_F = Angle_Wrap(Obs_Theta_Err_F + FLUX_OBS_CMP_ALPHA * Angle_Diff(Theta_Err, Obs_Theta_Err_F));
+    Theta_Ripple = Angle_Diff(Theta_Err, Obs_Theta_Err_F);
+    Obs_Theta_Err2_F += FLUX_OBS_CMP_ALPHA * (Theta_Ripple * Theta_Ripple - Obs_Theta_Err2_F);
+}
+
+static bool Obs_State_Stable(void)
+{
+    float Flux2;
+    float Flux_Ref2;
+
+    Flux2 = Flux_Obs.State.PsiAlpha * Flux_Obs.State.PsiAlpha + Flux_Obs.State.PsiBeta * Flux_Obs.State.PsiBeta;
+    Flux_Ref2 = Flux_Obs.Para.Flux * Flux_Obs.Para.Flux;
+
+    if (!__builtin_isfinite(We_Obs_F) || !__builtin_isfinite(Flux_PLL.State.Err) || !__builtin_isfinite(Flux2) ||
+        !__builtin_isfinite(Flux_Ref2) || (Flux_Ref2 <= 0.0f))
+    {
+        return false;
+    }
+
+    if ((Flux2 < FLUX_OBS_MAG_MIN_RATIO2 * Flux_Ref2) || (Flux2 > FLUX_OBS_MAG_MAX_RATIO2 * Flux_Ref2))
+    {
+        return false;
+    }
+
+    return true;
+}
+
+static bool Obs_Speed_Stable(float We_Ref)
+{
+    float We_Scale;
+
+    if (!Obs_Speed_Cmp_Valid || !__builtin_isfinite(Obs_We_Err_F) || !__builtin_isfinite(Obs_We_Err2_F) ||
+        !__builtin_isfinite(Obs_PLL_Err2_F) || (We_Ref * We_Obs_F <= 0.0f))
+    {
+        return false;
+    }
+
+    We_Scale = Abs_Value(We_Ref);
+    if (We_Scale < IF_Para.We_Base)
+    {
+        We_Scale = IF_Para.We_Base;
+    }
+
+    return (Abs_Value(Obs_We_Err_F) <= FLUX_OBS_WE_MEAN_RATIO * We_Scale) &&
+           (Obs_We_Err2_F <= FLUX_OBS_WE_RMS_RATIO * FLUX_OBS_WE_RMS_RATIO * We_Scale * We_Scale) &&
+           (Obs_PLL_Err2_F <= FLUX_OBS_PLL_RMS_MAX * FLUX_OBS_PLL_RMS_MAX);
+}
+
+static bool Obs_IF_Stable(void)
+{
+    return Obs_State_Stable() && Obs_Speed_Stable(IF_Start_We_Get()) && Obs_Theta_Cmp_Valid &&
+           __builtin_isfinite(Obs_Theta_Err2_F) &&
+           (Obs_Theta_Err2_F <= FLUX_OBS_THETA_RMS_MAX * FLUX_OBS_THETA_RMS_MAX);
+}
+
+static bool Obs_Control_Stable(void)
+{
+    return Obs_State_Stable() && Obs_Speed_Stable(We_Target);
+}
+
+static bool Obs_Run_Valid(void)
+{
+    return Emf_Valid && __builtin_isfinite(Emf_Ratio_F) && (Emf_Ratio_F >= FLUX_MOTION_LOST_RATIO) &&
+           Obs_State_Stable() && (We_Target * We_Obs_F > 0.0f);
+}
+
+static bool Motion_Lost_Run(bool Motion_Valid)
+{
+    if (!PLL_Active || Motion_Valid)
+    {
+        Motion_Lost_Cnt = 0U;
+        return false;
+    }
+
+    if (Motion_Lost_Cnt < FLUX_MOTION_LOST_CNT)
+    {
+        Motion_Lost_Cnt++;
+    }
+
+    return Motion_Lost_Cnt >= FLUX_MOTION_LOST_CNT;
+}
+
+static float Ramp_Zero(float Value, float Step)
+{
+    if (Value > Step)
+    {
+        return Value - Step;
+    }
+
+    if (Value < -Step)
+    {
+        return Value + Step;
+    }
+
+    return 0.0f;
+}
+
+static bool IF_Run_Healthy(void)
+{
+    const Ident_Envelope_T *Envelope;
+    float I_Max;
+    float I2;
+    float U_Max;
+    float U2;
+
+    Envelope = Identification_Envelope_Get();
+    I_Max = FLUX_IF_I_RATIO_MAX * Envelope->I_Max;
+    U_Max = FLUX_U_SEARCH_RATIO * Envelope->U_Max;
+    I2 = Motor_Run.Id * Motor_Run.Id + Motor_Run.Iq * Motor_Run.Iq;
+    U2 = Motor_Run.Ud * Motor_Run.Ud + Motor_Run.Uq * Motor_Run.Uq;
+
+    return (I_Max > 0.0f) && (U_Max > 0.0f) && __builtin_isfinite(I2) && __builtin_isfinite(U2) &&
+           (I2 <= I_Max * I_Max) && (U2 <= U_Max * U_Max);
+}
+
+static void Fit_Update(float Yd, float Yq, float Err_d, float Err_q)
+{
+    const Ident_Envelope_T *Envelope;
+    float Den;
+    float Den_Min;
+    float Err2;
+    float Move;
+
+    Envelope = Identification_Envelope_Get();
+    Den = Yd * Yd + Yq * Yq;
+    Den_Min = FLUX_FIT_EMF_MIN_RATIO * Envelope->U_Available;
+    Den_Min *= Den_Min;
+    if (Den < Den_Min)
+    {
+        Den = Den_Min;
+    }
+    Err2 = Err_d * Err_d + Err_q * Err_q;
+
+    if (!Fit_Track_Valid)
+    {
+        Flux_Track_F = Flux_Est;
+        Fit_Err2_F = (Den > 0.0f) ? Err2 / Den : 1.0f;
+        Fit_Track_Valid = true;
+        Fit_Healthy = false;
+        Fit_Cnt = 0U;
+        return;
+    }
+
+    Flux_Track_F += FLUX_FIT_ALPHA * (Flux_Est - Flux_Track_F);
+    if (Den > 0.0f)
+    {
+        Fit_Err2_F += FLUX_FIT_ALPHA * (Err2 / Den - Fit_Err2_F);
+    }
+
+    Move = Abs_Value(Flux_Est - Flux_Track_F);
+    Fit_Healthy = Emf_Valid && (Envelope->U_Available > 0.0f) && __builtin_isfinite(Flux_Track_F) &&
+                  __builtin_isfinite(Fit_Err2_F) && (Flux_Track_F > FLUX_EST_NUM_MIN_WB) &&
+                  (Emf_Ratio_F >= FLUX_FIT_EMF_MIN_RATIO) &&
+                  (Fit_Err2_F <= FLUX_FIT_ERR_MAX_RATIO * FLUX_FIT_ERR_MAX_RATIO) &&
+                  (Move <= FLUX_FIT_MOVE_MAX_RATIO * Flux_Track_F) && IF_Run_Healthy();
+
+    if (Flux_Target_Valid)
+    {
+        return;
+    }
+
+    if (!Fit_Healthy)
+    {
+        Fit_Cnt = 0U;
+        return;
+    }
+
+    if (Fit_Cnt < FLUX_FIT_WAIT_CNT)
+    {
+        Fit_Cnt++;
+    }
+
+    if (Fit_Cnt >= FLUX_FIT_WAIT_CNT)
+    {
+        Flux_Target = Flux_Track_F;
+        Flux_Target_Valid = true;
+    }
+}
+
+static bool Coarse_Run(void)
+{
     float We;
     float Id;
     float Iq;
-    float Ud;
-    float Uq;
-    float Psi_d;
-    float Psi_q;
+    float Id_Dot;
+    float Iq_Dot;
+    float Yd;
+    float Yq;
+    float Err_d;
+    float Err_q;
+    float We_Min;
+    float Norm;
 
-    if ((Meas_Cnt == 0U) || (We_Out == NULL) || (Flux_Out == NULL) || (U_Util_Out == NULL))
+    We = IF_Start_We_Get();
+    Id = Motor_Run.Id;
+    Iq = Motor_Run.Iq;
+
+    if (!Coarse_I_Valid)
+    {
+        Coarse_Id_F = Id;
+        Coarse_Iq_F = Iq;
+        Coarse_I_Valid = true;
+        return false;
+    }
+
+    Id_Dot = TWO_PI_F * FLUX_COARSE_I_BW_HZ * (Id - Coarse_Id_F);
+    Iq_Dot = TWO_PI_F * FLUX_COARSE_I_BW_HZ * (Iq - Coarse_Iq_F);
+    Coarse_Id_F += Id_Dot * CUR_TS;
+    Coarse_Iq_F += Iq_Dot * CUR_TS;
+
+    /* The normalized gain starts fitting with the first I/F motion while
+     * suppressing the unobservable zero-speed region. */
+    Yd = Motor_Run.Uq - Motor_Para.Rs * Iq - Motor_Para.Lq * Iq_Dot - We * Motor_Para.Ld * Id;
+    Yq = -Motor_Run.Ud + Motor_Para.Rs * Id + Motor_Para.Ld * Id_Dot - We * Motor_Para.Lq * Iq;
+    if (!Emf_Update(Yd, Yq))
     {
         return false;
     }
 
-    Envelope = Identification_Envelope_Get();
-    if (Envelope->U_Available <= 0.0f)
+    We_Min = FLUX_COARSE_WE_MIN_RATIO * IF_Para.We_Base;
+    Norm = We / (We * We + We_Min * We_Min);
+    Err_d = Yd - We * Psi_d_Est;
+    Err_q = Yq - We * Psi_q_Est;
+    Psi_d_Est += FLUX_COARSE_GAIN * Norm * Err_d;
+    Psi_q_Est += FLUX_COARSE_GAIN * Norm * Err_q;
+    Flux_Est = __builtin_sqrtf(Psi_d_Est * Psi_d_Est + Psi_q_Est * Psi_q_Est);
+
+    if (__builtin_isfinite(Flux_Est) && (Flux_Est > FLUX_EST_NUM_MIN_WB))
     {
-        return false;
+        Fit_Update(Yd, Yq, Err_d, Err_q);
     }
 
-    We = We_Sum / (float)Meas_Cnt;
-    Id = Id_Sum / (float)Meas_Cnt;
-    Iq = Iq_Sum / (float)Meas_Cnt;
-    Ud = Ud_Sum / (float)Meas_Cnt;
-    Uq = Uq_Sum / (float)Meas_Cnt;
-
-    if (Abs_Value(We) <= 0.0f)
-    {
-        return false;
-    }
-
-    /* Steady-state dq model in the I/F frame. The PM flux components depend
-     * on load angle, while their vector magnitude does not. */
-    Psi_d = (Uq - Motor_Para.Rs * Iq) / We - Motor_Para.Ld * Id;
-    Psi_q = -(Ud - Motor_Para.Rs * Id) / We - Motor_Para.Lq * Iq;
-
-    *We_Out = We;
-    *Flux_Out = __builtin_sqrtf(Psi_d * Psi_d + Psi_q * Psi_q);
-    *U_Util_Out = (U_Mag_Sum / (float)Meas_Cnt) / Envelope->U_Available;
-
-    return __builtin_isfinite(*Flux_Out) && (*Flux_Out > 0.0f) && __builtin_isfinite(*U_Util_Out);
+    return __builtin_isfinite(Flux_Est) && (Flux_Est > FLUX_EST_NUM_MIN_WB);
 }
 
-static bool Search_Next_Build(float We_Meas, float Flux_Meas, float U_Util, int8_t Dir, float *We_Next_Out)
+static void IF_Target_Update(int8_t Dir)
 {
     const Ident_Envelope_T *Envelope;
+    float We_Max;
     float We_Abs;
-    float Emf_Ratio;
-    float Step_Ratio;
     float U_Search_Max;
     float U_Mag;
-    float Voltage_Step_Ratio;
-
-    if ((We_Next_Out == NULL) || (Abs_Value(We_Meas) <= 0.0f) || (Flux_Meas <= 0.0f) ||
-        (IF_Para.U_Budget_V <= 0.0f))
-    {
-        return false;
-    }
+    float We_U_Max;
+    float We_Req;
+    float Flux_Use;
 
     Envelope = Identification_Envelope_Get();
-    if ((Envelope->U_Available <= 0.0f) || (Envelope->U_Max <= 0.0f))
+    We_Max = (float)Motor_Para.Pp * Motor_Wm_Limit_Effective_Get();
+    if ((Envelope->U_Available <= 0.0f) || (Envelope->U_Max <= 0.0f) || !__builtin_isfinite(We_Max) || (We_Max <= 0.0f))
     {
-        return false;
+        return;
     }
 
-    We_Abs = Abs_Value(We_Meas);
-    Emf_Ratio = We_Abs * Flux_Meas / IF_Para.U_Budget_V;
-    Step_Ratio = FLUX_EMF_TARGET_RATIO / Emf_Ratio;
-
-    if (Step_Ratio > FLUX_WE_STEP_MAX_RATIO)
+    We_Abs = Abs_Value(IF_Start_We_Get());
+    Flux_Use = Flux_Target_Valid ? Flux_Target : Flux_Est;
+    if (!__builtin_isfinite(Flux_Use) || (Flux_Use <= FLUX_EST_NUM_MIN_WB))
     {
-        Step_Ratio = FLUX_WE_STEP_MAX_RATIO;
+        We_Target = (float)Dir * We_Abs;
+        IF_Start_Target_Set(We_Target);
+        return;
     }
 
-    U_Mag = U_Util * Envelope->U_Available;
+    We_Req = FLUX_OBS_EMF_ENTER_RATIO * Envelope->U_Available / Flux_Use;
+
+    U_Mag = __builtin_sqrtf(Motor_Run.Ud * Motor_Run.Ud + Motor_Run.Uq * Motor_Run.Uq);
     U_Search_Max = FLUX_U_SEARCH_RATIO * Envelope->U_Max;
-    if (U_Mag > 0.0f)
+    if ((We_Abs > 0.0f) && (U_Mag > 0.0f))
     {
-        Voltage_Step_Ratio = U_Search_Max / U_Mag;
-        if (Step_Ratio > Voltage_Step_Ratio)
+        We_U_Max = We_Abs * U_Search_Max / U_Mag;
+        if (We_Req > We_U_Max)
         {
-            Step_Ratio = Voltage_Step_Ratio;
+            We_Req = We_U_Max;
         }
     }
 
-    if (Step_Ratio <= 1.0f)
+    if (We_Req < IF_Para.We_Base)
+    {
+        We_Req = IF_Para.We_Base;
+    }
+
+    if (We_Req > We_Max)
+    {
+        We_Req = We_Max;
+    }
+
+    We_Abs = Abs_Value(We_Target);
+    We_Abs += FLUX_TARGET_ALPHA * (We_Req - We_Abs);
+
+    /* Six seconds defines the zero-to-target slope. It is not an I/F or
+     * identification timeout. */
+    IF_Para.Acc = We_Abs / FLUX_IF_ACCEL_S;
+    We_Target = (float)Dir * We_Abs;
+
+    IF_Start_Para_Set(IF_Para.Iq_Start_A, IF_Para.Iq_Max_A, IF_Para.We_Base, IF_Para.Acc);
+    IF_Start_Target_Set(We_Target);
+}
+
+static void Fine_Window_Reset(void)
+{
+    Fine_Num = 0.0f;
+    Fine_Den = 0.0f;
+    Fine_Cnt = 0U;
+}
+
+static bool Fine_Run(bool Adapt, bool Measure)
+{
+    float We;
+    float Id_Dot;
+    float Iq_Dot;
+    float Yd;
+    float Yq;
+    float We_Min;
+    float Norm;
+    float Flux_Next;
+
+    We = We_Obs_F;
+    if (!Fine_I_Valid)
+    {
+        Fine_Id_F = Motor_Run.Id;
+        Fine_Iq_F = Motor_Run.Iq;
+        Fine_I_Valid = true;
+        return false;
+    }
+
+    Id_Dot = TWO_PI_F * FLUX_FINE_I_BW_HZ * (Motor_Run.Id - Fine_Id_F);
+    Iq_Dot = TWO_PI_F * FLUX_FINE_I_BW_HZ * (Motor_Run.Iq - Fine_Iq_F);
+    Fine_Id_F += Id_Dot * CUR_TS;
+    Fine_Iq_F += Iq_Dot * CUR_TS;
+
+    Yd = Motor_Run.Uq - Motor_Para.Rs * Motor_Run.Iq - Motor_Para.Lq * Iq_Dot - We * Motor_Para.Ld * Motor_Run.Id;
+    Yq = -Motor_Run.Ud + Motor_Para.Rs * Motor_Run.Id + Motor_Para.Ld * Id_Dot - We * Motor_Para.Lq * Motor_Run.Iq;
+    if (!Emf_Update(Yd, Yq))
     {
         return false;
     }
 
-    *We_Next_Out = (float)Dir * We_Abs * Step_Ratio;
+    if (!Adapt)
+    {
+        return true;
+    }
+
+    We_Min = FLUX_COARSE_WE_MIN_RATIO * IF_Para.We_Base;
+    Norm = We / (We * We + We_Min * We_Min);
+    /* This error comes from the voltage model, independently of the observer's
+     * nonlinear circle constraint. */
+    Flux_Next = Flux_Est + FLUX_FINE_EST_GAIN * Norm * (Yd - We * Flux_Est);
+    if (!__builtin_isfinite(Flux_Next) || (Flux_Next <= FLUX_EST_NUM_MIN_WB))
+    {
+        return false;
+    }
+
+    Flux_Est = Flux_Next;
+    Obs_Para_Update();
+
+    if (Measure)
+    {
+        Fine_Num += We * Yd;
+        Fine_Den += We * We;
+        Fine_Cnt++;
+    }
+
+    return true;
+}
+
+static bool Fine_Calc(float *Flux_Out)
+{
+    float Flux;
+
+    if ((Flux_Out == NULL) || (Fine_Cnt == 0U) || (Fine_Den <= 0.0f) || (Flux_Est <= 0.0f))
+    {
+        return false;
+    }
+
+    Flux = Fine_Num / Fine_Den;
+    if (!__builtin_isfinite(Flux) || (Flux < FLUX_FINE_MIN_RATIO * Flux_Est) || (Flux > FLUX_FINE_MAX_RATIO * Flux_Est))
+    {
+        return false;
+    }
+
+    *Flux_Out = Flux;
     return true;
 }
 
@@ -188,23 +680,67 @@ bool Flux_Start(float Wm_Target)
 {
     const Ident_Envelope_T *Envelope;
     float Sign;
+    float We_Max;
 
     Result = (Flux_Result_T){ 0 };
     IF_Para = (Motor_IF_Para_T){ 0 };
     We_Target = 0.0f;
+    Flux_Est = 0.0f;
+    Psi_d_Est = 0.0f;
+    Psi_q_Est = 0.0f;
+    Coarse_Id_F = 0.0f;
+    Coarse_Iq_F = 0.0f;
+    We_Obs_F = 0.0f;
+    Emf_Ratio_F = 0.0f;
+    Obs_We_Err_F = 0.0f;
+    Obs_We_Err2_F = 0.0f;
+    Obs_PLL_Err2_F = 0.0f;
+    Obs_Theta_Err_F = 0.0f;
+    Obs_Theta_Err2_F = 0.0f;
+    Obs_Id_Ref = 0.0f;
+    Obs_Iq_Ref = 0.0f;
+    Fine_Num = 0.0f;
+    Fine_Den = 0.0f;
+    Fine_Id_F = 0.0f;
+    Fine_Iq_F = 0.0f;
+    Fine_Flux_Pre = 0.0f;
     Finish_Iq = 0.0f;
+    Flux_Target = 0.0f;
+    Flux_Track_F = 0.0f;
+    Fit_Err2_F = 0.0f;
+    Obs_Wait_Cnt = 0U;
+    Motion_Lost_Cnt = 0U;
+    Blend_Cnt = 0U;
+    Fine_Cnt = 0U;
+    Fine_Stable_Cnt = 0U;
+    Fit_Cnt = 0U;
     Finish_Init = 0U;
-    Measure_Reset();
+    Model_U_Valid = false;
+    Coarse_I_Valid = false;
+    Fine_I_Valid = false;
+    Emf_Valid = false;
+    Obs_Speed_Cmp_Valid = false;
+    Obs_Theta_Cmp_Valid = false;
+    Obs_Active = false;
+    PLL_Active = false;
+    Obs_Control = false;
+    Fit_Track_Valid = false;
+    Fit_Healthy = false;
+    Flux_Target_Valid = false;
+    Emf_Target_Reached = false;
 
     Envelope = Identification_Envelope_Get();
-    if ((Envelope->I_Max <= 0.0f) || !Motor_IF_Para_Build(ADC.Vbus_V, Envelope->I_Max, &IF_Para))
+    We_Max = (float)Motor_Para.Pp * Motor_Wm_Limit_Effective_Get();
+    if ((Envelope->I_Max <= 0.0f) || !__builtin_isfinite(We_Max) || (We_Max <= 0.0f) ||
+        !Motor_IF_Para_Build(ADC.Vbus_V, Envelope->I_Max, &IF_Para))
     {
         State = FLUX_FAILED;
         return false;
     }
 
     Sign = (Wm_Target < 0.0f) ? -1.0f : 1.0f;
-    We_Target = Sign * IF_Para.We_Base;
+    We_Target = Sign * ((IF_Para.We_Base < We_Max) ? IF_Para.We_Base : We_Max);
+    IF_Para.Acc = Abs_Value(We_Target) / FLUX_IF_ACCEL_S;
 
     Align_Reset();
     Current_Loop_State_Reset();
@@ -217,16 +753,45 @@ bool Flux_Active(void)
     return (State != FLUX_IDLE) && (State != FLUX_DONE) && (State != FLUX_FAILED);
 }
 
+void Flux_Control(void)
+{
+    const Ident_Envelope_T *Envelope;
+
+    if ((State != FLUX_OBS_I_TRANS) && (State != FLUX_FINE_SETTLE) && (State != FLUX_FINE_MEASURE))
+    {
+        return;
+    }
+
+    Envelope = Identification_Envelope_Get();
+    if ((Envelope->I_Max <= 0.0f) || (IF_Para.Iq_Max_A <= 0.0f))
+    {
+        return;
+    }
+
+    Obs_Iq_Ref = Speed_Loop(We_Target, Flux_PLL.State.We, -IF_Para.Iq_Max_A, IF_Para.Iq_Max_A);
+}
+
 Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta_e, float *Id_Ref, float *Iq_Ref)
 {
     const Ident_Envelope_T *Envelope;
+    float Ialpha;
+    float Ibeta;
     float Theta_IF;
+    float Theta_Obs;
+    float Theta_Rough;
+    float Theta_Err;
+    float Id_IF;
+    float Iq_IF;
     float Iq_Step;
-    float We_Meas;
-    float Flux_Meas;
-    float U_Util;
+    float Flux_Fine;
     float Emf_Ratio;
-    float We_Next;
+    float Blend;
+    float I_Max;
+    float U_Mag2;
+    bool Adapt_Valid;
+    bool Fine_Valid;
+    bool Flux_Ready;
+    bool Motion_Valid;
     int8_t Dir;
 
     *Theta_e = 0.0f;
@@ -249,16 +814,41 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
             IF_Start_Reset(-0.5f * PI_F * (float)Dir, 0.0f);
             IF_Start_Para_Set(IF_Para.Iq_Start_A, IF_Para.Iq_Max_A, IF_Para.We_Base, IF_Para.Acc);
             IF_Start_Target_Set(We_Target);
-            State = FLUX_ACCEL;
+            State = FLUX_IF;
         }
 
         return FAST_CURRENT;
     }
 
+    Ialpha = Ia_A;
+    Ibeta = (Ia_A + 2.0f * Ib_A) * INV_SQRT3_F;
+
+    if (Obs_Active)
+    {
+        Flux_Observer_Run(&Flux_Obs, Motor_Run.Ualpha, Motor_Run.Ubeta, Ialpha, Ibeta, CUR_TS);
+
+        if (PLL_Active)
+        {
+            PLL_Run(&Flux_PLL, Flux_Obs.State.PsiAlpha, Flux_Obs.State.PsiBeta, Flux_Obs.Para.Flux, CUR_TS);
+            We_Obs_F += FLUX_OBS_WE_ALPHA * (Flux_PLL.State.We - We_Obs_F);
+        }
+    }
+
+    Theta_Obs = Flux_PLL.State.Theta;
+
     if (State == FLUX_FINISH)
     {
-        (void)IF_Start_Run(&Theta_IF, Id_Ref, Iq_Ref);
-        *Theta_e = Theta_IF;
+        if (Obs_Control)
+        {
+            *Theta_e = Theta_Obs;
+            *Id_Ref = 0.0f;
+            *Iq_Ref = Obs_Iq_Ref;
+        }
+        else
+        {
+            IF_Start_Run(&Theta_IF, Id_Ref, Iq_Ref);
+            *Theta_e = Theta_IF;
+        }
 
         if (Finish_Init == 0U)
         {
@@ -283,12 +873,12 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
         *Id_Ref = 0.0f;
         *Iq_Ref = Finish_Iq;
 
-        if ((Finish_Iq == 0.0f) && (Abs_Value(Ia_A) <= FLUX_FINISH_I) && (Abs_Value(Ib_A) <= FLUX_FINISH_I) &&
-            (Abs_Value(Ic_A) <= FLUX_FINISH_I))
+        if (Finish_Iq == 0.0f)
         {
             if (++Cnt >= FLUX_FINISH_CNT)
             {
                 State = Result.Valid ? FLUX_DONE : FLUX_FAILED;
+                return FAST_OFF;
             }
         }
         else
@@ -305,70 +895,312 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
         return FAST_OFF;
     }
 
-    if (State == FLUX_MEASURE)
+    Theta_IF = Motor_Run.Theta_e;
+    Id_IF = 0.0f;
+    Iq_IF = 0.0f;
+    Flux_Ready = false;
+
+    if (Model_U_Valid && ((State == FLUX_IF) || (State == FLUX_OBS_WAIT)))
     {
-        Measure();
+        Flux_Ready = Coarse_Run();
 
-        if (Meas_Cnt >= FLUX_MEASURE_CNT)
+        if (!__builtin_isfinite(Psi_d_Est) || !__builtin_isfinite(Psi_q_Est))
         {
-            if (!Flux_Calc(&We_Meas, &Flux_Meas, &U_Util))
+            State = FLUX_FAILED;
+            Result.Valid = false;
+            return FAST_OFF;
+        }
+
+        if (Flux_Ready)
+        {
+            if ((State == FLUX_OBS_WAIT) && !Emf_Target_Reached)
             {
-                State = FLUX_FAILED;
-                return FAST_OFF;
+                if (PLL_Active && Emf_Valid && __builtin_isfinite(Emf_Ratio_F) &&
+                    (Emf_Ratio_F >= FLUX_OBS_EMF_ENTER_RATIO))
+                {
+                    /* Reaching the search target is latched; normal EMF ripple must not restart the search. */
+                    We_Target = IF_Start_We_Get();
+                    IF_Start_Target_Set(We_Target);
+                    Emf_Target_Reached = true;
+                }
+                else
+                {
+                    IF_Target_Update(Dir);
+                }
             }
 
-            Emf_Ratio = Abs_Value(We_Meas) * Flux_Meas / IF_Para.U_Budget_V;
+            if (!Obs_Active)
+            {
+                Theta_Rough = Angle_Wrap(Theta_IF + __builtin_atan2f(Psi_q_Est, Psi_d_Est));
 
-            if (Emf_Ratio >= FLUX_EMF_TARGET_RATIO)
-            {
-                Result.Flux_Wb = Flux_Meas;
-                Result.Valid = true;
-                Cnt = 0U;
-                Finish_Init = 0U;
-                State = FLUX_FINISH;
-            }
-            else if (Search_Next_Build(We_Meas, Flux_Meas, U_Util, Dir, &We_Next))
-            {
-                We_Target = We_Next;
-                Measure_Reset();
-                IF_Start_Target_Set(We_Target);
-                State = FLUX_ACCEL;
-            }
-            else if (Emf_Ratio >= FLUX_EMF_MIN_RATIO)
-            {
-                Result.Flux_Wb = Flux_Meas;
-                Result.Valid = true;
-                Cnt = 0U;
-                Finish_Init = 0U;
-                State = FLUX_FINISH;
+                Flux_Obs.Para.Rs = Motor_Para.Rs;
+                Flux_Obs.Para.Ls = Motor_Para.Ld;
+                Obs_Para_Update();
+                Flux_PLL.Para.Kp = FLUX_PLL_KP;
+                Flux_PLL.Para.Ki = FLUX_PLL_KI;
+
+                Flux_Observer_Reset(&Flux_Obs, Theta_Rough, Ialpha, Ibeta);
+                PLL_Reset(&Flux_PLL, Theta_Rough, IF_Start_We_Get());
+
+                We_Obs_F = IF_Start_We_Get();
+                Obs_Wait_Cnt = 0U;
+                Obs_Compare_Reset();
+                Obs_Active = true;
+                Theta_Obs = Theta_Rough;
             }
             else
             {
-                State = FLUX_FAILED;
-                Result.Valid = false;
-                return FAST_OFF;
+                Obs_Para_Update();
             }
         }
     }
 
-    (void)IF_Start_Run(&Theta_IF, Id_Ref, Iq_Ref);
-    *Theta_e = Theta_IF;
-
-    if (State == FLUX_ACCEL)
+    if ((State == FLUX_IF) || (State == FLUX_OBS_WAIT) || (State == FLUX_OBS_BLEND))
     {
-        if (IF_Start_State_Get() == IF_HOLD)
+        IF_Start_Run(&Theta_IF, &Id_IF, &Iq_IF);
+        *Theta_e = Theta_IF;
+        *Id_Ref = Id_IF;
+        *Iq_Ref = Iq_IF;
+        Model_U_Valid = true;
+
+        /* FLUX_IF is the fixed six-second initial ramp. Fitting and the
+         * observer run in the background, but cannot change the trajectory or
+         * begin takeover until the initial target is reached. */
+        if ((State == FLUX_IF) && (IF_Start_State_Get() == IF_HOLD))
         {
+            State = FLUX_OBS_WAIT;
+        }
+
+        if (Obs_Active && !PLL_Active)
+        {
+            if (Emf_Valid && (Emf_Ratio_F >= FLUX_OBS_PLL_START_RATIO))
+            {
+                Theta_Rough = Angle_Wrap(__builtin_atan2f(Flux_Obs.State.PsiBeta, Flux_Obs.State.PsiAlpha));
+                PLL_Reset(&Flux_PLL, Theta_Rough, IF_Start_We_Get());
+                We_Obs_F = IF_Start_We_Get();
+                Motion_Lost_Cnt = 0U;
+                Obs_Compare_Reset();
+                PLL_Active = true;
+            }
+        }
+
+        if (PLL_Active)
+        {
+            Obs_IF_Compare_Run(Theta_IF);
+        }
+
+        Motion_Valid = Emf_Valid && __builtin_isfinite(Emf_Ratio_F) && (Emf_Ratio_F >= FLUX_MOTION_LOST_RATIO);
+        if (Motion_Lost_Run(Motion_Valid))
+        {
+            Result.Valid = false;
             Cnt = 0U;
-            State = FLUX_SETTLE;
+            Finish_Init = 0U;
+            State = FLUX_FINISH;
+            return FAST_CURRENT;
         }
     }
-    else if (State == FLUX_SETTLE)
+
+    if (State == FLUX_OBS_WAIT)
     {
-        if (++Cnt >= FLUX_SETTLE_CNT)
+        Emf_Ratio = Emf_Ratio_F;
+
+        if (Emf_Target_Reached && PLL_Active && (Emf_Ratio >= FLUX_OBS_EMF_EXIT_RATIO) && Obs_IF_Stable())
         {
-            Measure_Reset();
-            State = FLUX_MEASURE;
+            if (Obs_Wait_Cnt < FLUX_OBS_WAIT_CNT)
+            {
+                Obs_Wait_Cnt++;
+            }
+
+            if (Obs_Wait_Cnt >= FLUX_OBS_WAIT_CNT)
+            {
+                Blend_Cnt = 0U;
+                State = FLUX_OBS_BLEND;
+            }
         }
+        else
+        {
+            Obs_Wait_Cnt = 0U;
+        }
+    }
+    else if (State == FLUX_OBS_BLEND)
+    {
+        Emf_Ratio = Emf_Ratio_F;
+        if ((Emf_Ratio < FLUX_OBS_EMF_EXIT_RATIO) || !Obs_IF_Stable())
+        {
+            Obs_Wait_Cnt = 0U;
+            State = FLUX_OBS_WAIT;
+            return FAST_CURRENT;
+        }
+
+        Blend = (FLUX_BLEND_CNT > 0U) ? (float)(Blend_Cnt + 1U) / (float)FLUX_BLEND_CNT : 1.0f;
+        if (Blend > 1.0f)
+        {
+            Blend = 1.0f;
+        }
+
+        Theta_Err = Angle_Diff(Theta_Obs, Theta_IF);
+        *Theta_e = Angle_Wrap(Theta_IF + Blend * Theta_Err);
+        DQ_Rotate(Theta_IF, *Theta_e, Id_IF, Iq_IF, Id_Ref, Iq_Ref);
+
+        if (Blend_Cnt < FLUX_BLEND_CNT)
+        {
+            Blend_Cnt++;
+        }
+
+        if (Blend_Cnt >= FLUX_BLEND_CNT)
+        {
+            Obs_Id_Ref = *Id_Ref;
+            Obs_Iq_Ref = *Iq_Ref;
+            I_Max = IF_Para.Iq_Max_A;
+            Speed_Loop_Track(We_Target, Flux_PLL.State.We, Obs_Iq_Ref, -I_Max, I_Max);
+            Fine_I_Valid = false;
+            Fine_Window_Reset();
+            Obs_Compare_Reset();
+            Obs_Control = true;
+            State = FLUX_OBS_I_TRANS;
+        }
+    }
+    else if (State == FLUX_OBS_I_TRANS)
+    {
+        *Theta_e = Theta_Obs;
+        Obs_Id_Ref = Ramp_Zero(Obs_Id_Ref, FLUX_ID_RAMP_STEP);
+        *Id_Ref = Obs_Id_Ref;
+        *Iq_Ref = Obs_Iq_Ref;
+        Obs_Speed_Compare_Run(We_Target);
+        Adapt_Valid = Obs_Run_Valid();
+        Fine_Valid = Fine_Run(Adapt_Valid, false);
+        Motion_Valid = Fine_Valid && Obs_Run_Valid();
+        if (Motion_Lost_Run(Motion_Valid))
+        {
+            Result.Valid = false;
+            Cnt = 0U;
+            Finish_Init = 0U;
+            State = FLUX_FINISH;
+            return FAST_CURRENT;
+        }
+
+        if (Obs_Id_Ref == 0.0f)
+        {
+            Cnt = 0U;
+            Fine_Flux_Pre = 0.0f;
+            Fine_Stable_Cnt = 0U;
+            State = FLUX_FINE_SETTLE;
+        }
+    }
+    else if (State == FLUX_FINE_SETTLE)
+    {
+        *Theta_e = Theta_Obs;
+        *Id_Ref = 0.0f;
+        *Iq_Ref = Obs_Iq_Ref;
+        Obs_Speed_Compare_Run(We_Target);
+        Adapt_Valid = Obs_Run_Valid();
+        Fine_Valid = Fine_Run(Adapt_Valid, false);
+        Motion_Valid = Fine_Valid && Obs_Run_Valid();
+        if (Motion_Lost_Run(Motion_Valid))
+        {
+            Result.Valid = false;
+            Cnt = 0U;
+            Finish_Init = 0U;
+            State = FLUX_FINISH;
+            return FAST_CURRENT;
+        }
+
+        Emf_Ratio = Emf_Ratio_F;
+        if (Fine_Valid && (Emf_Ratio >= FLUX_OBS_EMF_EXIT_RATIO) && Obs_Control_Stable())
+        {
+            if (++Cnt >= FLUX_FINE_SETTLE_CNT)
+            {
+                Fine_Window_Reset();
+                State = FLUX_FINE_MEASURE;
+            }
+        }
+        else
+        {
+            Cnt = 0U;
+        }
+    }
+    else if (State == FLUX_FINE_MEASURE)
+    {
+        *Theta_e = Theta_Obs;
+        *Id_Ref = 0.0f;
+        *Iq_Ref = Obs_Iq_Ref;
+        Obs_Speed_Compare_Run(We_Target);
+
+        Adapt_Valid = Obs_Run_Valid();
+        Fine_Valid = Fine_Run(Adapt_Valid, Adapt_Valid && Obs_Control_Stable());
+        Motion_Valid = Fine_Valid && Obs_Run_Valid();
+        if (Motion_Lost_Run(Motion_Valid))
+        {
+            Result.Valid = false;
+            Cnt = 0U;
+            Finish_Init = 0U;
+            State = FLUX_FINISH;
+            return FAST_CURRENT;
+        }
+
+        Emf_Ratio = Emf_Ratio_F;
+        U_Mag2 = Motor_Run.Ud * Motor_Run.Ud + Motor_Run.Uq * Motor_Run.Uq;
+
+        if (!Fine_Valid || (Emf_Ratio < FLUX_OBS_EMF_EXIT_RATIO) || !Obs_Control_Stable() ||
+            (U_Mag2 > Envelope->U_Max * Envelope->U_Max))
+        {
+            Cnt = 0U;
+            Fine_Flux_Pre = 0.0f;
+            Fine_Stable_Cnt = 0U;
+            Fine_Window_Reset();
+            State = FLUX_FINE_SETTLE;
+            return FAST_CURRENT;
+        }
+
+        if (Fine_Cnt >= FLUX_FINE_MEASURE_CNT)
+        {
+            if (Fine_Calc(&Flux_Fine))
+            {
+                if ((Fine_Flux_Pre > 0.0f) &&
+                    (Abs_Value(Flux_Fine - Fine_Flux_Pre) <= FLUX_FINE_STABLE_RATIO * Fine_Flux_Pre))
+                {
+                    if (Fine_Stable_Cnt < FLUX_FINE_STABLE_WINDOWS)
+                    {
+                        Fine_Stable_Cnt++;
+                    }
+                }
+                else
+                {
+                    Fine_Stable_Cnt = 0U;
+                }
+
+                Flux_Est += FLUX_FINE_UPDATE_RATIO * (Flux_Fine - Flux_Est);
+                Obs_Para_Update();
+
+                if (Fine_Stable_Cnt >= FLUX_FINE_STABLE_WINDOWS)
+                {
+                    Result.Flux_Wb = 0.5f * (Fine_Flux_Pre + Flux_Fine);
+                    Result.Valid = true;
+                    Cnt = 0U;
+                    Finish_Init = 0U;
+                    State = FLUX_FINISH;
+                }
+
+                Fine_Flux_Pre = Flux_Fine;
+            }
+            else
+            {
+                Fine_Flux_Pre = 0.0f;
+                Fine_Stable_Cnt = 0U;
+            }
+
+            Fine_Window_Reset();
+        }
+    }
+    else if (State == FLUX_IF)
+    {
+        /* Coarse fitting starts with I/F motion; no fixed-speed measurement stage is required. */
+    }
+    else
+    {
+        State = FLUX_FAILED;
+        Result.Valid = false;
+        return FAST_OFF;
     }
 
     return FAST_CURRENT;
