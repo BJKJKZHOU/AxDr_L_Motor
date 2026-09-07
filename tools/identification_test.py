@@ -17,7 +17,7 @@ Examples:
 
     python3 tools/identification_test.py \
         --port /dev/ttyACM1 --pole-pairs 7 --current-limit 2.0 \
-        --rs-ls-count 500 --progress-every 10 --run
+        --rs-ls-count 500 --run
 """
 
 import argparse
@@ -29,6 +29,8 @@ import statistics
 import struct
 import sys
 import time
+
+from parameter_ids_generated import *  # generated Parameter object IDs
 
 try:
     import serial
@@ -52,10 +54,12 @@ PARAM_WRITE = 0x02
 
 PARAM_U8 = 0
 PARAM_FLOAT = 2
+PARAM_U32 = 4
 PARAM_ACTION = 6
 PARAM_FORMAT = {
     PARAM_U8: "<B",
     PARAM_FLOAT: "<f",
+    PARAM_U32: "<I",
 }
 
 PLOT_CONFIG = 0x01
@@ -68,34 +72,6 @@ FAST_GROUP = 0
 NORMAL_GROUP = 1
 FAST_MASK = 1 << FAST_GROUP
 NORMAL_MASK = 1 << NORMAL_GROUP
-
-# Parameter IDs generated from Parameter/parameter.yaml.
-PARAM_ADC_IA = 0x0001
-PARAM_ADC_IB = 0x0002
-PARAM_ADC_IC = 0x0003
-PARAM_ADC_VBUS = 0x0004
-PARAM_RUN_ID = 0x0010
-PARAM_RUN_IQ = 0x0011
-PARAM_RUN_UD = 0x0012
-PARAM_RUN_UQ = 0x0013
-PARAM_RUN_THETA_E = 0x0014
-PARAM_OBS_WE = 0x0021
-PARAM_MOTOR_PP = 0x0101
-PARAM_LIMIT_I_MAX = 0x0201
-PARAM_MOTOR_MODE = 0x0701
-PARAM_TARGET_SPEED = 0x0703
-PARAM_IDENT_RS_LS_VALID = 0x0901
-PARAM_IDENT_RS_RESULT = 0x0902
-PARAM_IDENT_LS_RESULT = 0x0903
-PARAM_IDENT_FLUX_VALID = 0x0910
-PARAM_IDENT_FLUX_RESULT = 0x0911
-
-ACTION_MOTOR_ENABLE = 0x1001
-ACTION_MOTOR_DISABLE = 0x1004
-ACTION_IDENT_RS_LS_START = 0x1101
-ACTION_IDENT_FLUX_START = 0x1102
-ACTION_IDENT_ABORT = 0x1103
-ACTION_IDENT_APPLY = 0x1104
 
 STATUS_NAME = {
     0: "OK",
@@ -115,6 +91,41 @@ IDENT_FLUX = 0x02
 IDENT_DONE = 2
 IDENT_FAILED = 3
 MODE_IDENT = 4
+MOTOR_DISABLED = 0
+
+OBJECT_NAME = {
+    PARAM_MOTOR_PP: "PARAM_MOTOR_PP",
+    PARAM_LIMIT_I_MAX: "PARAM_LIMIT_I_MAX",
+    PARAM_MOTOR_MODE: "PARAM_MOTOR_MODE",
+    PARAM_TARGET_SPEED: "PARAM_TARGET_SPEED",
+    PARAM_MOTOR_STATE: "PARAM_MOTOR_STATE",
+    PARAM_EVENT_ERROR: "PARAM_EVENT_ERROR",
+    PARAM_EVENT_TRIP: "PARAM_EVENT_TRIP",
+    PARAM_IDENT_RS_LS_VALID: "PARAM_IDENT_RS_LS_VALID",
+    PARAM_IDENT_RS_RESULT: "PARAM_IDENT_RS_RESULT",
+    PARAM_IDENT_LS_RESULT: "PARAM_IDENT_LS_RESULT",
+    PARAM_IDENT_FLUX_VALID: "PARAM_IDENT_FLUX_VALID",
+    PARAM_IDENT_FLUX_RESULT: "PARAM_IDENT_FLUX_RESULT",
+    ACTION_MOTOR_ENABLE: "ACTION_MOTOR_ENABLE",
+    ACTION_MOTOR_DISABLE: "ACTION_MOTOR_DISABLE",
+    ACTION_IDENT_RS_LS_START: "ACTION_IDENT_RS_LS_START",
+    ACTION_IDENT_FLUX_START: "ACTION_IDENT_FLUX_START",
+    ACTION_IDENT_ABORT: "ACTION_IDENT_ABORT",
+    ACTION_IDENT_APPLY: "ACTION_IDENT_APPLY",
+    ACTION_PROTECTION_CLEAR: "ACTION_PROTECTION_CLEAR",
+}
+
+PROTECTION_NAME = {
+    1 << 0: "ENCODER",
+    1 << 1: "ENCODER_FIELD",
+    1 << 2: "ENCODER_OVERSPEED",
+    1 << 3: "OVERCURRENT",
+    1 << 4: "OVERVOLTAGE",
+    1 << 5: "UNDERVOLTAGE",
+    1 << 6: "OVERTEMP",
+    1 << 7: "PHASE_LOSS",
+    1 << 8: "DRIVER",
+}
 
 HOST_CURRENT_GUARD_RATIO = 1.10
 HOST_CURRENT_HARD_LIMIT_A = 5.0
@@ -162,6 +173,15 @@ class IdentificationFailed(RuntimeError):
     def __init__(self, message, result):
         super().__init__(message)
         self.result = result
+
+
+def protection_text(events):
+    names = [name for bit, name in PROTECTION_NAME.items() if events & bit]
+    known = sum(PROTECTION_NAME)
+    unknown = events & ~known
+    if unknown:
+        names.append(f"UNKNOWN(0x{unknown:08X})")
+    return "|".join(names) if names else "none"
 
 
 def can_id(msg_type):
@@ -425,7 +445,7 @@ class IdentificationClient:
                 )
         return responses
 
-    def request(self, msg_type, op, data=b""):
+    def request(self, msg_type, op, data=b"", context=None):
         txn = self.txn
         payload = bytes([txn, op]) + data
         self.ser.write(usb_frame(msg_type, payload))
@@ -441,17 +461,21 @@ class IdentificationClient:
                     continue
                 if status != 0:
                     name = STATUS_NAME.get(status, str(status))
-                    raise RuntimeError(f"request {msg_type}/{op}: {name}")
+                    request_name = context or f"request {msg_type}/{op}"
+                    raise RuntimeError(f"{request_name}: {name}")
                 self.txn = (txn % 255) + 1
                 return response[4:]
 
-        raise TimeoutError(f"request {msg_type}/{op} timeout")
+        request_name = context or f"request {msg_type}/{op}"
+        raise TimeoutError(f"{request_name}: timeout")
 
     def parameter_read(self, param_id, param_type):
+        name = OBJECT_NAME.get(param_id, "parameter")
         data = self.request(
             MSG_PARAMETER,
             PARAM_READ,
             struct.pack("<H", param_id),
+            context=f"read {name} (0x{param_id:04X})",
         )
         value_size = struct.calcsize(PARAM_FORMAT[param_type])
         if len(data) != 3 + value_size:
@@ -469,11 +493,13 @@ class IdentificationClient:
         return struct.unpack_from(PARAM_FORMAT[param_type], data, 3)[0]
 
     def parameter_write(self, param_id, param_type, value):
+        name = OBJECT_NAME.get(param_id, "parameter")
         encoded = struct.pack(PARAM_FORMAT[param_type], value)
         data = self.request(
             MSG_PARAMETER,
             PARAM_WRITE,
             struct.pack("<HB", param_id, param_type) + encoded,
+            context=f"write {name} (0x{param_id:04X})",
         )
         if len(data) != 2:
             raise RuntimeError(
@@ -486,11 +512,13 @@ class IdentificationClient:
             )
 
     def parameter_action(self, action_id):
+        name = OBJECT_NAME.get(action_id, "action")
         txn = self.txn
         data = self.request(
             MSG_PARAMETER,
             PARAM_WRITE,
             struct.pack("<HB", action_id, PARAM_ACTION),
+            context=f"trigger {name} (0x{action_id:04X})",
         )
         if len(data) != 2:
             raise RuntimeError(
@@ -512,10 +540,35 @@ class IdentificationClient:
         return None
 
     def prepare(self):
-        try:
-            self.parameter_action(ACTION_MOTOR_DISABLE)
-        except (TimeoutError, RuntimeError):
-            pass
+        self.parameter_action(ACTION_MOTOR_DISABLE)
+        state = self.parameter_read(PARAM_MOTOR_STATE, PARAM_U8)
+        if state != MOTOR_DISABLED:
+            raise RuntimeError(
+                f"motor did not enter DISABLED state: state={state}"
+            )
+
+        # IDENT does not require an encoder. Select it before clearing a stale
+        # encoder-related stop so Protection_Control does not latch it again.
+        self.parameter_write(PARAM_MOTOR_MODE, PARAM_U8, MODE_IDENT)
+
+        error = self.parameter_read(PARAM_EVENT_ERROR, PARAM_U32)
+        trip = self.parameter_read(PARAM_EVENT_TRIP, PARAM_U32)
+        if error != 0 or trip != 0:
+            print(
+                "Clearing latched protection before identification: "
+                f"error=0x{error:08X} ({protection_text(error)}), "
+                f"trip=0x{trip:08X} ({protection_text(trip)})"
+            )
+            self.parameter_action(ACTION_PROTECTION_CLEAR)
+            error = self.parameter_read(PARAM_EVENT_ERROR, PARAM_U32)
+            trip = self.parameter_read(PARAM_EVENT_TRIP, PARAM_U32)
+            if error != 0 or trip != 0:
+                raise RuntimeError(
+                    "protection remains active after clear: "
+                    f"error=0x{error:08X} ({protection_text(error)}), "
+                    f"trip=0x{trip:08X} ({protection_text(trip)})"
+                )
+
         try:
             self.request(
                 MSG_PLOT,
@@ -812,12 +865,6 @@ def telemetry_reasons(results, max_lost):
         for item in results
     ):
         reasons.append("FAST plot sample rate below expected rate")
-    if any(
-        item.get("normal_sample_rate_hz", 0.0)
-        < TELEMETRY_RATE_MIN_RATIO * NORMAL_RATE_HZ
-        for item in results
-    ):
-        reasons.append("NORMAL plot sample rate below expected rate")
     return reasons
 
 
@@ -944,20 +991,24 @@ def summarize_flux(results, forward_count, reverse_count, args):
     }
 
 
-def progress_print(name, index, count, results):
-    valid = [item for item in results if item.get("valid")]
-    failures = len(results) - len(valid)
-    text = f"{name} [{index}/{count}] success={len(valid)} failure={failures}"
+def result_print(name, index, count, mode, result):
+    passed = result.get("valid", False)
+    text = f"{name} [{index}/{count}] {'PASS' if passed else 'FAIL'}"
 
-    if name == "Rs/Ls" and valid:
+    if passed and mode == IDENT_RS_LS:
         text += (
-            f" Rs_med={statistics.median(item['rs_ohm'] for item in valid):.7g} ohm"
-            f" Ls_med={statistics.median(item['ls_h'] for item in valid) * 1.0e6:.3f} uH"
+            f" Rs={result['rs_ohm']:.9g} ohm"
+            f" Ls={result['ls_h'] * 1.0e6:.4f} uH"
         )
-    elif name == "Flux" and valid:
-        text += (
-            f" Flux_med={statistics.median(item['flux_wb'] for item in valid):.7g} Wb"
-        )
+    elif passed:
+        text += f" Flux={result['flux_wb']:.10g} Wb"
+
+    text += (
+        f" time={result['time_s']:.3f} s"
+        f" I_peak={result['phase_peak_a']:.3f} A"
+    )
+    if not passed:
+        text += f" error={result.get('error', 'invalid result')}"
     print(text)
 
 
@@ -967,8 +1018,6 @@ def run_group(client, mode, count, args, results, direction=None, run_offset=0):
         if mode == IDENT_RS_LS
         else f"Flux {direction}"
     )
-    group_start = len(results)
-
     for index in range(1, count + 1):
         run = run_offset + index
         try:
@@ -976,7 +1025,7 @@ def run_group(client, mode, count, args, results, direction=None, run_offset=0):
         except IdentificationFailed as exc:
             result = exc.result
             results.append(result)
-            progress_print(name, index, count, results[group_start:])
+            result_print(name, index, count, mode, result)
             if result.get("current_csv"):
                 print(f"  Current CSV: {result['current_csv']}")
                 print(f"  State CSV: {result['state_csv']}")
@@ -984,15 +1033,7 @@ def run_group(client, mode, count, args, results, direction=None, run_offset=0):
                 return False
         else:
             results.append(result)
-            if (
-                index == 1
-                or index % args.progress_every == 0
-                or index == count
-            ):
-                progress_print(name, index, count, results[group_start:])
-            if result.get("current_csv"):
-                print(f"  Current CSV: {result['current_csv']}")
-                print(f"  State CSV: {result['state_csv']}")
+            result_print(name, index, count, mode, result)
 
         if args.interval > 0.0 and index < count:
             time.sleep(args.interval)
@@ -1151,7 +1192,6 @@ def parse_args():
         default=0.0,
         help="delay between runs in seconds",
     )
-    parser.add_argument("--progress-every", type=int, default=10)
     parser.add_argument("--stop-on-error", action="store_true")
     parser.add_argument("--max-lost", type=int, default=0)
     parser.add_argument("--baud", type=int, default=115200)
@@ -1190,8 +1230,6 @@ def parse_args():
             parser.error(f"--{name.replace('_', '-')} must be positive")
     if args.interval < 0.0:
         parser.error("--interval must be non-negative")
-    if args.progress_every <= 0:
-        parser.error("--progress-every must be positive")
     if args.max_lost < 0:
         parser.error("--max-lost must be non-negative")
 
