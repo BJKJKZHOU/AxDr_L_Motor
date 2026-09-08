@@ -35,6 +35,8 @@ typedef struct
         float Target_Alpha;
         float Finish_Iq_Slew_A_S;
         uint32_t Finish_Cnt;
+        float Breakaway_We_Ratio;
+        float Breakaway_Acc_Ratio;
     } Workflow;
 
     struct
@@ -92,6 +94,8 @@ static const Flux_Config_T Flux_Config = {
         .Target_Alpha = CUR_TS / (0.10f + CUR_TS),
         .Finish_Iq_Slew_A_S = 20.0f,
         .Finish_Cnt = (uint32_t)(0.100f / CUR_TS + 0.5f),
+        .Breakaway_We_Ratio = 0.50f,
+        .Breakaway_Acc_Ratio = 3.0f,
     },
     .Coarse = {
         .I_BW_Hz = 200.0f,
@@ -172,6 +176,7 @@ typedef struct
 static volatile Flux_State_e State = FLUX_IDLE;
 static Flux_Result_T Result = { 0 };
 static Motor_IF_Para_T IF_Para = { 0 };
+static IF_T Flux_IF = { 0 };
 static Flux_Estimator_T Flux_Estimator = { 0 };
 static Handover_T Handover = { 0 };
 static volatile float We_Target = 0.0f;
@@ -279,9 +284,9 @@ static bool Obs_Speed_Stable(float We_Ref)
 
 static bool Obs_IF_Stable(void)
 {
-    return Obs_State_Stable() && (IF_Start_We_Get() * We_Obs_F > 0.0f) &&
+    return Obs_State_Stable() && (Flux_IF.State.We * We_Obs_F > 0.0f) &&
            Handover_IF_Stable(&Handover,
-                              IF_Start_We_Get(),
+                              Flux_IF.State.We,
                               IF_Para.We_Base,
                               Flux_Config.Handover.We_Mean_Ratio,
                               Flux_Config.Handover.We_Rms_Ratio,
@@ -319,7 +324,7 @@ static bool Coarse_Run(void)
 {
     float We;
 
-    We = IF_Start_We_Get();
+    We = Flux_IF.State.We;
     if (!Flux_Estimator_Run(&Flux_Estimator,
                             FLUX_EST_VECTOR,
                             FLUX_EST_UPDATE,
@@ -361,12 +366,12 @@ static void IF_Target_Update(int8_t Dir)
         return;
     }
 
-    We_Abs = Abs_Value(IF_Start_We_Get());
+    We_Abs = Abs_Value(Flux_IF.State.We);
     Flux = Flux_Estimator.State.Flux;
     if (!__builtin_isfinite(Flux) || (Flux <= Flux_Config.Workflow.Est_Num_Min_Wb))
     {
         We_Target = (float)Dir * We_Abs;
-        IF_Start_Target_Set(We_Target);
+        IF_Target_Set(&Flux_IF, We_Target);
         return;
     }
 
@@ -393,9 +398,9 @@ static void IF_Target_Update(int8_t Dir)
     We_Abs = Abs_Value(We_Target);
     We_Abs += Flux_Config.Workflow.Target_Alpha * (We_Req - We_Abs);
     IF_Para.Acc = We_Abs / Flux_Config.Workflow.If_Accel_S;
+    Flux_IF.Para.Acc = IF_Para.Acc;
     We_Target = (float)Dir * We_Abs;
-    IF_Start_Para_Set(IF_Para.Iq_Start_A, IF_Para.Iq_Max_A, IF_Para.We_Base, IF_Para.Acc);
-    IF_Start_Target_Set(We_Target);
+    IF_Target_Set(&Flux_IF, We_Target);
 }
 
 static void Fine_Begin(void)
@@ -491,9 +496,8 @@ static Motor_Fast_Mode_e Flux_Align_Run(int8_t Dir, float *Id_Ref, float *Iq_Ref
     if (Align_Current(IF_Para.Iq_Start_A, IF_ALIGN_CNT, Id_Ref, Iq_Ref))
     {
         Current_Loop_State_Reset();
-        IF_Start_Reset(-0.5f * PI_F * (float)Dir, 0.0f);
-        IF_Start_Para_Set(IF_Para.Iq_Start_A, IF_Para.Iq_Max_A, IF_Para.We_Base, IF_Para.Acc);
-        IF_Start_Target_Set(We_Target);
+        IF_Init(&Flux_IF, -0.5f * PI_F * (float)Dir, 0.0f);
+        IF_Target_Set(&Flux_IF, We_Target);
         State = FLUX_INITIAL_IF;
     }
     return FAST_CURRENT;
@@ -514,7 +518,7 @@ static Motor_Fast_Mode_e Flux_Finish_Run(const Flux_Fast_Context_T *Context,
     }
     else
     {
-        IF_Start_Run(Theta_e, Id_Ref, Iq_Ref);
+        IF_Run(&Flux_IF, Theta_e, Id_Ref, Iq_Ref, CUR_TS);
     }
 
     if (Finish_Init == 0U)
@@ -581,8 +585,8 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
                 if (PLL_Active && Emf_Valid && __builtin_isfinite(Emf_Ratio_F) &&
                     (Emf_Ratio_F >= Flux_Config.Observer.Emf_Enter_Ratio))
                 {
-                    We_Target = IF_Start_We_Get();
-                    IF_Start_Target_Set(We_Target);
+                    We_Target = Flux_IF.State.We;
+                    IF_Target_Set(&Flux_IF, We_Target);
                     Emf_Target_Reached = true;
                 }
                 else
@@ -602,8 +606,8 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
                 Flux_PLL.Para.Kp = Flux_Config.Observer.Pll_Kp;
                 Flux_PLL.Para.Ki = Flux_Config.Observer.Pll_Ki;
                 Flux_Observer_Reset(&Flux_Obs, Theta_Rough, Context->Ialpha, Context->Ibeta);
-                PLL_Reset(&Flux_PLL, Theta_Rough, IF_Start_We_Get());
-                We_Obs_F = IF_Start_We_Get();
+                PLL_Reset(&Flux_PLL, Theta_Rough, Flux_IF.State.We);
+                We_Obs_F = Flux_IF.State.We;
                 Handover_Ready_Cnt = 0U;
                 Handover_Compare_Reset(&Handover);
                 Obs_Active = true;
@@ -616,13 +620,13 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
         }
     }
 
-    IF_Start_Run(&Context->Theta_IF, &Context->Id_IF, &Context->Iq_IF);
+    IF_Run(&Flux_IF, &Context->Theta_IF, &Context->Id_IF, &Context->Iq_IF, CUR_TS);
     *Theta_e = Context->Theta_IF;
     *Id_Ref = Context->Id_IF;
     *Iq_Ref = Context->Iq_IF;
     Model_U_Valid = true;
 
-    if ((State == FLUX_INITIAL_IF) && (IF_Start_State_Get() == IF_HOLD))
+    if ((State == FLUX_INITIAL_IF) && (Flux_IF.State.Mode == IF_HOLD))
     {
         State = FLUX_SEARCH;
     }
@@ -631,8 +635,8 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
         (Emf_Ratio_F >= Flux_Config.Observer.Pll_Start_Ratio))
     {
         Theta_Rough = Angle_Wrap(__builtin_atan2f(Flux_Obs.State.PsiBeta, Flux_Obs.State.PsiAlpha));
-        PLL_Reset(&Flux_PLL, Theta_Rough, IF_Start_We_Get());
-        We_Obs_F = IF_Start_We_Get();
+        PLL_Reset(&Flux_PLL, Theta_Rough, Flux_IF.State.We);
+        We_Obs_F = Flux_IF.State.We;
         Motion_Lost_Cnt = 0U;
         Handover_Compare_Reset(&Handover);
         PLL_Active = true;
@@ -643,7 +647,7 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
     {
         Handover_IF_Compare(&Handover,
                             Context->Theta_IF,
-                            IF_Start_We_Get(),
+                            Flux_IF.State.We,
                             Context->Theta_Obs,
                             We_Obs_F,
                             Flux_PLL.State.Err,
@@ -856,6 +860,7 @@ bool Flux_Start(float Wm_Target)
 
     Result = (Flux_Result_T){ 0 };
     IF_Para = (Motor_IF_Para_T){ 0 };
+    Flux_IF = (IF_T){ 0 };
     We_Target = 0.0f;
     We_Obs_F = 0.0f;
     Emf_Ratio_F = 0.0f;
@@ -897,6 +902,14 @@ bool Flux_Start(float Wm_Target)
     Sign = (Wm_Target < 0.0f) ? -1.0f : 1.0f;
     We_Target = Sign * ((IF_Para.We_Base < We_Max) ? IF_Para.We_Base : We_Max);
     IF_Para.Acc = Abs_Value(We_Target) / Flux_Config.Workflow.If_Accel_S;
+
+    Flux_IF.Para.Iq_Run_A = IF_Para.Iq_Max_A;
+    Flux_IF.Para.We_Base = IF_Para.We_Base;
+    Flux_IF.Para.Acc = IF_Para.Acc;
+    Flux_IF.Para.Breakaway_We_Ratio = Flux_Config.Workflow.Breakaway_We_Ratio;
+    Flux_IF.Para.Breakaway_Acc_Ratio = Flux_Config.Workflow.Breakaway_Acc_Ratio;
+    Flux_IF.Para.Iq_Slew_A_S = IF_IQ_SLEW_A_S;
+
     Align_Reset();
     Current_Loop_State_Reset();
     State = FLUX_ALIGN;

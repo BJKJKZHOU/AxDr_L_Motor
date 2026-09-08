@@ -6,211 +6,173 @@
 #include "IF_Start.h"
 
 #include "Math.h"
-#include "control_params.h"
-
-#define IF_BREAKAWAY_WE_RATIO  0.50f
-#define IF_BREAKAWAY_ACC_RATIO 3.0f
-
-static IF_State_e State = IF_RAMP;
-static float Theta_e = 0.0f;
-static float We = 0.0f;
-static float We_Target = IF_WE_TARGET_RAD_S;
-static float Iq = 0.0f;
-static float Iq_Start_A = IF_IQ_START_A;
-static float Iq_Target_A = IF_IQ_TARGET_A;
-static float We_Base = IF_WE_TARGET_RAD_S;
-static float Acc = IF_ACC_RAD_S2;
-static float Acc_Command = IF_ACC_RAD_S2;
-static float We_Breakaway = IF_BREAKAWAY_WE_RATIO * IF_WE_TARGET_RAD_S;
-static float Acc_Breakaway = IF_BREAKAWAY_ACC_RATIO * IF_ACC_RAD_S2;
-static bool Breakaway_Active = false;
 
 static float Abs_F(float X)
 {
     return (X >= 0.0f) ? X : -X;
 }
 
-static void Breakaway_Profile_Update(void)
+static void IF_Profile_Build(IF_T *IF, float We_Start)
 {
     float Total_Time;
     float Breakaway_Time;
     float Normal_Time;
 
-    We_Breakaway = IF_BREAKAWAY_WE_RATIO * We_Base;
-    Acc_Breakaway = IF_BREAKAWAY_ACC_RATIO * Acc_Command;
+    IF->State.We_Breakaway = IF->Para.Breakaway_We_Ratio * IF->Para.We_Base;
+    IF->State.Acc_Breakaway = IF->Para.Breakaway_Acc_Ratio * IF->Para.Acc;
+    IF->State.Acc_Run = IF->Para.Acc;
+    IF->State.Initial_Profile_Active = false;
+    IF->State.Breakaway_Active = false;
 
-    Total_Time = We_Base / Acc_Command;
-    Breakaway_Time = We_Breakaway / Acc_Breakaway;
+    if ((IF->Para.We_Base <= 0.0f) || (IF->Para.Acc <= 0.0f) ||
+        (IF->Para.Breakaway_We_Ratio <= 0.0f) || (IF->Para.Breakaway_We_Ratio >= 1.0f) ||
+        (IF->Para.Breakaway_Acc_Ratio <= 1.0f) ||
+        (IF->State.Acc_Breakaway <= 0.0f) ||
+        (Abs_F(We_Start) >= IF->State.We_Breakaway))
+    {
+        return;
+    }
+
+    Total_Time = IF->Para.We_Base / IF->Para.Acc;
+    Breakaway_Time = IF->State.We_Breakaway / IF->State.Acc_Breakaway;
     Normal_Time = Total_Time - Breakaway_Time;
-
-    if ((Normal_Time > 0.0f) && (We_Base > We_Breakaway))
-    {
-        Acc = (We_Base - We_Breakaway) / Normal_Time;
-    }
-    else
-    {
-        Acc = Acc_Command;
-    }
-}
-
-void IF_Start_Reset(float Theta_Start, float We_Start)
-{
-    State = IF_RAMP;
-    Theta_e = Angle_Wrap(Theta_Start);
-    We = We_Start;
-    We_Target = We_Start;
-    Iq = 0.0f;
-
-    Breakaway_Active = Abs_F(We_Start) < We_Breakaway;
-    if (Breakaway_Active)
-    {
-        Breakaway_Profile_Update();
-    }
-    else
-    {
-        Acc = Acc_Command;
-    }
-}
-
-void IF_Start_Para_Set(float Iq_Start, float Iq_Target, float We_Base_In, float Acc_In)
-{
-    if ((Iq_Start <= 0.0f) || (Iq_Target < Iq_Start) || (We_Base_In <= 0.0f) || (Acc_In <= 0.0f))
+    if ((Normal_Time <= 0.0f) || (IF->Para.We_Base <= IF->State.We_Breakaway))
     {
         return;
     }
 
-    Iq_Start_A = Iq_Start;
-    Iq_Target_A = Iq_Target;
-    We_Base = We_Base_In;
-    Acc_Command = Acc_In;
-
-    if (Breakaway_Active)
-    {
-        Breakaway_Profile_Update();
-    }
-    else
-    {
-        Acc = Acc_Command;
-        We_Breakaway = IF_BREAKAWAY_WE_RATIO * We_Base;
-        Acc_Breakaway = IF_BREAKAWAY_ACC_RATIO * Acc_Command;
-    }
+    IF->State.Acc_Run = (IF->Para.We_Base - IF->State.We_Breakaway) / Normal_Time;
+    IF->State.Initial_Profile_Active = true;
+    IF->State.Breakaway_Active = true;
 }
 
-void IF_Start_Target_Set(float We_Target_In)
+void IF_Init(IF_T *IF, float Theta_Start, float We_Start)
 {
-    if (We_Target == We_Target_In)
+    if (IF == 0)
     {
         return;
     }
 
-    We_Target = We_Target_In;
-
-    if (We == We_Target)
-    {
-        State = IF_HOLD;
-    }
-    else
-    {
-        State = IF_RAMP;
-    }
+    IF->State = (IF_State_T){ 0 };
+    IF->State.Mode = IF_RAMP;
+    IF->State.Theta_e = Angle_Wrap(Theta_Start);
+    IF->State.We = We_Start;
+    IF->State.We_Target = We_Start;
+    IF_Profile_Build(IF, We_Start);
 }
 
-void IF_Start_Run(float *Theta_e_Out, float *Id_Ref, float *Iq_Ref)
+void IF_Target_Set(IF_T *IF, float We_Target)
+{
+    if (IF == 0)
+    {
+        return;
+    }
+
+    if (IF->State.We_Target == We_Target)
+    {
+        return;
+    }
+
+    IF->State.We_Target = We_Target;
+    IF->State.Mode = (IF->State.We == We_Target) ? IF_HOLD : IF_RAMP;
+}
+
+void IF_Run(IF_T *IF, float *Theta_e, float *Id_Ref, float *Iq_Ref, float Ts)
 {
     float Acc_Use;
     float Iq_Target;
     float Iq_Step;
     float We_Step;
 
-    if (Breakaway_Active && (Abs_F(We) >= We_Breakaway))
+    if ((IF == 0) || (Theta_e == 0) || (Id_Ref == 0) || (Iq_Ref == 0) || (Ts <= 0.0f))
     {
-        Breakaway_Active = false;
+        return;
     }
 
-    Acc_Use = Breakaway_Active ? Acc_Breakaway : Acc;
-
-    if (State == IF_RAMP)
+    if (IF->State.Breakaway_Active && (Abs_F(IF->State.We) >= IF->State.We_Breakaway))
     {
-        We_Step = Acc_Use * CUR_TS;
+        IF->State.Breakaway_Active = false;
+    }
 
-        if (We < We_Target)
+    if (IF->State.Initial_Profile_Active)
+    {
+        Acc_Use = IF->State.Breakaway_Active ? IF->State.Acc_Breakaway : IF->State.Acc_Run;
+    }
+    else
+    {
+        Acc_Use = IF->Para.Acc;
+    }
+
+    if ((IF->State.Mode == IF_RAMP) && (Acc_Use > 0.0f))
+    {
+        We_Step = Acc_Use * Ts;
+
+        if (IF->State.We < IF->State.We_Target)
         {
-            We += We_Step;
-
-            if (We >= We_Target)
+            IF->State.We += We_Step;
+            if (IF->State.We >= IF->State.We_Target)
             {
-                We = We_Target;
-                State = IF_HOLD;
+                IF->State.We = IF->State.We_Target;
+                IF->State.Mode = IF_HOLD;
+                IF->State.Initial_Profile_Active = false;
+                IF->State.Breakaway_Active = false;
             }
         }
         else
         {
-            We -= We_Step;
-
-            if (We <= We_Target)
+            IF->State.We -= We_Step;
+            if (IF->State.We <= IF->State.We_Target)
             {
-                We = We_Target;
-                State = IF_HOLD;
+                IF->State.We = IF->State.We_Target;
+                IF->State.Mode = IF_HOLD;
+                IF->State.Initial_Profile_Active = false;
+                IF->State.Breakaway_Active = false;
             }
         }
     }
 
-    if (We > 0.0f)
+    if (IF->State.We > 0.0f)
     {
-        Iq_Target = Iq_Target_A;
+        Iq_Target = IF->Para.Iq_Run_A;
     }
-    else if (We < 0.0f)
+    else if (IF->State.We < 0.0f)
     {
-        Iq_Target = -Iq_Target_A;
+        Iq_Target = -IF->Para.Iq_Run_A;
     }
-    else if (We_Target > 0.0f)
+    else if (IF->State.We_Target > 0.0f)
     {
-        Iq_Target = Iq_Target_A;
+        Iq_Target = IF->Para.Iq_Run_A;
     }
-    else if (We_Target < 0.0f)
+    else if (IF->State.We_Target < 0.0f)
     {
-        Iq_Target = -Iq_Target_A;
+        Iq_Target = -IF->Para.Iq_Run_A;
     }
     else
     {
         Iq_Target = 0.0f;
     }
 
-    Iq_Step = IF_IQ_SLEW_A_S * CUR_TS;
-
-    if (Iq < Iq_Target)
+    Iq_Step = IF->Para.Iq_Slew_A_S * Ts;
+    if (IF->State.Iq < Iq_Target)
     {
-        Iq += Iq_Step;
-
-        if (Iq > Iq_Target)
+        IF->State.Iq += Iq_Step;
+        if (IF->State.Iq > Iq_Target)
         {
-            Iq = Iq_Target;
+            IF->State.Iq = Iq_Target;
         }
     }
-    else if (Iq > Iq_Target)
+    else if (IF->State.Iq > Iq_Target)
     {
-        Iq -= Iq_Step;
-
-        if (Iq < Iq_Target)
+        IF->State.Iq -= Iq_Step;
+        if (IF->State.Iq < Iq_Target)
         {
-            Iq = Iq_Target;
+            IF->State.Iq = Iq_Target;
         }
     }
 
-    *Theta_e_Out = Theta_e;
+    *Theta_e = IF->State.Theta_e;
     *Id_Ref = 0.0f;
-    *Iq_Ref = Iq;
+    *Iq_Ref = IF->State.Iq;
 
-    Theta_e += We * CUR_TS;
-    Theta_e = Angle_Wrap(Theta_e);
-}
-
-IF_State_e IF_Start_State_Get(void)
-{
-    return State;
-}
-
-float IF_Start_We_Get(void)
-{
-    return We;
+    IF->State.Theta_e = Angle_Wrap(IF->State.Theta_e + IF->State.We * Ts);
 }

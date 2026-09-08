@@ -39,6 +39,9 @@
 #define FLUX_MIN_RATIO2 0.64f
 #define FLUX_MAX_RATIO2 1.44f
 
+#define IF_BREAKAWAY_WE_RATIO  0.50f
+#define IF_BREAKAWAY_ACC_RATIO 3.0f
+
 /* Temporary handover boundary. Replace with motor-dependent observer-quality
  * criteria after low-speed hardware characterization. */
 #define OBS_TO_IF_WE_RAD_S (0.75f * IF_WE_TARGET_RAD_S)
@@ -59,6 +62,7 @@ Flux_Observer_T Flux_Obs = { 0 };
 PLL_T Flux_PLL = { 0 };
 
 static Handover_T Handover = { 0 };
+static IF_T Sensorless_IF = { 0 };
 static bool Flux_Obs_U_Valid = false;
 static Motor_IF_Para_T IF_Para = { 0 };
 static uint32_t Obs_Wait_Cnt = 0U;
@@ -88,7 +92,7 @@ static bool Obs_Stable(void)
     float Flux_Ref2;
 
     We_Obs_F += OBS_WE_ALPHA * (Flux_PLL.State.We - We_Obs_F);
-    We_Err = We_Obs_F - IF_Start_We_Get();
+    We_Err = We_Obs_F - Sensorless_IF.State.We;
     Flux2 = Flux_Obs.State.PsiAlpha * Flux_Obs.State.PsiAlpha + Flux_Obs.State.PsiBeta * Flux_Obs.State.PsiBeta;
     Flux_Ref2 = Flux_Obs.Para.Flux * Flux_Obs.Para.Flux;
 
@@ -146,6 +150,7 @@ bool Sensorless_Begin(void)
     Theta_Use_Last = 0.0f;
     We_Obs_F = 0.0f;
     Handover_Reset(&Handover);
+    Sensorless_IF = (IF_T){ 0 };
 
     Align_Reset();
     Current_Loop_State_Reset();
@@ -156,7 +161,12 @@ bool Sensorless_Begin(void)
         return false;
     }
 
-    IF_Start_Para_Set(IF_Para.Iq_Start_A, IF_Para.Iq_Max_A, IF_Para.We_Base, IF_Para.Acc);
+    Sensorless_IF.Para.Iq_Run_A = IF_Para.Iq_Max_A;
+    Sensorless_IF.Para.We_Base = IF_Para.We_Base;
+    Sensorless_IF.Para.Acc = IF_Para.Acc;
+    Sensorless_IF.Para.Breakaway_We_Ratio = IF_BREAKAWAY_WE_RATIO;
+    Sensorless_IF.Para.Breakaway_Acc_Ratio = IF_BREAKAWAY_ACC_RATIO;
+    Sensorless_IF.Para.Iq_Slew_A_S = IF_IQ_SLEW_A_S;
 
     Flux_Obs.Para.Rs = Motor_Para.Rs;
     Flux_Obs.Para.Ls = Motor_Para.Ld;
@@ -238,8 +248,8 @@ void Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float 
             We_IF_Target = IF_Target(We_Ref);
             Theta_Start = -(float)Dir * (0.5f * PI_F);
 
-            IF_Start_Reset(Theta_Start, 0.0f);
-            IF_Start_Target_Set(We_IF_Target);
+            IF_Init(&Sensorless_IF, Theta_Start, 0.0f);
+            IF_Target_Set(&Sensorless_IF, We_IF_Target);
 
             Flux_Observer_Reset(&Flux_Obs, Theta_Start, Ialpha, Ibeta);
             PLL_Reset(&Flux_PLL, Theta_Start, 0.0f);
@@ -259,8 +269,8 @@ void Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float 
 
     if (State != SL_OBS)
     {
-        IF_Start_Target_Set(IF_Target(We_Ref));
-        (void)IF_Start_Run(&Theta_IF, &Id_IF, &Iq_IF);
+        IF_Target_Set(&Sensorless_IF, IF_Target(We_Ref));
+        IF_Run(&Sensorless_IF, &Theta_IF, &Id_IF, &Iq_IF, CUR_TS);
     }
 
     Flux_Obs_U_Valid = true;
@@ -272,7 +282,7 @@ void Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float 
         *Id_Ref = Id_IF;
         *Iq_Ref = Iq_IF;
 
-        if (Abs_F(IF_Start_We_Get()) >= IF_WE_TARGET_RAD_S)
+        if (Abs_F(Sensorless_IF.State.We) >= IF_WE_TARGET_RAD_S)
         {
             Obs_Wait_Cnt = 0U;
             We_Obs_F = Flux_PLL.State.We;
@@ -347,8 +357,8 @@ void Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float 
 
         if (Abs_F(Flux_PLL.State.We) <= OBS_TO_IF_WE_RAD_S)
         {
-            IF_Start_Reset(Theta_Obs, Flux_PLL.State.We);
-            IF_Start_Target_Set(We_Ref);
+            IF_Init(&Sensorless_IF, Theta_Obs, Flux_PLL.State.We);
+            IF_Target_Set(&Sensorless_IF, We_Ref);
             Blend_Cnt = 0U;
             State = SL_OBS_TO_IF;
         }
