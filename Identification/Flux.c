@@ -59,9 +59,7 @@ typedef struct
 
     struct
     {
-        float Emf_Enter_Ratio;
-        float Emf_Exit_Ratio;
-        float Pll_Start_Ratio;
+        float Work_Ratio;
         float Motion_Lost_Ratio;
         uint32_t Motion_Lost_Cnt;
         float BW_Hz;
@@ -111,9 +109,7 @@ static const Flux_Config_T Flux_Config = {
         .Update_Ratio = 0.25f,
     },
     .Observer = {
-        .Emf_Enter_Ratio = 0.30f,
-        .Emf_Exit_Ratio = 0.18f,
-        .Pll_Start_Ratio = 0.10f,
+        .Work_Ratio = 0.30f,
         .Motion_Lost_Ratio = 0.05f,
         .Motion_Lost_Cnt = (uint32_t)(0.15f / CUR_TS + 0.5f),
         .BW_Hz = 200.0f,
@@ -142,6 +138,7 @@ typedef enum
     FLUX_SEARCH,
     FLUX_HANDOVER_BLEND,
     FLUX_HANDOVER_CURRENT,
+    FLUX_OBS_ACCEL,
     FLUX_REFINE_SETTLE,
     FLUX_REFINE_MEASURE,
     FLUX_FINISH,
@@ -194,7 +191,8 @@ static bool Emf_Valid = false;
 static bool Obs_Active = false;
 static bool PLL_Active = false;
 static bool Obs_Control = false;
-static bool Emf_Target_Reached = false;
+static bool Work_Point_Reached = false;
+static bool Motion_Lost_Armed = false;
 
 static float Abs_Value(float Value)
 {
@@ -300,7 +298,17 @@ static bool Obs_Run_Valid(void)
 
 static bool Motion_Lost_Run(bool Motion_Valid)
 {
-    if (!PLL_Active || Motion_Valid)
+    if (!Motion_Lost_Armed)
+    {
+        if (Motion_Valid)
+        {
+            Motion_Lost_Armed = true;
+        }
+        Motion_Lost_Cnt = 0U;
+        return false;
+    }
+
+    if (Motion_Valid)
     {
         Motion_Lost_Cnt = 0U;
         return false;
@@ -339,7 +347,7 @@ static bool Coarse_Run(void)
     return Flux_Estimator.State.Estimate_Valid;
 }
 
-static void IF_Target_Update(int8_t Dir)
+static bool Flux_Target_Update(int8_t Dir, float We_Actual)
 {
     const Ident_Envelope_T *Envelope;
     float We_Max;
@@ -355,19 +363,17 @@ static void IF_Target_Update(int8_t Dir)
     if ((Envelope->U_Available <= 0.0f) || (Envelope->U_Max <= 0.0f) ||
         !__builtin_isfinite(We_Max) || (We_Max <= 0.0f))
     {
-        return;
+        return false;
     }
 
-    We_Abs = Abs_Value(Flux_IF.State.We);
+    We_Abs = Abs_Value(We_Actual);
     Flux = Flux_Estimator.State.Flux;
     if (!__builtin_isfinite(Flux) || (Flux <= Flux_Config.Workflow.Est_Num_Min_Wb))
     {
-        We_Target = (float)Dir * We_Abs;
-        IF_Target_Set(&Flux_IF, We_Target);
-        return;
+        return false;
     }
 
-    We_Req = Flux_Config.Observer.Emf_Enter_Ratio * Envelope->U_Available / Flux;
+    We_Req = Flux_Config.Observer.Work_Ratio * Envelope->U_Available / Flux;
     U_Mag = __builtin_sqrtf(Motor_Run.Ud * Motor_Run.Ud + Motor_Run.Uq * Motor_Run.Uq);
     U_Search_Max = Flux_Config.Workflow.U_Search_Ratio * Envelope->U_Max;
     if ((We_Abs > 0.0f) && (U_Mag > 0.0f))
@@ -389,9 +395,19 @@ static void IF_Target_Update(int8_t Dir)
 
     We_Abs = Abs_Value(We_Target);
     We_Abs += Flux_Config.Workflow.Target_Alpha * (We_Req - We_Abs);
-    IF_Para.Acc = We_Abs / Flux_Config.Workflow.If_Accel_S;
-    Flux_IF.Para.Acc = IF_Para.Acc;
     We_Target = (float)Dir * We_Abs;
+    return true;
+}
+
+static void IF_Search_Target_Update(int8_t Dir)
+{
+    if (!Flux_Target_Update(Dir, Flux_IF.State.We))
+    {
+        return;
+    }
+
+    IF_Para.Acc = Abs_Value(We_Target) / Flux_Config.Workflow.If_Accel_S;
+    Flux_IF.Para.Acc = IF_Para.Acc;
     IF_Target_Set(&Flux_IF, We_Target);
 }
 
@@ -588,18 +604,18 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
 
         if (Flux_Ready)
         {
-            if ((State == FLUX_SEARCH) && !Emf_Target_Reached)
+            if ((State == FLUX_SEARCH) && !Work_Point_Reached)
             {
-                if (PLL_Active && Emf_Valid && __builtin_isfinite(Emf_Ratio_F) &&
-                    (Emf_Ratio_F >= Flux_Config.Observer.Emf_Enter_Ratio))
+                if (Emf_Valid && __builtin_isfinite(Emf_Ratio_F) &&
+                    (Emf_Ratio_F >= Flux_Config.Observer.Work_Ratio))
                 {
                     We_Target = Flux_IF.State.We;
                     IF_Target_Set(&Flux_IF, We_Target);
-                    Emf_Target_Reached = true;
+                    Work_Point_Reached = true;
                 }
                 else
                 {
-                    IF_Target_Update(Context->Dir);
+                    IF_Search_Target_Update(Context->Dir);
                 }
             }
 
@@ -619,6 +635,7 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
                 Handover_Ready_Cnt = 0U;
                 Handover_Compare_Reset(&Handover);
                 Obs_Active = true;
+                PLL_Active = true;
                 Context->Theta_Obs = Theta_Rough;
             }
             else
@@ -637,17 +654,6 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
     if ((State == FLUX_INITIAL_IF) && (Flux_IF.State.Mode == IF_HOLD))
     {
         State = FLUX_SEARCH;
-    }
-
-    if (Obs_Active && !PLL_Active && Emf_Valid &&
-        (Emf_Ratio_F >= Flux_Config.Observer.Pll_Start_Ratio))
-    {
-        Theta_Rough = Angle_Wrap(__builtin_atan2f(Flux_Obs.State.PsiBeta, Flux_Obs.State.PsiAlpha));
-        PLL_Reset(&Flux_PLL, Theta_Rough, Flux_IF.State.We);
-        We_Obs_F = Flux_IF.State.We;
-        Motion_Lost_Cnt = 0U;
-        Handover_Compare_Reset(&Handover);
-        PLL_Active = true;
     }
 
     Context->Theta_Obs = Flux_PLL.State.Theta;
@@ -678,9 +684,7 @@ static Motor_Fast_Mode_e Flux_Search_Run(void)
 {
     Handover_Qualification_Accumulate(&Handover_Ready_Cnt,
                                       Flux_Config.Handover.Ready_Cnt,
-                                      Emf_Target_Reached && PLL_Active &&
-                                          (Emf_Ratio_F >= Flux_Config.Observer.Emf_Exit_Ratio) &&
-                                          Obs_IF_Stable());
+                                      PLL_Active && Obs_IF_Stable());
     if (Handover_Ready_Cnt >= Flux_Config.Handover.Ready_Cnt)
     {
         Handover_Blend_Reset(&Handover);
@@ -758,6 +762,48 @@ static Motor_Fast_Mode_e Flux_Handover_Current_Run(const Flux_Fast_Context_T *Co
         Cnt = 0U;
         Fine_Flux_Pre = 0.0f;
         Fine_Stable_Cnt = 0U;
+        State = Work_Point_Reached ? FLUX_REFINE_SETTLE : FLUX_OBS_ACCEL;
+    }
+    return FAST_CURRENT;
+}
+
+static Motor_Fast_Mode_e Flux_Obs_Accel_Run(const Flux_Fast_Context_T *Context,
+                                             float *Theta_e,
+                                             float *Id_Ref,
+                                             float *Iq_Ref)
+{
+    bool Adapt_Valid;
+    bool Fine_Valid;
+
+    *Theta_e = Context->Theta_Obs;
+    *Id_Ref = 0.0f;
+    *Iq_Ref = Obs_Iq_Ref;
+    Handover_Speed_Compare(&Handover,
+                           We_Target,
+                           We_Obs_F,
+                           Flux_PLL.State.Err,
+                           Flux_Config.Handover.Compare_Alpha);
+
+    Adapt_Valid = Obs_Run_Valid();
+    Fine_Valid = Fine_Run(Adapt_Valid, false);
+    if (!Flux_Observer_Motion_Check())
+    {
+        return FAST_CURRENT;
+    }
+
+    if (Fine_Valid && Flux_Estimator.State.Estimate_Valid)
+    {
+        (void)Flux_Target_Update(Context->Dir, We_Obs_F);
+    }
+
+    if (Emf_Valid && __builtin_isfinite(Emf_Ratio_F) &&
+        (Emf_Ratio_F >= Flux_Config.Observer.Work_Ratio))
+    {
+        We_Target = We_Obs_F;
+        Work_Point_Reached = true;
+        Cnt = 0U;
+        Fine_Flux_Pre = 0.0f;
+        Fine_Stable_Cnt = 0U;
         State = FLUX_REFINE_SETTLE;
     }
     return FAST_CURRENT;
@@ -789,9 +835,7 @@ static Motor_Fast_Mode_e Flux_Refine_Settle_Run(const Flux_Fast_Context_T *Conte
 
     Handover_Qualification_Accumulate(&Cnt,
                                       Flux_Config.Fine.Settle_Cnt,
-                                      Fine_Valid &&
-                                          (Emf_Ratio_F >= Flux_Config.Observer.Emf_Exit_Ratio) &&
-                                          Obs_Control_Stable());
+                                      Fine_Valid && Obs_Control_Stable());
     if (Cnt >= Flux_Config.Fine.Settle_Cnt)
     {
         State = FLUX_REFINE_MEASURE;
@@ -822,7 +866,6 @@ static Motor_Fast_Mode_e Flux_Refine_Measure_Run(const Flux_Fast_Context_T *Cont
     Adapt_Valid = Obs_Run_Valid();
     U_Mag2 = Motor_Run.Ud * Motor_Run.Ud + Motor_Run.Uq * Motor_Run.Uq;
     Fine_Sample_Valid = Adapt_Valid &&
-                        (Emf_Ratio_F >= Flux_Config.Observer.Emf_Exit_Ratio) &&
                         Obs_Control_Stable() &&
                         (U_Mag2 <= Context->Envelope->U_Max * Context->Envelope->U_Max);
     Fine_Valid = Fine_Run(Adapt_Valid, Fine_Sample_Valid);
@@ -885,7 +928,8 @@ bool Flux_Start(float Wm_Target)
     Obs_Active = false;
     PLL_Active = false;
     Obs_Control = false;
-    Emf_Target_Reached = false;
+    Work_Point_Reached = false;
+    Motion_Lost_Armed = false;
     Flux_Estimator.State = (Flux_Estimator_State_T){ 0 };
     Handover_Reset(&Handover);
 
@@ -932,6 +976,7 @@ bool Flux_Active(void)
 void Flux_Control(void)
 {
     if ((State != FLUX_HANDOVER_CURRENT) &&
+        (State != FLUX_OBS_ACCEL) &&
         (State != FLUX_REFINE_SETTLE) &&
         (State != FLUX_REFINE_MEASURE))
     {
@@ -1015,6 +1060,9 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A,
 
         case FLUX_HANDOVER_CURRENT:
             return Flux_Handover_Current_Run(&Context, Theta_e, Id_Ref, Iq_Ref);
+
+        case FLUX_OBS_ACCEL:
+            return Flux_Obs_Accel_Run(&Context, Theta_e, Id_Ref, Iq_Ref);
 
         case FLUX_REFINE_SETTLE:
             return Flux_Refine_Settle_Run(&Context, Theta_e, Id_Ref, Iq_Ref);
