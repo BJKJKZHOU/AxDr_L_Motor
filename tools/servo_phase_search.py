@@ -35,6 +35,8 @@ except ImportError:
 
 MODE_PHASE_SEARCH = 6
 MOTOR_DISABLED = 0
+PARAM_I8 = 1
+base.PARAM_FORMAT[PARAM_I8] = "<b"
 
 ENCODER_TYPES = {
     "mt6816": 1,
@@ -157,7 +159,7 @@ class PhaseSearch(base.IdentificationClient):
                 self.parameter_read(base.PARAM_CAL_VALID, base.PARAM_U8)
             ),
             "enc_dir": self.parameter_read(
-                base.PARAM_CAL_ENC_DIR, base.PARAM_I8
+                base.PARAM_CAL_ENC_DIR, PARAM_I8
             ),
             "theta_off": self.parameter_read(
                 base.PARAM_CAL_THETA_OFF, base.PARAM_FLOAT
@@ -190,12 +192,14 @@ class PhaseSearch(base.IdentificationClient):
             if status is None:
                 continue
 
+            result = self.read_result()
             if status != 0:
+                print_result(result)
                 name = base.STATUS_NAME.get(status, str(status))
                 raise RuntimeError(f"servo phase search completion: {name}")
 
-            result = self.read_result()
             if not result["cal_valid"]:
+                print_result(result)
                 raise RuntimeError(
                     "servo phase search completed without a valid calibration"
                 )
