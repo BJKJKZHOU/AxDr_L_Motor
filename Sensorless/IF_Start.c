@@ -8,6 +8,9 @@
 #include "Math.h"
 #include "control_params.h"
 
+#define IF_BREAKAWAY_WE_RATIO  0.50f
+#define IF_BREAKAWAY_ACC_RATIO 3.0f
+
 static IF_State_e State = IF_RAMP;
 static float Theta_e = 0.0f;
 static float We = 0.0f;
@@ -17,10 +20,37 @@ static float Iq_Start_A = IF_IQ_START_A;
 static float Iq_Target_A = IF_IQ_TARGET_A;
 static float We_Base = IF_WE_TARGET_RAD_S;
 static float Acc = IF_ACC_RAD_S2;
+static float Acc_Command = IF_ACC_RAD_S2;
+static float We_Breakaway = IF_BREAKAWAY_WE_RATIO * IF_WE_TARGET_RAD_S;
+static float Acc_Breakaway = IF_BREAKAWAY_ACC_RATIO * IF_ACC_RAD_S2;
+static bool Breakaway_Active = false;
 
 static float Abs_F(float X)
 {
     return (X >= 0.0f) ? X : -X;
+}
+
+static void Breakaway_Profile_Update(void)
+{
+    float Total_Time;
+    float Breakaway_Time;
+    float Normal_Time;
+
+    We_Breakaway = IF_BREAKAWAY_WE_RATIO * We_Base;
+    Acc_Breakaway = IF_BREAKAWAY_ACC_RATIO * Acc_Command;
+
+    Total_Time = We_Base / Acc_Command;
+    Breakaway_Time = We_Breakaway / Acc_Breakaway;
+    Normal_Time = Total_Time - Breakaway_Time;
+
+    if ((Normal_Time > 0.0f) && (We_Base > We_Breakaway))
+    {
+        Acc = (We_Base - We_Breakaway) / Normal_Time;
+    }
+    else
+    {
+        Acc = Acc_Command;
+    }
 }
 
 void IF_Start_Reset(float Theta_Start, float We_Start)
@@ -30,6 +60,16 @@ void IF_Start_Reset(float Theta_Start, float We_Start)
     We = We_Start;
     We_Target = We_Start;
     Iq = 0.0f;
+
+    Breakaway_Active = Abs_F(We_Start) < We_Breakaway;
+    if (Breakaway_Active)
+    {
+        Breakaway_Profile_Update();
+    }
+    else
+    {
+        Acc = Acc_Command;
+    }
 }
 
 void IF_Start_Para_Set(float Iq_Start, float Iq_Target, float We_Base_In, float Acc_In)
@@ -42,7 +82,18 @@ void IF_Start_Para_Set(float Iq_Start, float Iq_Target, float We_Base_In, float 
     Iq_Start_A = Iq_Start;
     Iq_Target_A = Iq_Target;
     We_Base = We_Base_In;
-    Acc = Acc_In;
+    Acc_Command = Acc_In;
+
+    if (Breakaway_Active)
+    {
+        Breakaway_Profile_Update();
+    }
+    else
+    {
+        Acc = Acc_Command;
+        We_Breakaway = IF_BREAKAWAY_WE_RATIO * We_Base;
+        Acc_Breakaway = IF_BREAKAWAY_ACC_RATIO * Acc_Command;
+    }
 }
 
 void IF_Start_Target_Set(float We_Target_In)
@@ -66,24 +117,21 @@ void IF_Start_Target_Set(float We_Target_In)
 
 void IF_Start_Run(float *Theta_e_Out, float *Id_Ref, float *Iq_Ref)
 {
-    float Ratio;
-    float Iq_Abs;
+    float Acc_Use;
     float Iq_Target;
     float Iq_Step;
     float We_Step;
 
-    Ratio = Abs_F(We) / We_Base;
-
-    if (Ratio > 1.0f)
+    if (Breakaway_Active && (Abs_F(We) >= We_Breakaway))
     {
-        Ratio = 1.0f;
+        Breakaway_Active = false;
     }
 
-    Iq_Abs = Iq_Start_A + (Iq_Target_A - Iq_Start_A) * Ratio;
+    Acc_Use = Breakaway_Active ? Acc_Breakaway : Acc;
 
     if (State == IF_RAMP)
     {
-        We_Step = Acc * CUR_TS;
+        We_Step = Acc_Use * CUR_TS;
 
         if (We < We_Target)
         {
@@ -109,19 +157,19 @@ void IF_Start_Run(float *Theta_e_Out, float *Id_Ref, float *Iq_Ref)
 
     if (We > 0.0f)
     {
-        Iq_Target = Iq_Abs;
+        Iq_Target = Iq_Target_A;
     }
     else if (We < 0.0f)
     {
-        Iq_Target = -Iq_Abs;
+        Iq_Target = -Iq_Target_A;
     }
     else if (We_Target > 0.0f)
     {
-        Iq_Target = Iq_Abs;
+        Iq_Target = Iq_Target_A;
     }
     else if (We_Target < 0.0f)
     {
-        Iq_Target = -Iq_Abs;
+        Iq_Target = -Iq_Target_A;
     }
     else
     {
