@@ -7,17 +7,18 @@
 
 #include "Encoder.h"
 #include "Math.h"
-#include "Sin_LUT.h"
 #include "control_params.h"
 #include "motor_params.h"
 
 /*
- * First-version commissioning limits.
+ * Servo phase search establishes one self-consistent motor coordinate:
+ *   encoder native direction -> internal mechanical direction
+ *   encoder zero point -> electrical zero point
+ *   +Iq -> internal positive mechanical motion
  *
- * I_Search_A is the single user-facing excitation parameter. One search
- * snapshots an effective current bounded by the firmware phase-search ceiling
- * and Motor/User current limits. Align/search/settle use 100% of that value;
- * final direction verification uses an internal fraction of the same envelope.
+ * The positive/negative scans are used only to establish and confirm motion
+ * direction. Theta_Off is taken from the static ALIGN position after Enc_Dir
+ * is known; it is not estimated from dynamic scan lag.
  */
 #define PHASE_SEARCH_I_DEFAULT_A   0.5f
 #define PHASE_VERIFY_I_RATIO       0.6f
@@ -28,7 +29,6 @@
 #define PHASE_SEARCH_TIME_S        (PHASE_SEARCH_TRAVEL_RAD / PHASE_SEARCH_WE_RAD_S)
 #define PHASE_SEARCH_CNT           ((uint32_t)(PHASE_SEARCH_TIME_S / CUR_TS + 0.5f))
 #define PHASE_SEARCH_MOVE_RATIO    0.25f
-#define PHASE_OFFSET_ERR_MAX_RAD   0.25f
 #define PHASE_SETTLE_TIME_S        0.25f
 #define PHASE_SETTLE_CNT           ((uint32_t)(PHASE_SETTLE_TIME_S / CUR_TS + 0.5f))
 #define PHASE_VERIFY_TIME_S        0.25f
@@ -53,25 +53,13 @@ typedef struct
     Servo_Phase_State_e State;
     uint32_t Cnt;
     float Theta_Cmd;
+    float Theta_Native_Align;
     float Theta_Native_Pre;
     float Native_Delta;
     float Verify_Delta;
     float I_Search_A;
 
-    float Pos_Sin_PosDir;
-    float Pos_Cos_PosDir;
-    float Pos_Sin_NegDir;
-    float Pos_Cos_NegDir;
-    uint32_t Pos_Off_Cnt;
-
-    float Neg_Off_Sin;
-    float Neg_Off_Cos;
-    uint32_t Neg_Off_Cnt;
-
     int8_t Enc_Dir;
-    float Theta_Off_Pos;
-    float Theta_Off_Neg;
-    float Theta_Off_Error;
     float Theta_Off;
 
 } Servo_Phase_T;
@@ -110,40 +98,11 @@ static float Native_To_Internal(float Theta_Native)
     return Theta_Native;
 }
 
-static void Offset_Accumulate(float Theta_m, float *Sin_Sum, float *Cos_Sum)
-{
-    float Theta_Off;
-    float Sin;
-    float Cos;
-
-    Theta_Off = Angle_Wrap(Phase.Theta_Cmd - (float)Motor_Para.Pp * Theta_m);
-    SinCos(Theta_Off, &Sin, &Cos);
-
-    *Sin_Sum += Sin;
-    *Cos_Sum += Cos;
-}
-
-static void Positive_Offset_Sample(void)
-{
-    Offset_Accumulate(Encoder.Theta_Native, &Phase.Pos_Sin_PosDir, &Phase.Pos_Cos_PosDir);
-    Offset_Accumulate(Angle_Wrap(-Encoder.Theta_Native), &Phase.Pos_Sin_NegDir, &Phase.Pos_Cos_NegDir);
-    Phase.Pos_Off_Cnt++;
-}
-
-static void Negative_Offset_Sample(void)
-{
-    Offset_Accumulate(Native_To_Internal(Encoder.Theta_Native), &Phase.Neg_Off_Sin, &Phase.Neg_Off_Cos);
-    Phase.Neg_Off_Cnt++;
-}
-
 static void Result_Snapshot(Servo_Phase_Result_State_e State, Servo_Phase_Fail_e Fail)
 {
     Last_Result.State = State;
     Last_Result.Fail = Fail;
     Last_Result.Enc_Dir = Phase.Enc_Dir;
-    Last_Result.Theta_Off_Pos = Phase.Theta_Off_Pos;
-    Last_Result.Theta_Off_Neg = Phase.Theta_Off_Neg;
-    Last_Result.Theta_Off_Error = Phase.Theta_Off_Error;
     Last_Result.Theta_Off = Phase.Theta_Off;
     Last_Result.I_Search_A = Phase.I_Search_A;
 }
@@ -197,7 +156,6 @@ bool Servo_Phase_Start(void)
     Phase.I_Search_A = I_Search;
     Last_Result.I_Search_A = I_Search;
     Phase.State = PHASE_ALIGN;
-    Phase.Theta_Native_Pre = Encoder.Theta_Native;
 
     return true;
 }
@@ -247,6 +205,7 @@ Motor_Fast_Mode_e Servo_Phase_Fast_Run(float *Theta_e,
 {
     float Delta;
     float Move_Min;
+    float Theta_m_Align;
 
     *Theta_e = 0.0f;
     *Id_Ref = 0.0f;
@@ -270,6 +229,7 @@ Motor_Fast_Mode_e Servo_Phase_Fast_Run(float *Theta_e,
             {
                 Phase.Cnt = 0U;
                 Phase.Theta_Cmd = 0.0f;
+                Phase.Theta_Native_Align = Encoder.Theta_Native;
                 Phase.Theta_Native_Pre = Encoder.Theta_Native;
                 Phase.Native_Delta = 0.0f;
                 Phase.State = PHASE_SEARCH_POS;
@@ -284,13 +244,11 @@ Motor_Fast_Mode_e Servo_Phase_Fast_Run(float *Theta_e,
             Delta = Angle_Delta(Encoder.Theta_Native, Phase.Theta_Native_Pre);
             Phase.Theta_Native_Pre = Encoder.Theta_Native;
             Phase.Native_Delta += Delta;
-            Positive_Offset_Sample();
 
             if (++Phase.Cnt >= PHASE_SEARCH_CNT)
             {
                 Move_Min = PHASE_SEARCH_MOVE_RATIO * PHASE_SEARCH_TRAVEL_RAD / (float)Motor_Para.Pp;
-
-                if ((__builtin_fabsf(Phase.Native_Delta) < Move_Min) || (Phase.Pos_Off_Cnt == 0U))
+                if (__builtin_fabsf(Phase.Native_Delta) < Move_Min)
                 {
                     Last_Result.Pos_Move = Phase.Native_Delta;
                     Fail(SERVO_PHASE_FAIL_NO_POS_MOVE);
@@ -298,21 +256,8 @@ Motor_Fast_Mode_e Servo_Phase_Fast_Run(float *Theta_e,
                 }
 
                 Phase.Enc_Dir = (Phase.Native_Delta > 0.0f) ? 1 : -1;
-                Last_Result.Pos_Move = (float)Phase.Enc_Dir * Phase.Native_Delta;
-
-                if (Phase.Enc_Dir > 0)
-                {
-                    Phase.Theta_Off_Pos =
-                        Angle_Wrap(__builtin_atan2f(Phase.Pos_Sin_PosDir, Phase.Pos_Cos_PosDir));
-                }
-                else
-                {
-                    Phase.Theta_Off_Pos =
-                        Angle_Wrap(__builtin_atan2f(Phase.Pos_Sin_NegDir, Phase.Pos_Cos_NegDir));
-                }
-
                 Last_Result.Enc_Dir = Phase.Enc_Dir;
-                Last_Result.Theta_Off_Pos = Phase.Theta_Off_Pos;
+                Last_Result.Pos_Move = (float)Phase.Enc_Dir * Phase.Native_Delta;
 
                 Phase.Cnt = 0U;
                 Phase.Native_Delta = 0.0f;
@@ -329,35 +274,24 @@ Motor_Fast_Mode_e Servo_Phase_Fast_Run(float *Theta_e,
             Delta = Angle_Delta(Encoder.Theta_Native, Phase.Theta_Native_Pre);
             Phase.Theta_Native_Pre = Encoder.Theta_Native;
             Phase.Native_Delta += (float)Phase.Enc_Dir * Delta;
-            Negative_Offset_Sample();
 
             if (++Phase.Cnt >= PHASE_SEARCH_CNT)
             {
                 Move_Min = PHASE_SEARCH_MOVE_RATIO * PHASE_SEARCH_TRAVEL_RAD / (float)Motor_Para.Pp;
                 Last_Result.Neg_Move = Phase.Native_Delta;
 
-                if ((Phase.Native_Delta > -Move_Min) || (Phase.Neg_Off_Cnt == 0U))
+                if (Phase.Native_Delta > -Move_Min)
                 {
                     Fail(SERVO_PHASE_FAIL_NO_NEG_MOVE);
                     return FAST_OFF;
                 }
 
-                Phase.Theta_Off_Neg = Angle_Wrap(__builtin_atan2f(Phase.Neg_Off_Sin, Phase.Neg_Off_Cos));
-                Phase.Theta_Off_Error = Angle_Delta(Phase.Theta_Off_Pos, Phase.Theta_Off_Neg);
-
-                Last_Result.Theta_Off_Neg = Phase.Theta_Off_Neg;
-                Last_Result.Theta_Off_Error = Phase.Theta_Off_Error;
-
-                if (__builtin_fabsf(Phase.Theta_Off_Error) > PHASE_OFFSET_ERR_MAX_RAD)
-                {
-                    Fail(SERVO_PHASE_FAIL_OFFSET_MISMATCH);
-                    return FAST_OFF;
-                }
-
-                Phase.Theta_Off = Angle_Wrap(Phase.Theta_Off_Neg + 0.5f * Phase.Theta_Off_Error);
+                Theta_m_Align = Native_To_Internal(Phase.Theta_Native_Align);
+                Phase.Theta_Off = Angle_Wrap(-(float)Motor_Para.Pp * Theta_m_Align);
                 Last_Result.Theta_Off = Phase.Theta_Off;
 
                 Phase.Cnt = 0U;
+                Phase.Theta_Cmd = 0.0f;
                 Phase.Native_Delta = 0.0f;
                 Phase.Theta_Native_Pre = Encoder.Theta_Native;
                 Phase.State = PHASE_SETTLE;
@@ -365,7 +299,7 @@ Motor_Fast_Mode_e Servo_Phase_Fast_Run(float *Theta_e,
             return FAST_CURRENT;
 
         case PHASE_SETTLE:
-            *Theta_e = Phase.Theta_Cmd;
+            *Theta_e = 0.0f;
             *Id_Ref = Phase.I_Search_A;
 
             if (++Phase.Cnt >= PHASE_SETTLE_CNT)

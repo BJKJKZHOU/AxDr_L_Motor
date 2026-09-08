@@ -6,9 +6,9 @@ interface. Configure encoder/pole-pairs/search current while DISABLED, then use
 MOTOR_ENABLE + MOTOR_RUN in PHASE_SEARCH mode. MOTOR_RUN completes
 asynchronously when the phase search finishes.
 
-For an unknown motor, first identify/apply Rs/Ls and Flux to firmware RAM. Do
-not reset the MCU between identification and phase search when those parameters
-have only been applied to RAM.
+Servo phase search establishes a self-consistent encoder/FOC coordinate:
+encoder native direction -> Enc_Dir, aligned encoder zero -> Theta_Off, and
++Iq -> internal positive mechanical motion.
 
 Example:
     python3 tools/servo_phase_search.py \
@@ -77,15 +77,9 @@ class PhaseSearch(base.IdentificationClient):
 
     def configure(self):
         encoder_type = ENCODER_TYPES[self.args.encoder]
-        self.parameter_write(
-            base.PARAM_ENCODER_TYPE, base.PARAM_U8, encoder_type
-        )
-        self.parameter_write(
-            base.PARAM_MOTOR_PP, base.PARAM_U8, self.args.pole_pairs
-        )
-        self.parameter_write(
-            base.PARAM_MOTOR_MODE, base.PARAM_U8, MODE_PHASE_SEARCH
-        )
+        self.parameter_write(base.PARAM_ENCODER_TYPE, base.PARAM_U8, encoder_type)
+        self.parameter_write(base.PARAM_MOTOR_PP, base.PARAM_U8, self.args.pole_pairs)
+        self.parameter_write(base.PARAM_MOTOR_MODE, base.PARAM_U8, MODE_PHASE_SEARCH)
 
         if self.args.current_limit is not None:
             self.parameter_write(
@@ -101,13 +95,9 @@ class PhaseSearch(base.IdentificationClient):
                 self.args.phase_current,
             )
 
-        encoder_readback = self.parameter_read(
-            base.PARAM_ENCODER_TYPE, base.PARAM_U8
-        )
+        encoder_readback = self.parameter_read(base.PARAM_ENCODER_TYPE, base.PARAM_U8)
         pp_readback = self.parameter_read(base.PARAM_MOTOR_PP, base.PARAM_U8)
-        phase_current = self.parameter_read(
-            base.PARAM_PHASE_I_SEARCH, base.PARAM_FLOAT
-        )
+        phase_current = self.parameter_read(base.PARAM_PHASE_I_SEARCH, base.PARAM_FLOAT)
 
         if encoder_readback != encoder_type:
             raise RuntimeError(
@@ -126,15 +116,9 @@ class PhaseSearch(base.IdentificationClient):
 
     def encoder_status(self):
         return {
-            "ready": bool(
-                self.parameter_read(base.PARAM_ENCODER_READY, base.PARAM_U8)
-            ),
-            "valid": bool(
-                self.parameter_read(base.PARAM_ENCODER_VALID, base.PARAM_U8)
-            ),
-            "fault": bool(
-                self.parameter_read(base.PARAM_ENCODER_FAULT, base.PARAM_U8)
-            ),
+            "ready": bool(self.parameter_read(base.PARAM_ENCODER_READY, base.PARAM_U8)),
+            "valid": bool(self.parameter_read(base.PARAM_ENCODER_VALID, base.PARAM_U8)),
+            "fault": bool(self.parameter_read(base.PARAM_ENCODER_FAULT, base.PARAM_U8)),
         }
 
     def wait_encoder_ready(self):
@@ -155,18 +139,9 @@ class PhaseSearch(base.IdentificationClient):
 
     def read_result(self):
         return {
-            "cal_valid": bool(
-                self.parameter_read(base.PARAM_CAL_VALID, base.PARAM_U8)
-            ),
-            "enc_dir": self.parameter_read(
-                base.PARAM_CAL_ENC_DIR, PARAM_I8
-            ),
-            "theta_off": self.parameter_read(
-                base.PARAM_CAL_THETA_OFF, base.PARAM_FLOAT
-            ),
-            "theta_off_error": self.parameter_read(
-                base.PARAM_PHASE_THETA_OFF_ERROR, base.PARAM_FLOAT
-            ),
+            "cal_valid": bool(self.parameter_read(base.PARAM_CAL_VALID, base.PARAM_U8)),
+            "enc_dir": self.parameter_read(base.PARAM_CAL_ENC_DIR, PARAM_I8),
+            "theta_off": self.parameter_read(base.PARAM_CAL_THETA_OFF, base.PARAM_FLOAT),
             "verify_move": self.parameter_read(
                 base.PARAM_PHASE_VERIFY_MOVE, base.PARAM_FLOAT
             ),
@@ -219,7 +194,6 @@ def print_result(result):
     print(f"  Motor_Cal.Valid={int(result['cal_valid'])}")
     print(f"  Enc_Dir={result['enc_dir']:+d}")
     print(f"  Theta_Off={result['theta_off']:+.6f} rad")
-    print(f"  Theta_Off_Error={result['theta_off_error']:+.6f} rad")
     print(f"  Verify_Move={result['verify_move']:+.6f} rad")
     print(f"  I_Search={result['i_search']:.3f} A")
 
@@ -277,10 +251,9 @@ def main():
     args = parse_args()
 
     print(
-        "Prerequisite for an unknown motor: identify/apply Rs/Ls and Flux to "
-        "firmware RAM before phase search."
+        "Servo phase search aligns encoder direction, electrical zero and +Iq "
+        "mechanical direction."
     )
-    print("Do not reset the MCU when those parameters are RAM-only.")
 
     try:
         with serial.Serial(
