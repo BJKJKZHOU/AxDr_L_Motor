@@ -462,24 +462,40 @@ static void Flux_Context_Init(Flux_Fast_Context_T *Context, float Ia_A, float Ib
 
 static void Flux_Observer_Runtime_Run(Flux_Fast_Context_T *Context)
 {
-    if (Obs_Active)
+    if (!Obs_Active)
     {
-        Flux_Observer_Run(&Flux_Obs,
-                          Motor_Run.Ualpha,
-                          Motor_Run.Ubeta,
-                          Context->Ialpha,
-                          Context->Ibeta,
-                          CUR_TS);
-        if (PLL_Active)
-        {
-            PLL_Run(&Flux_PLL,
-                    Flux_Obs.State.PsiAlpha,
-                    Flux_Obs.State.PsiBeta,
-                    Flux_Obs.Para.Flux,
-                    CUR_TS);
-            We_Obs_F += Flux_Config.Observer.We_Alpha * (Flux_PLL.State.We - We_Obs_F);
-        }
+        return;
     }
+
+    if (!Flux_Observer_Run(&Flux_Obs,
+                           Motor_Run.Ualpha,
+                           Motor_Run.Ubeta,
+                           Context->Ialpha,
+                           Context->Ibeta,
+                           CUR_TS))
+    {
+        if (!Obs_Control)
+        {
+            Obs_Active = false;
+            PLL_Active = false;
+            Handover_Ready_Cnt = 0U;
+            Motion_Lost_Cnt = 0U;
+            Handover_Compare_Reset(&Handover);
+        }
+        Context->Theta_Obs = Flux_PLL.State.Theta;
+        return;
+    }
+
+    if (PLL_Active)
+    {
+        PLL_Run(&Flux_PLL,
+                Flux_Obs.State.PsiAlpha,
+                Flux_Obs.State.PsiBeta,
+                Flux_Obs.Para.Flux,
+                CUR_TS);
+        We_Obs_F += Flux_Config.Observer.We_Alpha * (Flux_PLL.State.We - We_Obs_F);
+    }
+
     Context->Theta_Obs = Flux_PLL.State.Theta;
 }
 

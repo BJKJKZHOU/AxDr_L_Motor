@@ -6,6 +6,8 @@
 #ifndef FLUX_OBSERVER_H
 #define FLUX_OBSERVER_H
 
+#include <stdbool.h>
+
 typedef struct
 {
     float Rs;
@@ -45,6 +47,11 @@ typedef struct
 
 void Flux_Observer_Reset(Flux_Observer_T *Obs, float Theta_e, float Ialpha, float Ibeta);
 
-void Flux_Observer_Run(Flux_Observer_T *Obs, float Ualpha, float Ubeta, float Ialpha, float Ibeta, float Ts);
+bool Flux_Observer_Run(Flux_Observer_T *Obs,
+                       float Ualpha,
+                       float Ubeta,
+                       float Ialpha,
+                       float Ibeta,
+                       float Ts);
 
 #endif /* FLUX_OBSERVER_H */
