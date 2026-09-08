@@ -9,6 +9,8 @@
 
 bool Flux_Estimator_Run(Flux_Estimator_T *Est,
                         Flux_Estimator_Mode_e Mode,
+                        Flux_Estimator_Action_e Action,
+                        bool Measure,
                         float Ud,
                         float Uq,
                         float Id,
@@ -24,14 +26,19 @@ bool Flux_Estimator_Run(Flux_Estimator_T *Est,
     float Err_d;
     float Err_q;
     float Flux_Next;
+    float Window_Flux;
 
-    if ((Est == 0) || (Ts <= 0.0f) || !__builtin_isfinite(Ud) || !__builtin_isfinite(Uq) ||
+    if ((Est == 0) || (Ts <= 0.0f) ||
+        ((Mode != FLUX_EST_VECTOR) && (Mode != FLUX_EST_SCALAR)) ||
+        ((Action != FLUX_EST_HOLD) && (Action != FLUX_EST_UPDATE)) ||
+        !__builtin_isfinite(Ud) || !__builtin_isfinite(Uq) ||
         !__builtin_isfinite(Id) || !__builtin_isfinite(Iq) || !__builtin_isfinite(We))
     {
         return false;
     }
 
     Est->State.Estimate_Valid = false;
+    Est->State.Window_Ready = false;
 
     if (!Est->State.I_Valid)
     {
@@ -56,39 +63,61 @@ bool Flux_Estimator_Run(Flux_Estimator_T *Est,
         return false;
     }
 
-    if (Mode == FLUX_EST_MODEL)
+    if (Action == FLUX_EST_UPDATE)
     {
-        Est->State.Estimate_Valid = true;
-        return true;
+        Norm = We / (We * We + Est->Para.We_Min * Est->Para.We_Min);
+        Gain = TWO_PI_F * Est->Para.Est_BW_Hz * Ts;
+
+        if (Mode == FLUX_EST_VECTOR)
+        {
+            Err_d = Est->State.Yd - We * Est->State.Psi_d;
+            Err_q = Est->State.Yq - We * Est->State.Psi_q;
+            Est->State.Psi_d += Gain * Norm * Err_d;
+            Est->State.Psi_q += Gain * Norm * Err_q;
+            Est->State.Flux = __builtin_sqrtf(Est->State.Psi_d * Est->State.Psi_d +
+                                              Est->State.Psi_q * Est->State.Psi_q);
+            Est->State.Estimate_Valid = __builtin_isfinite(Est->State.Flux) && (Est->State.Flux > 0.0f);
+        }
+        else if (__builtin_isfinite(Est->State.Flux) && (Est->State.Flux > 0.0f))
+        {
+            Flux_Next = Est->State.Flux + Gain * Norm * (Est->State.Yd - We * Est->State.Flux);
+            if (__builtin_isfinite(Flux_Next) && (Flux_Next > 0.0f))
+            {
+                Est->State.Flux = Flux_Next;
+                Est->State.Estimate_Valid = true;
+            }
+        }
     }
 
-    Norm = We / (We * We + Est->Para.We_Min * Est->Para.We_Min);
-    Gain = TWO_PI_F * Est->Para.Est_BW_Hz * Ts;
-
-    if (Mode == FLUX_EST_VECTOR)
+    if (Measure && (Mode == FLUX_EST_SCALAR) && (Est->Para.Window_Samples > 0U))
     {
-        Err_d = Est->State.Yd - We * Est->State.Psi_d;
-        Err_q = Est->State.Yq - We * Est->State.Psi_q;
-        Est->State.Psi_d += Gain * Norm * Err_d;
-        Est->State.Psi_q += Gain * Norm * Err_q;
-        Est->State.Flux = __builtin_sqrtf(Est->State.Psi_d * Est->State.Psi_d +
-                                          Est->State.Psi_q * Est->State.Psi_q);
-        Est->State.Estimate_Valid = __builtin_isfinite(Est->State.Flux) && (Est->State.Flux > 0.0f);
-        return true;
+        Est->State.Window_Num += We * Est->State.Yd;
+        Est->State.Window_Den += We * We;
+        Est->State.Window_Count++;
+
+        if (Est->State.Window_Count >= Est->Para.Window_Samples)
+        {
+            if (Est->State.Window_Den > 0.0f)
+            {
+                Window_Flux = Est->State.Window_Num / Est->State.Window_Den;
+                if (__builtin_isfinite(Window_Flux) && (Window_Flux > 0.0f))
+                {
+                    Est->State.Window_Flux = Window_Flux;
+                    Est->State.Window_Ready = true;
+
+                    if (__builtin_isfinite(Est->State.Flux) && (Est->State.Flux > 0.0f))
+                    {
+                        Est->State.Flux += Est->Para.Window_Update_Ratio *
+                                           (Window_Flux - Est->State.Flux);
+                    }
+                }
+            }
+
+            Est->State.Window_Num = 0.0f;
+            Est->State.Window_Den = 0.0f;
+            Est->State.Window_Count = 0U;
+        }
     }
 
-    if (Mode != FLUX_EST_SCALAR || !__builtin_isfinite(Est->State.Flux) || (Est->State.Flux <= 0.0f))
-    {
-        return true;
-    }
-
-    Flux_Next = Est->State.Flux + Gain * Norm * (Est->State.Yd - We * Est->State.Flux);
-    if (!__builtin_isfinite(Flux_Next) || (Flux_Next <= 0.0f))
-    {
-        return true;
-    }
-
-    Est->State.Flux = Flux_Next;
-    Est->State.Estimate_Valid = true;
     return true;
 }

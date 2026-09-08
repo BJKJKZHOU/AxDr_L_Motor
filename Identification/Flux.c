@@ -105,13 +105,10 @@ static float We_Obs_F = 0.0f;
 static float Emf_Ratio_F = 0.0f;
 static float Obs_Id_Ref = 0.0f;
 static volatile float Obs_Iq_Ref = 0.0f;
-static float Fine_Num = 0.0f;
-static float Fine_Den = 0.0f;
 static float Fine_Flux_Pre = 0.0f;
 static float Finish_Iq = 0.0f;
 static uint32_t Handover_Ready_Cnt = 0U;
 static uint32_t Motion_Lost_Cnt = 0U;
-static uint32_t Fine_Cnt = 0U;
 static uint32_t Fine_Stable_Cnt = 0U;
 static uint8_t Finish_Init = 0U;
 static bool Model_U_Valid = false;
@@ -235,6 +232,8 @@ static bool Coarse_Run(void)
     We = IF_Start_We_Get();
     if (!Flux_Estimator_Run(&Flux_Estimator,
                             FLUX_EST_VECTOR,
+                            FLUX_EST_UPDATE,
+                            false,
                             Motor_Run.Ud,
                             Motor_Run.Uq,
                             Motor_Run.Id,
@@ -310,34 +309,28 @@ static void IF_Target_Update(int8_t Dir)
 
 static void Fine_Begin(void)
 {
+    float Flux_Init;
+
+    Flux_Init = Flux_Estimator.State.Flux;
+    Flux_Estimator.State = (Flux_Estimator_State_T){ 0 };
+    Flux_Estimator.State.Flux = Flux_Init;
     Flux_Estimator.Para.I_BW_Hz = FLUX_FINE_I_BW_HZ;
     Flux_Estimator.Para.Est_BW_Hz = FLUX_FINE_EST_BW_HZ;
-    Flux_Estimator.State.Id_F = 0.0f;
-    Flux_Estimator.State.Iq_F = 0.0f;
-    Flux_Estimator.State.I_Valid = false;
-    Flux_Estimator.State.Model_Valid = false;
-    Flux_Estimator.State.Estimate_Valid = false;
-    Fine_Num = 0.0f;
-    Fine_Den = 0.0f;
-    Fine_Cnt = 0U;
-}
-
-static void Fine_Window_Reset(void)
-{
-    Fine_Num = 0.0f;
-    Fine_Den = 0.0f;
-    Fine_Cnt = 0U;
+    Flux_Estimator.Para.Window_Update_Ratio = FLUX_FINE_UPDATE_RATIO;
+    Flux_Estimator.Para.Window_Samples = FLUX_FINE_MEASURE_CNT;
 }
 
 static bool Fine_Run(bool Adapt, bool Measure)
 {
-    Flux_Estimator_Mode_e Mode;
+    Flux_Estimator_Action_e Action;
     float We;
 
     We = We_Obs_F;
-    Mode = Adapt ? FLUX_EST_SCALAR : FLUX_EST_MODEL;
+    Action = Adapt ? FLUX_EST_UPDATE : FLUX_EST_HOLD;
     if (!Flux_Estimator_Run(&Flux_Estimator,
-                            Mode,
+                            FLUX_EST_SCALAR,
+                            Action,
+                            Measure,
                             Motor_Run.Ud,
                             Motor_Run.Uq,
                             Motor_Run.Id,
@@ -362,32 +355,8 @@ static bool Fine_Run(bool Adapt, bool Measure)
     {
         return false;
     }
+
     Obs_Para_Update();
-
-    if (Measure)
-    {
-        Fine_Num += We * Flux_Estimator.State.Yd;
-        Fine_Den += We * We;
-        Fine_Cnt++;
-    }
-    return true;
-}
-
-static bool Fine_Calc(float *Flux_Out)
-{
-    float Flux;
-
-    if ((Flux_Out == NULL) || (Fine_Cnt == 0U) || (Fine_Den <= 0.0f))
-    {
-        return false;
-    }
-
-    Flux = Fine_Num / Fine_Den;
-    if (!__builtin_isfinite(Flux) || (Flux <= 0.0f))
-    {
-        return false;
-    }
-    *Flux_Out = Flux;
     return true;
 }
 
@@ -404,13 +373,10 @@ bool Flux_Start(float Wm_Target)
     Emf_Ratio_F = 0.0f;
     Obs_Id_Ref = 0.0f;
     Obs_Iq_Ref = 0.0f;
-    Fine_Num = 0.0f;
-    Fine_Den = 0.0f;
     Fine_Flux_Pre = 0.0f;
     Finish_Iq = 0.0f;
     Handover_Ready_Cnt = 0U;
     Motion_Lost_Cnt = 0U;
-    Fine_Cnt = 0U;
     Fine_Stable_Cnt = 0U;
     Finish_Init = 0U;
     Model_U_Valid = false;
@@ -437,6 +403,8 @@ bool Flux_Start(float Wm_Target)
     Flux_Estimator.Para.I_BW_Hz = FLUX_COARSE_I_BW_HZ;
     Flux_Estimator.Para.Est_BW_Hz = FLUX_COARSE_BW_HZ;
     Flux_Estimator.Para.We_Min = FLUX_COARSE_WE_MIN_RATIO * IF_Para.We_Base;
+    Flux_Estimator.Para.Window_Update_Ratio = 0.0f;
+    Flux_Estimator.Para.Window_Samples = 0U;
 
     Sign = (Wm_Target < 0.0f) ? -1.0f : 1.0f;
     We_Target = Sign * ((IF_Para.We_Base < We_Max) ? IF_Para.We_Base : We_Max);
@@ -762,7 +730,6 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
                                           Fine_Valid && (Emf_Ratio >= FLUX_OBS_EMF_EXIT_RATIO) && Obs_Control_Stable());
         if (Cnt >= FLUX_FINE_SETTLE_CNT)
         {
-            Fine_Window_Reset();
             State = FLUX_REFINE_MEASURE;
         }
     }
@@ -788,36 +755,32 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
             return FAST_CURRENT;
         }
 
-        if (Fine_Valid && Fine_Cnt >= FLUX_FINE_MEASURE_CNT)
+        if (Fine_Valid && Flux_Estimator.State.Window_Ready)
         {
-            if (Fine_Calc(&Flux_Fine))
+            Flux_Fine = Flux_Estimator.State.Window_Flux;
+            if ((Fine_Flux_Pre > 0.0f) &&
+                (Abs_Value(Flux_Fine - Fine_Flux_Pre) <= FLUX_FINE_STABLE_RATIO * Fine_Flux_Pre))
             {
-                if ((Fine_Flux_Pre > 0.0f) &&
-                    (Abs_Value(Flux_Fine - Fine_Flux_Pre) <= FLUX_FINE_STABLE_RATIO * Fine_Flux_Pre))
+                if (Fine_Stable_Cnt < FLUX_FINE_STABLE_WINDOWS)
                 {
-                    if (Fine_Stable_Cnt < FLUX_FINE_STABLE_WINDOWS)
-                    {
-                        Fine_Stable_Cnt++;
-                    }
+                    Fine_Stable_Cnt++;
                 }
-                else if (Fine_Stable_Cnt > 0U)
-                {
-                    Fine_Stable_Cnt--;
-                }
-
-                Flux_Estimator.State.Flux += FLUX_FINE_UPDATE_RATIO * (Flux_Fine - Flux_Estimator.State.Flux);
-                Obs_Para_Update();
-                if (Fine_Stable_Cnt >= FLUX_FINE_STABLE_WINDOWS)
-                {
-                    Result.Flux_Wb = 0.5f * (Fine_Flux_Pre + Flux_Fine);
-                    Result.Valid = true;
-                    Cnt = 0U;
-                    Finish_Init = 0U;
-                    State = FLUX_FINISH;
-                }
-                Fine_Flux_Pre = Flux_Fine;
             }
-            Fine_Window_Reset();
+            else if (Fine_Stable_Cnt > 0U)
+            {
+                Fine_Stable_Cnt--;
+            }
+
+            Obs_Para_Update();
+            if (Fine_Stable_Cnt >= FLUX_FINE_STABLE_WINDOWS)
+            {
+                Result.Flux_Wb = 0.5f * (Fine_Flux_Pre + Flux_Fine);
+                Result.Valid = true;
+                Cnt = 0U;
+                Finish_Init = 0U;
+                State = FLUX_FINISH;
+            }
+            Fine_Flux_Pre = Flux_Fine;
         }
     }
     else if (State != FLUX_INITIAL_IF)
