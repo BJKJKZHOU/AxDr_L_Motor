@@ -504,11 +504,22 @@ static void Flux_Observer_Runtime_Run(Flux_Fast_Context_T *Context)
 
     if (PLL_Active)
     {
-        PLL_Run(&Flux_PLL,
-                Flux_Obs.State.PsiAlpha,
-                Flux_Obs.State.PsiBeta,
-                Flux_Obs.Para.Flux,
-                CUR_TS);
+        if (!PLL_Run(&Flux_PLL,
+                     Flux_Obs.State.PsiAlpha,
+                     Flux_Obs.State.PsiBeta,
+                     Flux_Obs.Para.Flux,
+                     CUR_TS))
+        {
+            if (!Obs_Control)
+            {
+                PLL_Active = false;
+                Handover_Ready_Cnt = 0U;
+                Motion_Lost_Cnt = 0U;
+                Handover_Compare_Reset(&Handover);
+            }
+            Context->Theta_Obs = Flux_PLL.State.Theta;
+            return;
+        }
         We_Obs_F += Flux_Config.Observer.We_Alpha * (Flux_PLL.State.We - We_Obs_F);
     }
 
@@ -654,6 +665,17 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
     if ((State == FLUX_INITIAL_IF) && (Flux_IF.State.Mode == IF_HOLD))
     {
         State = FLUX_SEARCH;
+    }
+
+    if (Obs_Active && !PLL_Active)
+    {
+        Theta_Rough = Angle_Wrap(__builtin_atan2f(Flux_Obs.State.PsiBeta, Flux_Obs.State.PsiAlpha));
+        PLL_Reset(&Flux_PLL, Theta_Rough, Flux_IF.State.We);
+        We_Obs_F = Flux_IF.State.We;
+        Motion_Lost_Cnt = 0U;
+        Handover_Ready_Cnt = 0U;
+        Handover_Compare_Reset(&Handover);
+        PLL_Active = true;
     }
 
     Context->Theta_Obs = Flux_PLL.State.Theta;
