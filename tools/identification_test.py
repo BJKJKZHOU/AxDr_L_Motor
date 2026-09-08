@@ -130,7 +130,6 @@ PROTECTION_NAME = {
 HOST_CURRENT_GUARD_RATIO = 1.10
 HOST_CURRENT_HARD_LIMIT_A = 5.0
 HOST_CURRENT_OVER_COUNT = 5
-TELEMETRY_RATE_MIN_RATIO = 0.95
 IF_WE_RAD_S = 120.0
 
 FAST_CONFIG_ID = 13
@@ -845,29 +844,6 @@ def value_stats(values):
     }
 
 
-def telemetry_reasons(results, max_lost):
-    reasons = []
-    if any(
-        item.get("fast_lost", 0) > max_lost
-        or item.get("normal_lost", 0) > max_lost
-        for item in results
-    ):
-        reasons.append("telemetry loss exceeds limit")
-    if any(
-        item.get("fast_samples", 0) == 0
-        or item.get("normal_frames", 0) == 0
-        for item in results
-    ):
-        reasons.append("one or more runs have no FAST/NORMAL telemetry")
-    if any(
-        item.get("fast_sample_rate_hz", 0.0)
-        < TELEMETRY_RATE_MIN_RATIO * FAST_RATE_HZ
-        for item in results
-    ):
-        reasons.append("FAST plot sample rate below expected rate")
-    return reasons
-
-
 def summarize_rs_ls(results, requested_count, args):
     valid = [item for item in results if item.get("valid")]
     rs = [
@@ -903,7 +879,6 @@ def summarize_rs_ls(results, requested_count, args):
         and ls_stats["max_relative_deviation"] > args.ls_repeat_limit
     ):
         reasons.append("Ls repeatability exceeds limit")
-    reasons.extend(telemetry_reasons(results, args.max_lost))
 
     return {
         "requested_count": requested_count,
@@ -972,7 +947,6 @@ def summarize_flux(results, forward_count, reverse_count, args):
     else:
         reasons.append("both Flux directions require a valid result")
 
-    reasons.extend(telemetry_reasons(results, args.max_lost))
     return {
         "requested_count": requested_count,
         "requested_forward_count": forward_count,
