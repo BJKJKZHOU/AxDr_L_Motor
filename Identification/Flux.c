@@ -65,7 +65,6 @@ typedef struct
         float Motion_Lost_Ratio;
         uint32_t Motion_Lost_Cnt;
         float BW_Hz;
-        float Gamma_Max;
         float Pll_Kp;
         float Pll_Ki;
         float We_Alpha;
@@ -118,7 +117,6 @@ static const Flux_Config_T Flux_Config = {
         .Motion_Lost_Ratio = 0.05f,
         .Motion_Lost_Cnt = (uint32_t)(0.15f / CUR_TS + 0.5f),
         .BW_Hz = 200.0f,
-        .Gamma_Max = 1.0e12f,
         .Pll_Kp = 2.0f * 0.707f * (TWO_PI_F * 50.0f),
         .Pll_Ki = (TWO_PI_F * 50.0f) * (TWO_PI_F * 50.0f),
         .We_Alpha = CUR_TS / (0.020f + CUR_TS),
@@ -249,7 +247,6 @@ static bool Emf_Update(float Yd, float Yq)
 static void Obs_Para_Update(void)
 {
     float Flux;
-    float Gamma;
 
     Flux = Flux_Estimator.State.Flux;
     if (!__builtin_isfinite(Flux) || (Flux <= Flux_Config.Workflow.Est_Num_Min_Wb))
@@ -258,12 +255,7 @@ static void Obs_Para_Update(void)
     }
 
     Flux_Obs.Para.Flux = Flux;
-    Gamma = TWO_PI_F * Flux_Config.Observer.BW_Hz / (Flux * Flux);
-    if (!__builtin_isfinite(Gamma) || (Gamma > Flux_Config.Observer.Gamma_Max))
-    {
-        Gamma = Flux_Config.Observer.Gamma_Max;
-    }
-    Flux_Obs.Para.Gamma = Gamma;
+    Flux_Obs.Para.BW_Hz = Flux_Config.Observer.BW_Hz;
 }
 
 static bool Obs_State_Stable(void)

@@ -11,9 +11,17 @@ typedef struct
     float Rs;
     float Ls;
     float Flux;
-    float Gamma;
+    float BW_Hz;
 
 } Flux_Observer_Para_T;
+
+typedef struct
+{
+    float Gamma;
+    float Flux_Used;
+    float BW_Used;
+
+} Flux_Observer_Calc_T;
 
 typedef struct
 {
@@ -30,6 +38,7 @@ typedef struct
 typedef struct
 {
     Flux_Observer_Para_T Para;
+    Flux_Observer_Calc_T Calc;
     Flux_Observer_State_T State;
 
 } Flux_Observer_T;

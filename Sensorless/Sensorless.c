@@ -171,15 +171,7 @@ bool Sensorless_Begin(void)
     Flux_Obs.Para.Rs = Motor_Para.Rs;
     Flux_Obs.Para.Ls = Motor_Para.Ld;
     Flux_Obs.Para.Flux = Motor_Para.Flux;
-
-    if (Motor_Para.Flux > 0.0f)
-    {
-        Flux_Obs.Para.Gamma = TWO_PI_F * FLUX_OBS_BW_HZ / (Motor_Para.Flux * Motor_Para.Flux);
-    }
-    else
-    {
-        Flux_Obs.Para.Gamma = 0.0f;
-    }
+    Flux_Obs.Para.BW_Hz = FLUX_OBS_BW_HZ;
 
     Flux_PLL.Para.Kp = PLL_KP;
     Flux_PLL.Para.Ki = PLL_KI;
