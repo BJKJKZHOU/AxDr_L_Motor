@@ -8,6 +8,14 @@
 
 #include <stdbool.h>
 
+typedef enum
+{
+    FLUX_EST_MODEL = 0,
+    FLUX_EST_VECTOR,
+    FLUX_EST_SCALAR,
+
+} Flux_Estimator_Mode_e;
+
 typedef struct
 {
     float Rs;
@@ -30,6 +38,7 @@ typedef struct
     float Yq;
     bool I_Valid;
     bool Model_Valid;
+    bool Estimate_Valid;
 
 } Flux_Estimator_State_T;
 
@@ -40,18 +49,13 @@ typedef struct
 
 } Flux_Estimator_T;
 
-void Flux_Estimator_Reset(Flux_Estimator_T *Est);
-void Flux_Estimator_Current_Reset(Flux_Estimator_T *Est);
-
-bool Flux_Estimator_Model_Run(Flux_Estimator_T *Est,
-                              float Ud,
-                              float Uq,
-                              float Id,
-                              float Iq,
-                              float We,
-                              float Ts);
-
-bool Flux_Estimator_Vector_Update(Flux_Estimator_T *Est, float We, float Ts);
-bool Flux_Estimator_Scalar_Update(Flux_Estimator_T *Est, float We, float Ts);
+bool Flux_Estimator_Run(Flux_Estimator_T *Est,
+                        Flux_Estimator_Mode_e Mode,
+                        float Ud,
+                        float Uq,
+                        float Id,
+                        float Iq,
+                        float We,
+                        float Ts);
 
 #endif /* FLUX_ESTIMATOR_H */

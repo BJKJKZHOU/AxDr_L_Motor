@@ -7,46 +7,31 @@
 
 #include "Math.h"
 
-void Flux_Estimator_Reset(Flux_Estimator_T *Est)
-{
-    if (Est == 0)
-    {
-        return;
-    }
-
-    Est->State = (Flux_Estimator_State_T){ 0 };
-}
-
-void Flux_Estimator_Current_Reset(Flux_Estimator_T *Est)
-{
-    if (Est == 0)
-    {
-        return;
-    }
-
-    Est->State.Id_F = 0.0f;
-    Est->State.Iq_F = 0.0f;
-    Est->State.I_Valid = false;
-    Est->State.Model_Valid = false;
-}
-
-bool Flux_Estimator_Model_Run(Flux_Estimator_T *Est,
-                              float Ud,
-                              float Uq,
-                              float Id,
-                              float Iq,
-                              float We,
-                              float Ts)
+bool Flux_Estimator_Run(Flux_Estimator_T *Est,
+                        Flux_Estimator_Mode_e Mode,
+                        float Ud,
+                        float Uq,
+                        float Id,
+                        float Iq,
+                        float We,
+                        float Ts)
 {
     float W_I;
     float Id_Dot;
     float Iq_Dot;
+    float Norm;
+    float Gain;
+    float Err_d;
+    float Err_q;
+    float Flux_Next;
 
     if ((Est == 0) || (Ts <= 0.0f) || !__builtin_isfinite(Ud) || !__builtin_isfinite(Uq) ||
         !__builtin_isfinite(Id) || !__builtin_isfinite(Iq) || !__builtin_isfinite(We))
     {
         return false;
     }
+
+    Est->State.Estimate_Valid = false;
 
     if (!Est->State.I_Valid)
     {
@@ -66,54 +51,44 @@ bool Flux_Estimator_Model_Run(Flux_Estimator_T *Est,
     Est->State.Yd = Uq - Est->Para.Rs * Iq - Est->Para.Lq * Iq_Dot - We * Est->Para.Ld * Id;
     Est->State.Yq = -Ud + Est->Para.Rs * Id + Est->Para.Ld * Id_Dot - We * Est->Para.Lq * Iq;
     Est->State.Model_Valid = __builtin_isfinite(Est->State.Yd) && __builtin_isfinite(Est->State.Yq);
-    return Est->State.Model_Valid;
-}
-
-bool Flux_Estimator_Vector_Update(Flux_Estimator_T *Est, float We, float Ts)
-{
-    float Norm;
-    float Gain;
-    float Err_d;
-    float Err_q;
-
-    if ((Est == 0) || !Est->State.Model_Valid || (Ts <= 0.0f) || !__builtin_isfinite(We))
+    if (!Est->State.Model_Valid)
     {
         return false;
     }
 
-    Norm = We / (We * We + Est->Para.We_Min * Est->Para.We_Min);
-    Gain = TWO_PI_F * Est->Para.Est_BW_Hz * Ts;
-    Err_d = Est->State.Yd - We * Est->State.Psi_d;
-    Err_q = Est->State.Yq - We * Est->State.Psi_q;
-    Est->State.Psi_d += Gain * Norm * Err_d;
-    Est->State.Psi_q += Gain * Norm * Err_q;
-    Est->State.Flux = __builtin_sqrtf(Est->State.Psi_d * Est->State.Psi_d +
-                                      Est->State.Psi_q * Est->State.Psi_q);
-
-    return __builtin_isfinite(Est->State.Flux) && (Est->State.Flux > 0.0f);
-}
-
-bool Flux_Estimator_Scalar_Update(Flux_Estimator_T *Est, float We, float Ts)
-{
-    float Norm;
-    float Gain;
-    float Flux_Next;
-
-    if ((Est == 0) || !Est->State.Model_Valid || (Ts <= 0.0f) || !__builtin_isfinite(We) ||
-        !__builtin_isfinite(Est->State.Flux) || (Est->State.Flux <= 0.0f))
+    if (Mode == FLUX_EST_MODEL)
     {
-        return false;
+        Est->State.Estimate_Valid = true;
+        return true;
     }
 
     Norm = We / (We * We + Est->Para.We_Min * Est->Para.We_Min);
     Gain = TWO_PI_F * Est->Para.Est_BW_Hz * Ts;
+
+    if (Mode == FLUX_EST_VECTOR)
+    {
+        Err_d = Est->State.Yd - We * Est->State.Psi_d;
+        Err_q = Est->State.Yq - We * Est->State.Psi_q;
+        Est->State.Psi_d += Gain * Norm * Err_d;
+        Est->State.Psi_q += Gain * Norm * Err_q;
+        Est->State.Flux = __builtin_sqrtf(Est->State.Psi_d * Est->State.Psi_d +
+                                          Est->State.Psi_q * Est->State.Psi_q);
+        Est->State.Estimate_Valid = __builtin_isfinite(Est->State.Flux) && (Est->State.Flux > 0.0f);
+        return true;
+    }
+
+    if (Mode != FLUX_EST_SCALAR || !__builtin_isfinite(Est->State.Flux) || (Est->State.Flux <= 0.0f))
+    {
+        return true;
+    }
+
     Flux_Next = Est->State.Flux + Gain * Norm * (Est->State.Yd - We * Est->State.Flux);
-
     if (!__builtin_isfinite(Flux_Next) || (Flux_Next <= 0.0f))
     {
-        return false;
+        return true;
     }
 
     Est->State.Flux = Flux_Next;
+    Est->State.Estimate_Valid = true;
     return true;
 }

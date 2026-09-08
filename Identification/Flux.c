@@ -233,13 +233,14 @@ static bool Coarse_Run(void)
     float We;
 
     We = IF_Start_We_Get();
-    if (!Flux_Estimator_Model_Run(&Flux_Estimator,
-                                  Motor_Run.Ud,
-                                  Motor_Run.Uq,
-                                  Motor_Run.Id,
-                                  Motor_Run.Iq,
-                                  We,
-                                  CUR_TS))
+    if (!Flux_Estimator_Run(&Flux_Estimator,
+                            FLUX_EST_VECTOR,
+                            Motor_Run.Ud,
+                            Motor_Run.Uq,
+                            Motor_Run.Id,
+                            Motor_Run.Iq,
+                            We,
+                            CUR_TS))
     {
         return false;
     }
@@ -249,7 +250,7 @@ static bool Coarse_Run(void)
         return false;
     }
 
-    return Flux_Estimator_Vector_Update(&Flux_Estimator, We, CUR_TS);
+    return Flux_Estimator.State.Estimate_Valid;
 }
 
 static void IF_Target_Update(int8_t Dir)
@@ -311,7 +312,11 @@ static void Fine_Begin(void)
 {
     Flux_Estimator.Para.I_BW_Hz = FLUX_FINE_I_BW_HZ;
     Flux_Estimator.Para.Est_BW_Hz = FLUX_FINE_EST_BW_HZ;
-    Flux_Estimator_Current_Reset(&Flux_Estimator);
+    Flux_Estimator.State.Id_F = 0.0f;
+    Flux_Estimator.State.Iq_F = 0.0f;
+    Flux_Estimator.State.I_Valid = false;
+    Flux_Estimator.State.Model_Valid = false;
+    Flux_Estimator.State.Estimate_Valid = false;
     Fine_Num = 0.0f;
     Fine_Den = 0.0f;
     Fine_Cnt = 0U;
@@ -326,16 +331,19 @@ static void Fine_Window_Reset(void)
 
 static bool Fine_Run(bool Adapt, bool Measure)
 {
+    Flux_Estimator_Mode_e Mode;
     float We;
 
     We = We_Obs_F;
-    if (!Flux_Estimator_Model_Run(&Flux_Estimator,
-                                  Motor_Run.Ud,
-                                  Motor_Run.Uq,
-                                  Motor_Run.Id,
-                                  Motor_Run.Iq,
-                                  We,
-                                  CUR_TS))
+    Mode = Adapt ? FLUX_EST_SCALAR : FLUX_EST_MODEL;
+    if (!Flux_Estimator_Run(&Flux_Estimator,
+                            Mode,
+                            Motor_Run.Ud,
+                            Motor_Run.Uq,
+                            Motor_Run.Id,
+                            Motor_Run.Iq,
+                            We,
+                            CUR_TS))
     {
         return false;
     }
@@ -350,7 +358,7 @@ static bool Fine_Run(bool Adapt, bool Measure)
         return true;
     }
 
-    if (!Flux_Estimator_Scalar_Update(&Flux_Estimator, We, CUR_TS))
+    if (!Flux_Estimator.State.Estimate_Valid)
     {
         return false;
     }
@@ -411,7 +419,7 @@ bool Flux_Start(float Wm_Target)
     PLL_Active = false;
     Obs_Control = false;
     Emf_Target_Reached = false;
-    Flux_Estimator_Reset(&Flux_Estimator);
+    Flux_Estimator.State = (Flux_Estimator_State_T){ 0 };
     Handover_Reset(&Handover);
 
     Envelope = Identification_Envelope_Get();
