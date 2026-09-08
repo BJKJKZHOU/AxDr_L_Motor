@@ -15,26 +15,40 @@ void PLL_Reset(PLL_T *Pll, float Theta, float We)
     Pll->State.Err = 0.0f;
 }
 
-bool PLL_Run(PLL_T *Pll, float X, float Y, float Mag_Ref, float Ts)
+bool PLL_Run(PLL_T *Pll, float X, float Y, float Ts)
 {
     float Sin;
     float Cos;
+    float Mag2;
+    float Mag;
     float Err;
     float We_Next;
     float Theta_Next;
 
     if ((Pll == 0) || !__builtin_isfinite(X) || !__builtin_isfinite(Y) ||
-        !__builtin_isfinite(Mag_Ref) || !__builtin_isfinite(Ts) ||
+        !__builtin_isfinite(Ts) ||
         !__builtin_isfinite(Pll->Para.Kp) || !__builtin_isfinite(Pll->Para.Ki) ||
         !__builtin_isfinite(Pll->State.Theta) || !__builtin_isfinite(Pll->State.We) ||
-        (Mag_Ref <= 0.0f) || (Ts <= 0.0f))
+        (Ts <= 0.0f))
+    {
+        return false;
+    }
+
+    Mag2 = X * X + Y * Y;
+    if (!__builtin_isfinite(Mag2) || (Mag2 <= 0.0f))
+    {
+        return false;
+    }
+
+    Mag = __builtin_sqrtf(Mag2);
+    if (!__builtin_isfinite(Mag) || (Mag <= 0.0f))
     {
         return false;
     }
 
     SinCos(Pll->State.Theta, &Sin, &Cos);
 
-    Err = (Y * Cos - X * Sin) / Mag_Ref;
+    Err = (Y * Cos - X * Sin) / Mag;
     We_Next = Pll->State.We + Pll->Para.Ki * Err * Ts;
     Theta_Next = Pll->State.Theta + (We_Next + Pll->Para.Kp * Err) * Ts;
 

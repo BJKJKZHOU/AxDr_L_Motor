@@ -507,7 +507,6 @@ static void Flux_Observer_Runtime_Run(Flux_Fast_Context_T *Context)
         if (!PLL_Run(&Flux_PLL,
                      Flux_Obs.State.PsiAlpha,
                      Flux_Obs.State.PsiBeta,
-                     Flux_Obs.Para.Flux,
                      CUR_TS))
         {
             if (!Obs_Control)
@@ -664,6 +663,8 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
 
     if ((State == FLUX_INITIAL_IF) && (Flux_IF.State.Mode == IF_HOLD))
     {
+        Motion_Lost_Armed = false;
+        Motion_Lost_Cnt = 0U;
         State = FLUX_SEARCH;
     }
 
@@ -690,13 +691,16 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
                             Flux_Config.Handover.Compare_Alpha);
     }
 
-    Motion_Valid = Emf_Valid && __builtin_isfinite(Emf_Ratio_F) &&
-                   (Emf_Ratio_F >= Flux_Config.Observer.Motion_Lost_Ratio);
-    if (Motion_Lost_Run(Motion_Valid))
+    if (State != FLUX_INITIAL_IF)
     {
-        Result.Valid = false;
-        Flux_Finish_Start();
-        return FLUX_STEP_CURRENT;
+        Motion_Valid = Emf_Valid && __builtin_isfinite(Emf_Ratio_F) &&
+                       (Emf_Ratio_F >= Flux_Config.Observer.Motion_Lost_Ratio);
+        if (Motion_Lost_Run(Motion_Valid))
+        {
+            Result.Valid = false;
+            Flux_Finish_Start();
+            return FLUX_STEP_CURRENT;
+        }
     }
 
     return FLUX_STEP_CONTINUE;

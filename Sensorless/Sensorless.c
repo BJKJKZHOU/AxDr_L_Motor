@@ -256,7 +256,7 @@ void Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float 
     if (Flux_Obs_U_Valid)
     {
         Flux_Observer_Run(&Flux_Obs, Motor_Run.Ualpha, Motor_Run.Ubeta, Ialpha, Ibeta, CUR_TS);
-        PLL_Run(&Flux_PLL, Flux_Obs.State.PsiAlpha, Flux_Obs.State.PsiBeta, Flux_Obs.Para.Flux, CUR_TS);
+        PLL_Run(&Flux_PLL, Flux_Obs.State.PsiAlpha, Flux_Obs.State.PsiBeta, CUR_TS);
     }
 
     if (State != SL_OBS)

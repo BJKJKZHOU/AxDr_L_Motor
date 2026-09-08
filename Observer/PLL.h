@@ -32,6 +32,6 @@ typedef struct
 
 void PLL_Reset(PLL_T *Pll, float Theta, float We);
 
-bool PLL_Run(PLL_T *Pll, float X, float Y, float Mag_Ref, float Ts);
+bool PLL_Run(PLL_T *Pll, float X, float Y, float Ts);
 
 #endif /* PLL_H */
