@@ -201,7 +201,13 @@ bool Sensorless_Begin(void)
         return false;
     }
 
-    IF_Start_Para_Set(IF_Para.Iq_Start_A, IF_Para.Iq_Max_A, IF_Para.We_Base, IF_Para.Acc);
+    IF_Start_Para_Set(IF_Para.Iq_Start_A,
+                      IF_Para.Iq_Max_A,
+                      IF_Para.We_Base,
+                      IF_Para.Acc,
+                      Motor_Para.Rs,
+                      Motor_Para.Ld,
+                      Motor_Para.Lq);
 
     Flux_Obs.Para.Rs = Motor_Para.Rs;
     Flux_Obs.Para.Ls = Motor_Para.Ld;
@@ -306,7 +312,13 @@ void Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float 
     if (State != SL_OBS)
     {
         IF_Start_Target_Set(IF_Target(We_Ref));
-        (void)IF_Start_Run(&Theta_IF, &Id_IF, &Iq_IF);
+        (void)IF_Start_Run(Motor_Run.Id,
+                           Motor_Run.Iq,
+                           Motor_Run.Ud,
+                           Motor_Run.Uq,
+                           &Theta_IF,
+                           &Id_IF,
+                           &Iq_IF);
 
         if (IF_Start_State_Get() == IF_FAILED)
         {

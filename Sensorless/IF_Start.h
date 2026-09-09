@@ -18,9 +18,21 @@ typedef enum
 } IF_State_e;
 
 void IF_Start_Reset(float Theta_Start, float We_Start);
-void IF_Start_Para_Set(float Iq_Min_A, float Iq_Max_A, float We_Base, float Acc);
+void IF_Start_Para_Set(float Iq_Min_A,
+                       float Iq_Max_A,
+                       float We_Base,
+                       float Acc,
+                       float Rs,
+                       float Ld,
+                       float Lq);
 void IF_Start_Target_Set(float We_Target);
-void IF_Start_Run(float *Theta_e, float *Id_Ref, float *Iq_Ref);
+void IF_Start_Run(float Id_A,
+                  float Iq_A,
+                  float Ud_V,
+                  float Uq_V,
+                  float *Theta_e,
+                  float *Id_Ref,
+                  float *Iq_Ref);
 IF_State_e IF_Start_State_Get(void);
 float IF_Start_We_Get(void);
 

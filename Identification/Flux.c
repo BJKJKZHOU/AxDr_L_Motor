@@ -203,6 +203,14 @@ bool Flux_Start(float Wm_Target)
         return false;
     }
 
+    IF_Start_Para_Set(IF_Para.Iq_Start_A,
+                      IF_Para.Iq_Max_A,
+                      IF_Para.We_Base,
+                      IF_Para.Acc,
+                      Motor_Para.Rs,
+                      Motor_Para.Ld,
+                      Motor_Para.Lq);
+
     Sign = (Wm_Target < 0.0f) ? -1.0f : 1.0f;
     We_Target = Sign * IF_Para.We_Base;
 
@@ -247,7 +255,6 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
         {
             Current_Loop_State_Reset();
             IF_Start_Reset(-0.5f * PI_F * (float)Dir, 0.0f);
-            IF_Start_Para_Set(IF_Para.Iq_Start_A, IF_Para.Iq_Max_A, IF_Para.We_Base, IF_Para.Acc);
             IF_Start_Target_Set(We_Target);
             State = FLUX_ACCEL;
         }
@@ -257,7 +264,7 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
 
     if (State == FLUX_FINISH)
     {
-        (void)IF_Start_Run(&Theta_IF, Id_Ref, Iq_Ref);
+        (void)IF_Start_Run(Motor_Run.Id, Motor_Run.Iq, Motor_Run.Ud, Motor_Run.Uq, &Theta_IF, Id_Ref, Iq_Ref);
         *Theta_e = Theta_IF;
 
         if (Finish_Init == 0U)
@@ -351,7 +358,7 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
         }
     }
 
-    (void)IF_Start_Run(&Theta_IF, Id_Ref, Iq_Ref);
+    (void)IF_Start_Run(Motor_Run.Id, Motor_Run.Iq, Motor_Run.Ud, Motor_Run.Uq, &Theta_IF, Id_Ref, Iq_Ref);
     *Theta_e = Theta_IF;
 
     if (IF_Start_State_Get() == IF_FAILED)

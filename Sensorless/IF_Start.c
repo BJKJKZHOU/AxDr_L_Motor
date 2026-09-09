@@ -6,17 +6,23 @@
 #include "IF_Start.h"
 
 #include <stdbool.h>
+#include <stddef.h>
 
 #include "Math.h"
-#include "Motor_Type.h"
 #include "control_params.h"
 
-#define IF_KICK_WE_RATIO         0.125f
-#define IF_KICK_I_STEP_RATIO     0.10f
-#define IF_KICK_SLIP_LOCK_RATIO  0.20f
-#define IF_KICK_LOCK_STEP_COUNT  3U
-#define IF_KICK_PHASE_TRAVEL_RAD TWO_PI_F
-#define IF_KICK_EMF_LPF_ALPHA    0.05f
+/* Kick policy is expressed with motor-relative or dimensionless quantities.
+ * The only absolute current bounds are Iq_Min_A and the caller/user Iq_Max_A. */
+#define IF_KICK_WE_RATIO            0.125f
+#define IF_KICK_I_STEP_RATIO        0.10f
+#define IF_KICK_SLIP_LOCK_RATIO     0.20f
+#define IF_KICK_LOCK_STEP_COUNT     3U
+#define IF_KICK_PHASE_TRAVEL_RAD    TWO_PI_F
+#define IF_KICK_EMF_TAU_S           0.001f
+#define IF_KICK_EMF_ALPHA           (CUR_TS / (IF_KICK_EMF_TAU_S + CUR_TS))
+#define IF_KICK_EMF_MIN_RATIO       0.05f
+#define IF_KICK_VALID_SAMPLE_RATIO  0.50f
+#define IF_KICK_PHASE_COHERENCE_MIN 0.50f
 
 typedef enum
 {
@@ -37,6 +43,9 @@ static float Iq_Max_A = IF_IQ_TARGET_A;
 static float Iq_Work_A = IF_IQ_START_A;
 static float We_Base = IF_WE_TARGET_RAD_S;
 static float Acc = IF_ACC_RAD_S2;
+static float Rs_Ohm = 0.0f;
+static float Ld_H = 0.0f;
+static float Lq_H = 0.0f;
 
 static float Kick_Base_We = 0.0f;
 static float Kick_We = 0.0f;
@@ -50,9 +59,12 @@ static float Kick_Iq_Last = 0.0f;
 static float Kick_Ed_F = 0.0f;
 static float Kick_Eq_F = 0.0f;
 static float Kick_Phase_Last = 0.0f;
-static float Kick_Phase_Unwrap = 0.0f;
-static float Kick_Phase_Start = 0.0f;
+static float Kick_Phase_Drift = 0.0f;
 static float Kick_IF_Phase_Travel = 0.0f;
+static float Kick_Phase_X_Sum = 0.0f;
+static float Kick_Phase_Y_Sum = 0.0f;
+static uint32_t Kick_Observe_Cnt = 0U;
+static uint32_t Kick_Valid_Cnt = 0U;
 
 static float Abs_F(float X)
 {
@@ -89,9 +101,12 @@ static void Kick_Observe_Reset(void)
     Kick_Phase_Valid = false;
     Kick_Ed_F = 0.0f;
     Kick_Eq_F = 0.0f;
-    Kick_Phase_Unwrap = 0.0f;
-    Kick_Phase_Start = 0.0f;
+    Kick_Phase_Drift = 0.0f;
     Kick_IF_Phase_Travel = 0.0f;
+    Kick_Phase_X_Sum = 0.0f;
+    Kick_Phase_Y_Sum = 0.0f;
+    Kick_Observe_Cnt = 0U;
+    Kick_Valid_Cnt = 0U;
 }
 
 static void Iq_Slew_Run(float Target)
@@ -118,87 +133,124 @@ static void Iq_Slew_Run(float Target)
     }
 }
 
-static bool Kick_Phase_Run(float *Slip_Ratio)
+static bool Kick_Observe_Run(float Id_A, float Iq_A, float Ud_V, float Uq_V, bool *Locked)
 {
     float dId;
     float dIq;
     float Ed;
     float Eq;
+    float E_Mag;
+    float I_Mag;
+    float U_Mag;
+    float Model_Scale;
     float Phase;
     float Phase_Diff;
-    float Phase_Drift;
+    float Slip_Ratio;
+    float Valid_Ratio;
+    float Coherence;
 
-    if ((Slip_Ratio == 0) || (Abs_F(We) <= 0.0f))
+    if ((Locked == NULL) || (Abs_F(We) <= 0.0f))
     {
         return false;
     }
 
+    *Locked = false;
+
     if (!Kick_Current_Valid)
     {
-        Kick_Id_Last = Motor_Run.Id;
-        Kick_Iq_Last = Motor_Run.Iq;
+        Kick_Id_Last = Id_A;
+        Kick_Iq_Last = Iq_A;
         Kick_Current_Valid = true;
         return false;
     }
 
-    dId = (Motor_Run.Id - Kick_Id_Last) / CUR_TS;
-    dIq = (Motor_Run.Iq - Kick_Iq_Last) / CUR_TS;
-    Kick_Id_Last = Motor_Run.Id;
-    Kick_Iq_Last = Motor_Run.Iq;
+    dId = (Id_A - Kick_Id_Last) / CUR_TS;
+    dIq = (Iq_A - Kick_Iq_Last) / CUR_TS;
+    Kick_Id_Last = Id_A;
+    Kick_Iq_Last = Iq_A;
 
-    /* dq voltage-model residual in the I/F frame. It removes the stator
+    /* dq voltage-model residual in the I/F frame. It removes stator
      * resistance, current dynamics and frame-rotation terms, leaving the PM
-     * back-EMF vector. Unlike the steady-state flux formula, this does not
-     * assume that rotor speed already equals the I/F speed. */
-    Ed = Motor_Run.Ud - Motor_Para.Rs * Motor_Run.Id - Motor_Para.Ld * dId + We * Motor_Para.Lq * Motor_Run.Iq;
-    Eq = Motor_Run.Uq - Motor_Para.Rs * Motor_Run.Iq - Motor_Para.Lq * dIq - We * Motor_Para.Ld * Motor_Run.Id;
+     * back-EMF vector without assuming that rotor speed already equals We. */
+    Ed = Ud_V - Rs_Ohm * Id_A - Ld_H * dId + We * Lq_H * Iq_A;
+    Eq = Uq_V - Rs_Ohm * Iq_A - Lq_H * dIq - We * Ld_H * Id_A;
 
-    Kick_Ed_F += IF_KICK_EMF_LPF_ALPHA * (Ed - Kick_Ed_F);
-    Kick_Eq_F += IF_KICK_EMF_LPF_ALPHA * (Eq - Kick_Eq_F);
+    Kick_Ed_F += IF_KICK_EMF_ALPHA * (Ed - Kick_Ed_F);
+    Kick_Eq_F += IF_KICK_EMF_ALPHA * (Eq - Kick_Eq_F);
 
-    if (!__builtin_isfinite(Kick_Ed_F) || !__builtin_isfinite(Kick_Eq_F))
-    {
-        return false;
-    }
-
-    if ((Kick_Ed_F * Kick_Ed_F + Kick_Eq_F * Kick_Eq_F) <= 1.0e-12f)
-    {
-        return false;
-    }
-
-    Phase = __builtin_atan2f(Kick_Eq_F, Kick_Ed_F);
-
-    if (!Kick_Phase_Valid)
-    {
-        Kick_Phase_Last = Phase;
-        Kick_Phase_Unwrap = Phase;
-        Kick_Phase_Start = Phase;
-        Kick_IF_Phase_Travel = 0.0f;
-        Kick_Phase_Valid = true;
-        return false;
-    }
-
-    Phase_Diff = Angle_Diff(Phase, Kick_Phase_Last);
-    Kick_Phase_Last = Phase;
-    Kick_Phase_Unwrap += Phase_Diff;
     Kick_IF_Phase_Travel += Abs_F(We) * CUR_TS;
+    Kick_Observe_Cnt++;
+
+    if (__builtin_isfinite(Kick_Ed_F) && __builtin_isfinite(Kick_Eq_F))
+    {
+        E_Mag = __builtin_sqrtf(Kick_Ed_F * Kick_Ed_F + Kick_Eq_F * Kick_Eq_F);
+        I_Mag = __builtin_sqrtf(Id_A * Id_A + Iq_A * Iq_A);
+        U_Mag = __builtin_sqrtf(Ud_V * Ud_V + Uq_V * Uq_V);
+        Model_Scale = U_Mag + Rs_Ohm * I_Mag +
+                      Abs_F(We) * (Ld_H * Abs_F(Id_A) + Lq_H * Abs_F(Iq_A));
+
+        if ((Model_Scale > 0.0f) && (E_Mag >= IF_KICK_EMF_MIN_RATIO * Model_Scale))
+        {
+            Phase = __builtin_atan2f(Kick_Eq_F, Kick_Ed_F);
+
+            if (!Kick_Phase_Valid)
+            {
+                Kick_Phase_Last = Phase;
+                Kick_Phase_Valid = true;
+            }
+            else
+            {
+                Phase_Diff = Angle_Diff(Phase, Kick_Phase_Last);
+                Kick_Phase_Last = Phase;
+                Kick_Phase_Drift += Phase_Diff;
+            }
+
+            if (E_Mag > 0.0f)
+            {
+                Kick_Phase_X_Sum += Kick_Ed_F / E_Mag;
+                Kick_Phase_Y_Sum += Kick_Eq_F / E_Mag;
+                Kick_Valid_Cnt++;
+            }
+        }
+    }
 
     if (Kick_IF_Phase_Travel < IF_KICK_PHASE_TRAVEL_RAD)
     {
         return false;
     }
 
-    Phase_Drift = Kick_Phase_Unwrap - Kick_Phase_Start;
-    *Slip_Ratio = Abs_F(Phase_Drift) / Kick_IF_Phase_Travel;
-    return __builtin_isfinite(*Slip_Ratio);
+    if (Kick_Observe_Cnt == 0U)
+    {
+        return true;
+    }
+
+    Valid_Ratio = (float)Kick_Valid_Cnt / (float)Kick_Observe_Cnt;
+    if ((Kick_Valid_Cnt == 0U) || (Valid_Ratio < IF_KICK_VALID_SAMPLE_RATIO) || !Kick_Phase_Valid)
+    {
+        return true;
+    }
+
+    Slip_Ratio = Abs_F(Kick_Phase_Drift) / Kick_IF_Phase_Travel;
+    Coherence = __builtin_sqrtf(Kick_Phase_X_Sum * Kick_Phase_X_Sum +
+                                Kick_Phase_Y_Sum * Kick_Phase_Y_Sum) /
+                (float)Kick_Valid_Cnt;
+
+    if (!__builtin_isfinite(Slip_Ratio) || !__builtin_isfinite(Coherence))
+    {
+        return true;
+    }
+
+    *Locked = (Slip_Ratio <= IF_KICK_SLIP_LOCK_RATIO) &&
+              (Coherence >= IF_KICK_PHASE_COHERENCE_MIN);
+    return true;
 }
 
-static void Kick_Run(void)
+static void Kick_Run(float Id_A, float Iq_A, float Ud_V, float Uq_V)
 {
     float Dir;
     float I_Span;
     float I_Step;
-    float Slip_Ratio;
+    bool Locked;
 
     if (Abs_F(We_Target) <= 0.0f)
     {
@@ -230,12 +282,12 @@ static void Kick_Run(void)
 
     Iq_Slew_Run(Dir * Kick_I_Target_A);
 
-    if (!Kick_Phase_Run(&Slip_Ratio))
+    if (!Kick_Observe_Run(Id_A, Iq_A, Ud_V, Uq_V, &Locked))
     {
         return;
     }
 
-    if (Slip_Ratio <= IF_KICK_SLIP_LOCK_RATIO)
+    if (Locked)
     {
         Kick_Lock_Steps++;
         Iq_Work_A = Kick_I_Target_A;
@@ -319,9 +371,16 @@ void IF_Start_Reset(float Theta_Start, float We_Start)
     }
 }
 
-void IF_Start_Para_Set(float Iq_Min, float Iq_Max, float We_Base_In, float Acc_In)
+void IF_Start_Para_Set(float Iq_Min,
+                       float Iq_Max,
+                       float We_Base_In,
+                       float Acc_In,
+                       float Rs,
+                       float Ld,
+                       float Lq)
 {
-    if ((Iq_Min <= 0.0f) || (Iq_Max < Iq_Min) || (We_Base_In <= 0.0f) || (Acc_In <= 0.0f))
+    if ((Iq_Min <= 0.0f) || (Iq_Max < Iq_Min) || (We_Base_In <= 0.0f) ||
+        (Acc_In <= 0.0f) || (Rs < 0.0f) || (Ld <= 0.0f) || (Lq <= 0.0f))
     {
         return;
     }
@@ -330,6 +389,9 @@ void IF_Start_Para_Set(float Iq_Min, float Iq_Max, float We_Base_In, float Acc_I
     Iq_Max_A = Iq_Max;
     We_Base = We_Base_In;
     Acc = Acc_In;
+    Rs_Ohm = Rs;
+    Ld_H = Ld;
+    Lq_H = Lq;
 
     if (Iq_Work_A < Iq_Min_A)
     {
@@ -358,10 +420,21 @@ void IF_Start_Target_Set(float We_Target_In)
     State = (We == We_Target) ? IF_HOLD : IF_RAMP;
 }
 
-void IF_Start_Run(float *Theta_e_Out, float *Id_Ref, float *Iq_Ref)
+void IF_Start_Run(float Id_A,
+                  float Iq_A,
+                  float Ud_V,
+                  float Uq_V,
+                  float *Theta_e_Out,
+                  float *Id_Ref,
+                  float *Iq_Ref)
 {
     float Iq_Target;
     float We_Step;
+
+    if ((Theta_e_Out == NULL) || (Id_Ref == NULL) || (Iq_Ref == NULL))
+    {
+        return;
+    }
 
     if (State == IF_FAILED)
     {
@@ -373,7 +446,7 @@ void IF_Start_Run(float *Theta_e_Out, float *Id_Ref, float *Iq_Ref)
 
     if (State == IF_KICK)
     {
-        Kick_Run();
+        Kick_Run(Id_A, Iq_A, Ud_V, Uq_V);
     }
     else
     {
