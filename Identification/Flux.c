@@ -614,7 +614,7 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
     bool Motion_Valid;
 
     Flux_Ready = false;
-    if (Model_U_Valid)
+    if ((State != FLUX_INITIAL_IF) && Model_U_Valid)
     {
         Flux_Ready = Coarse_Run();
         if (!__builtin_isfinite(Flux_Estimator.State.Psi_d) ||
