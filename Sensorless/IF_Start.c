@@ -14,11 +14,11 @@
  * rotor-motion qualification belongs to the observer/identification layer,
  * where back-EMF is observable enough to make that decision reliably.
  *
- * Startup current follows speed progress continuously and reaches Iq_Work at
- * half of We_Base. This keeps current buildup faster than the speed ramp while
- * preserving the simple, continuous behavior of the proven historical I/F.
+ * Startup current follows electrical-speed progress continuously. The normal
+ * working current stays below the user protection limit so the closed current
+ * loop retains margin for ripple and transient tracking error.
  */
-#define IF_IQ_PROGRESS_GAIN 2.0f
+#define IF_IQ_WORK_RATIO 0.80f
 
 static float Abs_F(float X)
 {
@@ -82,7 +82,7 @@ static float Startup_Iq_Abs(const IF_T *IF)
         return IF->Para.Iq_Min_A;
     }
 
-    Progress = IF_IQ_PROGRESS_GAIN * Abs_F(IF->State.We) / IF->Para.We_Base;
+    Progress = Abs_F(IF->State.We) / IF->Para.We_Base;
     Progress = Clamp_F(Progress, 0.0f, 1.0f);
 
     return IF->Para.Iq_Min_A +
@@ -93,6 +93,7 @@ void IF_Init(IF_T *IF, float Theta_Start, float We_Start)
 {
     IF_Para_T Para;
     float Iq_Work_Pre;
+    float Iq_Work_Max;
 
     if (IF == NULL)
     {
@@ -124,15 +125,20 @@ void IF_Init(IF_T *IF, float Theta_Start, float We_Start)
         return;
     }
 
+    Iq_Work_Max = IF_IQ_WORK_RATIO * IF->Para.Iq_Max_A;
+    Iq_Work_Max = Clamp_F(Iq_Work_Max,
+                          IF->Para.Iq_Min_A,
+                          IF->Para.Iq_Max_A);
+
     if (Abs_F(We_Start) <= 0.0f)
     {
-        IF->State.Iq_Work_A = IF->Para.Iq_Max_A;
+        IF->State.Iq_Work_A = Iq_Work_Max;
     }
     else
     {
         IF->State.Iq_Work_A = Clamp_F(Iq_Work_Pre,
                                       IF->Para.Iq_Min_A,
-                                      IF->Para.Iq_Max_A);
+                                      Iq_Work_Max);
     }
 
     IF->State.Mode = IF_HOLD;
