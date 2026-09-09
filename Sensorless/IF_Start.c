@@ -9,18 +9,25 @@
 
 #include "Math.h"
 
-/* Adaptive startup keeps the fast loop simple:
- * - ramp electrical speed continuously instead of stepping between test points;
- * - sample the q-axis back-EMF proxy in low/high portions of one complete ramp;
- * - decide only after the full ramp reaches the check speed;
- * - on failure, ramp back to zero before increasing current and retrying.
+/*
+ * Adaptive startup only decides whether the commanded current is sufficient
+ * to establish real rotor motion. Keep the fast-loop math to multiply/add:
+ *
+ *   Rd = Ud*Ts - Rs*Id*Ts - Ld*dId + We*Lq*Iq*Ts
+ *   Rq = Uq*Ts - Rs*Iq*Ts - Lq*dIq - We*Ld*Id*Ts
+ *   R2 = Rd*Rd + Rq*Rq
+ *
+ * The residual is measured once at zero electrical speed to capture model and
+ * current-loop background. Then speed ramps continuously to a check point.
+ * At the check speed, several complete electrical cycles are verified before
+ * startup is accepted. A single good cycle never releases IF_KICK.
  */
-#define IF_KICK_CHECK_WE_RATIO      0.25f
-#define IF_KICK_I_STEP_RATIO        0.10f
-#define IF_KICK_LOW_BEGIN_RATIO     0.40f
-#define IF_KICK_LOW_END_RATIO       0.60f
-#define IF_KICK_HIGH_BEGIN_RATIO    0.80f
-#define IF_KICK_BEMF_GROWTH_RATIO   0.25f
+#define IF_KICK_CHECK_WE_RATIO       0.25f
+#define IF_KICK_I_STEP_RATIO         0.10f
+#define IF_KICK_BASE_SETTLE_S        0.020f
+#define IF_KICK_BASE_SAMPLE_S        0.020f
+#define IF_KICK_VERIFY_CYCLE_COUNT   3U
+#define IF_KICK_R2_BASE_RATIO        4.0f
 
 static float Abs_F(float X)
 {
@@ -37,14 +44,6 @@ static void IF_Fail(IF_T *IF)
     IF->State.Mode = IF_FAILED;
     IF->State.We = 0.0f;
     IF->State.Iq = 0.0f;
-}
-
-static void Kick_Sample_Reset(IF_T *IF)
-{
-    IF->State.Kick_Bemf_Low_Sum = 0.0f;
-    IF->State.Kick_Bemf_High_Sum = 0.0f;
-    IF->State.Kick_Bemf_Low_Cnt = 0U;
-    IF->State.Kick_Bemf_High_Cnt = 0U;
 }
 
 static void Iq_Slew_Run(IF_T *IF, float Target, float Ts)
@@ -70,6 +69,63 @@ static void Iq_Slew_Run(IF_T *IF, float Target, float Ts)
     }
 }
 
+static void Kick_Residual_Reset(IF_T *IF)
+{
+    IF->State.Kick_Current_Valid = false;
+    IF->State.Kick_Id_Last = 0.0f;
+    IF->State.Kick_Iq_Last = 0.0f;
+}
+
+static bool Kick_Residual_R2(IF_T *IF,
+                             float Id_A,
+                             float Iq_A,
+                             float Ud_V,
+                             float Uq_V,
+                             float Ts,
+                             float *R2)
+{
+    float dId;
+    float dIq;
+    float Rd;
+    float Rq;
+
+    if ((R2 == NULL) ||
+        !__builtin_isfinite(Id_A) || !__builtin_isfinite(Iq_A) ||
+        !__builtin_isfinite(Ud_V) || !__builtin_isfinite(Uq_V) ||
+        !__builtin_isfinite(IF->State.We) || !__builtin_isfinite(Ts) ||
+        (Ts <= 0.0f))
+    {
+        return false;
+    }
+
+    if (!IF->State.Kick_Current_Valid)
+    {
+        IF->State.Kick_Id_Last = Id_A;
+        IF->State.Kick_Iq_Last = Iq_A;
+        IF->State.Kick_Current_Valid = true;
+        *R2 = 0.0f;
+        return true;
+    }
+
+    dId = Id_A - IF->State.Kick_Id_Last;
+    dIq = Iq_A - IF->State.Kick_Iq_Last;
+    IF->State.Kick_Id_Last = Id_A;
+    IF->State.Kick_Iq_Last = Iq_A;
+
+    Rd = Ud_V * Ts - IF->Para.Rs_Ohm * Id_A * Ts - IF->Para.Ld_H * dId +
+         IF->State.We * IF->Para.Lq_H * Iq_A * Ts;
+    Rq = Uq_V * Ts - IF->Para.Rs_Ohm * Iq_A * Ts - IF->Para.Lq_H * dIq -
+         IF->State.We * IF->Para.Ld_H * Id_A * Ts;
+
+    if (!__builtin_isfinite(Rd) || !__builtin_isfinite(Rq))
+    {
+        return false;
+    }
+
+    *R2 = Rd * Rd + Rq * Rq;
+    return __builtin_isfinite(*R2);
+}
+
 static bool Kick_Check_We_Build(IF_T *IF)
 {
     float Target_Abs;
@@ -86,7 +142,6 @@ static bool Kick_Check_We_Build(IF_T *IF)
     {
         Check_Abs = Target_Abs;
     }
-
     if (Check_Abs <= 0.0f)
     {
         return false;
@@ -123,72 +178,46 @@ static bool Kick_Current_Increase(IF_T *IF)
     return true;
 }
 
-static bool Kick_Bemf_Sample(IF_T *IF, float Iq_A, float Uq_V)
+static void Kick_Verify_Reset(IF_T *IF)
 {
-    float Dir;
-    float Bemf;
-    float We_Abs;
-    float Check_Abs;
-
-    if (!__builtin_isfinite(Iq_A) || !__builtin_isfinite(Uq_V))
-    {
-        return false;
-    }
-
-    Dir = Sign_F(IF->State.We_Target);
-    Bemf = Dir * (Uq_V - IF->Para.Rs_Ohm * Iq_A);
-    if (!__builtin_isfinite(Bemf))
-    {
-        return false;
-    }
-
-    We_Abs = Abs_F(IF->State.We);
-    Check_Abs = Abs_F(IF->State.Kick_Check_We);
-
-    if ((We_Abs >= IF_KICK_LOW_BEGIN_RATIO * Check_Abs) &&
-        (We_Abs <= IF_KICK_LOW_END_RATIO * Check_Abs))
-    {
-        IF->State.Kick_Bemf_Low_Sum += Bemf;
-        IF->State.Kick_Bemf_Low_Cnt++;
-    }
-    else if (We_Abs >= IF_KICK_HIGH_BEGIN_RATIO * Check_Abs)
-    {
-        IF->State.Kick_Bemf_High_Sum += Bemf;
-        IF->State.Kick_Bemf_High_Cnt++;
-    }
-
-    return true;
+    IF->State.Kick_Cycle_R2_Sum = 0.0f;
+    IF->State.Kick_Cycle_R2_Cnt = 0U;
+    IF->State.Kick_Cycle_Travel = 0.0f;
+    IF->State.Kick_Verify_Cycles = 0U;
+    IF->State.Kick_Verify_Pass = 0U;
+    Kick_Residual_Reset(IF);
 }
 
-static bool Kick_Motion_Confirmed(IF_T *IF)
+static bool Kick_Cycle_Passed(const IF_T *IF)
 {
-    float Bemf_Low;
-    float Bemf_High;
-    float Growth;
+    float Run_Scaled;
+    float Base_Scaled;
 
-    if ((IF->State.Kick_Bemf_Low_Cnt == 0U) || (IF->State.Kick_Bemf_High_Cnt == 0U))
+    if ((IF->State.Kick_Base_R2_Cnt == 0U) ||
+        (IF->State.Kick_Cycle_R2_Cnt == 0U))
     {
         return false;
     }
 
-    Bemf_Low = IF->State.Kick_Bemf_Low_Sum / (float)IF->State.Kick_Bemf_Low_Cnt;
-    Bemf_High = IF->State.Kick_Bemf_High_Sum / (float)IF->State.Kick_Bemf_High_Cnt;
-    if (!__builtin_isfinite(Bemf_Low) || !__builtin_isfinite(Bemf_High) ||
-        (Bemf_High <= 0.0f))
-    {
-        return false;
-    }
+    Run_Scaled = IF->State.Kick_Cycle_R2_Sum * (float)IF->State.Kick_Base_R2_Cnt;
+    Base_Scaled = IF_KICK_R2_BASE_RATIO * IF->State.Kick_Base_R2_Sum *
+                  (float)IF->State.Kick_Cycle_R2_Cnt;
 
-    Growth = Bemf_High - Bemf_Low;
-    return (Growth > 0.0f) &&
-           (Growth >= IF_KICK_BEMF_GROWTH_RATIO * Abs_F(Bemf_High));
+    return __builtin_isfinite(Run_Scaled) && __builtin_isfinite(Base_Scaled) &&
+           (Run_Scaled > Base_Scaled);
 }
 
-static void Kick_Run(IF_T *IF, float Iq_A, float Uq_V, float Ts)
+static void Kick_Run(IF_T *IF,
+                     float Id_A,
+                     float Iq_A,
+                     float Ud_V,
+                     float Uq_V,
+                     float Ts)
 {
     float Dir;
     float We_Step;
     float Check_Abs;
+    float R2;
 
     if (Abs_F(IF->State.We_Target) <= 0.0f)
     {
@@ -214,30 +243,94 @@ static void Kick_Run(IF_T *IF, float Iq_A, float Uq_V, float Ts)
                 IF_Fail(IF);
                 return;
             }
-            Kick_Sample_Reset(IF);
-            IF->State.Kick_Mode = IF_KICK_RAMP_UP;
+
+            IF->State.Kick_Time = 0.0f;
+            Kick_Residual_Reset(IF);
+            IF->State.Kick_Mode = IF_KICK_BASELINE_SETTLE;
+            return;
+
+        case IF_KICK_BASELINE_SETTLE:
+            IF->State.We = 0.0f;
+            IF->State.Kick_Time += Ts;
+            if (IF->State.Kick_Time >= IF_KICK_BASE_SETTLE_S)
+            {
+                IF->State.Kick_Time = 0.0f;
+                IF->State.Kick_Base_R2_Sum = 0.0f;
+                IF->State.Kick_Base_R2_Cnt = 0U;
+                Kick_Residual_Reset(IF);
+                IF->State.Kick_Mode = IF_KICK_BASELINE_SAMPLE;
+            }
+            return;
+
+        case IF_KICK_BASELINE_SAMPLE:
+            IF->State.We = 0.0f;
+            R2 = 0.0f;
+            if (!Kick_Residual_R2(IF, Id_A, Iq_A, Ud_V, Uq_V, Ts, &R2))
+            {
+                IF_Fail(IF);
+                return;
+            }
+            if (IF->State.Kick_Current_Valid)
+            {
+                IF->State.Kick_Base_R2_Sum += R2;
+                IF->State.Kick_Base_R2_Cnt++;
+            }
+            IF->State.Kick_Time += Ts;
+            if (IF->State.Kick_Time >= IF_KICK_BASE_SAMPLE_S)
+            {
+                if (IF->State.Kick_Base_R2_Cnt == 0U)
+                {
+                    IF_Fail(IF);
+                    return;
+                }
+                IF->State.Kick_Time = 0.0f;
+                IF->State.Kick_Mode = IF_KICK_RAMP_UP;
+            }
             return;
 
         case IF_KICK_RAMP_UP:
             IF->State.We += Dir * We_Step;
             Check_Abs = Abs_F(IF->State.Kick_Check_We);
-            if (Abs_F(IF->State.We) > Check_Abs)
+            if (Abs_F(IF->State.We) >= Check_Abs)
             {
                 IF->State.We = IF->State.Kick_Check_We;
+                Kick_Verify_Reset(IF);
+                IF->State.Kick_Mode = IF_KICK_VERIFY;
             }
+            return;
 
-            if (!Kick_Bemf_Sample(IF, Iq_A, Uq_V))
+        case IF_KICK_VERIFY:
+            R2 = 0.0f;
+            if (!Kick_Residual_R2(IF, Id_A, Iq_A, Ud_V, Uq_V, Ts, &R2))
             {
                 IF_Fail(IF);
                 return;
             }
 
-            if (Abs_F(IF->State.We) < Check_Abs)
+            IF->State.Kick_Cycle_R2_Sum += R2;
+            IF->State.Kick_Cycle_R2_Cnt++;
+            IF->State.Kick_Cycle_Travel += Abs_F(IF->State.We) * Ts;
+            if (IF->State.Kick_Cycle_Travel < TWO_PI_F)
             {
                 return;
             }
 
-            if (Kick_Motion_Confirmed(IF))
+            IF->State.Kick_Verify_Cycles++;
+            if (Kick_Cycle_Passed(IF))
+            {
+                IF->State.Kick_Verify_Pass++;
+            }
+
+            IF->State.Kick_Cycle_R2_Sum = 0.0f;
+            IF->State.Kick_Cycle_R2_Cnt = 0U;
+            IF->State.Kick_Cycle_Travel -= TWO_PI_F;
+
+            if (IF->State.Kick_Verify_Cycles < IF_KICK_VERIFY_CYCLE_COUNT)
+            {
+                return;
+            }
+
+            if (IF->State.Kick_Verify_Pass == IF_KICK_VERIFY_CYCLE_COUNT)
             {
                 IF->State.Iq_Work_A = IF->State.Kick_I_Target_A;
                 IF->State.Mode = (IF->State.We == IF->State.We_Target) ? IF_HOLD : IF_RAMP;
@@ -265,7 +358,11 @@ static void Kick_Run(IF_T *IF, float Iq_A, float Uq_V, float Ts)
                 IF_Fail(IF);
                 return;
             }
-            Kick_Sample_Reset(IF);
+
+            IF->State.Kick_Time = 0.0f;
+            IF->State.Kick_Base_R2_Sum = 0.0f;
+            IF->State.Kick_Base_R2_Cnt = 0U;
+            Kick_Verify_Reset(IF);
             IF->State.Kick_Mode = IF_KICK_CURRENT;
             return;
 
@@ -301,12 +398,16 @@ void IF_Init(IF_T *IF, float Theta_Start, float We_Start)
         (IF->Para.Acc <= 0.0f) ||
         (IF->Para.Iq_Slew_A_S <= 0.0f) ||
         (IF->Para.Rs_Ohm < 0.0f) ||
+        (IF->Para.Ld_H <= 0.0f) ||
+        (IF->Para.Lq_H <= 0.0f) ||
         !__builtin_isfinite(IF->Para.Iq_Min_A) ||
         !__builtin_isfinite(IF->Para.Iq_Max_A) ||
         !__builtin_isfinite(IF->Para.We_Base) ||
         !__builtin_isfinite(IF->Para.Acc) ||
         !__builtin_isfinite(IF->Para.Iq_Slew_A_S) ||
         !__builtin_isfinite(IF->Para.Rs_Ohm) ||
+        !__builtin_isfinite(IF->Para.Ld_H) ||
+        !__builtin_isfinite(IF->Para.Lq_H) ||
         !__builtin_isfinite(IF->State.Theta_e) ||
         !__builtin_isfinite(We_Start))
     {
@@ -363,9 +464,6 @@ void IF_Run(IF_T *IF,
     float Iq_Target;
     float We_Step;
 
-    (void)Id_A;
-    (void)Ud_V;
-
     if ((IF == NULL) || (Theta_e == NULL) || (Id_Ref == NULL) || (Iq_Ref == NULL) ||
         (Ts <= 0.0f) || !__builtin_isfinite(Ts))
     {
@@ -391,7 +489,7 @@ void IF_Run(IF_T *IF,
 
     if (IF->State.Mode == IF_KICK)
     {
-        Kick_Run(IF, Iq_A, Uq_V, Ts);
+        Kick_Run(IF, Id_A, Iq_A, Ud_V, Uq_V, Ts);
     }
     else
     {
