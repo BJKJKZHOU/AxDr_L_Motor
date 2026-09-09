@@ -21,10 +21,8 @@ typedef enum
 typedef enum
 {
     IF_KICK_CURRENT = 0,
-    IF_KICK_LOW_SETTLE,
-    IF_KICK_LOW_SAMPLE,
-    IF_KICK_HIGH_SETTLE,
-    IF_KICK_HIGH_SAMPLE,
+    IF_KICK_RAMP_UP,
+    IF_KICK_RAMP_DOWN,
 
 } IF_Kick_Mode_e;
 
@@ -51,13 +49,12 @@ typedef struct
     float Iq_Work_A;
 
     IF_Kick_Mode_e Kick_Mode;
-    float Kick_Low_We;
-    float Kick_High_We;
+    float Kick_Check_We;
     float Kick_I_Target_A;
-    float Kick_Travel;
-    float Kick_Bemf_Sum;
-    float Kick_Bemf_Low;
-    uint32_t Kick_Sample_Cnt;
+    float Kick_Bemf_Low_Sum;
+    float Kick_Bemf_High_Sum;
+    uint32_t Kick_Bemf_Low_Cnt;
+    uint32_t Kick_Bemf_High_Cnt;
 
 } IF_State_T;
 

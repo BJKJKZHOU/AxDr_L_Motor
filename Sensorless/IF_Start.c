@@ -9,22 +9,18 @@
 
 #include "Math.h"
 
-/*
- * Startup only needs to answer whether the rotor follows the commanded field.
- * Use two electrical-speed points at the same current and compare the q-axis
- * back-EMF proxy:
- *
- *     Eq ~= dir * (Uq - Rs * Iq)
- *
- * A true rotating rotor makes Eq grow with speed. A cogging/stalled rotor can
- * produce a stable model offset, but that offset does not scale with speed.
- * This avoids sqrt/atan2/current derivatives in the 20 kHz fast loop.
+/* Adaptive startup keeps the fast loop simple:
+ * - ramp electrical speed continuously instead of stepping between test points;
+ * - sample the q-axis back-EMF proxy in low/high portions of one complete ramp;
+ * - decide only after the full ramp reaches the check speed;
+ * - on failure, ramp back to zero before increasing current and retrying.
  */
-#define IF_KICK_WE_RATIO          0.125f
-#define IF_KICK_I_STEP_RATIO      0.10f
-#define IF_KICK_SETTLE_TRAVEL_RAD PI_F
-#define IF_KICK_SAMPLE_TRAVEL_RAD TWO_PI_F
-#define IF_KICK_BEMF_GROWTH_RATIO 0.25f
+#define IF_KICK_CHECK_WE_RATIO      0.25f
+#define IF_KICK_I_STEP_RATIO        0.10f
+#define IF_KICK_LOW_BEGIN_RATIO     0.40f
+#define IF_KICK_LOW_END_RATIO       0.60f
+#define IF_KICK_HIGH_BEGIN_RATIO    0.80f
+#define IF_KICK_BEMF_GROWTH_RATIO   0.25f
 
 static float Abs_F(float X)
 {
@@ -43,11 +39,12 @@ static void IF_Fail(IF_T *IF)
     IF->State.Iq = 0.0f;
 }
 
-static void Kick_Window_Reset(IF_T *IF)
+static void Kick_Sample_Reset(IF_T *IF)
 {
-    IF->State.Kick_Travel = 0.0f;
-    IF->State.Kick_Bemf_Sum = 0.0f;
-    IF->State.Kick_Sample_Cnt = 0U;
+    IF->State.Kick_Bemf_Low_Sum = 0.0f;
+    IF->State.Kick_Bemf_High_Sum = 0.0f;
+    IF->State.Kick_Bemf_Low_Cnt = 0U;
+    IF->State.Kick_Bemf_High_Cnt = 0U;
 }
 
 static void Iq_Slew_Run(IF_T *IF, float Target, float Ts)
@@ -73,70 +70,10 @@ static void Iq_Slew_Run(IF_T *IF, float Target, float Ts)
     }
 }
 
-static bool Kick_Travel_Done(IF_T *IF, float Travel, float Ts)
-{
-    IF->State.Kick_Travel += Abs_F(IF->State.We) * Ts;
-    return IF->State.Kick_Travel >= Travel;
-}
-
-static bool Kick_Sample_Run(IF_T *IF,
-                            float Iq_A,
-                            float Uq_V,
-                            float Dir,
-                            float Ts,
-                            float *Average)
-{
-    float Bemf;
-
-    if ((Average == NULL) || !__builtin_isfinite(Iq_A) || !__builtin_isfinite(Uq_V))
-    {
-        return false;
-    }
-
-    Bemf = Dir * (Uq_V - IF->Para.Rs_Ohm * Iq_A);
-    if (!__builtin_isfinite(Bemf))
-    {
-        return false;
-    }
-
-    IF->State.Kick_Bemf_Sum += Bemf;
-    IF->State.Kick_Sample_Cnt++;
-
-    if (!Kick_Travel_Done(IF, IF_KICK_SAMPLE_TRAVEL_RAD, Ts))
-    {
-        return true;
-    }
-
-    if (IF->State.Kick_Sample_Cnt == 0U)
-    {
-        return false;
-    }
-
-    *Average = IF->State.Kick_Bemf_Sum / (float)IF->State.Kick_Sample_Cnt;
-    return __builtin_isfinite(*Average);
-}
-
-static bool Kick_Motion_Confirmed(float Bemf_Low, float Bemf_High)
-{
-    float Growth;
-
-    if (!__builtin_isfinite(Bemf_Low) || !__builtin_isfinite(Bemf_High) ||
-        (Bemf_High <= 0.0f))
-    {
-        return false;
-    }
-
-    Growth = Bemf_High - Bemf_Low;
-    return (Growth > 0.0f) &&
-           (Growth >= IF_KICK_BEMF_GROWTH_RATIO * Abs_F(Bemf_High));
-}
-
-static bool Kick_Speeds_Build(IF_T *IF)
+static bool Kick_Check_We_Build(IF_T *IF)
 {
     float Target_Abs;
-    float Low_Abs;
-    float High_Abs;
-    float Dir;
+    float Check_Abs;
 
     Target_Abs = Abs_F(IF->State.We_Target);
     if (Target_Abs <= 0.0f)
@@ -144,26 +81,18 @@ static bool Kick_Speeds_Build(IF_T *IF)
         return false;
     }
 
-    Dir = Sign_F(IF->State.We_Target);
-    Low_Abs = IF_KICK_WE_RATIO * IF->Para.We_Base;
-    if (Low_Abs >= Target_Abs)
+    Check_Abs = IF_KICK_CHECK_WE_RATIO * IF->Para.We_Base;
+    if (Check_Abs > Target_Abs)
     {
-        Low_Abs = 0.5f * Target_Abs;
+        Check_Abs = Target_Abs;
     }
 
-    High_Abs = 2.0f * Low_Abs;
-    if (High_Abs > Target_Abs)
-    {
-        High_Abs = Target_Abs;
-    }
-
-    if ((Low_Abs <= 0.0f) || (High_Abs <= Low_Abs))
+    if (Check_Abs <= 0.0f)
     {
         return false;
     }
 
-    IF->State.Kick_Low_We = Dir * Low_Abs;
-    IF->State.Kick_High_We = Dir * High_Abs;
+    IF->State.Kick_Check_We = Sign_F(IF->State.We_Target) * Check_Abs;
     return true;
 }
 
@@ -191,17 +120,75 @@ static bool Kick_Current_Increase(IF_T *IF)
     }
 
     IF->State.Iq_Work_A = IF->State.Kick_I_Target_A;
-    IF->State.We = 0.0f;
-    IF->State.Kick_Mode = IF_KICK_CURRENT;
-    IF->State.Kick_Bemf_Low = 0.0f;
-    Kick_Window_Reset(IF);
     return true;
+}
+
+static bool Kick_Bemf_Sample(IF_T *IF, float Iq_A, float Uq_V)
+{
+    float Dir;
+    float Bemf;
+    float We_Abs;
+    float Check_Abs;
+
+    if (!__builtin_isfinite(Iq_A) || !__builtin_isfinite(Uq_V))
+    {
+        return false;
+    }
+
+    Dir = Sign_F(IF->State.We_Target);
+    Bemf = Dir * (Uq_V - IF->Para.Rs_Ohm * Iq_A);
+    if (!__builtin_isfinite(Bemf))
+    {
+        return false;
+    }
+
+    We_Abs = Abs_F(IF->State.We);
+    Check_Abs = Abs_F(IF->State.Kick_Check_We);
+
+    if ((We_Abs >= IF_KICK_LOW_BEGIN_RATIO * Check_Abs) &&
+        (We_Abs <= IF_KICK_LOW_END_RATIO * Check_Abs))
+    {
+        IF->State.Kick_Bemf_Low_Sum += Bemf;
+        IF->State.Kick_Bemf_Low_Cnt++;
+    }
+    else if (We_Abs >= IF_KICK_HIGH_BEGIN_RATIO * Check_Abs)
+    {
+        IF->State.Kick_Bemf_High_Sum += Bemf;
+        IF->State.Kick_Bemf_High_Cnt++;
+    }
+
+    return true;
+}
+
+static bool Kick_Motion_Confirmed(IF_T *IF)
+{
+    float Bemf_Low;
+    float Bemf_High;
+    float Growth;
+
+    if ((IF->State.Kick_Bemf_Low_Cnt == 0U) || (IF->State.Kick_Bemf_High_Cnt == 0U))
+    {
+        return false;
+    }
+
+    Bemf_Low = IF->State.Kick_Bemf_Low_Sum / (float)IF->State.Kick_Bemf_Low_Cnt;
+    Bemf_High = IF->State.Kick_Bemf_High_Sum / (float)IF->State.Kick_Bemf_High_Cnt;
+    if (!__builtin_isfinite(Bemf_Low) || !__builtin_isfinite(Bemf_High) ||
+        (Bemf_High <= 0.0f))
+    {
+        return false;
+    }
+
+    Growth = Bemf_High - Bemf_Low;
+    return (Growth > 0.0f) &&
+           (Growth >= IF_KICK_BEMF_GROWTH_RATIO * Abs_F(Bemf_High));
 }
 
 static void Kick_Run(IF_T *IF, float Iq_A, float Uq_V, float Ts)
 {
     float Dir;
-    float Bemf_Avg;
+    float We_Step;
+    float Check_Abs;
 
     if (Abs_F(IF->State.We_Target) <= 0.0f)
     {
@@ -212,6 +199,7 @@ static void Kick_Run(IF_T *IF, float Iq_A, float Uq_V, float Ts)
 
     Dir = Sign_F(IF->State.We_Target);
     Iq_Slew_Run(IF, Dir * IF->State.Kick_I_Target_A, Ts);
+    We_Step = IF->Para.Acc * Ts;
 
     switch (IF->State.Kick_Mode)
     {
@@ -221,72 +209,64 @@ static void Kick_Run(IF_T *IF, float Iq_A, float Uq_V, float Ts)
             {
                 return;
             }
-            if ((IF->State.Kick_Low_We == 0.0f) && !Kick_Speeds_Build(IF))
+            if ((IF->State.Kick_Check_We == 0.0f) && !Kick_Check_We_Build(IF))
             {
                 IF_Fail(IF);
                 return;
             }
-            IF->State.We = IF->State.Kick_Low_We;
-            Kick_Window_Reset(IF);
-            IF->State.Kick_Mode = IF_KICK_LOW_SETTLE;
+            Kick_Sample_Reset(IF);
+            IF->State.Kick_Mode = IF_KICK_RAMP_UP;
             return;
 
-        case IF_KICK_LOW_SETTLE:
-            if (Kick_Travel_Done(IF, IF_KICK_SETTLE_TRAVEL_RAD, Ts))
+        case IF_KICK_RAMP_UP:
+            IF->State.We += Dir * We_Step;
+            Check_Abs = Abs_F(IF->State.Kick_Check_We);
+            if (Abs_F(IF->State.We) > Check_Abs)
             {
-                Kick_Window_Reset(IF);
-                IF->State.Kick_Mode = IF_KICK_LOW_SAMPLE;
+                IF->State.We = IF->State.Kick_Check_We;
             }
-            return;
 
-        case IF_KICK_LOW_SAMPLE:
-            Bemf_Avg = 0.0f;
-            if (!Kick_Sample_Run(IF, Iq_A, Uq_V, Dir, Ts, &Bemf_Avg))
+            if (!Kick_Bemf_Sample(IF, Iq_A, Uq_V))
             {
                 IF_Fail(IF);
                 return;
             }
-            if (IF->State.Kick_Travel < IF_KICK_SAMPLE_TRAVEL_RAD)
-            {
-                return;
-            }
-            IF->State.Kick_Bemf_Low = Bemf_Avg;
-            IF->State.We = IF->State.Kick_High_We;
-            Kick_Window_Reset(IF);
-            IF->State.Kick_Mode = IF_KICK_HIGH_SETTLE;
-            return;
 
-        case IF_KICK_HIGH_SETTLE:
-            if (Kick_Travel_Done(IF, IF_KICK_SETTLE_TRAVEL_RAD, Ts))
-            {
-                Kick_Window_Reset(IF);
-                IF->State.Kick_Mode = IF_KICK_HIGH_SAMPLE;
-            }
-            return;
-
-        case IF_KICK_HIGH_SAMPLE:
-            Bemf_Avg = 0.0f;
-            if (!Kick_Sample_Run(IF, Iq_A, Uq_V, Dir, Ts, &Bemf_Avg))
-            {
-                IF_Fail(IF);
-                return;
-            }
-            if (IF->State.Kick_Travel < IF_KICK_SAMPLE_TRAVEL_RAD)
+            if (Abs_F(IF->State.We) < Check_Abs)
             {
                 return;
             }
 
-            if (Kick_Motion_Confirmed(IF->State.Kick_Bemf_Low, Bemf_Avg))
+            if (Kick_Motion_Confirmed(IF))
             {
                 IF->State.Iq_Work_A = IF->State.Kick_I_Target_A;
                 IF->State.Mode = (IF->State.We == IF->State.We_Target) ? IF_HOLD : IF_RAMP;
                 return;
             }
 
+            IF->State.Kick_Mode = IF_KICK_RAMP_DOWN;
+            return;
+
+        case IF_KICK_RAMP_DOWN:
+            if (IF->State.We > We_Step)
+            {
+                IF->State.We -= We_Step;
+                return;
+            }
+            if (IF->State.We < -We_Step)
+            {
+                IF->State.We += We_Step;
+                return;
+            }
+
+            IF->State.We = 0.0f;
             if (!Kick_Current_Increase(IF))
             {
                 IF_Fail(IF);
+                return;
             }
+            Kick_Sample_Reset(IF);
+            IF->State.Kick_Mode = IF_KICK_CURRENT;
             return;
 
         default:
