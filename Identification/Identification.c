@@ -12,8 +12,9 @@
 #include "Rs_Ls.h"
 #include "control_params.h"
 
-#define IDENT_I_HARD_A     5.0f
-#define IDENT_I_OVER_COUNT 5U
+#define IDENT_I_GUARD_RATIO 1.25f
+#define IDENT_I_HARD_A      5.0f
+#define IDENT_I_OVER_COUNT  5U
 
 static volatile Ident_Mode_e Ident_Mode = IDENT_NONE;
 static volatile Ident_State_e Ident_State = IDENT_IDLE;
@@ -206,6 +207,7 @@ Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
                                           float *Ubeta_V)
 {
     float I_Max;
+    float I_Guard;
     float I_Peak;
     bool I_Trip;
 
@@ -222,6 +224,12 @@ Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
 
     Envelope_Voltage_Update();
     I_Max = Ident_Envelope.I_Max;
+    I_Guard = IDENT_I_GUARD_RATIO * I_Max;
+    if (I_Guard > IDENT_I_HARD_A)
+    {
+        I_Guard = IDENT_I_HARD_A;
+    }
+
     I_Peak = Abs_Value(Ia_A);
     I_Trip = false;
 
@@ -235,12 +243,15 @@ Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
         I_Peak = Abs_Value(Ic_A);
     }
 
-    /* At 20 kHz, five samples limit the filtered trip delay to 250 us. */
+    /* I_Max limits the commanded identification current. Actual phase current
+     * may overshoot during startup, so use a guarded phase-current threshold
+     * before the absolute hard limit. At 20 kHz, five samples correspond to
+     * 250 us of persistent over-current before tripping the filtered guard. */
     if ((I_Max <= 0.0f) || (I_Peak > IDENT_I_HARD_A))
     {
         I_Trip = true;
     }
-    else if (I_Peak > I_Max)
+    else if (I_Peak > I_Guard)
     {
         if (I_Over_Cnt < IDENT_I_OVER_COUNT)
         {
