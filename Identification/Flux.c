@@ -532,6 +532,10 @@ static Motor_Fast_Mode_e Flux_Align_Run(int8_t Dir, float *Id_Ref, float *Iq_Ref
         Current_Loop_State_Reset();
         IF_Init(&Flux_IF, -0.5f * PI_F * (float)Dir, 0.0f);
         IF_Target_Set(&Flux_IF, We_Target);
+        if (Flux_IF.State.Mode == IF_FAILED)
+        {
+            return Flux_Fail_Off();
+        }
         State = FLUX_INITIAL_IF;
     }
     return FAST_CURRENT;
@@ -552,7 +556,15 @@ static Motor_Fast_Mode_e Flux_Finish_Run(const Flux_Fast_Context_T *Context,
     }
     else
     {
-        IF_Run(&Flux_IF, Theta_e, Id_Ref, Iq_Ref, CUR_TS);
+        IF_Run(&Flux_IF,
+               Motor_Run.Id,
+               Motor_Run.Iq,
+               Motor_Run.Ud,
+               Motor_Run.Uq,
+               Theta_e,
+               Id_Ref,
+               Iq_Ref,
+               CUR_TS);
     }
 
     if (Finish_Init == 0U)
@@ -655,7 +667,21 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
         }
     }
 
-    IF_Run(&Flux_IF, &Context->Theta_IF, &Context->Id_IF, &Context->Iq_IF, CUR_TS);
+    IF_Run(&Flux_IF,
+           Motor_Run.Id,
+           Motor_Run.Iq,
+           Motor_Run.Ud,
+           Motor_Run.Uq,
+           &Context->Theta_IF,
+           &Context->Id_IF,
+           &Context->Iq_IF,
+           CUR_TS);
+    if (Flux_IF.State.Mode == IF_FAILED)
+    {
+        Flux_Fail_Off();
+        return FLUX_STEP_OFF;
+    }
+
     *Theta_e = Context->Theta_IF;
     *Id_Ref = Context->Id_IF;
     *Iq_Ref = Context->Iq_IF;
@@ -981,12 +1007,14 @@ bool Flux_Start(float Wm_Target)
     We_Target = Sign * ((IF_Para.We_Base < We_Max) ? IF_Para.We_Base : We_Max);
     IF_Para.Acc = Abs_Value(We_Target) / Flux_Config.Workflow.If_Accel_S;
 
-    Flux_IF.Para.Iq_Run_A = IF_Para.Iq_Max_A;
+    Flux_IF.Para.Iq_Min_A = IF_Para.Iq_Start_A;
+    Flux_IF.Para.Iq_Max_A = IF_Para.Iq_Max_A;
     Flux_IF.Para.We_Base = IF_Para.We_Base;
     Flux_IF.Para.Acc = IF_Para.Acc;
-    Flux_IF.Para.Breakaway_We_Ratio = Flux_Config.Workflow.Breakaway_We_Ratio;
-    Flux_IF.Para.Breakaway_Acc_Ratio = Flux_Config.Workflow.Breakaway_Acc_Ratio;
     Flux_IF.Para.Iq_Slew_A_S = IF_IQ_SLEW_A_S;
+    Flux_IF.Para.Rs_Ohm = Motor_Para.Rs;
+    Flux_IF.Para.Ld_H = Motor_Para.Ld;
+    Flux_IF.Para.Lq_H = Motor_Para.Lq;
 
     Align_Reset();
     Current_Loop_State_Reset();

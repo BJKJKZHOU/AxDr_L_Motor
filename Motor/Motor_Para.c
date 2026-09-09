@@ -15,10 +15,7 @@
 #include "motor_params.h"
 
 #define MOTOR_IF_U_BUDGET_RATIO  0.65f
-#define MOTOR_IF_I_START_RATIO   0.15f
-#define MOTOR_IF_I_MAX_RATIO     0.35f
-#define MOTOR_IF_R_START_RATIO   0.40f
-#define MOTOR_IF_R_MAX_RATIO     0.60f
+#define MOTOR_IF_I_START_A       0.20f
 #define MOTOR_IF_WE_RL_RATIO     0.02f
 #define MOTOR_IF_WE_MARGIN_RATIO 0.25f
 #define MOTOR_IF_WE_MIN_RAD_S    1.0f
@@ -28,6 +25,22 @@ Motor_Para_T Motor_Para = MOTOR_PARA_DEFAULT;
 
 static float IF_We_RL_Base = MOTOR_IF_WE_RL_RATIO * MOTOR_RS_DEFAULT / MOTOR_LQ_DEFAULT;
 
+/*
+ * Build controller fallback values from the currently active motor model.
+ *
+ * Persistence is not implemented yet. When persistent parameters are added,
+ * startup should keep this ordering:
+ *   1. load valid persisted Motor_Para over the compiled defaults;
+ *   2. call Motor_Para_Update() to build usable controller defaults from that
+ *      motor model;
+ *   3. load valid persisted controller tuning over these generated defaults.
+ *
+ * Therefore the controller values generated here are initialization/fallback
+ * values, not an authority that should overwrite valid user tuning loaded from
+ * persistent storage. Identification-local temporary tuning must likewise be
+ * restored to the pre-identification controller values rather than regenerated
+ * through this function.
+ */
 void Motor_Para_Update(void)
 {
     float Kt;
@@ -66,8 +79,6 @@ void Motor_Pp_Changed(void)
 bool Motor_IF_Para_Build(float Vbus_V, float I_Max_A, Motor_IF_Para_T *Para)
 {
     float U_Available_V;
-    float I_R_Start;
-    float I_R_Max;
     float U_Per_I;
     float We_RL_Max;
     float We_Base;
@@ -88,20 +99,8 @@ bool Motor_IF_Para_Build(float Vbus_V, float I_Max_A, Motor_IF_Para_T *Para)
     U_Available_V = Vbus_V * INV_SQRT3_F * VOLT_MOD_MAX;
     Para->U_Budget_V = MOTOR_IF_U_BUDGET_RATIO * U_Available_V;
 
-    I_R_Start = MOTOR_IF_R_START_RATIO * Para->U_Budget_V / Motor_Para.Rs;
-    I_R_Max = MOTOR_IF_R_MAX_RATIO * Para->U_Budget_V / Motor_Para.Rs;
-
-    Para->Iq_Start_A = MOTOR_IF_I_START_RATIO * I_Max_A;
-    if (Para->Iq_Start_A > I_R_Start)
-    {
-        Para->Iq_Start_A = I_R_Start;
-    }
-
-    Para->Iq_Max_A = MOTOR_IF_I_MAX_RATIO * I_Max_A;
-    if (Para->Iq_Max_A > I_R_Max)
-    {
-        Para->Iq_Max_A = I_R_Max;
-    }
+    Para->Iq_Start_A = MOTOR_IF_I_START_A;
+    Para->Iq_Max_A = I_Max_A;
 
     if ((Para->Iq_Start_A <= 0.0f) || (Para->Iq_Max_A < Para->Iq_Start_A))
     {

@@ -39,9 +39,6 @@
 #define FLUX_MIN_RATIO2 0.64f
 #define FLUX_MAX_RATIO2 1.44f
 
-#define IF_BREAKAWAY_WE_RATIO  0.50f
-#define IF_BREAKAWAY_ACC_RATIO 3.0f
-
 /* Temporary handover boundary. Replace with motor-dependent observer-quality
  * criteria after low-speed hardware characterization. */
 #define OBS_TO_IF_WE_RAD_S (0.75f * IF_WE_TARGET_RAD_S)
@@ -161,12 +158,14 @@ bool Sensorless_Begin(void)
         return false;
     }
 
-    Sensorless_IF.Para.Iq_Run_A = IF_Para.Iq_Max_A;
+    Sensorless_IF.Para.Iq_Min_A = IF_Para.Iq_Start_A;
+    Sensorless_IF.Para.Iq_Max_A = IF_Para.Iq_Max_A;
     Sensorless_IF.Para.We_Base = IF_Para.We_Base;
     Sensorless_IF.Para.Acc = IF_Para.Acc;
-    Sensorless_IF.Para.Breakaway_We_Ratio = IF_BREAKAWAY_WE_RATIO;
-    Sensorless_IF.Para.Breakaway_Acc_Ratio = IF_BREAKAWAY_ACC_RATIO;
     Sensorless_IF.Para.Iq_Slew_A_S = IF_IQ_SLEW_A_S;
+    Sensorless_IF.Para.Rs_Ohm = Motor_Para.Rs;
+    Sensorless_IF.Para.Ld_H = Motor_Para.Ld;
+    Sensorless_IF.Para.Lq_H = Motor_Para.Lq;
 
     Flux_Obs.Para.Rs = Motor_Para.Rs;
     Flux_Obs.Para.Ls = Motor_Para.Ld;
@@ -247,7 +246,7 @@ void Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float 
             PLL_Reset(&Flux_PLL, Theta_Start, 0.0f);
             Flux_Obs_U_Valid = false;
 
-            State = SL_IF;
+            State = (Sensorless_IF.State.Mode == IF_FAILED) ? SL_FAILED : SL_IF;
         }
 
         return;
@@ -262,7 +261,23 @@ void Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float 
     if (State != SL_OBS)
     {
         IF_Target_Set(&Sensorless_IF, IF_Target(We_Ref));
-        IF_Run(&Sensorless_IF, &Theta_IF, &Id_IF, &Iq_IF, CUR_TS);
+        IF_Run(&Sensorless_IF,
+               Motor_Run.Id,
+               Motor_Run.Iq,
+               Motor_Run.Ud,
+               Motor_Run.Uq,
+               &Theta_IF,
+               &Id_IF,
+               &Iq_IF,
+               CUR_TS);
+        if (Sensorless_IF.State.Mode == IF_FAILED)
+        {
+            State = SL_FAILED;
+            *Theta_e = Theta_Use_Last;
+            *Id_Ref = 0.0f;
+            *Iq_Ref = 0.0f;
+            return;
+        }
     }
 
     Flux_Obs_U_Valid = true;
@@ -351,6 +366,14 @@ void Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float 
         {
             IF_Init(&Sensorless_IF, Theta_Obs, Flux_PLL.State.We);
             IF_Target_Set(&Sensorless_IF, We_Ref);
+            if (Sensorless_IF.State.Mode == IF_FAILED)
+            {
+                State = SL_FAILED;
+                *Theta_e = Theta_Use_Last;
+                *Id_Ref = 0.0f;
+                *Iq_Ref = 0.0f;
+                return;
+            }
             Blend_Cnt = 0U;
             State = SL_OBS_TO_IF;
         }

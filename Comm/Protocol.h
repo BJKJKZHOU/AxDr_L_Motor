@@ -54,10 +54,17 @@ typedef enum
 
 typedef struct
 {
-    uint16_t Id;
-    uint8_t Len;
-    uint8_t Data[AXDR_MAX_DATA_LEN];
+    uint16_t Id;      /* 11-bit standard CAN identifier. */
+    uint8_t Len;      /* CAN FD data-field length: 0..8, 12, 16, 20, 24, 32, 48, 64. */
+    uint8_t Data[AXDR_MAX_DATA_LEN]; /* Full CAN FD data field, including zero padding. */
 } AxDr_Msg_T;
+
+/* Return the canonical CAN FD data-field length for Required payload bytes.
+ * Returns 0xFF when Required exceeds the 64-byte CAN FD limit.
+ */
+uint8_t AxDr_CANFD_Length(uint8_t Required);
+bool AxDr_CANFD_Length_Valid(uint8_t Len);
+bool AxDr_CANFD_Padding_Zero(const uint8_t *Data, uint8_t Required, uint8_t Len);
 
 void Protocol_Rx(uint16_t Id, const uint8_t *Data, uint8_t Len);
 void Protocol_Parameter_Write_Response(uint8_t Txn,
