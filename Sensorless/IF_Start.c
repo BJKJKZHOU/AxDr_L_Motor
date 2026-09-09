@@ -17,16 +17,17 @@
  *   Rq = Uq*Ts - Rs*Iq*Ts - Lq*dIq - We*Ld*Id*Ts
  *   R2 = Rd*Rd + Rq*Rq
  *
- * Each retry first raises current to the requested test level and lets it
- * settle at zero electrical speed. Only then does the electrical speed ramp
- * up slowly to a low check point. At that check speed, several complete
- * electrical cycles are verified before startup is accepted.
+ * Startup first raises current and ramps electrical speed slowly to a low
+ * check point. If motion verification fails, keep that low electrical speed,
+ * raise current, let it settle, and verify again. This preserves mechanical
+ * momentum instead of restarting from zero for every current step.
  */
 #define IF_KICK_CHECK_WE_RATIO       0.10f
 #define IF_KICK_ACC_RATIO            0.50f
 #define IF_KICK_I_STEP_RATIO         0.10f
 #define IF_KICK_BASE_SETTLE_S        0.200f
 #define IF_KICK_BASE_SAMPLE_S        0.020f
+#define IF_KICK_CURRENT_SETTLE_S     0.100f
 #define IF_KICK_VERIFY_CYCLE_COUNT   3U
 #define IF_KICK_R2_BASE_RATIO        4.0f
 
@@ -338,22 +339,6 @@ static void Kick_Run(IF_T *IF,
                 return;
             }
 
-            IF->State.Kick_Mode = IF_KICK_RAMP_DOWN;
-            return;
-
-        case IF_KICK_RAMP_DOWN:
-            if (IF->State.We > We_Step)
-            {
-                IF->State.We -= We_Step;
-                return;
-            }
-            if (IF->State.We < -We_Step)
-            {
-                IF->State.We += We_Step;
-                return;
-            }
-
-            IF->State.We = 0.0f;
             if (!Kick_Current_Increase(IF))
             {
                 IF_Fail(IF);
@@ -361,10 +346,26 @@ static void Kick_Run(IF_T *IF,
             }
 
             IF->State.Kick_Time = 0.0f;
-            IF->State.Kick_Base_R2_Sum = 0.0f;
-            IF->State.Kick_Base_R2_Cnt = 0U;
             Kick_Verify_Reset(IF);
-            IF->State.Kick_Mode = IF_KICK_CURRENT;
+            IF->State.Kick_Mode = IF_KICK_CURRENT_RAISE;
+            return;
+
+        case IF_KICK_CURRENT_RAISE:
+            IF->State.We = IF->State.Kick_Check_We;
+            if (Abs_F(IF->State.Iq) < IF->State.Kick_I_Target_A)
+            {
+                return;
+            }
+
+            IF->State.Kick_Time += Ts;
+            if (IF->State.Kick_Time < IF_KICK_CURRENT_SETTLE_S)
+            {
+                return;
+            }
+
+            IF->State.Kick_Time = 0.0f;
+            Kick_Verify_Reset(IF);
+            IF->State.Kick_Mode = IF_KICK_VERIFY;
             return;
 
         default:

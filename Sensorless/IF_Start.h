@@ -25,7 +25,7 @@ typedef enum
     IF_KICK_BASELINE_SAMPLE,
     IF_KICK_RAMP_UP,
     IF_KICK_VERIFY,
-    IF_KICK_RAMP_DOWN,
+    IF_KICK_CURRENT_RAISE,
 
 } IF_Kick_Mode_e;
 
