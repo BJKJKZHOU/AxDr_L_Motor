@@ -58,6 +58,7 @@
 { PARAM_IDENT_LS_RESULT, PARAM_FLOAT, NULL, -INFINITY, INFINITY, 0U },
 { PARAM_IDENT_FLUX_VALID, PARAM_U8, NULL, 0.0f, 1.0f, 0U },
 { PARAM_IDENT_FLUX_RESULT, PARAM_FLOAT, NULL, -INFINITY, INFINITY, 0U },
+{ PARAM_IDENT_FAIL_REASON, PARAM_U8, NULL, 0.0f, 3.0f, 0U },
 
 #elif defined(PARAM_GENERATE_VALIDATE)
 case PARAM_MOTOR_RS:
@@ -245,6 +246,10 @@ case PARAM_IDENT_FLUX_VALID:
 
 case PARAM_IDENT_FLUX_RESULT:
     Value->F32 = (float)Identification_Flux_Get();
+    return PARAM_OK;
+
+case PARAM_IDENT_FAIL_REASON:
+    Value->U8 = (uint8_t)Identification_Fail_Reason_Get();
     return PARAM_OK;
 
 #elif defined(PARAM_GENERATE_ACTION)

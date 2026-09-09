@@ -28,6 +28,15 @@ typedef enum
 
 } Ident_State_e;
 
+typedef enum
+{
+    IDENT_FAIL_NONE = 0,
+    IDENT_FAIL_PHASE_CURRENT,
+    IDENT_FAIL_FLUX_INTERNAL,
+    IDENT_FAIL_START_CONFIG,
+
+} Ident_Fail_Reason_e;
+
 typedef struct
 {
     float I_Max;
@@ -63,5 +72,6 @@ float Identification_Rs_Get(void);
 float Identification_Ls_Get(void);
 uint8_t Identification_Flux_Valid_Get(void);
 float Identification_Flux_Get(void);
+uint8_t Identification_Fail_Reason_Get(void);
 
 #endif /* IDENTIFICATION_H */

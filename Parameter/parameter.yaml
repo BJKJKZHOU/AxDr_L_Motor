@@ -509,6 +509,14 @@ objects:
     unit: Wb
     description: "最近一次Flux辨识得到的永磁磁链结果。"
 
+  PARAM_IDENT_FAIL_REASON:
+    id: 0x0912
+    type: u8
+    access: ro
+    getter: Identification_Fail_Reason_Get
+    description: "最近一次辨识失败原因；0表示无失败，非零仅用于最终诊断。"
+    range: { min: 0, max: 3 }
+
   ACTION_MOTOR_ENABLE:
     id: 0x1001
     type: action

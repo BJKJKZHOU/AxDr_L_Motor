@@ -18,6 +18,7 @@
 
 static volatile Ident_Mode_e Ident_Mode = IDENT_NONE;
 static volatile Ident_State_e Ident_State = IDENT_IDLE;
+static volatile Ident_Fail_Reason_e Ident_Fail_Reason = IDENT_FAIL_NONE;
 static Ident_Envelope_T Ident_Envelope = { 0 };
 static uint8_t I_Over_Cnt = 0U;
 
@@ -42,6 +43,8 @@ static void Envelope_Voltage_Update(void)
 
 bool Identification_Start(Ident_Mode_e Mode, float Wm_Target)
 {
+    Ident_Fail_Reason = IDENT_FAIL_NONE;
+
     if (Ident_State == IDENT_RUNNING)
     {
         return false;
@@ -49,6 +52,7 @@ bool Identification_Start(Ident_Mode_e Mode, float Wm_Target)
 
     if ((Mode != IDENT_RS_LS) && (Mode != IDENT_FLUX))
     {
+        Ident_Fail_Reason = IDENT_FAIL_START_CONFIG;
         return false;
     }
 
@@ -66,6 +70,7 @@ bool Identification_Start(Ident_Mode_e Mode, float Wm_Target)
     Envelope_Voltage_Update();
     if ((Ident_Envelope.I_Max <= 0.0f) || (Ident_Envelope.U_Max <= 0.0f))
     {
+        Ident_Fail_Reason = IDENT_FAIL_START_CONFIG;
         return false;
     }
 
@@ -77,6 +82,7 @@ bool Identification_Start(Ident_Mode_e Mode, float Wm_Target)
     }
     else if (!Flux_Start(Wm_Target))
     {
+        Ident_Fail_Reason = IDENT_FAIL_START_CONFIG;
         return false;
     }
 
@@ -127,7 +133,18 @@ void Identification_Control(void)
         }
 
         Flux_Result = Flux_Result_Get();
-        Ident_State = Flux_Result->Valid ? IDENT_DONE : IDENT_FAILED;
+        if (Flux_Result->Valid)
+        {
+            Ident_State = IDENT_DONE;
+        }
+        else
+        {
+            if (Ident_Fail_Reason == IDENT_FAIL_NONE)
+            {
+                Ident_Fail_Reason = IDENT_FAIL_FLUX_INTERNAL;
+            }
+            Ident_State = IDENT_FAILED;
+        }
     }
 }
 
@@ -272,6 +289,7 @@ Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
             Rs_Ls_Abort();
         }
 
+        Ident_Fail_Reason = IDENT_FAIL_PHASE_CURRENT;
         Ident_State = IDENT_FAILED;
         return FAST_OFF;
     }
@@ -327,4 +345,9 @@ uint8_t Identification_Flux_Valid_Get(void)
 float Identification_Flux_Get(void)
 {
     return Flux_Result_Get()->Flux_Wb;
+}
+
+uint8_t Identification_Fail_Reason_Get(void)
+{
+    return (uint8_t)Ident_Fail_Reason;
 }

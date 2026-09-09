@@ -93,6 +93,13 @@ IDENT_FAILED = 3
 MODE_IDENT = 4
 MOTOR_DISABLED = 0
 
+IDENT_FAIL_REASON_NAME = {
+    0: "NONE",
+    1: "PHASE_CURRENT",
+    2: "FLUX_INTERNAL",
+    3: "START_CONFIG",
+}
+
 OBJECT_NAME = {
     PARAM_MOTOR_PP: "PARAM_MOTOR_PP",
     PARAM_LIMIT_I_MAX: "PARAM_LIMIT_I_MAX",
@@ -106,6 +113,7 @@ OBJECT_NAME = {
     PARAM_IDENT_LS_RESULT: "PARAM_IDENT_LS_RESULT",
     PARAM_IDENT_FLUX_VALID: "PARAM_IDENT_FLUX_VALID",
     PARAM_IDENT_FLUX_RESULT: "PARAM_IDENT_FLUX_RESULT",
+    PARAM_IDENT_FAIL_REASON: "PARAM_IDENT_FAIL_REASON",
     ACTION_MOTOR_ENABLE: "ACTION_MOTOR_ENABLE",
     ACTION_MOTOR_DISABLE: "ACTION_MOTOR_DISABLE",
     ACTION_IDENT_RS_LS_START: "ACTION_IDENT_RS_LS_START",
@@ -713,6 +721,10 @@ class IdentificationClient:
             )
         return result
 
+    def ident_fail_reason(self):
+        reason = self.parameter_read(PARAM_IDENT_FAIL_REASON, PARAM_U8)
+        return reason, IDENT_FAIL_REASON_NAME.get(reason, f"UNKNOWN({reason})")
+
     def run_ident(self, mode, run_number, direction=None):
         if direction is not None:
             sign = 1.0 if direction == "forward" else -1.0
@@ -762,20 +774,28 @@ class IdentificationClient:
                 status = self.action_complete_status(txn, start_action)
                 if status is not None:
                     if status != 0:
+                        reason, reason_name = self.ident_fail_reason()
                         result = {
                             "state": IDENT_FAILED,
                             "valid": False,
+                            "fail_reason": reason,
+                            "fail_reason_name": reason_name,
                         }
                         status_name = STATUS_NAME.get(status, str(status))
                         failure = RuntimeError(
-                            f"identification completion: {status_name}"
+                            f"identification completion: {status_name}; "
+                            f"reason={reason_name}"
                         )
                     else:
                         result = self.ident_result(mode)
                         if not result["valid"]:
+                            reason, reason_name = self.ident_fail_reason()
                             result["state"] = IDENT_FAILED
+                            result["fail_reason"] = reason
+                            result["fail_reason_name"] = reason_name
                             failure = RuntimeError(
-                                "identification completed without a valid result"
+                                "identification completed without a valid result; "
+                                f"reason={reason_name}"
                             )
                     if failure is not None:
                         name = "Rs/Ls" if mode == IDENT_RS_LS else "Flux"
