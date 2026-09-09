@@ -24,42 +24,6 @@ void Current_Loop_State_Reset(void)
     Iq_Ctrl.Sig.Out = 0.0f;
 }
 
-void Current_Loop_Gain_Save(Current_Loop_Gain_T *Gain)
-{
-    if (Gain == 0)
-    {
-        return;
-    }
-
-    Gain->Id_Kp = Id_Ctrl.Para.Kp;
-    Gain->Id_Ki = Id_Ctrl.Para.Ki;
-    Gain->Iq_Kp = Iq_Ctrl.Para.Kp;
-    Gain->Iq_Ki = Iq_Ctrl.Para.Ki;
-}
-
-void Current_Loop_Gain_Set_RL(float Rs, float Ld, float Lq)
-{
-    Id_Ctrl.Para.Kp = Ld * CUR_WC_DEFAULT;
-    Id_Ctrl.Para.Ki = Rs * CUR_WC_DEFAULT;
-    Iq_Ctrl.Para.Kp = Lq * CUR_WC_DEFAULT;
-    Iq_Ctrl.Para.Ki = Rs * CUR_WC_DEFAULT;
-    Current_Loop_State_Reset();
-}
-
-void Current_Loop_Gain_Restore(const Current_Loop_Gain_T *Gain)
-{
-    if (Gain == 0)
-    {
-        return;
-    }
-
-    Id_Ctrl.Para.Kp = Gain->Id_Kp;
-    Id_Ctrl.Para.Ki = Gain->Id_Ki;
-    Iq_Ctrl.Para.Kp = Gain->Iq_Kp;
-    Iq_Ctrl.Para.Ki = Gain->Iq_Ki;
-    Current_Loop_State_Reset();
-}
-
 void Current_Loop(float Id_Ref, float Iq_Ref, float *Ualpha, float *Ubeta)
 {
     float Ialpha;

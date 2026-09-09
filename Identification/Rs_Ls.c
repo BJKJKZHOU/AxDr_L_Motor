@@ -85,9 +85,12 @@ static float Ls_B;
 static float Rs_C;
 static float Ls_C;
 
-static bool RL_Temporary;
+static bool Loop_Gain_Override;
 static bool Align_Pending;
-static Current_Loop_Gain_T Gain_Save;
+static float Id_Kp_Save;
+static float Id_Ki_Save;
+static float Iq_Kp_Save;
+static float Iq_Ki_Save;
 
 static void Frequency_Set(float Freq_Target)
 {
@@ -162,31 +165,42 @@ static void Voltage_Backoff(float U_Max)
     }
 }
 
-static void Rough_RL_Apply(float Rs, float Ls)
+static void Rough_Loop_Gain_Set(float Rs, float Ls)
 {
-    if (!RL_Temporary)
+    if (!Loop_Gain_Override)
     {
-        Current_Loop_Gain_Save(&Gain_Save);
-        RL_Temporary = true;
+        Id_Kp_Save = Id_Ctrl.Para.Kp;
+        Id_Ki_Save = Id_Ctrl.Para.Ki;
+        Iq_Kp_Save = Iq_Ctrl.Para.Kp;
+        Iq_Ki_Save = Iq_Ctrl.Para.Ki;
+        Loop_Gain_Override = true;
     }
 
-    Current_Loop_Gain_Set_RL(Rs, Ls, Ls);
+    Id_Ctrl.Para.Kp = Ls * CUR_WC_DEFAULT;
+    Id_Ctrl.Para.Ki = Rs * CUR_WC_DEFAULT;
+    Iq_Ctrl.Para.Kp = Ls * CUR_WC_DEFAULT;
+    Iq_Ctrl.Para.Ki = Rs * CUR_WC_DEFAULT;
+    Current_Loop_State_Reset();
 }
 
-static void Rough_RL_Restore(void)
+static void Rough_Loop_Gain_Restore(void)
 {
-    if (!RL_Temporary)
+    if (!Loop_Gain_Override)
     {
         return;
     }
 
-    Current_Loop_Gain_Restore(&Gain_Save);
-    RL_Temporary = false;
+    Id_Ctrl.Para.Kp = Id_Kp_Save;
+    Id_Ctrl.Para.Ki = Id_Ki_Save;
+    Iq_Ctrl.Para.Kp = Iq_Kp_Save;
+    Iq_Ctrl.Para.Ki = Iq_Ki_Save;
+    Current_Loop_State_Reset();
+    Loop_Gain_Override = false;
 }
 
 static void Fail(void)
 {
-    Rough_RL_Restore();
+    Rough_Loop_Gain_Restore();
     Align_Pending = false;
     Result.Valid = false;
     State = RS_LS_FAILED;
@@ -321,7 +335,7 @@ static bool Probe_Retry(void)
 
 void Rs_Ls_Start(void)
 {
-    Rough_RL_Restore();
+    Rough_Loop_Gain_Restore();
 
     Result.Rs_Ohm = 0.0f;
     Result.Ls_H = 0.0f;
@@ -342,7 +356,7 @@ void Rs_Ls_Start(void)
 
 void Rs_Ls_Abort(void)
 {
-    Rough_RL_Restore();
+    Rough_Loop_Gain_Restore();
     Align_Pending = false;
     Result.Valid = false;
     State = RS_LS_IDLE;
@@ -432,7 +446,7 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
 
         /* Capture Ud after the final FAST_CURRENT cycle has completed. */
         U_Hold = Motor_Run.Ud;
-        Rough_RL_Restore();
+        Rough_Loop_Gain_Restore();
         U_Ac = 0.0f;
         Phase = 0.0f;
         Ramp_Reset();
@@ -583,7 +597,7 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
 
             Freq_Target = RS_LS_FREQ_RL_RATIO * Rs / (TWO_PI_F * Ls);
             Frequency_Set(Freq_Target);
-            Rough_RL_Apply(Rs, Ls);
+            Rough_Loop_Gain_Set(Rs, Ls);
             Align_Reset();
             Align_Pending = false;
             State = RS_LS_ALIGN;
