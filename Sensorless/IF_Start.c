@@ -17,14 +17,15 @@
  *   Rq = Uq*Ts - Rs*Iq*Ts - Lq*dIq - We*Ld*Id*Ts
  *   R2 = Rd*Rd + Rq*Rq
  *
- * The residual is measured once at zero electrical speed to capture model and
- * current-loop background. Then speed ramps continuously to a check point.
- * At the check speed, several complete electrical cycles are verified before
- * startup is accepted. A single good cycle never releases IF_KICK.
+ * Each retry first raises current to the requested test level and lets it
+ * settle at zero electrical speed. Only then does the electrical speed ramp
+ * up slowly to a low check point. At that check speed, several complete
+ * electrical cycles are verified before startup is accepted.
  */
-#define IF_KICK_CHECK_WE_RATIO       0.25f
+#define IF_KICK_CHECK_WE_RATIO       0.10f
+#define IF_KICK_ACC_RATIO            0.50f
 #define IF_KICK_I_STEP_RATIO         0.10f
-#define IF_KICK_BASE_SETTLE_S        0.020f
+#define IF_KICK_BASE_SETTLE_S        0.200f
 #define IF_KICK_BASE_SAMPLE_S        0.020f
 #define IF_KICK_VERIFY_CYCLE_COUNT   3U
 #define IF_KICK_R2_BASE_RATIO        4.0f
@@ -228,7 +229,7 @@ static void Kick_Run(IF_T *IF,
 
     Dir = Sign_F(IF->State.We_Target);
     Iq_Slew_Run(IF, Dir * IF->State.Kick_I_Target_A, Ts);
-    We_Step = IF->Para.Acc * Ts;
+    We_Step = IF_KICK_ACC_RATIO * IF->Para.Acc * Ts;
 
     switch (IF->State.Kick_Mode)
     {
