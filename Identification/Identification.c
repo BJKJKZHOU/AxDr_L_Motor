@@ -14,17 +14,88 @@
 
 #define IDENT_I_GUARD_RATIO 1.25f
 #define IDENT_I_HARD_A      5.0f
-#define IDENT_I_OVER_COUNT  5U
+#define IDENT_I_RMS_COUNT   5U
+#define TWO_THIRDS_F        0.6666666667f
 
 static volatile Ident_Mode_e Ident_Mode = IDENT_NONE;
 static volatile Ident_State_e Ident_State = IDENT_IDLE;
 static volatile Ident_Fail_Reason_e Ident_Fail_Reason = IDENT_FAIL_NONE;
 static Ident_Envelope_T Ident_Envelope = { 0 };
-static uint8_t I_Over_Cnt = 0U;
+static float I2_Window[IDENT_I_RMS_COUNT] = { 0.0f };
+static float I2_Sum = 0.0f;
+static uint8_t I2_Index = 0U;
+static uint8_t I2_Count = 0U;
 
-static float Abs_Value(float Value)
+static void Current_Guard_Reset(void)
 {
-    return (Value >= 0.0f) ? Value : -Value;
+    uint8_t Index;
+
+    I2_Sum = 0.0f;
+    I2_Index = 0U;
+    I2_Count = 0U;
+    for (Index = 0U; Index < IDENT_I_RMS_COUNT; Index++)
+    {
+        I2_Window[Index] = 0.0f;
+    }
+}
+
+static bool Current_Guard_Trip(float Ia_A, float Ib_A, float Ic_A, float I_Guard)
+{
+    float I2;
+    float I_Guard2;
+    float I_Hard2;
+
+    if (!__builtin_isfinite(Ia_A) || !__builtin_isfinite(Ib_A) ||
+        !__builtin_isfinite(Ic_A) || !__builtin_isfinite(I_Guard) ||
+        (I_Guard <= 0.0f))
+    {
+        return true;
+    }
+
+    /*
+     * For a three-wire motor with Ia + Ib + Ic = 0:
+     *
+     *   |I_alpha_beta|^2 = (2/3) * (Ia^2 + Ib^2 + Ic^2)
+     *
+     * This keeps all three phases in the protection metric while avoiding a
+     * max-phase decision that is overly sensitive to a single reconstructed
+     * phase spike. The hard threshold is instantaneous; the commissioning
+     * guard uses a 5-sample (250 us at 20 kHz) moving RMS-equivalent window.
+     */
+    I2 = TWO_THIRDS_F *
+         (Ia_A * Ia_A + Ib_A * Ib_A + Ic_A * Ic_A);
+    if (!__builtin_isfinite(I2) || (I2 < 0.0f))
+    {
+        return true;
+    }
+
+    I_Hard2 = IDENT_I_HARD_A * IDENT_I_HARD_A;
+    if (I2 > I_Hard2)
+    {
+        return true;
+    }
+
+    I2_Sum -= I2_Window[I2_Index];
+    I2_Window[I2_Index] = I2;
+    I2_Sum += I2;
+
+    I2_Index++;
+    if (I2_Index >= IDENT_I_RMS_COUNT)
+    {
+        I2_Index = 0U;
+    }
+    if (I2_Count < IDENT_I_RMS_COUNT)
+    {
+        I2_Count++;
+    }
+
+    if (I2_Count < IDENT_I_RMS_COUNT)
+    {
+        return false;
+    }
+
+    I_Guard2 = I_Guard * I_Guard;
+    return I2_Sum > (float)IDENT_I_RMS_COUNT * I_Guard2;
 }
 
 static void Envelope_Voltage_Update(void)
@@ -74,7 +145,7 @@ bool Identification_Start(Ident_Mode_e Mode, float Wm_Target)
         return false;
     }
 
-    I_Over_Cnt = 0U;
+    Current_Guard_Reset();
 
     if (Mode == IDENT_RS_LS)
     {
@@ -100,7 +171,7 @@ void Identification_Abort(void)
 
     Ident_Mode = IDENT_NONE;
     Ident_State = IDENT_IDLE;
-    I_Over_Cnt = 0U;
+    Current_Guard_Reset();
 }
 
 void Identification_Control(void)
@@ -225,7 +296,6 @@ Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
 {
     float I_Max;
     float I_Guard;
-    float I_Peak;
     bool I_Trip;
 
     *Theta_e = 0.0f;
@@ -247,40 +317,8 @@ Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
         I_Guard = IDENT_I_HARD_A;
     }
 
-    I_Peak = Abs_Value(Ia_A);
-    I_Trip = false;
-
-    if (Abs_Value(Ib_A) > I_Peak)
-    {
-        I_Peak = Abs_Value(Ib_A);
-    }
-
-    if (Abs_Value(Ic_A) > I_Peak)
-    {
-        I_Peak = Abs_Value(Ic_A);
-    }
-
-    /* I_Max limits the commanded identification current. Actual phase current
-     * may overshoot during startup, so use a guarded phase-current threshold
-     * before the absolute hard limit. At 20 kHz, five samples correspond to
-     * 250 us of persistent over-current before tripping the filtered guard. */
-    if ((I_Max <= 0.0f) || (I_Peak > IDENT_I_HARD_A))
-    {
-        I_Trip = true;
-    }
-    else if (I_Peak > I_Guard)
-    {
-        if (I_Over_Cnt < IDENT_I_OVER_COUNT)
-        {
-            I_Over_Cnt++;
-        }
-
-        I_Trip = I_Over_Cnt >= IDENT_I_OVER_COUNT;
-    }
-    else
-    {
-        I_Over_Cnt = 0U;
-    }
+    I_Trip = (I_Max <= 0.0f) ||
+             Current_Guard_Trip(Ia_A, Ib_A, Ic_A, I_Guard);
 
     if (I_Trip)
     {
