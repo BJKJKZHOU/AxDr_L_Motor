@@ -12,10 +12,11 @@
 /*
  * Continuous adaptive startup:
  * - establish the minimum current and sample zero-speed residual background;
- * - then raise Iq continuously toward Iq_Max while We rises much more slowly;
+ * - raise Iq continuously on a faster electrical time scale;
+ * - raise We continuously on a slower mechanical startup time scale;
  * - clamp We at a low probe speed until motion is confirmed;
- * - require several consecutive electrical cycles with residual energy above
- *   the zero-speed background before releasing into normal IF_RAMP.
+ * - only allow final failure after both Iq_Max and We_probe are reached and
+ *   several complete electrical cycles still fail the motion check.
  *
  * Fast-loop motion metric keeps only multiply/add operations:
  *
@@ -24,7 +25,8 @@
  *   R2 = Rd*Rd + Rq*Rq
  */
 #define IF_KICK_CHECK_WE_RATIO       0.10f
-#define IF_KICK_ACC_RATIO            0.50f
+#define IF_KICK_I_RAMP_TIME_S        1.50f
+#define IF_KICK_WE_RAMP_TIME_S       2.40f
 #define IF_KICK_BASE_SETTLE_S        0.200f
 #define IF_KICK_BASE_SAMPLE_S        0.020f
 #define IF_KICK_VERIFY_CYCLE_COUNT   3U
@@ -180,6 +182,34 @@ static bool Kick_Cycle_Passed(const IF_T *IF)
            (Run_Scaled > Base_Scaled);
 }
 
+static void Kick_Search_Iq_Run(IF_T *IF, float Dir, float Ts)
+{
+    float Span;
+    float Step;
+    float Target;
+
+    Span = IF->Para.Iq_Max_A - IF->Para.Iq_Min_A;
+    Step = (Span / IF_KICK_I_RAMP_TIME_S) * Ts;
+    Target = Dir * IF->Para.Iq_Max_A;
+
+    if (Dir > 0.0f)
+    {
+        IF->State.Iq += Step;
+        if (IF->State.Iq > Target)
+        {
+            IF->State.Iq = Target;
+        }
+    }
+    else
+    {
+        IF->State.Iq -= Step;
+        if (IF->State.Iq < Target)
+        {
+            IF->State.Iq = Target;
+        }
+    }
+}
+
 static void Kick_Search_Run(IF_T *IF,
                             float Id_A,
                             float Iq_A,
@@ -192,12 +222,14 @@ static void Kick_Search_Run(IF_T *IF,
     float Check_Abs;
     float R2;
     bool Cycle_Pass;
+    bool Current_Max;
+    bool Speed_Ready;
 
     Dir = Sign_F(IF->State.We_Target);
-    Iq_Slew_Run(IF, Dir * IF->Para.Iq_Max_A, Ts);
-
-    We_Step = IF_KICK_ACC_RATIO * IF->Para.Acc * Ts;
     Check_Abs = Abs_F(IF->State.Kick_Check_We);
+    We_Step = (Check_Abs / IF_KICK_WE_RAMP_TIME_S) * Ts;
+
+    Kick_Search_Iq_Run(IF, Dir, Ts);
 
     if (Abs_F(IF->State.We) < Check_Abs)
     {
@@ -228,6 +260,9 @@ static void Kick_Search_Run(IF_T *IF,
     }
 
     Cycle_Pass = Kick_Cycle_Passed(IF);
+    Current_Max = Abs_F(IF->State.Iq) >= IF->Para.Iq_Max_A;
+    Speed_Ready = Abs_F(IF->State.We) >= Check_Abs;
+
     if (Cycle_Pass)
     {
         if (IF->State.Kick_Pass_Streak < UINT8_MAX)
@@ -239,7 +274,8 @@ static void Kick_Search_Run(IF_T *IF,
     else
     {
         IF->State.Kick_Pass_Streak = 0U;
-        if (Abs_F(IF->State.Iq) >= IF->Para.Iq_Max_A)
+
+        if (Current_Max && Speed_Ready)
         {
             if (IF->State.Kick_Max_Fail_Cycles < UINT8_MAX)
             {
@@ -272,7 +308,8 @@ static void Kick_Search_Run(IF_T *IF,
         return;
     }
 
-    if (IF->State.Kick_Max_Fail_Cycles >= IF_KICK_MAX_FAIL_CYCLE_COUNT)
+    if (Current_Max && Speed_Ready &&
+        (IF->State.Kick_Max_Fail_Cycles >= IF_KICK_MAX_FAIL_CYCLE_COUNT))
     {
         IF_Fail(IF);
     }
