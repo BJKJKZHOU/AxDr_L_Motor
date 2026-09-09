@@ -9,7 +9,6 @@
 #include "Current_Loop.h"
 #include "Identification.h"
 #include "Math.h"
-#include "Motor_Para.h"
 #include "Motor_Type.h"
 #include "Sin_LUT.h"
 #include "control_params.h"
@@ -88,9 +87,7 @@ static float Ls_C;
 
 static bool RL_Temporary;
 static bool Align_Pending;
-static float Rs_Save;
-static float Ld_Save;
-static float Lq_Save;
+static Current_Loop_Gain_T Gain_Save;
 
 static void Frequency_Set(float Freq_Target)
 {
@@ -169,17 +166,11 @@ static void Rough_RL_Apply(float Rs, float Ls)
 {
     if (!RL_Temporary)
     {
-        Rs_Save = Motor_Para.Rs;
-        Ld_Save = Motor_Para.Ld;
-        Lq_Save = Motor_Para.Lq;
+        Current_Loop_Gain_Save(&Gain_Save);
         RL_Temporary = true;
     }
 
-    Motor_Para.Rs = Rs;
-    Motor_Para.Ld = Ls;
-    Motor_Para.Lq = Ls;
-    Motor_Para_Update();
-    Current_Loop_State_Reset();
+    Current_Loop_Gain_Set_RL(Rs, Ls, Ls);
 }
 
 static void Rough_RL_Restore(void)
@@ -189,11 +180,7 @@ static void Rough_RL_Restore(void)
         return;
     }
 
-    Motor_Para.Rs = Rs_Save;
-    Motor_Para.Ld = Ld_Save;
-    Motor_Para.Lq = Lq_Save;
-    Motor_Para_Update();
-    Current_Loop_State_Reset();
+    Current_Loop_Gain_Restore(&Gain_Save);
     RL_Temporary = false;
 }
 
