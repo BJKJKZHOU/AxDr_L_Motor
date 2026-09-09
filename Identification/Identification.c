@@ -12,8 +12,6 @@
 #include "Rs_Ls.h"
 #include "control_params.h"
 
-#define IDENT_U_MAX_RATIO 0.80f
-
 static volatile Ident_Mode_e Ident_Mode = IDENT_NONE;
 static volatile Ident_State_e Ident_State = IDENT_IDLE;
 static Ident_Envelope_T Ident_Envelope = { 0 };
@@ -32,7 +30,14 @@ static void Envelope_Voltage_Update(void)
         Ident_Envelope.U_Available = 0.0f;
     }
 
-    Ident_Envelope.U_Max = IDENT_U_MAX_RATIO * Ident_Envelope.U_Available;
+    /*
+     * Voltage is not an additional identification safety limit. Current is
+     * the user/caller-owned absolute safety boundary. U_Max only represents
+     * the voltage that the PWM path can realize without leaving the allowed
+     * modulation range, so identification algorithms can avoid commanding an
+     * unrealizable/saturated excitation voltage.
+     */
+    Ident_Envelope.U_Max = Ident_Envelope.U_Available;
 }
 
 bool Identification_Start(Ident_Mode_e Mode, float Wm_Target)
