@@ -6,6 +6,7 @@
 #ifndef IF_START_H
 #define IF_START_H
 
+#include <stdbool.h>
 #include <stdint.h>
 
 typedef enum
