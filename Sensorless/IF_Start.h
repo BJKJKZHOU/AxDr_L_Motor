@@ -6,7 +6,6 @@
 #ifndef IF_START_H
 #define IF_START_H
 
-#include <stdbool.h>
 #include <stdint.h>
 
 typedef enum
@@ -21,7 +20,10 @@ typedef enum
 typedef enum
 {
     IF_KICK_CURRENT = 0,
-    IF_KICK_OBSERVE,
+    IF_KICK_LOW_SETTLE,
+    IF_KICK_LOW_SAMPLE,
+    IF_KICK_HIGH_SETTLE,
+    IF_KICK_HIGH_SAMPLE,
 
 } IF_Kick_Mode_e;
 
@@ -48,24 +50,13 @@ typedef struct
     float Iq_Work_A;
 
     IF_Kick_Mode_e Kick_Mode;
-    float Kick_Base_We;
-    float Kick_We;
+    float Kick_Low_We;
+    float Kick_High_We;
     float Kick_I_Target_A;
-    uint8_t Kick_Lock_Steps;
-
-    bool Kick_Current_Valid;
-    bool Kick_Phase_Valid;
-    float Kick_Id_Last;
-    float Kick_Iq_Last;
-    float Kick_Ed_F;
-    float Kick_Eq_F;
-    float Kick_Phase_Last;
-    float Kick_Phase_Drift;
-    float Kick_IF_Phase_Travel;
-    float Kick_Phase_X_Sum;
-    float Kick_Phase_Y_Sum;
-    uint32_t Kick_Observe_Cnt;
-    uint32_t Kick_Valid_Cnt;
+    float Kick_Travel;
+    float Kick_Bemf_Sum;
+    float Kick_Bemf_Low;
+    uint32_t Kick_Sample_Cnt;
 
 } IF_State_T;
 
