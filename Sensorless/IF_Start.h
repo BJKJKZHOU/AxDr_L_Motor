@@ -23,9 +23,7 @@ typedef enum
     IF_KICK_CURRENT = 0,
     IF_KICK_BASELINE_SETTLE,
     IF_KICK_BASELINE_SAMPLE,
-    IF_KICK_RAMP_UP,
-    IF_KICK_VERIFY,
-    IF_KICK_CURRENT_RAISE,
+    IF_KICK_SEARCH,
 
 } IF_Kick_Mode_e;
 
@@ -53,7 +51,6 @@ typedef struct
 
     IF_Kick_Mode_e Kick_Mode;
     float Kick_Check_We;
-    float Kick_I_Target_A;
     float Kick_Time;
 
     bool Kick_Current_Valid;
@@ -66,8 +63,8 @@ typedef struct
     float Kick_Cycle_R2_Sum;
     uint32_t Kick_Cycle_R2_Cnt;
     float Kick_Cycle_Travel;
-    uint8_t Kick_Verify_Cycles;
-    uint8_t Kick_Verify_Pass;
+    uint8_t Kick_Pass_Streak;
+    uint8_t Kick_Max_Fail_Cycles;
 
 } IF_State_T;
 
