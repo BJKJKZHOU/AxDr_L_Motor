@@ -6,26 +6,15 @@
 #ifndef IF_START_H
 #define IF_START_H
 
-#include <stdbool.h>
 #include <stdint.h>
 
 typedef enum
 {
-    IF_KICK = 0,
-    IF_RAMP,
+    IF_RAMP = 0,
     IF_HOLD,
     IF_FAILED,
 
 } IF_State_e;
-
-typedef enum
-{
-    IF_KICK_CURRENT = 0,
-    IF_KICK_BASELINE_SETTLE,
-    IF_KICK_BASELINE_SAMPLE,
-    IF_KICK_SEARCH,
-
-} IF_Kick_Mode_e;
 
 typedef struct
 {
@@ -34,6 +23,9 @@ typedef struct
     float We_Base;
     float Acc;
     float Iq_Slew_A_S;
+
+    /* Kept for caller compatibility; open-loop I/F no longer consumes the
+     * motor model for low-speed motion qualification. */
     float Rs_Ohm;
     float Ld_H;
     float Lq_H;
@@ -48,23 +40,6 @@ typedef struct
     float We_Target;
     float Iq;
     float Iq_Work_A;
-
-    IF_Kick_Mode_e Kick_Mode;
-    float Kick_Check_We;
-    float Kick_Time;
-
-    bool Kick_Current_Valid;
-    float Kick_Id_Last;
-    float Kick_Iq_Last;
-
-    float Kick_Base_R2_Sum;
-    uint32_t Kick_Base_R2_Cnt;
-
-    float Kick_Cycle_R2_Sum;
-    uint32_t Kick_Cycle_R2_Cnt;
-    float Kick_Cycle_Travel;
-    uint8_t Kick_Pass_Streak;
-    uint8_t Kick_Max_Fail_Cycles;
 
 } IF_State_T;
 
