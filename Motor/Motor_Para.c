@@ -25,6 +25,22 @@ Motor_Para_T Motor_Para = MOTOR_PARA_DEFAULT;
 
 static float IF_We_RL_Base = MOTOR_IF_WE_RL_RATIO * MOTOR_RS_DEFAULT / MOTOR_LQ_DEFAULT;
 
+/*
+ * Build controller fallback values from the currently active motor model.
+ *
+ * Persistence is not implemented yet. When persistent parameters are added,
+ * startup should keep this ordering:
+ *   1. load valid persisted Motor_Para over the compiled defaults;
+ *   2. call Motor_Para_Update() to build usable controller defaults from that
+ *      motor model;
+ *   3. load valid persisted controller tuning over these generated defaults.
+ *
+ * Therefore the controller values generated here are initialization/fallback
+ * values, not an authority that should overwrite valid user tuning loaded from
+ * persistent storage. Identification-local temporary tuning must likewise be
+ * restored to the pre-identification controller values rather than regenerated
+ * through this function.
+ */
 void Motor_Para_Update(void)
 {
     float Kt;
