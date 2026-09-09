@@ -307,6 +307,15 @@ void Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float 
     {
         IF_Start_Target_Set(IF_Target(We_Ref));
         (void)IF_Start_Run(&Theta_IF, &Id_IF, &Iq_IF);
+
+        if (IF_Start_State_Get() == IF_FAILED)
+        {
+            State = SL_FAILED;
+            *Theta_e = Theta_Use_Last;
+            *Id_Ref = 0.0f;
+            *Iq_Ref = 0.0f;
+            return;
+        }
     }
 
     Flux_Obs_U_Valid = true;

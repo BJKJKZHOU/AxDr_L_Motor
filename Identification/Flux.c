@@ -354,6 +354,15 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta
     (void)IF_Start_Run(&Theta_IF, Id_Ref, Iq_Ref);
     *Theta_e = Theta_IF;
 
+    if (IF_Start_State_Get() == IF_FAILED)
+    {
+        State = FLUX_FAILED;
+        Result.Valid = false;
+        *Id_Ref = 0.0f;
+        *Iq_Ref = 0.0f;
+        return FAST_OFF;
+    }
+
     if (State == FLUX_ACCEL)
     {
         if (IF_Start_State_Get() == IF_HOLD)
