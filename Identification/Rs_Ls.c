@@ -23,12 +23,18 @@
 #define RS_LS_PROBE_MEASURE_CYCLE 5U
 #define RS_LS_MEASURE_CYCLE       10U
 
-#define RS_LS_PROBE_I_RATIO       0.10f
-#define RS_LS_MEASURE_I_RATIO     0.15f
-#define RS_LS_MEASURE_I_MAX_RATIO 0.20f
-#define RS_LS_ALIGN_I_RATIO       0.20f
-#define RS_LS_ALIGN_I_MAX_RATIO   0.50f
-#define RS_LS_I_MIN_RATIO         0.02f
+/*
+ * Rs/Ls working currents are empirical fractions of the commissioning
+ * current limit. The caller/user is responsible for choosing a safe I_Max;
+ * these ratios only select internal probe, measurement and soft-control
+ * operating points below that absolute identification boundary.
+ */
+#define RS_LS_PROBE_I_RATIO          0.10f
+#define RS_LS_MEASURE_I_RATIO        0.15f
+#define RS_LS_AC_SOFT_MAX_I_RATIO    0.20f
+#define RS_LS_ALIGN_I_RATIO          0.20f
+#define RS_LS_TOTAL_SOFT_MAX_I_RATIO 0.50f
+#define RS_LS_I_MIN_RATIO            0.02f
 
 #define RS_LS_ALIGN_TIME_S  0.5f
 #define RS_LS_ALIGN_CNT     ((uint32_t)(RS_LS_ALIGN_TIME_S / CUR_TS + 0.5f))
@@ -383,9 +389,9 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
     float Freq_Target;
     float I_Probe;
     float I_Measure;
-    float I_Measure_Max;
+    float I_Ac_Soft_Max;
     float I_Align;
-    float I_Align_Max;
+    float I_Total_Soft_Max;
     float I_Min;
     float I_Target;
     float I_Soft;
@@ -426,9 +432,9 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
         I_Measure = I_Min;
     }
 
-    I_Measure_Max = RS_LS_MEASURE_I_MAX_RATIO * Envelope->I_Max;
+    I_Ac_Soft_Max = RS_LS_AC_SOFT_MAX_I_RATIO * Envelope->I_Max;
     I_Align = RS_LS_ALIGN_I_RATIO * Envelope->I_Max;
-    I_Align_Max = RS_LS_ALIGN_I_MAX_RATIO * Envelope->I_Max;
+    I_Total_Soft_Max = RS_LS_TOTAL_SOFT_MAX_I_RATIO * Envelope->I_Max;
 
     if (State == RS_LS_ALIGN)
     {
@@ -457,7 +463,7 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
     if ((State == RS_LS_PROBE_RAMP) || (State == RS_LS_PROBE_MEASURE))
     {
         U_Ac_Max = Envelope->U_Max;
-        I_Soft = I_Measure_Max;
+        I_Soft = I_Ac_Soft_Max;
     }
     else
     {
@@ -470,7 +476,7 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
         }
 
         U_Ac_Max = Envelope->U_Max - U_Hold_Abs;
-        I_Soft = I_Align_Max;
+        I_Soft = I_Total_Soft_Max;
     }
 
     if (U_Ac > U_Ac_Max)
@@ -513,7 +519,7 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
             Ramp_Reset();
             I_Target = (State == RS_LS_PROBE_RAMP) ? I_Probe : I_Measure;
 
-            if (Ramp_I_Amp > I_Measure_Max)
+            if (Ramp_I_Amp > I_Ac_Soft_Max)
             {
                 if (Ramp_I_Amp > 0.0f)
                 {
