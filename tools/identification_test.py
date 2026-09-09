@@ -132,6 +132,8 @@ HOST_CURRENT_HARD_LIMIT_A = 5.0
 HOST_CURRENT_OVER_COUNT = 5
 IF_WE_RAD_S = 120.0
 
+CANFD_LENGTHS = tuple(range(9)) + (12, 16, 20, 24, 32, 48, 64)
+
 FAST_CONFIG_ID = 13
 NORMAL_CONFIG_ID = 14
 FAST_RATE_HZ = 20000.0
@@ -187,8 +189,27 @@ def can_id(msg_type):
     return (msg_type << 6) | NODE_ID
 
 
+def canfd_length(length):
+    if length < 0 or length > 64:
+        raise ValueError(f"CAN FD payload length out of range: {length}")
+    for candidate in CANFD_LENGTHS:
+        if length <= candidate:
+            return candidate
+    raise ValueError(f"unsupported CAN FD payload length: {length}")
+
+
+def canfd_payload(payload, expected_length):
+    if len(payload) < expected_length:
+        return None
+    if any(payload[expected_length:]):
+        return None
+    return payload[:expected_length]
+
+
 def usb_frame(msg_type, payload):
-    return MAGIC + struct.pack("<HB", can_id(msg_type), len(payload)) + payload
+    frame_length = canfd_length(len(payload))
+    padded = payload + bytes(frame_length - len(payload))
+    return MAGIC + struct.pack("<HB", can_id(msg_type), frame_length) + padded
 
 
 class StreamParser:
@@ -213,7 +234,7 @@ class StreamParser:
                 break
 
             msg_id, length = struct.unpack_from("<HB", self.buf, 4)
-            if msg_id > 0x07FF or length > 64:
+            if msg_id > 0x07FF or length not in CANFD_LENGTHS:
                 del self.buf[0]
                 continue
 
@@ -319,7 +340,9 @@ class IdentificationClient:
         seq, = struct.unpack_from("<H", payload, 0)
         sample_count = payload[3]
         count = len(self.fast_vars)
-        if len(payload) != 4 + sample_count * count * 2:
+        expected_length = 4 + sample_count * count * 2
+        payload = canfd_payload(payload, expected_length)
+        if payload is None:
             return
 
         if self.fast_last is not None:
@@ -379,8 +402,11 @@ class IdentificationClient:
 
     def process_normal(self, payload):
         count = len(self.normal_vars)
-        if (len(payload) != 4 + count * 4 or
-                payload[2] != NORMAL_CONFIG_ID or payload[3] != count):
+        if len(payload) < 4 or payload[2] != NORMAL_CONFIG_ID or payload[3] != count:
+            return
+        expected_length = 4 + count * 4
+        payload = canfd_payload(payload, expected_length)
+        if payload is None:
             return
 
         seq, = struct.unpack_from("<H", payload, 0)
@@ -477,9 +503,11 @@ class IdentificationClient:
             context=f"read {name} (0x{param_id:04X})",
         )
         value_size = struct.calcsize(PARAM_FORMAT[param_type])
-        if len(data) != 3 + value_size:
+        expected_length = 3 + value_size
+        data = canfd_payload(data, expected_length)
+        if data is None:
             raise RuntimeError(
-                f"invalid parameter response length: {len(data)}"
+                f"invalid parameter response length/padding: {len(data) if data is not None else 'invalid'}"
             )
 
         response_id, response_type = struct.unpack_from("<HB", data, 0)
