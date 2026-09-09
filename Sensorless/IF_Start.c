@@ -25,8 +25,8 @@
  *   R2 = Rd*Rd + Rq*Rq
  */
 #define IF_KICK_CHECK_WE_RATIO       0.10f
-#define IF_KICK_I_RAMP_TIME_S        1.50f
-#define IF_KICK_WE_RAMP_TIME_S       2.40f
+#define IF_KICK_I_RAMP_TIME_S        4.00f
+#define IF_KICK_WE_RAMP_TIME_S       6.00f
 #define IF_KICK_BASE_SETTLE_S        0.200f
 #define IF_KICK_BASE_SAMPLE_S        0.020f
 #define IF_KICK_VERIFY_CYCLE_COUNT   3U
