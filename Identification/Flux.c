@@ -632,7 +632,13 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
     float Theta_Rough;
     float I2;
     float I_Mag;
+    float U_R;
+    float U_L;
+    float U_Base;
     float U_Target;
+    float P_Elec;
+    float P_Cu;
+    float P_Motion;
     bool Flux_Ready;
     bool Motion_Valid;
 
@@ -737,30 +743,36 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
         }
     }
 
-    /*
-     * Adaptive open-loop voltage starts from Rs * Iq_Start_A. While the
-     * observer is still unavailable, the commissioning current limit defines
-     * only the upper electrical envelope: unused current margin lets voltage
-     * rise, while measured current near or above that boundary drives voltage
-     * back down. There is no timed current ramp and no fixed voltage trajectory.
-     *
-     * The existing Target_Alpha sets the adaptation gain; VF_Run() keeps the
-     * absolute voltage and slew limits. Small motors therefore become
-     * observable and leave this loop early, while motors requiring more
-     * breakaway torque can use more of the same configured current envelope.
-     */
     I2 = Context->Ialpha * Context->Ialpha + Context->Ibeta * Context->Ibeta;
-    U_Target = Flux_VF.State.U;
+    U_R = Motor_Para.Rs * Start_Para.Iq_Start_A;
+    U_L = Abs_Value(Flux_VF.State.We) * Motor_Para.Lq * Start_Para.Iq_Start_A;
+    U_Base = __builtin_sqrtf(U_R * U_R + U_L * U_L);
+    U_Target = (Flux_VF.State.U > U_Base) ? Flux_VF.State.U : U_Base;
+
     if (__builtin_isfinite(I2) && (I2 >= 0.0f))
     {
         I_Mag = __builtin_sqrtf(I2);
-        U_Target += Flux_Config.Workflow.Target_Alpha * Motor_Para.Rs *
-                    (Start_Para.Iq_Max_A - I_Mag);
-        if (U_Target < 0.0f)
+        P_Elec = 1.5f * (Context->Ud_Open * Context->Id_Open +
+                         Context->Uq_Open * Context->Iq_Open);
+        P_Cu = 1.5f * Motor_Para.Rs * I2;
+        P_Motion = P_Elec - P_Cu;
+
+        if (I_Mag >= Start_Para.Iq_Max_A)
         {
-            U_Target = 0.0f;
+            U_Target -= Flux_Config.Workflow.Target_Alpha * Motor_Para.Rs *
+                        (I_Mag - Start_Para.Iq_Max_A + Start_Para.Iq_Start_A);
         }
-        else if (U_Target > Context->Envelope->U_Max)
+        else if (__builtin_isfinite(P_Motion) && (P_Motion <= 0.0f))
+        {
+            U_Target += Flux_Config.Workflow.Target_Alpha * Motor_Para.Rs *
+                        Start_Para.Iq_Start_A;
+        }
+
+        if (U_Target < U_Base)
+        {
+            U_Target = U_Base;
+        }
+        if (U_Target > Context->Envelope->U_Max)
         {
             U_Target = Context->Envelope->U_Max;
         }
