@@ -994,6 +994,14 @@ bool Flux_Start(float Wm_Target)
     Sign = (Wm_Target < 0.0f) ? -1.0f : 1.0f;
     We_Target = Sign * Start_Para.We_Base;
 
+    /* VF/align use the proven 1 A excitation baseline. Motor_IF_Para_Build()
+     * is reused here for the RL-derived speed scale and current limit only. */
+    Start_Para.Iq_Start_A = IF_IQ_START_A;
+    if (Start_Para.Iq_Start_A > Envelope->I_Max)
+    {
+        Start_Para.Iq_Start_A = Envelope->I_Max;
+    }
+
     VF_U_Boost = Motor_Para.Rs * Start_Para.Iq_Start_A;
     if (VF_U_Boost > Envelope->U_Max)
     {
