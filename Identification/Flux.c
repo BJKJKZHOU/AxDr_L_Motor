@@ -643,6 +643,7 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
 {
     float Theta_Rough;
     float I2;
+    float I_Mag;
     float U_Target;
     bool Flux_Ready;
     bool Motion_Valid;
@@ -747,16 +748,31 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
         }
     }
 
-    U_Target = Context->Envelope->U_Max;
+    /*
+     * Start from the RL-derived standstill voltage and adapt only as much as
+     * needed to keep the measured stator-current vector near Iq_Start_A. Once
+     * the rotor follows the rotating field, back-EMF tends to reduce current;
+     * the resulting current error then asks VF for a little more voltage. If
+     * current rises above the target, the same relation backs voltage down.
+     *
+     * Rs converts the instantaneous current error into a voltage correction,
+     * while VF_Run() still owns the slew-rate and absolute-voltage limits.
+     * Iq_Max_A remains a safety envelope, not the open-loop operating target.
+     */
     I2 = Context->Ialpha * Context->Ialpha + Context->Ibeta * Context->Ibeta;
-    if (!__builtin_isfinite(I2) ||
-        (I2 >= Start_Para.Iq_Max_A * Start_Para.Iq_Max_A))
+    U_Target = Flux_VF.State.U;
+    if (__builtin_isfinite(I2) && (I2 >= 0.0f))
     {
-        /* Voltage is allowed to rise only while measured vector current stays
-         * below the user commissioning boundary. This is an amplitude hold,
-         * not a current controller; the identification guard remains the
-         * independent safety path. */
-        U_Target = Flux_VF.State.U;
+        I_Mag = __builtin_sqrtf(I2);
+        U_Target += Motor_Para.Rs * (Start_Para.Iq_Start_A - I_Mag);
+        if (U_Target < 0.0f)
+        {
+            U_Target = 0.0f;
+        }
+        else if (U_Target > Context->Envelope->U_Max)
+        {
+            U_Target = Context->Envelope->U_Max;
+        }
     }
 
     VF_Run(&Flux_VF,
