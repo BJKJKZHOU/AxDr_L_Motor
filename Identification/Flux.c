@@ -636,6 +636,7 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
     float U_L;
     float U_Base;
     float U_Target;
+    float We_Command;
     bool Flux_Ready;
     bool Motion_Valid;
 
@@ -745,21 +746,15 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
     U_L = Abs_Value(Flux_VF.State.We) * Motor_Para.Lq * Start_Para.Iq_Start_A;
     U_Base = __builtin_sqrtf(U_R * U_R + U_L * U_L);
     U_Target = (Flux_VF.State.U > U_Base) ? Flux_VF.State.U : U_Base;
+    We_Command = We_Target;
 
     if (__builtin_isfinite(I2) && (I2 >= 0.0f))
     {
         I_Mag = __builtin_sqrtf(I2);
         if (I_Mag >= Start_Para.Iq_Max_A)
         {
-            U_Target *= Start_Para.Iq_Max_A / I_Mag;
-            if (U_Target < U_Base)
-            {
-                U_Target = U_Base;
-            }
-            if (U_Target < Flux_VF.State.U)
-            {
-                Flux_VF.State.U = U_Target;
-            }
+            U_Target = Flux_VF.State.U;
+            We_Command = Flux_VF.State.We;
         }
         else if (State == FLUX_INITIAL_VF)
         {
@@ -774,7 +769,7 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
     }
 
     VF_Run(&Flux_VF,
-           We_Target,
+           We_Command,
            U_Target,
            Ualpha_V,
            Ubeta_V,
