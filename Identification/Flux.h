@@ -20,7 +20,14 @@ typedef struct
 bool Flux_Start(float Wm_Target);
 bool Flux_Active(void);
 void Flux_Control(void);
-Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A, float Ib_A, float Ic_A, float *Theta_e, float *Id_Ref, float *Iq_Ref);
+Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A,
+                                float Ib_A,
+                                float Ic_A,
+                                float *Theta_e,
+                                float *Id_Ref,
+                                float *Iq_Ref,
+                                float *Ualpha_V,
+                                float *Ubeta_V);
 const Flux_Result_T *Flux_Result_Get(void);
 
 #endif /* FLUX_IDENT_H */
