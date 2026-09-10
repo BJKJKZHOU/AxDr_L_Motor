@@ -31,7 +31,6 @@ typedef struct
     struct
     {
         float Open_Accel_S;
-        uint32_t Startup_Block_Cnt;
         float Est_Num_Min_Wb;
         float U_Search_Ratio;
         float Target_Alpha;
@@ -88,16 +87,6 @@ typedef struct
 static const Flux_Config_T Flux_Config = {
     .Workflow = {
         .Open_Accel_S = 6.0f,
-        /*
-         * Empirical startup guard only. On hardware, the coarse flux fit can
-         * be grossly wrong during the first seconds of low-speed open-loop
-         * motion; publishing those values can corrupt the observer/PLL with
-         * Inf/NaN states. The 6 s duration is an experience-based value from
-         * commissioning tests, not a theoretically derived motor constant.
-         * The fitter still runs during this interval; only publication to the
-         * observer/PLL is blocked.
-         */
-        .Startup_Block_Cnt = (uint32_t)(6.0f / CUR_TS + 0.5f),
         .Est_Num_Min_Wb = 1.0e-12f,
         .U_Search_Ratio = 0.90f,
         .Target_Alpha = CUR_TS / (0.10f + CUR_TS),
@@ -190,7 +179,6 @@ static Flux_Estimator_T Flux_Estimator = { 0 };
 static Handover_T Handover = { 0 };
 static volatile float We_Target = 0.0f;
 static uint32_t Cnt = 0U;
-static uint32_t Startup_Block_Cnt = 0U;
 static float We_Obs_F = 0.0f;
 static float Emf_Ratio_F = 0.0f;
 static float Obs_Id_Ref = 0.0f;
@@ -663,14 +651,15 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
             return FLUX_STEP_OFF;
         }
 
-        /*
-         * The coarse fitter runs during the complete VF acceleration so its
-         * internal model keeps adapting. During the empirical startup block
-         * interval, its low-speed flux is intentionally not published to the
-         * observer/PLL. Once that time gate expires, the normal continuously
-         * updated fitter -> observer path resumes without another stability
-         * window.
-         */
+        if ((State == FLUX_INITIAL_VF) && Flux_Ready && Emf_Valid &&
+            __builtin_isfinite(Emf_Ratio_F) &&
+            (Emf_Ratio_F >= Flux_Config.Observer.Motion_Lost_Ratio))
+        {
+            Motion_Lost_Armed = false;
+            Motion_Lost_Cnt = 0U;
+            State = FLUX_SEARCH;
+        }
+
         if ((State != FLUX_INITIAL_VF) && Flux_Ready)
         {
             if ((State == FLUX_SEARCH) && !Work_Point_Reached)
@@ -749,22 +738,24 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
     }
 
     /*
-     * Start from the RL-derived standstill voltage and adapt only as much as
-     * needed to keep the measured stator-current vector near Iq_Start_A. Once
-     * the rotor follows the rotating field, back-EMF tends to reduce current;
-     * the resulting current error then asks VF for a little more voltage. If
-     * current rises above the target, the same relation backs voltage down.
+     * Adaptive open-loop voltage starts from Rs * Iq_Start_A. While the
+     * observer is still unavailable, the commissioning current limit defines
+     * only the upper electrical envelope: unused current margin lets voltage
+     * rise, while measured current near or above that boundary drives voltage
+     * back down. There is no timed current ramp and no fixed voltage trajectory.
      *
-     * Rs converts the instantaneous current error into a voltage correction,
-     * while VF_Run() still owns the slew-rate and absolute-voltage limits.
-     * Iq_Max_A remains a safety envelope, not the open-loop operating target.
+     * The existing Target_Alpha sets the adaptation gain; VF_Run() keeps the
+     * absolute voltage and slew limits. Small motors therefore become
+     * observable and leave this loop early, while motors requiring more
+     * breakaway torque can use more of the same configured current envelope.
      */
     I2 = Context->Ialpha * Context->Ialpha + Context->Ibeta * Context->Ibeta;
     U_Target = Flux_VF.State.U;
     if (__builtin_isfinite(I2) && (I2 >= 0.0f))
     {
         I_Mag = __builtin_sqrtf(I2);
-        U_Target += Motor_Para.Rs * (Start_Para.Iq_Start_A - I_Mag);
+        U_Target += Flux_Config.Workflow.Target_Alpha * Motor_Para.Rs *
+                    (Start_Para.Iq_Max_A - I_Mag);
         if (U_Target < 0.0f)
         {
             U_Target = 0.0f;
@@ -791,21 +782,6 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
     Motor_Run.Ud = Context->Ud_Open;
     Motor_Run.Uq = Context->Uq_Open;
     Model_U_Valid = true;
-
-    if (State == FLUX_INITIAL_VF)
-    {
-        if (Startup_Block_Cnt < Flux_Config.Workflow.Startup_Block_Cnt)
-        {
-            Startup_Block_Cnt++;
-        }
-
-        if (Startup_Block_Cnt >= Flux_Config.Workflow.Startup_Block_Cnt)
-        {
-            Motion_Lost_Armed = false;
-            Motion_Lost_Cnt = 0U;
-            State = FLUX_SEARCH;
-        }
-    }
 
     return FLUX_STEP_CONTINUE;
 }
@@ -1064,7 +1040,6 @@ bool Flux_Start(float Wm_Target)
     Handover_Ready_Cnt = 0U;
     Motion_Lost_Cnt = 0U;
     Fine_Stable_Cnt = 0U;
-    Startup_Block_Cnt = 0U;
     Finish_Init = 0U;
     Model_U_Valid = false;
     Emf_Valid = false;
