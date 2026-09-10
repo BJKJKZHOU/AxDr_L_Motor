@@ -120,14 +120,14 @@ static const Flux_Config_T Flux_Config = {
         .Emf_Alpha = CUR_TS / (0.020f + CUR_TS),
     },
     .Handover = {
-        .Ready_Cnt = (uint32_t)(0.20f / CUR_TS + 0.5f),
+        .Ready_Cnt = (uint32_t)(0.05f / CUR_TS + 0.5f),
         .Blend_Cnt = (uint32_t)(0.15f / CUR_TS + 0.5f),
         .Id_Ramp_Step = 5.0f * CUR_TS,
         .Compare_Alpha = CUR_TS / (0.050f + CUR_TS),
-        .We_Mean_Ratio = 0.010f,
-        .We_Rms_Ratio = 0.060f,
+        .We_Mean_Ratio = 0.060f,
+        .We_Rms_Ratio = 0.100f,
         .Pll_Rms_Max = 0.08f,
-        .Theta_Rms_Max = 0.08f,
+        .Theta_Rms_Max = 0.12f,
     },
 };
 
