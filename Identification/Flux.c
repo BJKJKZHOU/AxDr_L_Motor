@@ -61,7 +61,6 @@ typedef struct
         float Work_Ratio;
         float Work_U_Search_Ratio;
         float Target_Alpha;
-        float Motion_Lost_Ratio;
         uint32_t Motion_Lost_Cnt;
         float BW_Hz;
         float Pll_Kp;
@@ -111,7 +110,6 @@ static const Flux_Config_T Flux_Config = {
         .Work_Ratio = 0.30f,
         .Work_U_Search_Ratio = 0.90f,
         .Target_Alpha = CUR_TS / (0.10f + CUR_TS),
-        .Motion_Lost_Ratio = 0.05f,
         .Motion_Lost_Cnt = (uint32_t)(0.15f / CUR_TS + 0.5f),
         .BW_Hz = 200.0f,
         .Pll_Kp = 2.0f * 0.707f * (TWO_PI_F * 50.0f),
@@ -295,9 +293,7 @@ static bool Obs_Control_Stable(void)
 
 static bool Obs_Run_Valid(void)
 {
-    return Emf_Valid && __builtin_isfinite(Emf_Ratio_F) &&
-           (Emf_Ratio_F >= Flux_Config.Observer.Motion_Lost_Ratio) &&
-           Obs_State_Stable() && (We_Target * We_Obs_F > 0.0f);
+    return Obs_State_Stable() && (We_Target * We_Obs_F > 0.0f);
 }
 
 static bool Motion_Lost_Run(bool Motion_Valid)
