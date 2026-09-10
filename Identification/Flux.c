@@ -185,6 +185,7 @@ static float Obs_Id_Ref = 0.0f;
 static volatile float Obs_Iq_Ref = 0.0f;
 static float Fine_Flux_Pre = 0.0f;
 static float Finish_Iq = 0.0f;
+static float VF_I_Mag_Pre = 0.0f;
 static uint32_t Handover_Ready_Cnt = 0U;
 static uint32_t Motion_Lost_Cnt = 0U;
 static uint32_t Fine_Stable_Cnt = 0U;
@@ -197,6 +198,7 @@ static bool Obs_Control = false;
 static bool Current_Control_Active = false;
 static bool Work_Point_Reached = false;
 static bool Motion_Lost_Armed = false;
+static bool VF_I_Mag_Valid = false;
 
 static float Abs_Value(float Value)
 {
@@ -544,6 +546,8 @@ static Motor_Fast_Mode_e Flux_Align_Run(int8_t Dir, float *Id_Ref, float *Iq_Ref
         {
             Flux_VF.State.U = Flux_VF.Para.U_Max_V;
         }
+        VF_I_Mag_Pre = 0.0f;
+        VF_I_Mag_Valid = false;
         State = FLUX_INITIAL_VF;
     }
     return FAST_CURRENT;
@@ -632,10 +636,14 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
     float Theta_Rough;
     float I2;
     float I_Mag;
+    float I_Rise;
+    float I_Pred;
+    float Tau_E;
     float U_R;
     float U_L;
     float U_Base;
     float U_Target;
+    float U_Limit;
     float P_Elec;
     float P_Cu;
     float P_Motion;
@@ -752,15 +760,41 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
     if (__builtin_isfinite(I2) && (I2 >= 0.0f))
     {
         I_Mag = __builtin_sqrtf(I2);
+        I_Rise = 0.0f;
+        if (VF_I_Mag_Valid)
+        {
+            I_Rise = I_Mag - VF_I_Mag_Pre;
+            if (I_Rise < 0.0f)
+            {
+                I_Rise = 0.0f;
+            }
+        }
+        VF_I_Mag_Pre = I_Mag;
+        VF_I_Mag_Valid = true;
+
+        Tau_E = Motor_Para.Lq / Motor_Para.Rs;
+        I_Pred = I_Mag;
+        if (__builtin_isfinite(Tau_E) && (Tau_E > 0.0f) && (I_Rise > 0.0f))
+        {
+            I_Pred += I_Rise * Tau_E / CUR_TS;
+        }
+
         P_Elec = 1.5f * (Context->Ud_Open * Context->Id_Open +
                          Context->Uq_Open * Context->Iq_Open);
         P_Cu = 1.5f * Motor_Para.Rs * I2;
         P_Motion = P_Elec - P_Cu;
 
-        if (I_Mag >= Start_Para.Iq_Max_A)
+        if (I_Pred >= Start_Para.Iq_Max_A)
         {
-            U_Target -= Flux_Config.Workflow.Target_Alpha * Motor_Para.Rs *
-                        (I_Mag - Start_Para.Iq_Max_A + Start_Para.Iq_Start_A);
+            U_Limit = Motor_Para.Lq * I_Rise / CUR_TS;
+            if (I_Mag > Start_Para.Iq_Max_A)
+            {
+                U_Limit += Motor_Para.Rs * (I_Mag - Start_Para.Iq_Max_A);
+            }
+            if (__builtin_isfinite(U_Limit) && (U_Limit > 0.0f))
+            {
+                U_Target -= U_Limit;
+            }
         }
         else if (__builtin_isfinite(P_Motion) && (P_Motion <= 0.0f))
         {
@@ -1049,6 +1083,7 @@ bool Flux_Start(float Wm_Target)
     Obs_Iq_Ref = 0.0f;
     Fine_Flux_Pre = 0.0f;
     Finish_Iq = 0.0f;
+    VF_I_Mag_Pre = 0.0f;
     Handover_Ready_Cnt = 0U;
     Motion_Lost_Cnt = 0U;
     Fine_Stable_Cnt = 0U;
@@ -1061,6 +1096,7 @@ bool Flux_Start(float Wm_Target)
     Current_Control_Active = false;
     Work_Point_Reached = false;
     Motion_Lost_Armed = false;
+    VF_I_Mag_Valid = false;
     Flux_Estimator.State = (Flux_Estimator_State_T){ 0 };
     Handover_Reset(&Handover);
 
