@@ -16,6 +16,31 @@ static volatile Ident_Mode_e Ident_Mode = IDENT_NONE;
 static volatile Ident_State_e Ident_State = IDENT_IDLE;
 static volatile Ident_Fail_Reason_e Ident_Fail_Reason = IDENT_FAIL_NONE;
 static Ident_Envelope_T Ident_Envelope = { 0 };
+static bool Current_Limited = false;
+
+static float Abs_Value(float Value)
+{
+    return (Value >= 0.0f) ? Value : -Value;
+}
+
+static void Current_Limit_Update(float Ia_A, float Ib_A, float Ic_A)
+{
+    float I_Peak;
+
+    I_Peak = Abs_Value(Ia_A);
+    if (Abs_Value(Ib_A) > I_Peak)
+    {
+        I_Peak = Abs_Value(Ib_A);
+    }
+    if (Abs_Value(Ic_A) > I_Peak)
+    {
+        I_Peak = Abs_Value(Ic_A);
+    }
+
+    Current_Limited = __builtin_isfinite(I_Peak) &&
+                      (Ident_Envelope.I_Max > 0.0f) &&
+                      (I_Peak >= Ident_Envelope.I_Max);
+}
 
 static void Envelope_Voltage_Update(void)
 {
@@ -34,6 +59,7 @@ static void Envelope_Voltage_Update(void)
 bool Identification_Start(Ident_Mode_e Mode, float Wm_Target)
 {
     Ident_Fail_Reason = IDENT_FAIL_NONE;
+    Current_Limited = false;
 
     if (Ident_State == IDENT_RUNNING)
     {
@@ -88,6 +114,7 @@ void Identification_Abort(void)
 
     Ident_Mode = IDENT_NONE;
     Ident_State = IDENT_IDLE;
+    Current_Limited = false;
 }
 
 void Identification_Control(void)
@@ -222,6 +249,7 @@ Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
     }
 
     Envelope_Voltage_Update();
+    Current_Limit_Update(Ia_A, Ib_A, Ic_A);
 
     if (Ident_Mode == IDENT_RS_LS)
     {
@@ -256,6 +284,11 @@ Ident_State_e Identification_State_Get(void)
 const Ident_Envelope_T *Identification_Envelope_Get(void)
 {
     return &Ident_Envelope;
+}
+
+bool Identification_Current_Limited_Get(void)
+{
+    return Current_Limited;
 }
 
 uint8_t Identification_Rs_Ls_Valid_Get(void)
