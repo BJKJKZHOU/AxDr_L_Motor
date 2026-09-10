@@ -125,7 +125,7 @@ static const Flux_Config_T Flux_Config = {
         .Id_Ramp_Step = 5.0f * CUR_TS,
         .Compare_Alpha = CUR_TS / (0.050f + CUR_TS),
         .We_Mean_Ratio = 0.010f,
-        .We_Rms_Ratio = 0.015f,
+        .We_Rms_Ratio = 0.060f,
         .Pll_Rms_Max = 0.08f,
         .Theta_Rms_Max = 0.08f,
     },
