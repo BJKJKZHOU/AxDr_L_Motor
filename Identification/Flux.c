@@ -38,6 +38,7 @@ typedef struct
         uint32_t Finish_Cnt;
         float Breakaway_We_Ratio;
         float Breakaway_Acc_Ratio;
+        float Current_Soft_Ratio;
     } Workflow;
 
     struct
@@ -94,6 +95,7 @@ static const Flux_Config_T Flux_Config = {
         .Finish_Cnt = (uint32_t)(0.100f / CUR_TS + 0.5f),
         .Breakaway_We_Ratio = 0.50f,
         .Breakaway_Acc_Ratio = 3.0f,
+        .Current_Soft_Ratio = 0.80f,
     },
     .Coarse = {
         .I_BW_Hz = 200.0f,
@@ -630,6 +632,9 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
                                       float *Ubeta_V)
 {
     float Theta_Rough;
+    float I2;
+    float I_Mag;
+    float I_Soft_Max;
     float U_R;
     float U_L;
     float U_Base;
@@ -739,13 +744,17 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
         }
     }
 
+    I2 = Context->Ialpha * Context->Ialpha + Context->Ibeta * Context->Ibeta;
+    I_Mag = (__builtin_isfinite(I2) && (I2 >= 0.0f)) ? __builtin_sqrtf(I2) : 0.0f;
+    I_Soft_Max = Flux_Config.Workflow.Current_Soft_Ratio * Context->Envelope->I_Max;
+
     U_R = Motor_Para.Rs * Start_Para.Iq_Start_A;
     U_L = Abs_Value(Flux_VF.State.We) * Motor_Para.Lq * Start_Para.Iq_Start_A;
     U_Base = __builtin_sqrtf(U_R * U_R + U_L * U_L);
     U_Target = (Flux_VF.State.U > U_Base) ? Flux_VF.State.U : U_Base;
     We_Command = We_Target;
 
-    if (Identification_Current_Limited_Get())
+    if ((I_Soft_Max > 0.0f) && (I_Mag >= I_Soft_Max))
     {
         U_Target = Flux_VF.State.U;
         We_Command = Flux_VF.State.We;
