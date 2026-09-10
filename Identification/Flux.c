@@ -630,8 +630,6 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
                                       float *Ubeta_V)
 {
     float Theta_Rough;
-    float I2;
-    float I_Mag;
     float U_R;
     float U_L;
     float U_Base;
@@ -741,31 +739,26 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
         }
     }
 
-    I2 = Context->Ialpha * Context->Ialpha + Context->Ibeta * Context->Ibeta;
     U_R = Motor_Para.Rs * Start_Para.Iq_Start_A;
     U_L = Abs_Value(Flux_VF.State.We) * Motor_Para.Lq * Start_Para.Iq_Start_A;
     U_Base = __builtin_sqrtf(U_R * U_R + U_L * U_L);
     U_Target = (Flux_VF.State.U > U_Base) ? Flux_VF.State.U : U_Base;
     We_Command = We_Target;
 
-    if (__builtin_isfinite(I2) && (I2 >= 0.0f))
+    if (Identification_Current_Limited_Get())
     {
-        I_Mag = __builtin_sqrtf(I2);
-        if (I_Mag >= Start_Para.Iq_Max_A)
-        {
-            U_Target = Flux_VF.State.U;
-            We_Command = Flux_VF.State.We;
-        }
-        else if (State == FLUX_INITIAL_VF)
-        {
-            U_Target += Flux_Config.Workflow.Target_Alpha * Motor_Para.Rs *
-                        Start_Para.Iq_Start_A;
-        }
+        U_Target = Flux_VF.State.U;
+        We_Command = Flux_VF.State.We;
+    }
+    else if (State == FLUX_INITIAL_VF)
+    {
+        U_Target += Flux_Config.Workflow.Target_Alpha * Motor_Para.Rs *
+                    Start_Para.Iq_Start_A;
+    }
 
-        if (U_Target > Context->Envelope->U_Max)
-        {
-            U_Target = Context->Envelope->U_Max;
-        }
+    if (U_Target > Context->Envelope->U_Max)
+    {
+        U_Target = Context->Envelope->U_Max;
     }
 
     VF_Run(&Flux_VF,
