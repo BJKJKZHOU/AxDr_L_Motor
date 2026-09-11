@@ -25,6 +25,9 @@
 #include "Sin_LUT.h"
 #include "control_params.h"
 
+#define FLUX_HANDOVER_FLUX_MIN_RATIO2 0.64f
+#define FLUX_HANDOVER_FLUX_MAX_RATIO2 1.44f
+
 typedef struct
 {
     struct
@@ -111,7 +114,7 @@ static const Flux_Config_T Flux_Config = {
         .Emf_Alpha = CUR_TS / (0.020f + CUR_TS),
     },
     .Handover = {
-        .Ready_Cnt = (uint32_t)(0.05f / CUR_TS + 0.5f),
+        .Ready_Cnt = (uint32_t)(0.20f / CUR_TS + 0.5f),
         .Blend_Cnt = (uint32_t)(0.15f / CUR_TS + 0.5f),
         .Id_Ramp_Step = 5.0f * CUR_TS,
         .Compare_Alpha = CUR_TS / (0.050f + CUR_TS),
@@ -269,6 +272,21 @@ static bool Obs_Speed_Stable(float We_Ref)
 
 static bool Obs_Open_Stable(void)
 {
+    float Flux2;
+    float Flux_Ref2;
+
+    Flux2 = Ident_Observer.State.PsiAlpha * Ident_Observer.State.PsiAlpha +
+            Ident_Observer.State.PsiBeta * Ident_Observer.State.PsiBeta;
+    Flux_Ref2 = Ident_Observer.Para.Flux * Ident_Observer.Para.Flux;
+
+    if (!__builtin_isfinite(Flux2) || !__builtin_isfinite(Flux_Ref2) ||
+        (Flux_Ref2 <= 0.0f) ||
+        (Flux2 < FLUX_HANDOVER_FLUX_MIN_RATIO2 * Flux_Ref2) ||
+        (Flux2 > FLUX_HANDOVER_FLUX_MAX_RATIO2 * Flux_Ref2))
+    {
+        return false;
+    }
+
     return Obs_State_Stable() && (Flux_IF.State.We * We_Obs_F > 0.0f) &&
            Handover_Source_Stable(&Handover,
                                   Flux_IF.State.We,
@@ -652,6 +670,7 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
 {
     float Theta_Rough;
     bool Coarse_Valid;
+    bool Handover_Ready;
 
     Coarse_Valid = false;
     if (Model_U_Valid)
@@ -783,9 +802,19 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
         }
         else
         {
-            Handover_Qualification_Accumulate(&Handover_Ready_Cnt,
-                                              Flux_Config.Handover.Ready_Cnt,
-                                              PLL_Active && Obs_Open_Stable());
+            Handover_Ready = PLL_Active && Obs_Open_Stable();
+            if (Handover_Ready)
+            {
+                if (Handover_Ready_Cnt < Flux_Config.Handover.Ready_Cnt)
+                {
+                    Handover_Ready_Cnt++;
+                }
+            }
+            else
+            {
+                Handover_Ready_Cnt = 0U;
+            }
+
             if (Handover_Ready_Cnt >= Flux_Config.Handover.Ready_Cnt)
             {
                 Handover_Blend_Reset(&Handover);
