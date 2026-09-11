@@ -606,6 +606,7 @@ static Motor_Fast_Mode_e Flux_Align_Run(int8_t Dir, float *Id_Ref, float *Iq_Ref
     {
         Current_Loop_State_Reset();
         IF_Init(&Flux_IF, -0.5f * PI_F * (float)Dir, 0.0f);
+        Flux_IF.State.Iq = (float)Dir * Start_Para.Iq_Start_A;
         IF_Target_Set(&Flux_IF, We_Target);
         if (Flux_IF.State.Mode == IF_FAILED)
         {

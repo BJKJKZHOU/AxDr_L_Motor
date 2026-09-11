@@ -241,6 +241,7 @@ void Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float 
             Theta_Start = -(float)Dir * (0.5f * PI_F);
 
             IF_Init(&Sensorless_IF, Theta_Start, 0.0f);
+            Sensorless_IF.State.Iq = (float)Dir * IF_Para.Iq_Start_A;
             IF_Target_Set(&Sensorless_IF, We_IF_Target);
 
             Flux_Observer_Reset(&Sensorless_Observer, Theta_Start, Ialpha, Ibeta);
@@ -369,6 +370,7 @@ void Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float 
         if (Abs_F(Sensorless_PLL.State.We) <= OBS_TO_IF_WE_RAD_S)
         {
             IF_Init(&Sensorless_IF, Theta_Obs, Sensorless_PLL.State.We);
+            Sensorless_IF.State.Iq = Obs_Iq_Ref;
             IF_Target_Set(&Sensorless_IF, We_Ref);
             if (Sensorless_IF.State.Mode == IF_FAILED)
             {

@@ -13,10 +13,11 @@
  * Standard I/F actuator.
  *
  * Electrical speed follows the predetermined ramp to We_Target while the
- * torque-producing current reference stays fixed. Runtime current, voltage,
- * observer, PLL and back-EMF signals never modify the I/F trajectory.
- * Measured current below the startup current is not a failure condition;
- * phase-current protection remains the only current validity guard.
+ * torque-producing current reference stays fixed after its commanded slew.
+ * Runtime current, voltage, observer, PLL and back-EMF signals never modify
+ * the I/F trajectory. Measured current below the startup current is not a
+ * failure condition; phase-current protection remains the only current
+ * validity guard.
  */
 
 static float Sign_F(float X)
@@ -51,10 +52,12 @@ void IF_Init(IF_T *IF, float Theta_Start, float We_Start)
         (IF->Para.Iq_Max_A < IF->Para.Iq_Min_A) ||
         (IF->Para.We_Base <= 0.0f) ||
         (IF->Para.Acc <= 0.0f) ||
+        (IF->Para.Iq_Slew_A_S <= 0.0f) ||
         !__builtin_isfinite(IF->Para.Iq_Min_A) ||
         !__builtin_isfinite(IF->Para.Iq_Max_A) ||
         !__builtin_isfinite(IF->Para.We_Base) ||
         !__builtin_isfinite(IF->Para.Acc) ||
+        !__builtin_isfinite(IF->Para.Iq_Slew_A_S) ||
         !__builtin_isfinite(IF->State.Theta_e) ||
         !__builtin_isfinite(We_Start))
     {
@@ -75,14 +78,6 @@ void IF_Target_Set(IF_T *IF, float We_Target)
         return;
     }
 
-    /* Standard I/F uses a fixed torque-producing current. For Flux
-     * identification Iq_Min_A is configured as the 1 A startup current,
-     * clipped by the user current limit before initialization. */
-    if ((We_Target != 0.0f) && (IF->State.Iq == 0.0f))
-    {
-        IF->State.Iq = Sign_F(We_Target) * IF->Para.Iq_Min_A;
-    }
-
     IF->State.We_Target = We_Target;
     IF->State.Mode = (IF->State.We == We_Target) ? IF_HOLD : IF_RAMP;
 }
@@ -97,6 +92,8 @@ void IF_Run(IF_T *IF,
             float *Iq_Ref,
             float Ts)
 {
+    float Iq_Target;
+    float Iq_Step;
     float We_Step;
 
     /* Standard I/F does not adapt its trajectory from runtime feedback. */
@@ -150,13 +147,26 @@ void IF_Run(IF_T *IF,
         }
     }
 
-    if (IF->State.We_Target == 0.0f)
+    Iq_Target = (IF->State.We_Target == 0.0f)
+                    ? 0.0f
+                    : Sign_F(IF->State.We_Target) * IF->Para.Iq_Min_A;
+    Iq_Step = IF->Para.Iq_Slew_A_S * Ts;
+
+    if (IF->State.Iq < Iq_Target)
     {
-        IF->State.Iq = 0.0f;
+        IF->State.Iq += Iq_Step;
+        if (IF->State.Iq > Iq_Target)
+        {
+            IF->State.Iq = Iq_Target;
+        }
     }
-    else
+    else if (IF->State.Iq > Iq_Target)
     {
-        IF->State.Iq = Sign_F(IF->State.We_Target) * IF->Para.Iq_Min_A;
+        IF->State.Iq -= Iq_Step;
+        if (IF->State.Iq < Iq_Target)
+        {
+            IF->State.Iq = Iq_Target;
+        }
     }
 
     if (!__builtin_isfinite(IF->State.Theta_e) ||
