@@ -169,6 +169,7 @@ static IF_T Flux_IF = { 0 };
 static Flux_Estimator_T Flux_Estimator = { 0 };
 static Handover_T Handover = { 0 };
 static volatile float We_Target = 0.0f;
+static float We_Search = 0.0f;
 static uint32_t Cnt = 0U;
 static uint32_t Observer_Feed_Cnt = 0U;
 static float We_Obs_F = 0.0f;
@@ -183,6 +184,7 @@ static uint32_t Fine_Stable_Cnt = 0U;
 static uint8_t Finish_Init = 0U;
 static bool Model_U_Valid = false;
 static bool Emf_Valid = false;
+static bool Search_Target_Ready = false;
 static bool Obs_Active = false;
 static bool PLL_Active = false;
 static bool Obs_Control = false;
@@ -335,6 +337,77 @@ static bool Coarse_Run(float Ud, float Uq, float Id, float Iq, float We)
     }
 
     return Flux_Estimator.State.Estimate_Valid;
+}
+
+static bool Flux_IF_Search_Target_Build(int8_t Dir, float *We_Search_Out)
+{
+    const Ident_Envelope_T *Envelope;
+    float A;
+    float B;
+    float C;
+    float Disc;
+    float Flux;
+    float Iq;
+    float Lq_Iq;
+    float Rs_Iq;
+    float U_Target;
+    float We_Max;
+    float We_Req;
+
+    if (We_Search_Out == NULL)
+    {
+        return false;
+    }
+
+    Envelope = Identification_Envelope_Get();
+    Flux = Flux_Estimator.State.Flux;
+    Iq = Ident_IF_Current_A;
+    We_Max = (float)Motor_Para.Pp * Motor_Wm_Limit_Effective_Get();
+    if ((Envelope->U_Available <= 0.0f) ||
+        !__builtin_isfinite(Flux) || (Flux <= Flux_Config.Workflow.Est_Num_Min_Wb) ||
+        !__builtin_isfinite(Iq) || (Iq <= 0.0f) ||
+        !__builtin_isfinite(We_Max) || (We_Max < Start_Para.We_Base))
+    {
+        return false;
+    }
+
+    /* With Id_ref = 0 and fixed I/F Iq, solve the steady-state dq voltage
+     * magnitude for the observer work ratio:
+     *   Ud = -We * Lq * Iq
+     *   Uq = Rs * Iq + We * Flux
+     *   U_target^2 = Ud^2 + Uq^2
+     * This converts the first coarse flux estimate into one deterministic
+     * second-stage I/F speed target. The target is not recomputed afterwards. */
+    U_Target = Flux_Config.Observer.Work_Ratio * Envelope->U_Available;
+    Rs_Iq = Motor_Para.Rs * Iq;
+    Lq_Iq = Motor_Para.Lq * Iq;
+    A = Lq_Iq * Lq_Iq + Flux * Flux;
+    B = 2.0f * Rs_Iq * Flux;
+    C = Rs_Iq * Rs_Iq - U_Target * U_Target;
+    Disc = B * B - 4.0f * A * C;
+
+    if ((A <= 0.0f) || !__builtin_isfinite(Disc) || (Disc < 0.0f))
+    {
+        return false;
+    }
+
+    We_Req = (-B + __builtin_sqrtf(Disc)) / (2.0f * A);
+    if (!__builtin_isfinite(We_Req) || (We_Req <= 0.0f))
+    {
+        return false;
+    }
+
+    if (We_Req < Start_Para.We_Base)
+    {
+        We_Req = Start_Para.We_Base;
+    }
+    if (We_Req > We_Max)
+    {
+        We_Req = We_Max;
+    }
+
+    *We_Search_Out = (float)Dir * We_Req;
+    return true;
 }
 
 static bool Flux_Obs_Target_Update(int8_t Dir, float We_Actual)
@@ -601,6 +674,32 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
         (Observer_Feed_Cnt < Flux_Config.Workflow.Observer_Feed_Blank_Cnt))
     {
         Observer_Feed_Cnt++;
+    }
+
+    /* Stage 1 ends at the RL-derived base speed. Once the coarse flux is
+     * available there, derive one second-stage I/F speed target from the
+     * measured coarse flux and the fixed user I/F current. No runtime signal
+     * is allowed to modify this target after it has been built. */
+    if ((State == FLUX_IF) && !Search_Target_Ready &&
+        (Flux_IF.State.Mode == IF_HOLD) &&
+        (Abs_Value(Flux_IF.State.We) >= Start_Para.We_Base) &&
+        __builtin_isfinite(Flux_Estimator.State.Flux) &&
+        (Flux_Estimator.State.Flux > Flux_Config.Workflow.Est_Num_Min_Wb))
+    {
+        if (!Flux_IF_Search_Target_Build(Context->Dir, &We_Search))
+        {
+            Flux_Fail_Off();
+            return FLUX_STEP_OFF;
+        }
+
+        Search_Target_Ready = true;
+        We_Target = We_Search;
+        IF_Target_Set(&Flux_IF, We_Target);
+        if (Flux_IF.State.Mode == IF_FAILED)
+        {
+            Flux_Fail_Off();
+            return FLUX_STEP_OFF;
+        }
     }
 
     if ((Observer_Feed_Cnt >= Flux_Config.Workflow.Observer_Feed_Blank_Cnt) &&
@@ -912,6 +1011,7 @@ bool Flux_Start(float Wm_Target)
     Start_Para = (Motor_IF_Para_T){ 0 };
     Flux_IF = (IF_T){ 0 };
     We_Target = 0.0f;
+    We_Search = 0.0f;
     Cnt = 0U;
     Observer_Feed_Cnt = 0U;
     We_Obs_F = 0.0f;
@@ -926,6 +1026,7 @@ bool Flux_Start(float Wm_Target)
     Finish_Init = 0U;
     Model_U_Valid = false;
     Emf_Valid = false;
+    Search_Target_Ready = false;
     Obs_Active = false;
     PLL_Active = false;
     Obs_Control = false;
