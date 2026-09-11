@@ -10,28 +10,32 @@
 
 static bool Flux_Observer_Calc_Update(Flux_Observer_T *Obs)
 {
-    float Wc;
+    float Flux2;
+    float Gamma;
 
-    if (Obs->Para.BW_Hz == Obs->Calc.BW_Used)
+    if ((Obs->Para.Flux == Obs->Calc.Flux_Used) && (Obs->Para.BW_Hz == Obs->Calc.BW_Used))
     {
-        return __builtin_isfinite(Obs->Calc.Wc) && (Obs->Calc.Wc > 0.0f);
+        return __builtin_isfinite(Obs->Calc.Gamma) && (Obs->Calc.Gamma > 0.0f);
     }
 
+    Obs->Calc.Flux_Used = Obs->Para.Flux;
     Obs->Calc.BW_Used = Obs->Para.BW_Hz;
-    Obs->Calc.Wc = 0.0f;
+    Obs->Calc.Gamma = 0.0f;
 
-    if (!__builtin_isfinite(Obs->Para.BW_Hz) || (Obs->Para.BW_Hz <= 0.0f))
+    if (!__builtin_isfinite(Obs->Para.Flux) || !__builtin_isfinite(Obs->Para.BW_Hz) ||
+        (Obs->Para.Flux <= 0.0f) || (Obs->Para.BW_Hz <= 0.0f))
     {
         return false;
     }
 
-    Wc = TWO_PI_F * Obs->Para.BW_Hz;
-    if (!__builtin_isfinite(Wc) || (Wc <= 0.0f))
+    Flux2 = Obs->Para.Flux * Obs->Para.Flux;
+    Gamma = TWO_PI_F * Obs->Para.BW_Hz / Flux2;
+    if (!__builtin_isfinite(Gamma) || (Gamma <= 0.0f))
     {
         return false;
     }
 
-    Obs->Calc.Wc = Wc;
+    Obs->Calc.Gamma = Gamma;
     return true;
 }
 
@@ -61,9 +65,6 @@ bool Flux_Observer_Run(Flux_Observer_T *Obs,
 {
     float PsiAlpha;
     float PsiBeta;
-    float Flux2;
-    float Psi2;
-    float Den;
     float Flux_Err;
     float Corr;
     float LambdaAlpha_Dot;
@@ -77,7 +78,6 @@ bool Flux_Observer_Run(Flux_Observer_T *Obs,
         !__builtin_isfinite(Ialpha) || !__builtin_isfinite(Ibeta) ||
         !__builtin_isfinite(Ts) || (Ts <= 0.0f) ||
         !__builtin_isfinite(Obs->Para.Rs) || !__builtin_isfinite(Obs->Para.Ls) ||
-        !__builtin_isfinite(Obs->Para.Flux) || (Obs->Para.Flux <= 0.0f) ||
         !Flux_Observer_Calc_Update(Obs))
     {
         return false;
@@ -85,31 +85,8 @@ bool Flux_Observer_Run(Flux_Observer_T *Obs,
 
     PsiAlpha = Obs->State.LambdaAlpha - Obs->Para.Ls * Ialpha;
     PsiBeta = Obs->State.LambdaBeta - Obs->Para.Ls * Ibeta;
-    Flux2 = Obs->Para.Flux * Obs->Para.Flux;
-    Psi2 = PsiAlpha * PsiAlpha + PsiBeta * PsiBeta;
-    Den = Flux2 + Psi2;
-
-    if (!__builtin_isfinite(PsiAlpha) || !__builtin_isfinite(PsiBeta) ||
-        !__builtin_isfinite(Flux2) || !__builtin_isfinite(Psi2) ||
-        !__builtin_isfinite(Den) || (Den <= 0.0f))
-    {
-        return false;
-    }
-
-    Flux_Err = Flux2 - Psi2;
-
-    /*
-     * Use a normalized nonlinear flux-magnitude correction:
-     *
-     *   Corr = Wc * (Flux^2 - |Psi|^2) / (Flux^2 + |Psi|^2)
-     *
-     * Unlike the previous Gamma = Wc / Flux^2 form, the correction gain is
-     * bounded by |Corr| <= Wc. This prevents a temporarily small positive Flux
-     * estimate from creating an extremely large correction and driving the
-     * observer state to Inf/NaN. Around |Psi| = Flux the first-order radial
-     * convergence remains approximately Wc, so BW_Hz keeps its local meaning.
-     */
-    Corr = Obs->Calc.Wc * Flux_Err / Den;
+    Flux_Err = Obs->Para.Flux * Obs->Para.Flux - PsiAlpha * PsiAlpha - PsiBeta * PsiBeta;
+    Corr = 0.5f * Obs->Calc.Gamma * Flux_Err;
 
     LambdaAlpha_Dot = Ualpha - Obs->Para.Rs * Ialpha + Corr * PsiAlpha;
     LambdaBeta_Dot = Ubeta - Obs->Para.Rs * Ibeta + Corr * PsiBeta;
@@ -119,7 +96,8 @@ bool Flux_Observer_Run(Flux_Observer_T *Obs,
     PsiAlpha_Next = LambdaAlpha_Next - Obs->Para.Ls * Ialpha;
     PsiBeta_Next = LambdaBeta_Next - Obs->Para.Ls * Ibeta;
 
-    if (!__builtin_isfinite(Flux_Err) || !__builtin_isfinite(Corr) ||
+    if (!__builtin_isfinite(PsiAlpha) || !__builtin_isfinite(PsiBeta) ||
+        !__builtin_isfinite(Flux_Err) || !__builtin_isfinite(Corr) ||
         !__builtin_isfinite(LambdaAlpha_Dot) || !__builtin_isfinite(LambdaBeta_Dot) ||
         !__builtin_isfinite(LambdaAlpha_Next) || !__builtin_isfinite(LambdaBeta_Next) ||
         !__builtin_isfinite(PsiAlpha_Next) || !__builtin_isfinite(PsiBeta_Next))
