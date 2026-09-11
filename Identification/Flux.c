@@ -13,6 +13,7 @@
 #include "Flux_Estimator.h"
 #include "Flux_Observer.h"
 #include "Handover.h"
+#include "IF_Start.h"
 #include "Identification.h"
 #include "Math.h"
 #include "Motor_ADC.h"
@@ -22,15 +23,12 @@
 #include "Motor_Type.h"
 #include "PLL.h"
 #include "Sin_LUT.h"
-#include "VF.h"
 #include "control_params.h"
 
 typedef struct
 {
     struct
     {
-        float Open_Accel_S;
-        float Vf_V_Per_Rad_S;
         uint32_t Observer_Feed_Blank_Cnt;
         float Est_Num_Min_Wb;
         float Finish_Iq_Slew_A_S;
@@ -84,8 +82,6 @@ typedef struct
 
 static const Flux_Config_T Flux_Config = {
     .Workflow = {
-        .Open_Accel_S = 6.0f,
-        .Vf_V_Per_Rad_S = 0.0032f,
         .Observer_Feed_Blank_Cnt = (uint32_t)(6.0f / CUR_TS + 0.5f),
         .Est_Num_Min_Wb = 1.0e-12f,
         .Finish_Iq_Slew_A_S = 20.0f,
@@ -132,7 +128,7 @@ typedef enum
 {
     FLUX_IDLE = 0,
     FLUX_ALIGN,
-    FLUX_VF,
+    FLUX_IF,
     FLUX_HANDOVER_BLEND,
     FLUX_HANDOVER_CURRENT,
     FLUX_OBS_ACCEL,
@@ -147,7 +143,6 @@ typedef enum
 typedef enum
 {
     FLUX_STEP_CONTINUE = 0,
-    FLUX_STEP_FINISH,
     FLUX_STEP_OFF,
 
 } Flux_Step_e;
@@ -170,11 +165,10 @@ typedef struct
 static volatile Flux_State_e State = FLUX_IDLE;
 static Flux_Result_T Result = { 0 };
 static Motor_IF_Para_T Start_Para = { 0 };
-static VF_T Flux_VF = { 0 };
+static IF_T Flux_IF = { 0 };
 static Flux_Estimator_T Flux_Estimator = { 0 };
 static Handover_T Handover = { 0 };
 static volatile float We_Target = 0.0f;
-static float VF_U_Boost = 0.0f;
 static uint32_t Cnt = 0U;
 static uint32_t Observer_Feed_Cnt = 0U;
 static float We_Obs_F = 0.0f;
@@ -275,9 +269,9 @@ static bool Obs_Speed_Stable(float We_Ref)
 
 static bool Obs_Open_Stable(void)
 {
-    return Obs_State_Stable() && (Flux_VF.State.We * We_Obs_F > 0.0f) &&
+    return Obs_State_Stable() && (Flux_IF.State.We * We_Obs_F > 0.0f) &&
            Handover_Source_Stable(&Handover,
-                                  Flux_VF.State.We,
+                                  Flux_IF.State.We,
                                   Start_Para.We_Base,
                                   Flux_Config.Handover.We_Mean_Ratio,
                                   Flux_Config.Handover.We_Rms_Ratio,
@@ -457,7 +451,7 @@ static void Flux_Context_Init(Flux_Fast_Context_T *Context, float Ia_A, float Ib
     Context->Envelope = Identification_Envelope_Get();
     Context->Ialpha = Ia_A;
     Context->Ibeta = (Ia_A + 2.0f * Ib_A) * INV_SQRT3_F;
-    Context->Theta_Open = Flux_VF.State.Theta_e;
+    Context->Theta_Open = Flux_IF.State.Theta_e;
     Context->Theta_Obs = Ident_PLL.State.Theta;
 
     SinCos(Context->Theta_Open, &Sin, &Cos);
@@ -522,11 +516,15 @@ static Motor_Fast_Mode_e Flux_Align_Run(int8_t Dir, float *Id_Ref, float *Iq_Ref
     if (Align_Current(Start_Para.Iq_Start_A, IF_ALIGN_CNT, Id_Ref, Iq_Ref))
     {
         Current_Loop_State_Reset();
-        Flux_VF.State = (VF_State_T){ 0 };
-        Flux_VF.State.Theta_e = -0.5f * PI_F * (float)Dir;
-        Flux_VF.State.U = VF_U_Boost;
+        IF_Init(&Flux_IF, -0.5f * PI_F * (float)Dir, 0.0f);
+        IF_Target_Set(&Flux_IF, We_Target);
+        if (Flux_IF.State.Mode == IF_FAILED)
+        {
+            return Flux_Fail_Off();
+        }
         Observer_Feed_Cnt = 0U;
-        State = FLUX_VF;
+        Current_Control_Active = true;
+        State = FLUX_IF;
     }
     return FAST_CURRENT;
 }
@@ -534,38 +532,11 @@ static Motor_Fast_Mode_e Flux_Align_Run(int8_t Dir, float *Id_Ref, float *Iq_Ref
 static Motor_Fast_Mode_e Flux_Finish_Run(const Flux_Fast_Context_T *Context,
                                          float *Theta_e,
                                          float *Id_Ref,
-                                         float *Iq_Ref,
-                                         float *Ualpha_V,
-                                         float *Ubeta_V)
+                                         float *Iq_Ref)
 {
     float Iq_Step;
 
-    if (!Current_Control_Active)
-    {
-        VF_Run(&Flux_VF, 0.0f, 0.0f, Ualpha_V, Ubeta_V, CUR_TS);
-        if (Flux_VF.State.U == 0.0f)
-        {
-            if (++Cnt >= Flux_Config.Workflow.Finish_Cnt)
-            {
-                State = Result.Valid ? FLUX_DONE : FLUX_FAILED;
-                return FAST_OFF;
-            }
-        }
-        else
-        {
-            Cnt = 0U;
-        }
-        return FAST_VOLTAGE;
-    }
-
-    if (Obs_Control)
-    {
-        *Theta_e = Context->Theta_Obs;
-    }
-    else
-    {
-        *Theta_e = Motor_Run.Theta_e;
-    }
+    *Theta_e = Obs_Control ? Context->Theta_Obs : Motor_Run.Theta_e;
     *Id_Ref = 0.0f;
 
     if (Finish_Init == 0U)
@@ -607,12 +578,9 @@ static Motor_Fast_Mode_e Flux_Finish_Run(const Flux_Fast_Context_T *Context,
 static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
                                       float *Theta_e,
                                       float *Id_Ref,
-                                      float *Iq_Ref,
-                                      float *Ualpha_V,
-                                      float *Ubeta_V)
+                                      float *Iq_Ref)
 {
     float Theta_Rough;
-    float U_Target;
 
     if (Model_U_Valid)
     {
@@ -620,7 +588,7 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
                          Context->Uq_Open,
                          Context->Id_Open,
                          Context->Iq_Open,
-                         Flux_VF.State.We);
+                         Flux_IF.State.We);
         if (!__builtin_isfinite(Flux_Estimator.State.Psi_d) ||
             !__builtin_isfinite(Flux_Estimator.State.Psi_q))
         {
@@ -629,7 +597,7 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
         }
     }
 
-    if ((State == FLUX_VF) &&
+    if ((State == FLUX_IF) &&
         (Observer_Feed_Cnt < Flux_Config.Workflow.Observer_Feed_Blank_Cnt))
     {
         Observer_Feed_Cnt++;
@@ -650,8 +618,8 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
             Ident_PLL.Para.Kp = Flux_Config.Observer.Pll_Kp;
             Ident_PLL.Para.Ki = Flux_Config.Observer.Pll_Ki;
             Flux_Observer_Reset(&Ident_Observer, Theta_Rough, Context->Ialpha, Context->Ibeta);
-            PLL_Reset(&Ident_PLL, Theta_Rough, Flux_VF.State.We);
-            We_Obs_F = Flux_VF.State.We;
+            PLL_Reset(&Ident_PLL, Theta_Rough, Flux_IF.State.We);
+            We_Obs_F = Flux_IF.State.We;
             Handover_Ready_Cnt = 0U;
             Handover_Compare_Reset(&Handover);
             Obs_Active = true;
@@ -668,8 +636,8 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
     {
         Theta_Rough = Angle_Wrap(__builtin_atan2f(Ident_Observer.State.PsiBeta,
                                                   Ident_Observer.State.PsiAlpha));
-        PLL_Reset(&Ident_PLL, Theta_Rough, Flux_VF.State.We);
-        We_Obs_F = Flux_VF.State.We;
+        PLL_Reset(&Ident_PLL, Theta_Rough, Flux_IF.State.We);
+        We_Obs_F = Flux_IF.State.We;
         Motion_Lost_Cnt = 0U;
         Handover_Ready_Cnt = 0U;
         Handover_Compare_Reset(&Handover);
@@ -681,27 +649,29 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
     {
         Handover_Source_Compare(&Handover,
                                 Context->Theta_Open,
-                                Flux_VF.State.We,
+                                Flux_IF.State.We,
                                 Context->Theta_Obs,
                                 We_Obs_F,
                                 Ident_PLL.State.Err,
                                 Flux_Config.Handover.Compare_Alpha);
     }
 
-    U_Target = VF_U_Boost + Flux_Config.Workflow.Vf_V_Per_Rad_S * Abs_Value(Flux_VF.State.We);
-    if (U_Target > Context->Envelope->U_Max)
+    IF_Run(&Flux_IF,
+           Context->Id_Open,
+           Context->Iq_Open,
+           Context->Ud_Open,
+           Context->Uq_Open,
+           Theta_e,
+           Id_Ref,
+           Iq_Ref,
+           CUR_TS);
+    if (Flux_IF.State.Mode == IF_FAILED)
     {
-        U_Target = Context->Envelope->U_Max;
+        Flux_Fail_Off();
+        return FLUX_STEP_OFF;
     }
 
-    VF_Run(&Flux_VF,
-           (float)Context->Dir * Start_Para.We_Base,
-           U_Target,
-           Ualpha_V,
-           Ubeta_V,
-           CUR_TS);
-
-    if (State == FLUX_VF)
+    if (State == FLUX_IF)
     {
         Handover_Qualification_Accumulate(&Handover_Ready_Cnt,
                                           Flux_Config.Handover.Ready_Cnt,
@@ -713,9 +683,6 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
         }
     }
 
-    *Theta_e = Flux_VF.State.Theta_e;
-    *Id_Ref = 0.0f;
-    *Iq_Ref = 0.0f;
     Motor_Run.Theta_e = Context->Theta_Open;
     Motor_Run.Id = Context->Id_Open;
     Motor_Run.Iq = Context->Iq_Open;
@@ -732,9 +699,7 @@ static Motor_Fast_Mode_e Flux_Handover_Blend_Run(Flux_Fast_Context_T *Context,
                                                   float *Iq_Ref)
 {
     float I_Max;
-    bool Blend_Start;
 
-    Blend_Start = Handover.Blend_Cnt == 0U;
     if (Handover_Blend_Run(&Handover,
                            Flux_Config.Handover.Blend_Cnt,
                            Context->Theta_Open,
@@ -754,15 +719,6 @@ static Motor_Fast_Mode_e Flux_Handover_Blend_Run(Flux_Fast_Context_T *Context,
         State = FLUX_HANDOVER_CURRENT;
     }
 
-    if (Blend_Start)
-    {
-        Current_Loop_Track(*Theta_e,
-                           *Id_Ref,
-                           *Iq_Ref,
-                           Motor_Run.Ualpha,
-                           Motor_Run.Ubeta);
-        Current_Control_Active = true;
-    }
     return FAST_CURRENT;
 }
 
@@ -954,9 +910,8 @@ bool Flux_Start(float Wm_Target)
 
     Result = (Flux_Result_T){ 0 };
     Start_Para = (Motor_IF_Para_T){ 0 };
-    Flux_VF = (VF_T){ 0 };
+    Flux_IF = (IF_T){ 0 };
     We_Target = 0.0f;
-    VF_U_Boost = 0.0f;
     Cnt = 0U;
     Observer_Feed_Cnt = 0U;
     We_Obs_F = 0.0f;
@@ -990,19 +945,14 @@ bool Flux_Start(float Wm_Target)
     Sign = (Wm_Target < 0.0f) ? -1.0f : 1.0f;
     We_Target = Sign * Start_Para.We_Base;
 
-    /* VF/align use the proven 1 A excitation baseline. Motor_IF_Para_Build()
-     * is reused here for the RL-derived speed scale and current limit only. */
-    Start_Para.Iq_Start_A = IF_IQ_START_A;
-    if (Start_Para.Iq_Start_A > Envelope->I_Max)
-    {
-        Start_Para.Iq_Start_A = Envelope->I_Max;
-    }
-
-    VF_U_Boost = Motor_Para.Rs * Start_Para.Iq_Start_A;
-    if (VF_U_Boost > Envelope->U_Max)
-    {
-        VF_U_Boost = Envelope->U_Max;
-    }
+    Flux_IF.Para.Iq_Min_A = Start_Para.Iq_Start_A;
+    Flux_IF.Para.Iq_Max_A = Start_Para.Iq_Max_A;
+    Flux_IF.Para.We_Base = Start_Para.We_Base;
+    Flux_IF.Para.Acc = Start_Para.Acc;
+    Flux_IF.Para.Iq_Slew_A_S = IF_IQ_SLEW_A_S;
+    Flux_IF.Para.Rs_Ohm = Motor_Para.Rs;
+    Flux_IF.Para.Ld_H = Motor_Para.Ld;
+    Flux_IF.Para.Lq_H = Motor_Para.Lq;
 
     Flux_Estimator.Para.Rs = Motor_Para.Rs;
     Flux_Estimator.Para.Ld = Motor_Para.Ld;
@@ -1012,15 +962,6 @@ bool Flux_Start(float Wm_Target)
     Flux_Estimator.Para.We_Min = Flux_Config.Coarse.We_Min_Ratio * Start_Para.We_Base;
     Flux_Estimator.Para.Window_Update_Ratio = 0.0f;
     Flux_Estimator.Para.Window_Samples = 0U;
-
-    Flux_VF.Para.U_Max_V = Envelope->U_Max;
-    Flux_VF.Para.We_Acc = Start_Para.We_Base / Flux_Config.Workflow.Open_Accel_S;
-    Flux_VF.Para.U_Slew_V_S = Flux_Config.Workflow.Vf_V_Per_Rad_S * Flux_VF.Para.We_Acc;
-    if ((Flux_VF.Para.We_Acc <= 0.0f) || (Flux_VF.Para.U_Slew_V_S <= 0.0f))
-    {
-        State = FLUX_FAILED;
-        return false;
-    }
 
     Align_Reset();
     Current_Loop_State_Reset();
@@ -1086,12 +1027,7 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A,
 
     if (State == FLUX_FINISH)
     {
-        return Flux_Finish_Run(&Context,
-                               Theta_e,
-                               Id_Ref,
-                               Iq_Ref,
-                               Ualpha_V,
-                               Ubeta_V);
+        return Flux_Finish_Run(&Context, Theta_e, Id_Ref, Iq_Ref);
     }
 
     if ((Context.Envelope->I_Max <= 0.0f) ||
@@ -1101,33 +1037,19 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A,
         return Flux_Fail_Off();
     }
 
-    if ((State == FLUX_VF) || (State == FLUX_HANDOVER_BLEND))
+    if ((State == FLUX_IF) || (State == FLUX_HANDOVER_BLEND))
     {
-        Step = Flux_Open_Loop_Run(&Context,
-                                  Theta_e,
-                                  Id_Ref,
-                                  Iq_Ref,
-                                  Ualpha_V,
-                                  Ubeta_V);
+        Step = Flux_Open_Loop_Run(&Context, Theta_e, Id_Ref, Iq_Ref);
         if (Step == FLUX_STEP_OFF)
         {
             return FAST_OFF;
-        }
-        if (Step == FLUX_STEP_FINISH)
-        {
-            return Flux_Finish_Run(&Context,
-                                   Theta_e,
-                                   Id_Ref,
-                                   Iq_Ref,
-                                   Ualpha_V,
-                                   Ubeta_V);
         }
     }
 
     switch (State)
     {
-        case FLUX_VF:
-            return FAST_VOLTAGE;
+        case FLUX_IF:
+            return FAST_CURRENT;
 
         case FLUX_HANDOVER_BLEND:
             return Flux_Handover_Blend_Run(&Context, Theta_e, Id_Ref, Iq_Ref);

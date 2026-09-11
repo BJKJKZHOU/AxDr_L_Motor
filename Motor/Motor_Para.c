@@ -15,7 +15,7 @@
 #include "motor_params.h"
 
 #define MOTOR_IF_U_BUDGET_RATIO  0.65f
-#define MOTOR_IF_I_START_A       0.20f
+#define MOTOR_IF_I_START_A       1.0f
 #define MOTOR_IF_WE_RL_RATIO     0.02f
 #define MOTOR_IF_WE_MARGIN_RATIO 0.25f
 #define MOTOR_IF_WE_MIN_RAD_S    1.0f
@@ -99,7 +99,7 @@ bool Motor_IF_Para_Build(float Vbus_V, float I_Max_A, Motor_IF_Para_T *Para)
     U_Available_V = Vbus_V * INV_SQRT3_F * VOLT_MOD_MAX;
     Para->U_Budget_V = MOTOR_IF_U_BUDGET_RATIO * U_Available_V;
 
-    Para->Iq_Start_A = MOTOR_IF_I_START_A;
+    Para->Iq_Start_A = (I_Max_A < MOTOR_IF_I_START_A) ? I_Max_A : MOTOR_IF_I_START_A;
     Para->Iq_Max_A = I_Max_A;
 
     if ((Para->Iq_Start_A <= 0.0f) || (Para->Iq_Max_A < Para->Iq_Start_A))
