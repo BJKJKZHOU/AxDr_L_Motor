@@ -936,7 +936,10 @@ bool Flux_Start(float Wm_Target)
 
     Envelope = Identification_Envelope_Get();
     if ((Envelope->I_Max <= 0.0f) || (Envelope->U_Max <= 0.0f) ||
-        !Motor_IF_Para_Build(ADC.Vbus_V, Envelope->I_Max, &Start_Para))
+        !Motor_IF_Para_Build(ADC.Vbus_V, Envelope->I_Max, &Start_Para) ||
+        !__builtin_isfinite(Ident_IF_Current_A) ||
+        (Ident_IF_Current_A <= 0.0f) ||
+        (Ident_IF_Current_A > Envelope->I_Max))
     {
         State = FLUX_FAILED;
         return false;
@@ -945,7 +948,9 @@ bool Flux_Start(float Wm_Target)
     Sign = (Wm_Target < 0.0f) ? -1.0f : 1.0f;
     We_Target = Sign * Start_Para.We_Base;
 
-    Flux_IF.Para.Iq_Min_A = Start_Para.Iq_Start_A;
+    /* ALIGN keeps its independent 1 A baseline from Start_Para.Iq_Start_A.
+     * Flux I/F torque is explicitly supplied by the Host commissioning input. */
+    Flux_IF.Para.Iq_Min_A = Ident_IF_Current_A;
     Flux_IF.Para.Iq_Max_A = Start_Para.Iq_Max_A;
     Flux_IF.Para.We_Base = Start_Para.We_Base;
     Flux_IF.Para.Acc = Start_Para.Acc;

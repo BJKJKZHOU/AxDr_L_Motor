@@ -11,7 +11,7 @@ Examples:
         --rs-ls-count 5 --run
 
     python3 tools/identification_test.py \
-        --port /dev/ttyACM1 --pole-pairs 7 --current-limit 2.0 \
+        --port /dev/ttyACM1 --pole-pairs 7 --current-limit 2.0 --if-current 0.5 \
         --rs-ls-count 5 --apply-rl \
         --flux-forward-count 2 --flux-reverse-count 2 --apply-flux --run
 
@@ -114,6 +114,7 @@ OBJECT_NAME = {
     PARAM_IDENT_FLUX_VALID: "PARAM_IDENT_FLUX_VALID",
     PARAM_IDENT_FLUX_RESULT: "PARAM_IDENT_FLUX_RESULT",
     PARAM_IDENT_FAIL_REASON: "PARAM_IDENT_FAIL_REASON",
+    PARAM_IDENT_IF_CURRENT: "PARAM_IDENT_IF_CURRENT",
     ACTION_MOTOR_ENABLE: "ACTION_MOTOR_ENABLE",
     ACTION_MOTOR_DISABLE: "ACTION_MOTOR_DISABLE",
     ACTION_IDENT_RS_LS_START: "ACTION_IDENT_RS_LS_START",
@@ -562,7 +563,7 @@ class IdentificationClient:
         response_id, = struct.unpack("<H", data)
         if response_id != action_id:
             raise RuntimeError(
-                f"action response mismatch: id=0x{response_id:04X}"
+                f"action write response mismatch: id=0x{response_id:04X}"
             )
         return txn
 
@@ -582,8 +583,6 @@ class IdentificationClient:
                 f"motor did not enter DISABLED state: state={state}"
             )
 
-        # IDENT does not require an encoder. Select it before clearing a stale
-        # encoder-related stop so Protection_Control does not latch it again.
         self.parameter_write(PARAM_MOTOR_MODE, PARAM_U8, MODE_IDENT)
 
         error = self.parameter_read(PARAM_EVENT_ERROR, PARAM_U32)
@@ -625,6 +624,20 @@ class IdentificationClient:
             f"{HOST_CURRENT_OVER_COUNT} samples; "
             f"hard limit={HOST_CURRENT_HARD_LIMIT_A:.3f} A"
         )
+
+    def if_current_set(self):
+        self.parameter_write(
+            PARAM_IDENT_IF_CURRENT,
+            PARAM_FLOAT,
+            self.args.if_current,
+        )
+        value = self.parameter_read(PARAM_IDENT_IF_CURRENT, PARAM_FLOAT)
+        if not math.isclose(value, self.args.if_current, rel_tol=0.0, abs_tol=1.0e-6):
+            raise RuntimeError(
+                f"I/F current readback {value:.6g} != {self.args.if_current:.6g}"
+            )
+        print(f"Flux I/F current={value:.3f} A (RAM)")
+        return value
 
     def pole_pairs_set(self):
         self.parameter_write(
@@ -1148,6 +1161,11 @@ def parse_args():
     parser.add_argument("--pole-pairs", type=int, required=True)
     parser.add_argument("--current-limit", type=float, required=True)
     parser.add_argument(
+        "--if-current",
+        type=float,
+        help="Flux I/F open-loop q-axis current in A; required when Flux identification is requested",
+    )
+    parser.add_argument(
         "--rs-ls-count",
         type=int,
         default=DEFAULT_RS_LS_COUNT,
@@ -1225,12 +1243,21 @@ def parse_args():
         args.rs_repeat_limit = args.rl_repeat_limit
         args.ls_repeat_limit = args.rl_repeat_limit
 
+    flux_requested = args.apply_rl and not args.skip_flux
+
     if not args.run:
         parser.error("--run is required to energize the motor")
     if not 1 <= args.pole_pairs <= 255:
         parser.error("--pole-pairs must be between 1 and 255")
     if args.current_limit <= 0.0:
         parser.error("--current-limit must be positive")
+    if flux_requested and args.if_current is None:
+        parser.error("--if-current is required when Flux identification is requested")
+    if args.if_current is not None:
+        if args.if_current <= 0.0:
+            parser.error("--if-current must be positive")
+        if args.if_current > args.current_limit:
+            parser.error("--if-current must not exceed --current-limit")
     if args.rs_ls_count <= 0:
         parser.error("--rs-ls-count must be positive")
     if args.flux_forward_count <= 0 or args.flux_reverse_count <= 0:
@@ -1287,6 +1314,7 @@ def main():
         "configuration": {
             "pole_pairs": args.pole_pairs,
             "current_limit_a": args.current_limit,
+            "if_current_a": args.if_current,
             "host_current_guard_a": args.ident_current_limit,
             "host_current_guard_samples": HOST_CURRENT_OVER_COUNT,
             "host_current_hard_limit_a": HOST_CURRENT_HARD_LIMIT_A,
@@ -1347,6 +1375,8 @@ def main():
                 client.check_vbus()
                 record["firmware_pole_pairs"] = client.pole_pairs_set()
                 client.current_limit_set()
+                if flux_requested:
+                    record["firmware_if_current_a"] = client.if_current_set()
 
                 print(f"\nRs/Ls identification: {args.rs_ls_count} run(s)")
                 run_group(
@@ -1377,7 +1407,6 @@ def main():
 
                 if flux_requested:
                     client.configure_plot(flux=True)
-                    total = args.flux_forward_count + args.flux_reverse_count
                     print(
                         "\nFlux identification:"
                         f" {args.flux_forward_count} forward +"

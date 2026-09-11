@@ -11,6 +11,7 @@
 
 #include "Encoder.h"
 #include "Flux.h"
+#include "Identification.h"
 #include "Math.h"
 #include "Motion_Type.h"
 #include "Motor_ADC.h"

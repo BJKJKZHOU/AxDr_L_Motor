@@ -178,6 +178,9 @@ typedef enum
     /* Identification_Fail_Reason_Get(): 最近一次辨识失败原因；0表示无失败，非零仅用于最终诊断。 */
     PARAM_IDENT_FAIL_REASON = 0x0912U,
 
+    /* Ident_IF_Current_A: Flux辨识标准I/F开环启动使用的q轴电流，由Host按被测电机显式给定；与Imax安全上限独立。 */
+    PARAM_IDENT_IF_CURRENT = 0x0913U,
+
     /* MOTOR_CMD_ENABLE: 使能电机功率级。 */
     ACTION_MOTOR_ENABLE = 0x1001U,
 

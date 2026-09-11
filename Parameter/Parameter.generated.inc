@@ -59,6 +59,7 @@
 { PARAM_IDENT_FLUX_VALID, PARAM_U8, NULL, 0.0f, 1.0f, 0U },
 { PARAM_IDENT_FLUX_RESULT, PARAM_FLOAT, NULL, -INFINITY, INFINITY, 0U },
 { PARAM_IDENT_FAIL_REASON, PARAM_U8, NULL, 0.0f, 3.0f, 0U },
+{ PARAM_IDENT_IF_CURRENT, PARAM_FLOAT, &Ident_IF_Current_A, 0.0f, INFINITY, PARAM_FLAG_HOST_WRITE | PARAM_FLAG_DISABLED_ONLY },
 
 #elif defined(PARAM_GENERATE_VALIDATE)
 case PARAM_MOTOR_RS:
@@ -164,6 +165,14 @@ case PARAM_MOTOR_MODE:
 
 case PARAM_MOTOR_STATE:
     if ((Value.U8 != (uint8_t)DISABLED) && (Value.U8 != (uint8_t)ENABLED) && (Value.U8 != (uint8_t)RUN))
+    {
+        return PARAM_ERR_VALUE;
+    }
+    break;
+
+case PARAM_IDENT_IF_CURRENT:
+    if ((Number <= 0.0f) ||
+        (Number > (float)User_Lim.I_Max))
     {
         return PARAM_ERR_VALUE;
     }

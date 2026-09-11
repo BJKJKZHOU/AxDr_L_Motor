@@ -56,6 +56,11 @@ typedef struct
 extern Flux_Observer_T Ident_Observer;
 extern PLL_T Ident_PLL;
 
+/* Host-configured open-loop I/F current used by Flux identification only.
+ * This is a commissioning input, separate from the identification current
+ * safety limit. Flux_Start validates it against the effective I_Max. */
+extern volatile float Ident_IF_Current_A;
+
 bool Identification_Start(Ident_Mode_e Mode, float Wm_Target);
 void Identification_Abort(void);
 void Identification_Control(void);
