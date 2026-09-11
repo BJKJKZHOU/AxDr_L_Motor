@@ -7,6 +7,7 @@
 
 #include <string.h>
 
+#include "Identification.h"
 #include "Motor_ADC.h"
 #include "Motor_Type.h"
 #include "Parameter.h"
@@ -14,6 +15,7 @@
 #include "USB_Thread.h"
 
 #define PLOT_BUF_NONE 0xFFU
+#define PLOT_DEBUG_IDENT_THETA_ID 0xF001U
 
 typedef struct
 {
@@ -50,6 +52,9 @@ static const volatile float *Plot_Data_Get(uint16_t Var_ID, float *Scale)
 {
     switch (Var_ID)
     {
+        case PLOT_DEBUG_IDENT_THETA_ID:
+            *Scale = 0.0002f;
+            return &Ident_PLL.State.Theta;
 #define PARAM_GENERATE_PLOT
 #include "Parameter.generated.inc"
 #undef PARAM_GENERATE_PLOT
