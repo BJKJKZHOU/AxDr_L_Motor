@@ -9,8 +9,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "Flux_Observer.h"
-#include "PLL.h"
+#include "Motor_Type.h"
 
 typedef enum
 {
@@ -23,9 +22,6 @@ typedef enum
     SL_IDLE,
 
 } Sensorless_State_e;
-
-extern Flux_Observer_T Flux_Obs;
-extern PLL_T Flux_PLL;
 
 bool Sensorless_Begin(void);
 void Sensorless_Stop(void);

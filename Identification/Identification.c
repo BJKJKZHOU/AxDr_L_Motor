@@ -14,6 +14,9 @@
 
 #define IDENT_I_TRIP_COUNT 5U
 
+Flux_Observer_T Ident_Observer = { 0 };
+PLL_T Ident_PLL = { 0 };
+
 static volatile Ident_Mode_e Ident_Mode = IDENT_NONE;
 static volatile Ident_State_e Ident_State = IDENT_IDLE;
 static volatile Ident_Fail_Reason_e Ident_Fail_Reason = IDENT_FAIL_NONE;

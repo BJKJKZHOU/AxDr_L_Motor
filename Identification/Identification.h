@@ -9,7 +9,9 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "Flux_Observer.h"
 #include "Motor_Type.h"
+#include "PLL.h"
 
 typedef enum
 {
@@ -44,6 +46,15 @@ typedef struct
     float U_Max;
 
 } Ident_Envelope_T;
+
+/* Identification-only sensorless runtime.
+ *
+ * Shared by identification workflows that require sensorless motion
+ * (Flux and future J/B identification). These instances are owned by the
+ * Identification layer and are separate from normal Sensorless-mode runtime.
+ * Each identification workflow owns its own configuration/reset policy. */
+extern Flux_Observer_T Ident_Observer;
+extern PLL_T Ident_PLL;
 
 bool Identification_Start(Ident_Mode_e Mode, float Wm_Target);
 void Identification_Abort(void);

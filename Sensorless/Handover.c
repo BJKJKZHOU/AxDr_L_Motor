@@ -87,13 +87,13 @@ void Handover_Speed_Compare(Handover_T *Handover,
     Handover->PLL_Err2_F += Alpha * (PLL_Err2 - Handover->PLL_Err2_F);
 }
 
-void Handover_IF_Compare(Handover_T *Handover,
-                         float Theta_IF,
-                         float We_IF,
-                         float Theta_Obs,
-                         float We_Obs,
-                         float PLL_Err,
-                         float Alpha)
+void Handover_Source_Compare(Handover_T *Handover,
+                             float Theta_Source,
+                             float We_Source,
+                             float Theta_Obs,
+                             float We_Obs,
+                             float PLL_Err,
+                             float Alpha)
 {
     float Theta_Err;
     float Theta_Ripple;
@@ -103,9 +103,9 @@ void Handover_IF_Compare(Handover_T *Handover,
         return;
     }
 
-    Handover_Speed_Compare(Handover, We_IF, We_Obs, PLL_Err, Alpha);
+    Handover_Speed_Compare(Handover, We_Source, We_Obs, PLL_Err, Alpha);
 
-    Theta_Err = Handover_Angle_Diff(Theta_Obs, Theta_IF);
+    Theta_Err = Handover_Angle_Diff(Theta_Obs, Theta_Source);
     if (!Handover->Theta_Valid)
     {
         Handover->Theta_Err_F = Angle_Wrap(Theta_Err);
@@ -148,13 +148,13 @@ bool Handover_Speed_Stable(const Handover_T *Handover,
            (Handover->PLL_Err2_F <= PLL_Rms_Max * PLL_Rms_Max);
 }
 
-bool Handover_IF_Stable(const Handover_T *Handover,
-                        float We_Ref,
-                        float We_Min,
-                        float We_Mean_Ratio,
-                        float We_Rms_Ratio,
-                        float PLL_Rms_Max,
-                        float Theta_Rms_Max)
+bool Handover_Source_Stable(const Handover_T *Handover,
+                            float We_Ref,
+                            float We_Min,
+                            float We_Mean_Ratio,
+                            float We_Rms_Ratio,
+                            float PLL_Rms_Max,
+                            float Theta_Rms_Max)
 {
     return Handover_Speed_Stable(Handover,
                                  We_Ref,
@@ -196,10 +196,10 @@ void Handover_Blend_Reset(Handover_T *Handover)
 
 bool Handover_Blend_Run(Handover_T *Handover,
                         uint32_t Blend_Limit,
-                        float Theta_IF,
+                        float Theta_Source,
                         float Theta_Obs,
-                        float Id_IF,
-                        float Iq_IF,
+                        float Id_Source,
+                        float Iq_Source,
                         float *Theta_Use,
                         float *Id_Ref,
                         float *Iq_Ref)
@@ -221,13 +221,13 @@ bool Handover_Blend_Run(Handover_T *Handover,
         Blend = 1.0f;
     }
 
-    Theta_Err = Handover_Angle_Diff(Theta_Obs, Theta_IF);
-    *Theta_Use = Angle_Wrap(Theta_IF + Blend * Theta_Err);
+    Theta_Err = Handover_Angle_Diff(Theta_Obs, Theta_Source);
+    *Theta_Use = Angle_Wrap(Theta_Source + Blend * Theta_Err);
 
-    Diff = Handover_Angle_Diff(Theta_IF, *Theta_Use);
+    Diff = Handover_Angle_Diff(Theta_Source, *Theta_Use);
     SinCos(Angle_Wrap(Diff), &Sin, &Cos);
-    *Id_Ref = Id_IF * Cos - Iq_IF * Sin;
-    *Iq_Ref = Id_IF * Sin + Iq_IF * Cos;
+    *Id_Ref = Id_Source * Cos - Iq_Source * Sin;
+    *Iq_Ref = Id_Source * Sin + Iq_Source * Cos;
 
     if (Handover->Blend_Cnt < Blend_Limit)
     {

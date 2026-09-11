@@ -21,7 +21,6 @@
 #include "Motor_Para.h"
 #include "Motor_Type.h"
 #include "PLL.h"
-#include "Sensorless.h"
 #include "Sin_LUT.h"
 #include "VF.h"
 #include "control_params.h"
@@ -254,13 +253,13 @@ static void Obs_Para_Update(void)
         return;
     }
 
-    Flux_Obs.Para.Flux = Flux;
-    Flux_Obs.Para.BW_Hz = Flux_Config.Observer.BW_Hz;
+    Ident_Observer.Para.Flux = Flux;
+    Ident_Observer.Para.BW_Hz = Flux_Config.Observer.BW_Hz;
 }
 
 static bool Obs_State_Stable(void)
 {
-    return __builtin_isfinite(We_Obs_F) && __builtin_isfinite(Flux_PLL.State.Err);
+    return __builtin_isfinite(We_Obs_F) && __builtin_isfinite(Ident_PLL.State.Err);
 }
 
 static bool Obs_Speed_Stable(float We_Ref)
@@ -277,13 +276,13 @@ static bool Obs_Speed_Stable(float We_Ref)
 static bool Obs_Open_Stable(void)
 {
     return Obs_State_Stable() && (Flux_VF.State.We * We_Obs_F > 0.0f) &&
-           Handover_IF_Stable(&Handover,
-                              Flux_VF.State.We,
-                              Start_Para.We_Base,
-                              Flux_Config.Handover.We_Mean_Ratio,
-                              Flux_Config.Handover.We_Rms_Ratio,
-                              Flux_Config.Handover.Pll_Rms_Max,
-                              Flux_Config.Handover.Theta_Rms_Max);
+           Handover_Source_Stable(&Handover,
+                                  Flux_VF.State.We,
+                                  Start_Para.We_Base,
+                                  Flux_Config.Handover.We_Mean_Ratio,
+                                  Flux_Config.Handover.We_Rms_Ratio,
+                                  Flux_Config.Handover.Pll_Rms_Max,
+                                  Flux_Config.Handover.Theta_Rms_Max);
 }
 
 static bool Obs_Control_Stable(void)
@@ -459,7 +458,7 @@ static void Flux_Context_Init(Flux_Fast_Context_T *Context, float Ia_A, float Ib
     Context->Ialpha = Ia_A;
     Context->Ibeta = (Ia_A + 2.0f * Ib_A) * INV_SQRT3_F;
     Context->Theta_Open = Flux_VF.State.Theta_e;
-    Context->Theta_Obs = Flux_PLL.State.Theta;
+    Context->Theta_Obs = Ident_PLL.State.Theta;
 
     SinCos(Context->Theta_Open, &Sin, &Cos);
     Context->Id_Open = Context->Ialpha * Cos + Context->Ibeta * Sin;
@@ -476,7 +475,7 @@ static void Flux_Observer_Runtime_Run(Flux_Fast_Context_T *Context)
         return;
     }
 
-    if (!Flux_Observer_Run(&Flux_Obs,
+    if (!Flux_Observer_Run(&Ident_Observer,
                            Motor_Run.Ualpha,
                            Motor_Run.Ubeta,
                            Context->Ialpha,
@@ -491,15 +490,15 @@ static void Flux_Observer_Runtime_Run(Flux_Fast_Context_T *Context)
             Motion_Lost_Cnt = 0U;
             Handover_Compare_Reset(&Handover);
         }
-        Context->Theta_Obs = Flux_PLL.State.Theta;
+        Context->Theta_Obs = Ident_PLL.State.Theta;
         return;
     }
 
     if (PLL_Active)
     {
-        if (!PLL_Run(&Flux_PLL,
-                     Flux_Obs.State.PsiAlpha,
-                     Flux_Obs.State.PsiBeta,
+        if (!PLL_Run(&Ident_PLL,
+                     Ident_Observer.State.PsiAlpha,
+                     Ident_Observer.State.PsiBeta,
                      CUR_TS))
         {
             if (!Obs_Control)
@@ -509,13 +508,13 @@ static void Flux_Observer_Runtime_Run(Flux_Fast_Context_T *Context)
                 Motion_Lost_Cnt = 0U;
                 Handover_Compare_Reset(&Handover);
             }
-            Context->Theta_Obs = Flux_PLL.State.Theta;
+            Context->Theta_Obs = Ident_PLL.State.Theta;
             return;
         }
-        We_Obs_F += Flux_Config.Observer.We_Alpha * (Flux_PLL.State.We - We_Obs_F);
+        We_Obs_F += Flux_Config.Observer.We_Alpha * (Ident_PLL.State.We - We_Obs_F);
     }
 
-    Context->Theta_Obs = Flux_PLL.State.Theta;
+    Context->Theta_Obs = Ident_PLL.State.Theta;
 }
 
 static Motor_Fast_Mode_e Flux_Align_Run(int8_t Dir, float *Id_Ref, float *Iq_Ref)
@@ -645,13 +644,13 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
             Theta_Rough = Angle_Wrap(Context->Theta_Open +
                                      __builtin_atan2f(Flux_Estimator.State.Psi_q,
                                                       Flux_Estimator.State.Psi_d));
-            Flux_Obs.Para.Rs = Motor_Para.Rs;
-            Flux_Obs.Para.Ls = Motor_Para.Ld;
+            Ident_Observer.Para.Rs = Motor_Para.Rs;
+            Ident_Observer.Para.Ls = Motor_Para.Ld;
             Obs_Para_Update();
-            Flux_PLL.Para.Kp = Flux_Config.Observer.Pll_Kp;
-            Flux_PLL.Para.Ki = Flux_Config.Observer.Pll_Ki;
-            Flux_Observer_Reset(&Flux_Obs, Theta_Rough, Context->Ialpha, Context->Ibeta);
-            PLL_Reset(&Flux_PLL, Theta_Rough, Flux_VF.State.We);
+            Ident_PLL.Para.Kp = Flux_Config.Observer.Pll_Kp;
+            Ident_PLL.Para.Ki = Flux_Config.Observer.Pll_Ki;
+            Flux_Observer_Reset(&Ident_Observer, Theta_Rough, Context->Ialpha, Context->Ibeta);
+            PLL_Reset(&Ident_PLL, Theta_Rough, Flux_VF.State.We);
             We_Obs_F = Flux_VF.State.We;
             Handover_Ready_Cnt = 0U;
             Handover_Compare_Reset(&Handover);
@@ -667,8 +666,9 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
 
     if (Obs_Active && !PLL_Active)
     {
-        Theta_Rough = Angle_Wrap(__builtin_atan2f(Flux_Obs.State.PsiBeta, Flux_Obs.State.PsiAlpha));
-        PLL_Reset(&Flux_PLL, Theta_Rough, Flux_VF.State.We);
+        Theta_Rough = Angle_Wrap(__builtin_atan2f(Ident_Observer.State.PsiBeta,
+                                                  Ident_Observer.State.PsiAlpha));
+        PLL_Reset(&Ident_PLL, Theta_Rough, Flux_VF.State.We);
         We_Obs_F = Flux_VF.State.We;
         Motion_Lost_Cnt = 0U;
         Handover_Ready_Cnt = 0U;
@@ -676,16 +676,16 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
         PLL_Active = true;
     }
 
-    Context->Theta_Obs = Flux_PLL.State.Theta;
+    Context->Theta_Obs = Ident_PLL.State.Theta;
     if (PLL_Active)
     {
-        Handover_IF_Compare(&Handover,
-                            Context->Theta_Open,
-                            Flux_VF.State.We,
-                            Context->Theta_Obs,
-                            We_Obs_F,
-                            Flux_PLL.State.Err,
-                            Flux_Config.Handover.Compare_Alpha);
+        Handover_Source_Compare(&Handover,
+                                Context->Theta_Open,
+                                Flux_VF.State.We,
+                                Context->Theta_Obs,
+                                We_Obs_F,
+                                Ident_PLL.State.Err,
+                                Flux_Config.Handover.Compare_Alpha);
     }
 
     U_Target = VF_U_Boost + Flux_Config.Workflow.Vf_V_Per_Rad_S * Abs_Value(Flux_VF.State.We);
@@ -748,7 +748,7 @@ static Motor_Fast_Mode_e Flux_Handover_Blend_Run(Flux_Fast_Context_T *Context,
         Obs_Id_Ref = *Id_Ref;
         Obs_Iq_Ref = *Iq_Ref;
         I_Max = Start_Para.Iq_Max_A;
-        Speed_Loop_Track(We_Target, Flux_PLL.State.We, Obs_Iq_Ref, -I_Max, I_Max);
+        Speed_Loop_Track(We_Target, Ident_PLL.State.We, Obs_Iq_Ref, -I_Max, I_Max);
         Fine_Begin();
         Obs_Control = true;
         State = FLUX_HANDOVER_CURRENT;
@@ -792,7 +792,7 @@ static Motor_Fast_Mode_e Flux_Handover_Current_Run(const Flux_Fast_Context_T *Co
     Handover_Speed_Compare(&Handover,
                            We_Target,
                            We_Obs_F,
-                           Flux_PLL.State.Err,
+                           Ident_PLL.State.Err,
                            Flux_Config.Handover.Compare_Alpha);
 
     Adapt_Valid = Obs_Run_Valid();
@@ -826,7 +826,7 @@ static Motor_Fast_Mode_e Flux_Obs_Accel_Run(const Flux_Fast_Context_T *Context,
     Handover_Speed_Compare(&Handover,
                            We_Target,
                            We_Obs_F,
-                           Flux_PLL.State.Err,
+                           Ident_PLL.State.Err,
                            Flux_Config.Handover.Compare_Alpha);
 
     Adapt_Valid = Obs_Run_Valid();
@@ -867,7 +867,7 @@ static Motor_Fast_Mode_e Flux_Refine_Settle_Run(const Flux_Fast_Context_T *Conte
     Handover_Speed_Compare(&Handover,
                            We_Target,
                            We_Obs_F,
-                           Flux_PLL.State.Err,
+                           Ident_PLL.State.Err,
                            Flux_Config.Handover.Compare_Alpha);
 
     Adapt_Valid = Obs_Run_Valid();
@@ -904,7 +904,7 @@ static Motor_Fast_Mode_e Flux_Refine_Measure_Run(const Flux_Fast_Context_T *Cont
     Handover_Speed_Compare(&Handover,
                            We_Target,
                            We_Obs_F,
-                           Flux_PLL.State.Err,
+                           Ident_PLL.State.Err,
                            Flux_Config.Handover.Compare_Alpha);
 
     Adapt_Valid = Obs_Run_Valid();
@@ -1047,7 +1047,7 @@ void Flux_Control(void)
         return;
     }
     Obs_Iq_Ref = Speed_Loop(We_Target,
-                            Flux_PLL.State.We,
+                            Ident_PLL.State.We,
                             -Start_Para.Iq_Max_A,
                             Start_Para.Iq_Max_A);
 }

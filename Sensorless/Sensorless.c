@@ -55,8 +55,8 @@ static volatile Sensorless_State_e State = SL_IDLE;
 static volatile To_Obs_State_e To_Obs_State = TO_OBS_WAIT;
 static bool Initial_IF = true;
 
-Flux_Observer_T Flux_Obs = { 0 };
-PLL_T Flux_PLL = { 0 };
+static Flux_Observer_T Sensorless_Observer = { 0 };
+static PLL_T Sensorless_PLL = { 0 };
 
 static Handover_T Handover = { 0 };
 static IF_T Sensorless_IF = { 0 };
@@ -88,10 +88,11 @@ static bool Obs_Stable(void)
     float Flux2;
     float Flux_Ref2;
 
-    We_Obs_F += OBS_WE_ALPHA * (Flux_PLL.State.We - We_Obs_F);
+    We_Obs_F += OBS_WE_ALPHA * (Sensorless_PLL.State.We - We_Obs_F);
     We_Err = We_Obs_F - Sensorless_IF.State.We;
-    Flux2 = Flux_Obs.State.PsiAlpha * Flux_Obs.State.PsiAlpha + Flux_Obs.State.PsiBeta * Flux_Obs.State.PsiBeta;
-    Flux_Ref2 = Flux_Obs.Para.Flux * Flux_Obs.Para.Flux;
+    Flux2 = Sensorless_Observer.State.PsiAlpha * Sensorless_Observer.State.PsiAlpha +
+            Sensorless_Observer.State.PsiBeta * Sensorless_Observer.State.PsiBeta;
+    Flux_Ref2 = Sensorless_Observer.Para.Flux * Sensorless_Observer.Para.Flux;
 
     if (Flux_Ref2 <= 0.0f)
     {
@@ -103,7 +104,7 @@ static bool Obs_Stable(void)
         return false;
     }
 
-    if (Abs_F(Flux_PLL.State.Err) > PLL_ERR_MAX)
+    if (Abs_F(Sensorless_PLL.State.Err) > PLL_ERR_MAX)
     {
         return false;
     }
@@ -167,13 +168,13 @@ bool Sensorless_Begin(void)
     Sensorless_IF.Para.Ld_H = Motor_Para.Ld;
     Sensorless_IF.Para.Lq_H = Motor_Para.Lq;
 
-    Flux_Obs.Para.Rs = Motor_Para.Rs;
-    Flux_Obs.Para.Ls = Motor_Para.Ld;
-    Flux_Obs.Para.Flux = Motor_Para.Flux;
-    Flux_Obs.Para.BW_Hz = FLUX_OBS_BW_HZ;
+    Sensorless_Observer.Para.Rs = Motor_Para.Rs;
+    Sensorless_Observer.Para.Ls = Motor_Para.Ld;
+    Sensorless_Observer.Para.Flux = Motor_Para.Flux;
+    Sensorless_Observer.Para.BW_Hz = FLUX_OBS_BW_HZ;
 
-    Flux_PLL.Para.Kp = PLL_KP;
-    Flux_PLL.Para.Ki = PLL_KI;
+    Sensorless_PLL.Para.Kp = PLL_KP;
+    Sensorless_PLL.Para.Ki = PLL_KI;
 
     State = SL_ALIGN;
     return true;
@@ -193,7 +194,7 @@ void Sensorless_Control(float We_Ref, float Iq_Min, float Iq_Max)
 {
     if ((State == SL_OBS) || ((State == SL_IF_TO_OBS) && (To_Obs_State == TO_OBS_I_TRANS)))
     {
-        Obs_Iq_Ref = Speed_Loop(We_Ref, Flux_PLL.State.We, Iq_Min, Iq_Max);
+        Obs_Iq_Ref = Speed_Loop(We_Ref, Sensorless_PLL.State.We, Iq_Min, Iq_Max);
     }
 }
 
@@ -242,8 +243,8 @@ void Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float 
             IF_Init(&Sensorless_IF, Theta_Start, 0.0f);
             IF_Target_Set(&Sensorless_IF, We_IF_Target);
 
-            Flux_Observer_Reset(&Flux_Obs, Theta_Start, Ialpha, Ibeta);
-            PLL_Reset(&Flux_PLL, Theta_Start, 0.0f);
+            Flux_Observer_Reset(&Sensorless_Observer, Theta_Start, Ialpha, Ibeta);
+            PLL_Reset(&Sensorless_PLL, Theta_Start, 0.0f);
             Flux_Obs_U_Valid = false;
 
             State = (Sensorless_IF.State.Mode == IF_FAILED) ? SL_FAILED : SL_IF;
@@ -254,8 +255,11 @@ void Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float 
 
     if (Flux_Obs_U_Valid)
     {
-        Flux_Observer_Run(&Flux_Obs, Motor_Run.Ualpha, Motor_Run.Ubeta, Ialpha, Ibeta, CUR_TS);
-        PLL_Run(&Flux_PLL, Flux_Obs.State.PsiAlpha, Flux_Obs.State.PsiBeta, CUR_TS);
+        Flux_Observer_Run(&Sensorless_Observer, Motor_Run.Ualpha, Motor_Run.Ubeta, Ialpha, Ibeta, CUR_TS);
+        PLL_Run(&Sensorless_PLL,
+                Sensorless_Observer.State.PsiAlpha,
+                Sensorless_Observer.State.PsiBeta,
+                CUR_TS);
     }
 
     if (State != SL_OBS)
@@ -281,7 +285,7 @@ void Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float 
     }
 
     Flux_Obs_U_Valid = true;
-    Theta_Obs = Flux_PLL.State.Theta;
+    Theta_Obs = Sensorless_PLL.State.Theta;
 
     if (State == SL_IF)
     {
@@ -292,7 +296,7 @@ void Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float 
         if (Abs_F(Sensorless_IF.State.We) >= IF_WE_TARGET_RAD_S)
         {
             Obs_Wait_Cnt = 0U;
-            We_Obs_F = Flux_PLL.State.We;
+            We_Obs_F = Sensorless_PLL.State.We;
             To_Obs_State = TO_OBS_WAIT;
             State = SL_IF_TO_OBS;
         }
@@ -338,7 +342,7 @@ void Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float 
                 Obs_Id_Ref = *Id_Ref;
                 Obs_Iq_Ref = *Iq_Ref;
                 I_Max = Current_Limit_Get();
-                Speed_Loop_Track(We_Ref, Flux_PLL.State.We, Obs_Iq_Ref, -I_Max, I_Max);
+                Speed_Loop_Track(We_Ref, Sensorless_PLL.State.We, Obs_Iq_Ref, -I_Max, I_Max);
                 To_Obs_State = TO_OBS_I_TRANS;
             }
         }
@@ -362,9 +366,9 @@ void Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float 
         *Id_Ref = 0.0f;
         *Iq_Ref = Obs_Iq_Ref;
 
-        if (Abs_F(Flux_PLL.State.We) <= OBS_TO_IF_WE_RAD_S)
+        if (Abs_F(Sensorless_PLL.State.We) <= OBS_TO_IF_WE_RAD_S)
         {
-            IF_Init(&Sensorless_IF, Theta_Obs, Flux_PLL.State.We);
+            IF_Init(&Sensorless_IF, Theta_Obs, Sensorless_PLL.State.We);
             IF_Target_Set(&Sensorless_IF, We_Ref);
             if (Sensorless_IF.State.Mode == IF_FAILED)
             {
