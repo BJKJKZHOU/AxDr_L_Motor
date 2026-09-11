@@ -186,6 +186,7 @@ static bool Model_U_Valid = false;
 static bool Emf_Valid = false;
 static bool Search_Target_Ready = false;
 static bool Handover_Gate_Armed = false;
+static bool Observer_Flux_Frozen = false;
 static bool Obs_Active = false;
 static bool PLL_Active = false;
 static bool Obs_Control = false;
@@ -483,7 +484,7 @@ static void Fine_Begin(void)
 {
     float Flux_Init;
 
-    Flux_Init = Flux_Estimator.State.Flux;
+    Flux_Init = Ident_Observer.Para.Flux;
     Flux_Estimator.State = (Flux_Estimator_State_T){ 0 };
     Flux_Estimator.State.Flux = Flux_Init;
     Flux_Estimator.Para.I_BW_Hz = Flux_Config.Fine.I_BW_Hz;
@@ -689,17 +690,14 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
         }
     }
 
-    /* Coarse flux and the observer form one continuous shadow pipeline during
-     * I/F. Every valid coarse estimate updates the observer parameter. The
-     * first valid estimate initializes Observer/PLL; later estimates never
-     * reset their dynamic state. */
+    /* Coarse flux supplies only the observer magnitude during I/F. The
+     * observer itself starts from the current I/F angle, matching the proven
+     * sensorless shadow path, and evolves its own rotor-flux angle afterwards. */
     if (Coarse_Valid)
     {
         if (!Obs_Active)
         {
-            Theta_Rough = Angle_Wrap(Context->Theta_Open +
-                                     __builtin_atan2f(Flux_Estimator.State.Psi_q,
-                                                      Flux_Estimator.State.Psi_d));
+            Theta_Rough = Context->Theta_Open;
             Ident_Observer.Para.Rs = Motor_Para.Rs;
             Ident_Observer.Para.Ls = Motor_Para.Ld;
             Obs_Para_Update();
@@ -714,7 +712,7 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
             PLL_Active = true;
             Context->Theta_Obs = Theta_Rough;
         }
-        else
+        else if (!Observer_Flux_Frozen)
         {
             Obs_Para_Update();
         }
@@ -757,12 +755,13 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
         PLL_Active = true;
     }
 
-    /* We_Base is only the minimum handover speed. Observer/PLL may already
-     * have been shadowing for a long time below it. At the first crossing,
-     * discard low-speed comparison history without resetting Observer/PLL. */
+    /* Freeze the observer model before qualification/blend so handover sees
+     * the same fixed-flux observer that the proven sensorless path used. */
     if (!Handover_Gate_Armed &&
-        (Abs_Value(Flux_IF.State.We) >= Start_Para.We_Base))
+        (Abs_Value(Flux_IF.State.We) >= Start_Para.We_Base) &&
+        Obs_Active && PLL_Active)
     {
+        Observer_Flux_Frozen = true;
         Handover_Gate_Armed = true;
         Handover_Ready_Cnt = 0U;
         Handover_Compare_Reset(&Handover);
@@ -1070,6 +1069,7 @@ bool Flux_Start(float Wm_Target)
     Emf_Valid = false;
     Search_Target_Ready = false;
     Handover_Gate_Armed = false;
+    Observer_Flux_Frozen = false;
     Obs_Active = false;
     PLL_Active = false;
     Obs_Control = false;
