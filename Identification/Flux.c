@@ -318,17 +318,17 @@ static bool Motion_Lost_Run(bool Motion_Valid)
     return Motion_Lost_Cnt >= Flux_Config.Observer.Motion_Lost_Cnt;
 }
 
-static bool Coarse_Run(float Ud, float Uq, float Id, float Iq, float We)
+static bool Coarse_Run(void)
 {
     if (!Flux_Estimator_Run(&Flux_Estimator,
                             FLUX_EST_VECTOR,
                             FLUX_EST_UPDATE,
                             false,
-                            Ud,
-                            Uq,
-                            Id,
-                            Iq,
-                            We,
+                            Motor_Run.Ud,
+                            Motor_Run.Uq,
+                            Motor_Run.Id,
+                            Motor_Run.Iq,
+                            Flux_IF.State.We,
                             CUR_TS))
     {
         return false;
@@ -604,11 +604,7 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
     Coarse_Valid = false;
     if (Model_U_Valid)
     {
-        Coarse_Valid = Coarse_Run(Context->Ud_Open,
-                                  Context->Uq_Open,
-                                  Context->Id_Open,
-                                  Context->Iq_Open,
-                                  Flux_IF.State.We);
+        Coarse_Valid = Coarse_Run();
         if (!__builtin_isfinite(Flux_Estimator.State.Psi_d) ||
             !__builtin_isfinite(Flux_Estimator.State.Psi_q))
         {
