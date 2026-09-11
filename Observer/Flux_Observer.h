@@ -19,7 +19,8 @@ typedef struct
 
 typedef struct
 {
-    float Wc;
+    float Gamma;
+    float Flux_Used;
     float BW_Used;
 
 } Flux_Observer_Calc_T;
