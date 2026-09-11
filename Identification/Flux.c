@@ -762,7 +762,7 @@ static Motor_Fast_Mode_e Flux_Handover_Blend_Run(Flux_Fast_Context_T *Context,
     {
         Obs_Id_Ref = *Id_Ref;
         Obs_Iq_Ref = *Iq_Ref;
-        I_Max = Start_Para.Iq_Max_A;
+        I_Max = 0.35f * Start_Para.Iq_Max_A;
         Speed_Loop_Track(We_Target, Ident_PLL.State.We, Obs_Iq_Ref, -I_Max, I_Max);
         Fine_Begin();
         Obs_Control = true;
@@ -1048,8 +1048,8 @@ void Flux_Control(void)
     }
     Obs_Iq_Ref = Speed_Loop(We_Target,
                             Ident_PLL.State.We,
-                            -Start_Para.Iq_Max_A,
-                            Start_Para.Iq_Max_A);
+                            -0.35f * Start_Para.Iq_Max_A,
+                            0.35f * Start_Para.Iq_Max_A);
 }
 
 Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A,
