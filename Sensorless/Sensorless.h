@@ -10,6 +10,7 @@
 #include <stdint.h>
 
 #include "Motor_Type.h"
+#include "PLL.h"
 
 typedef enum
 {
@@ -22,6 +23,16 @@ typedef enum
     SL_IDLE,
 
 } Sensorless_State_e;
+
+/* Normal SENSORLESS_SPEED mode PLL runtime.
+ *
+ * PARAM_OBS_THETA / PARAM_OBS_WE intentionally remain bound to the normal
+ * sensorless Flux-Observer PLL. Identification owns a separate Ident_PLL
+ * instance and may run concurrently in a different workflow context. */
+extern PLL_T Sensorless_PLL;
+
+/* Stable compatibility name used by the generated Parameter binding. */
+#define Flux_PLL Sensorless_PLL
 
 bool Sensorless_Begin(void);
 void Sensorless_Stop(void);

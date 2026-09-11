@@ -56,7 +56,7 @@ static volatile To_Obs_State_e To_Obs_State = TO_OBS_WAIT;
 static bool Initial_IF = true;
 
 static Flux_Observer_T Sensorless_Observer = { 0 };
-static PLL_T Sensorless_PLL = { 0 };
+PLL_T Sensorless_PLL = { 0 };
 
 static Handover_T Handover = { 0 };
 static IF_T Sensorless_IF = { 0 };
