@@ -25,13 +25,11 @@
 #include "Sin_LUT.h"
 #include "control_params.h"
 
-#define FLUX_HANDOVER_FLUX_MIN_RATIO2 0.64f
-#define FLUX_HANDOVER_FLUX_MAX_RATIO2 1.44f
-
 typedef struct
 {
     struct
     {
+        float Open_Accel_S;
         float Est_Num_Min_Wb;
         float Finish_Iq_Slew_A_S;
         uint32_t Finish_Cnt;
@@ -58,6 +56,7 @@ typedef struct
     struct
     {
         float Work_Ratio;
+        float Motion_Lost_Ratio;
         float Work_U_Search_Ratio;
         float Target_Alpha;
         uint32_t Motion_Lost_Cnt;
@@ -84,6 +83,7 @@ typedef struct
 
 static const Flux_Config_T Flux_Config = {
     .Workflow = {
+        .Open_Accel_S = 6.0f,
         .Est_Num_Min_Wb = 1.0e-12f,
         .Finish_Iq_Slew_A_S = 20.0f,
         .Finish_Cnt = (uint32_t)(0.100f / CUR_TS + 0.5f),
@@ -104,6 +104,7 @@ static const Flux_Config_T Flux_Config = {
     },
     .Observer = {
         .Work_Ratio = 0.30f,
+        .Motion_Lost_Ratio = 0.05f,
         .Work_U_Search_Ratio = 0.90f,
         .Target_Alpha = CUR_TS / (0.10f + CUR_TS),
         .Motion_Lost_Cnt = (uint32_t)(0.15f / CUR_TS + 0.5f),
@@ -118,10 +119,10 @@ static const Flux_Config_T Flux_Config = {
         .Blend_Cnt = (uint32_t)(0.15f / CUR_TS + 0.5f),
         .Id_Ramp_Step = 5.0f * CUR_TS,
         .Compare_Alpha = CUR_TS / (0.050f + CUR_TS),
-        .We_Mean_Ratio = 0.060f,
-        .We_Rms_Ratio = 0.100f,
+        .We_Mean_Ratio = 0.010f,
+        .We_Rms_Ratio = 0.015f,
         .Pll_Rms_Max = 0.08f,
-        .Theta_Rms_Max = 0.12f,
+        .Theta_Rms_Max = 0.08f,
     },
 };
 
@@ -130,6 +131,7 @@ typedef enum
     FLUX_IDLE = 0,
     FLUX_ALIGN,
     FLUX_IF,
+    FLUX_OBS_WAIT,
     FLUX_HANDOVER_BLEND,
     FLUX_HANDOVER_CURRENT,
     FLUX_OBS_ACCEL,
@@ -170,7 +172,6 @@ static IF_T Flux_IF = { 0 };
 static Flux_Estimator_T Flux_Estimator = { 0 };
 static Handover_T Handover = { 0 };
 static volatile float We_Target = 0.0f;
-static float We_Search = 0.0f;
 static uint32_t Cnt = 0U;
 static float We_Obs_F = 0.0f;
 static float Emf_Ratio_F = 0.0f;
@@ -184,13 +185,11 @@ static uint32_t Fine_Stable_Cnt = 0U;
 static uint8_t Finish_Init = 0U;
 static bool Model_U_Valid = false;
 static bool Emf_Valid = false;
-static bool Search_Target_Ready = false;
-static bool Handover_Gate_Armed = false;
-static bool Observer_Flux_Frozen = false;
 static bool Obs_Active = false;
 static bool PLL_Active = false;
 static bool Obs_Control = false;
 static bool Current_Control_Active = false;
+static bool Work_Point_Reached = false;
 static bool Motion_Lost_Armed = false;
 
 static float Abs_Value(float Value)
@@ -273,21 +272,6 @@ static bool Obs_Speed_Stable(float We_Ref)
 
 static bool Obs_Open_Stable(void)
 {
-    float Flux2;
-    float Flux_Ref2;
-
-    Flux2 = Ident_Observer.State.PsiAlpha * Ident_Observer.State.PsiAlpha +
-            Ident_Observer.State.PsiBeta * Ident_Observer.State.PsiBeta;
-    Flux_Ref2 = Ident_Observer.Para.Flux * Ident_Observer.Para.Flux;
-
-    if (!__builtin_isfinite(Flux2) || !__builtin_isfinite(Flux_Ref2) ||
-        (Flux_Ref2 <= 0.0f) ||
-        (Flux2 < FLUX_HANDOVER_FLUX_MIN_RATIO2 * Flux_Ref2) ||
-        (Flux2 > FLUX_HANDOVER_FLUX_MAX_RATIO2 * Flux_Ref2))
-    {
-        return false;
-    }
-
     return Obs_State_Stable() && (Flux_IF.State.We * We_Obs_F > 0.0f) &&
            Handover_Source_Stable(&Handover,
                                   Flux_IF.State.We,
@@ -305,7 +289,9 @@ static bool Obs_Control_Stable(void)
 
 static bool Obs_Run_Valid(void)
 {
-    return Obs_State_Stable() && (We_Target * We_Obs_F > 0.0f);
+    return Emf_Valid && __builtin_isfinite(Emf_Ratio_F) &&
+           (Emf_Ratio_F >= Flux_Config.Observer.Motion_Lost_Ratio) &&
+           Obs_State_Stable() && (We_Target * We_Obs_F > 0.0f);
 }
 
 static bool Motion_Lost_Run(bool Motion_Valid)
@@ -356,78 +342,7 @@ static bool Coarse_Run(float Ud, float Uq, float Id, float Iq, float We)
     return Flux_Estimator.State.Estimate_Valid;
 }
 
-static bool Flux_IF_Search_Target_Build(int8_t Dir, float *We_Search_Out)
-{
-    const Ident_Envelope_T *Envelope;
-    float A;
-    float B;
-    float C;
-    float Disc;
-    float Flux;
-    float Iq;
-    float Lq_Iq;
-    float Rs_Iq;
-    float U_Target;
-    float We_Max;
-    float We_Req;
-
-    if (We_Search_Out == NULL)
-    {
-        return false;
-    }
-
-    Envelope = Identification_Envelope_Get();
-    Flux = Flux_Estimator.State.Flux;
-    Iq = Ident_IF_Current_A;
-    We_Max = (float)Motor_Para.Pp * Motor_Wm_Limit_Effective_Get();
-    if ((Envelope->U_Available <= 0.0f) ||
-        !__builtin_isfinite(Flux) || (Flux <= Flux_Config.Workflow.Est_Num_Min_Wb) ||
-        !__builtin_isfinite(Iq) || (Iq <= 0.0f) ||
-        !__builtin_isfinite(We_Max) || (We_Max < Start_Para.We_Base))
-    {
-        return false;
-    }
-
-    /* With Id_ref = 0 and fixed I/F Iq, solve the steady-state dq voltage
-     * magnitude for the observer work ratio:
-     *   Ud = -We * Lq * Iq
-     *   Uq = Rs * Iq + We * Flux
-     *   U_target^2 = Ud^2 + Uq^2
-     * This converts the first coarse flux estimate into one deterministic
-     * second-stage I/F speed target. The target is not recomputed afterwards. */
-    U_Target = Flux_Config.Observer.Work_Ratio * Envelope->U_Available;
-    Rs_Iq = Motor_Para.Rs * Iq;
-    Lq_Iq = Motor_Para.Lq * Iq;
-    A = Lq_Iq * Lq_Iq + Flux * Flux;
-    B = 2.0f * Rs_Iq * Flux;
-    C = Rs_Iq * Rs_Iq - U_Target * U_Target;
-    Disc = B * B - 4.0f * A * C;
-
-    if ((A <= 0.0f) || !__builtin_isfinite(Disc) || (Disc < 0.0f))
-    {
-        return false;
-    }
-
-    We_Req = (-B + __builtin_sqrtf(Disc)) / (2.0f * A);
-    if (!__builtin_isfinite(We_Req) || (We_Req <= 0.0f))
-    {
-        return false;
-    }
-
-    if (We_Req < Start_Para.We_Base)
-    {
-        We_Req = Start_Para.We_Base;
-    }
-    if (We_Req > We_Max)
-    {
-        We_Req = We_Max;
-    }
-
-    *We_Search_Out = (float)Dir * We_Req;
-    return true;
-}
-
-static bool Flux_Obs_Target_Update(int8_t Dir, float We_Actual)
+static bool Flux_Target_Update(int8_t Dir, float We_Actual)
 {
     const Ident_Envelope_T *Envelope;
     float We_Max;
@@ -478,6 +393,18 @@ static bool Flux_Obs_Target_Update(int8_t Dir, float We_Actual)
     We_Abs += Flux_Config.Observer.Target_Alpha * (We_Req - We_Abs);
     We_Target = (float)Dir * We_Abs;
     return true;
+}
+
+static bool Flux_IF_Target_Update(int8_t Dir, float We_Actual)
+{
+    if (!Flux_Target_Update(Dir, We_Actual))
+    {
+        return false;
+    }
+
+    Flux_IF.Para.Acc = Abs_Value(We_Target) / Flux_Config.Workflow.Open_Accel_S;
+    IF_Target_Set(&Flux_IF, We_Target);
+    return Flux_IF.State.Mode != IF_FAILED;
 }
 
 static void Fine_Begin(void)
@@ -672,7 +599,7 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
 {
     float Theta_Rough;
     bool Coarse_Valid;
-    bool Handover_Ready;
+    bool Motion_Valid;
 
     Coarse_Valid = false;
     if (Model_U_Valid)
@@ -690,14 +617,22 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
         }
     }
 
-    /* Coarse flux supplies only the observer magnitude during I/F. The
-     * observer itself starts from the current I/F angle, matching the proven
-     * sensorless shadow path, and evolves its own rotor-flux angle afterwards. */
     if (Coarse_Valid)
     {
+        /* Once the 6 s initial I/F ramp has completed, I/F keeps accelerating
+         * toward the current fitted work point until handover actually occurs.
+         * The 0.30 EMF ratio is not a handover gate; it belongs to the
+         * post-handover observer-acceleration stage. */
+        if (State == FLUX_OBS_WAIT)
+        {
+            (void)Flux_IF_Target_Update(Context->Dir, Flux_IF.State.We);
+        }
+
         if (!Obs_Active)
         {
-            Theta_Rough = Context->Theta_Open;
+            Theta_Rough = Angle_Wrap(Context->Theta_Open +
+                                     __builtin_atan2f(Flux_Estimator.State.Psi_q,
+                                                      Flux_Estimator.State.Psi_d));
             Ident_Observer.Para.Rs = Motor_Para.Rs;
             Ident_Observer.Para.Ls = Motor_Para.Ld;
             Obs_Para_Update();
@@ -712,63 +647,27 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
             PLL_Active = true;
             Context->Theta_Obs = Theta_Rough;
         }
-        else if (!Observer_Flux_Frozen)
+        else
         {
             Obs_Para_Update();
         }
     }
 
-    /* Stage 1 ends at the RL-derived base speed. Once the coarse flux is
-     * available there, derive one second-stage I/F speed target from the
-     * measured coarse flux and the fixed user I/F current. No runtime signal
-     * is allowed to modify this target after it has been built. */
-    if ((State == FLUX_IF) && !Search_Target_Ready &&
-        (Flux_IF.State.Mode == IF_HOLD) &&
-        (Abs_Value(Flux_IF.State.We) >= Start_Para.We_Base) &&
-        Coarse_Valid)
-    {
-        if (!Flux_IF_Search_Target_Build(Context->Dir, &We_Search))
-        {
-            Flux_Fail_Off();
-            return FLUX_STEP_OFF;
-        }
-
-        Search_Target_Ready = true;
-        We_Target = We_Search;
-        IF_Target_Set(&Flux_IF, We_Target);
-        if (Flux_IF.State.Mode == IF_FAILED)
-        {
-            Flux_Fail_Off();
-            return FLUX_STEP_OFF;
-        }
-    }
-
+    /* A transient PLL failure before handover is recoverable. Rebuild it from
+     * the current observer flux angle while I/F remains in control. */
     if (Obs_Active && !PLL_Active)
     {
         Theta_Rough = Angle_Wrap(__builtin_atan2f(Ident_Observer.State.PsiBeta,
                                                   Ident_Observer.State.PsiAlpha));
         PLL_Reset(&Ident_PLL, Theta_Rough, Flux_IF.State.We);
         We_Obs_F = Flux_IF.State.We;
-        Motion_Lost_Cnt = 0U;
         Handover_Ready_Cnt = 0U;
         Handover_Compare_Reset(&Handover);
         PLL_Active = true;
     }
 
-    /* Freeze the observer model before qualification/blend so handover sees
-     * the same fixed-flux observer that the proven sensorless path used. */
-    if (!Handover_Gate_Armed &&
-        (Abs_Value(Flux_IF.State.We) >= Start_Para.We_Base) &&
-        Obs_Active && PLL_Active)
-    {
-        Observer_Flux_Frozen = true;
-        Handover_Gate_Armed = true;
-        Handover_Ready_Cnt = 0U;
-        Handover_Compare_Reset(&Handover);
-    }
-
     Context->Theta_Obs = Ident_PLL.State.Theta;
-    if (PLL_Active && Handover_Gate_Armed)
+    if (PLL_Active)
     {
         Handover_Source_Compare(&Handover,
                                 Context->Theta_Open,
@@ -794,32 +693,38 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
         return FLUX_STEP_OFF;
     }
 
-    if (State == FLUX_IF)
+    if ((State == FLUX_IF) && (Flux_IF.State.Mode == IF_HOLD))
     {
-        if (!Handover_Gate_Armed)
-        {
-            Handover_Ready_Cnt = 0U;
-        }
-        else
-        {
-            Handover_Ready = PLL_Active && Obs_Open_Stable();
-            if (Handover_Ready)
-            {
-                if (Handover_Ready_Cnt < Flux_Config.Handover.Ready_Cnt)
-                {
-                    Handover_Ready_Cnt++;
-                }
-            }
-            else
-            {
-                Handover_Ready_Cnt = 0U;
-            }
+        Motion_Lost_Armed = false;
+        Motion_Lost_Cnt = 0U;
+        Handover_Ready_Cnt = 0U;
+        Handover_Compare_Reset(&Handover);
+        State = FLUX_OBS_WAIT;
+    }
 
-            if (Handover_Ready_Cnt >= Flux_Config.Handover.Ready_Cnt)
-            {
-                Handover_Blend_Reset(&Handover);
-                State = FLUX_HANDOVER_BLEND;
-            }
+    /* INITIAL I/F is a handover blanking window. Motion-lost is only armed
+     * after SEARCH begins, so low-speed EMF does not abort the 6 s ramp. */
+    if (State != FLUX_IF)
+    {
+        Motion_Valid = Emf_Valid && __builtin_isfinite(Emf_Ratio_F) &&
+                       (Emf_Ratio_F >= Flux_Config.Observer.Motion_Lost_Ratio);
+        if (Motion_Lost_Run(Motion_Valid))
+        {
+            Result.Valid = false;
+            Flux_Finish_Start();
+            return FLUX_STEP_CONTINUE;
+        }
+    }
+
+    if (State == FLUX_OBS_WAIT)
+    {
+        Handover_Qualification_Accumulate(&Handover_Ready_Cnt,
+                                          Flux_Config.Handover.Ready_Cnt,
+                                          PLL_Active && Obs_Open_Stable());
+        if (Handover_Ready_Cnt >= Flux_Config.Handover.Ready_Cnt)
+        {
+            Handover_Blend_Reset(&Handover);
+            State = FLUX_HANDOVER_BLEND;
         }
     }
 
@@ -853,7 +758,6 @@ static Motor_Fast_Mode_e Flux_Handover_Blend_Run(Flux_Fast_Context_T *Context,
         Obs_Id_Ref = *Id_Ref;
         Obs_Iq_Ref = *Iq_Ref;
         I_Max = Start_Para.Iq_Max_A;
-        We_Target = We_Obs_F;
         Speed_Loop_Track(We_Target, Ident_PLL.State.We, Obs_Iq_Ref, -I_Max, I_Max);
         Fine_Begin();
         Obs_Control = true;
@@ -935,13 +839,14 @@ static Motor_Fast_Mode_e Flux_Obs_Accel_Run(const Flux_Fast_Context_T *Context,
 
     if (Fine_Valid && Flux_Estimator.State.Estimate_Valid)
     {
-        (void)Flux_Obs_Target_Update(Context->Dir, We_Obs_F);
+        (void)Flux_Target_Update(Context->Dir, We_Obs_F);
     }
 
     if (Emf_Valid && __builtin_isfinite(Emf_Ratio_F) &&
         (Emf_Ratio_F >= Flux_Config.Observer.Work_Ratio))
     {
         We_Target = We_Obs_F;
+        Work_Point_Reached = true;
         Cnt = 0U;
         Fine_Flux_Pre = 0.0f;
         Fine_Stable_Cnt = 0U;
@@ -1048,12 +953,12 @@ bool Flux_Start(float Wm_Target)
 {
     const Ident_Envelope_T *Envelope;
     float Sign;
+    float We_Max;
 
     Result = (Flux_Result_T){ 0 };
     Start_Para = (Motor_IF_Para_T){ 0 };
     Flux_IF = (IF_T){ 0 };
     We_Target = 0.0f;
-    We_Search = 0.0f;
     Cnt = 0U;
     We_Obs_F = 0.0f;
     Emf_Ratio_F = 0.0f;
@@ -1067,19 +972,19 @@ bool Flux_Start(float Wm_Target)
     Finish_Init = 0U;
     Model_U_Valid = false;
     Emf_Valid = false;
-    Search_Target_Ready = false;
-    Handover_Gate_Armed = false;
-    Observer_Flux_Frozen = false;
     Obs_Active = false;
     PLL_Active = false;
     Obs_Control = false;
     Current_Control_Active = false;
+    Work_Point_Reached = false;
     Motion_Lost_Armed = false;
     Flux_Estimator.State = (Flux_Estimator_State_T){ 0 };
     Handover_Reset(&Handover);
 
     Envelope = Identification_Envelope_Get();
+    We_Max = (float)Motor_Para.Pp * Motor_Wm_Limit_Effective_Get();
     if ((Envelope->I_Max <= 0.0f) || (Envelope->U_Max <= 0.0f) ||
+        !__builtin_isfinite(We_Max) || (We_Max <= 0.0f) ||
         !Motor_IF_Para_Build(ADC.Vbus_V, Envelope->I_Max, &Start_Para) ||
         !__builtin_isfinite(Ident_IF_Current_A) ||
         (Ident_IF_Current_A <= 0.0f) ||
@@ -1090,14 +995,14 @@ bool Flux_Start(float Wm_Target)
     }
 
     Sign = (Wm_Target < 0.0f) ? -1.0f : 1.0f;
-    We_Target = Sign * Start_Para.We_Base;
+    We_Target = Sign * ((Start_Para.We_Base < We_Max) ? Start_Para.We_Base : We_Max);
 
     /* ALIGN keeps its independent 1 A baseline from Start_Para.Iq_Start_A.
      * Flux I/F torque is explicitly supplied by the Host commissioning input. */
     Flux_IF.Para.Iq_Min_A = Ident_IF_Current_A;
     Flux_IF.Para.Iq_Max_A = Start_Para.Iq_Max_A;
     Flux_IF.Para.We_Base = Start_Para.We_Base;
-    Flux_IF.Para.Acc = Start_Para.Acc;
+    Flux_IF.Para.Acc = Abs_Value(We_Target) / Flux_Config.Workflow.Open_Accel_S;
     Flux_IF.Para.Iq_Slew_A_S = IF_IQ_SLEW_A_S;
     Flux_IF.Para.Rs_Ohm = Motor_Para.Rs;
     Flux_IF.Para.Ld_H = Motor_Para.Ld;
@@ -1186,18 +1091,25 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A,
         return Flux_Fail_Off();
     }
 
-    if ((State == FLUX_IF) || (State == FLUX_HANDOVER_BLEND))
+    if ((State == FLUX_IF) ||
+        (State == FLUX_OBS_WAIT) ||
+        (State == FLUX_HANDOVER_BLEND))
     {
         Step = Flux_Open_Loop_Run(&Context, Theta_e, Id_Ref, Iq_Ref);
         if (Step == FLUX_STEP_OFF)
         {
             return FAST_OFF;
         }
+        if (State == FLUX_FINISH)
+        {
+            return Flux_Finish_Run(&Context, Theta_e, Id_Ref, Iq_Ref);
+        }
     }
 
     switch (State)
     {
         case FLUX_IF:
+        case FLUX_OBS_WAIT:
             return FAST_CURRENT;
 
         case FLUX_HANDOVER_BLEND:
