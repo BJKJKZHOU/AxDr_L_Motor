@@ -21,7 +21,6 @@ Examples:
 """
 
 import argparse
-import csv
 import json
 import math
 from pathlib import Path
@@ -147,23 +146,26 @@ FAST_CONFIG_ID = 13
 NORMAL_CONFIG_ID = 14
 FAST_RATE_HZ = 20000.0
 NORMAL_RATE_HZ = 1000.0
+CAPTURE_MAGIC = b"AXDRCAP1"
 CURRENT_FAST_VARS = (
     ("Ia", PARAM_ADC_IA, 0.001),
     ("Ib", PARAM_ADC_IB, 0.001),
-    ("Ic", PARAM_ADC_IC, 0.001),
 )
 FAST_INDEX = {
     name: index for index, (name, _, _) in enumerate(CURRENT_FAST_VARS)
 }
 VBUS_NORMAL_VARS = (("Vbus", PARAM_ADC_VBUS),)
 FLUX_NORMAL_VARS = VBUS_NORMAL_VARS + (
-    ("Id", PARAM_RUN_ID),
-    ("Iq", PARAM_RUN_IQ),
     ("Ud", PARAM_RUN_UD),
     ("Uq", PARAM_RUN_UQ),
     ("Theta_e", PARAM_RUN_THETA_E),
-    ("We_obs", PARAM_OBS_WE),
 )
+FLUX_NORMAL_UNITS = {
+    "Vbus": "V",
+    "Ud": "V",
+    "Uq": "V",
+    "Theta_e": "rad",
+}
 NORMAL_INDEX = {
     name: index for index, (name, _) in enumerate(FLUX_NORMAL_VARS)
 }
@@ -219,6 +221,18 @@ def usb_frame(msg_type, payload):
     frame_length = canfd_length(len(payload))
     padded = payload + bytes(frame_length - len(payload))
     return MAGIC + struct.pack("<HB", can_id(msg_type), frame_length) + padded
+
+
+def capture_write(path, metadata, data):
+    header = json.dumps(
+        metadata,
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    path.write_bytes(
+        CAPTURE_MAGIC + struct.pack("<I", len(header)) + header + data
+    )
 
 
 class StreamParser:
@@ -284,63 +298,76 @@ class IdentificationClient:
         self.normal_frames = 0
         self.normal_vars = VBUS_NORMAL_VARS
 
-        self.flux_current_stream = None
-        self.flux_current_writer = None
-        self.flux_state_stream = None
-        self.flux_state_writer = None
+        self.flux_current_path = None
+        self.flux_current_data = None
+        self.flux_state_path = None
+        self.flux_state_data = None
         self.flux_fast_sample = 0
         self.flux_normal_sample = 0
-        self.flux_state_theta = None
 
     def flux_plot_start(self, run_number, direction):
         current_path = (
             self.args.capture_dir
-            / f"flux_{direction}_{run_number:02d}_current.csv"
+            / f"flux_{direction}_{run_number:02d}_current.axdr"
         )
         state_path = (
             self.args.capture_dir
-            / f"flux_{direction}_{run_number:02d}_state.csv"
+            / f"flux_{direction}_{run_number:02d}_state.axdr"
         )
         current_path.parent.mkdir(parents=True, exist_ok=True)
 
-        self.flux_current_stream = current_path.open(
-            "w", newline="", encoding="utf-8"
-        )
-        self.flux_current_writer = csv.writer(self.flux_current_stream)
-        self.flux_current_writer.writerow(("time_s", "Ia_A", "Ib_A", "Ic_A"))
-
-        self.flux_state_stream = state_path.open(
-            "w", newline="", encoding="utf-8"
-        )
-        self.flux_state_writer = csv.writer(self.flux_state_stream)
-        self.flux_state_writer.writerow(
-            (
-                "time_s",
-                "Vbus_V",
-                "Id_A",
-                "Iq_A",
-                "Ud_V",
-                "Uq_V",
-                "Theta_e_rad",
-                "We_ctrl_rad_s",
-                "We_obs_rad_s",
-            )
-        )
-
+        self.flux_current_path = current_path
+        self.flux_current_data = bytearray()
+        self.flux_state_path = state_path
+        self.flux_state_data = bytearray()
         self.flux_fast_sample = 0
         self.flux_normal_sample = 0
-        self.flux_state_theta = None
         return current_path, state_path
 
     def flux_plot_stop(self):
-        if self.flux_current_stream is not None:
-            self.flux_current_stream.close()
-        if self.flux_state_stream is not None:
-            self.flux_state_stream.close()
-        self.flux_current_stream = None
-        self.flux_current_writer = None
-        self.flux_state_stream = None
-        self.flux_state_writer = None
+        if self.flux_current_data is not None:
+            capture_write(
+                self.flux_current_path,
+                {
+                    "capture": "flux_current",
+                    "channels": [
+                        {"name": name, "scale": scale, "unit": "A"}
+                        for name, _, scale in CURRENT_FAST_VARS
+                    ],
+                    "derived_channels": [
+                        {
+                            "expression": "-(Ia + Ib)",
+                            "name": "Ic",
+                            "unit": "A",
+                        }
+                    ],
+                    "dtype": "<i2",
+                    "sample_count": self.flux_fast_sample,
+                    "sample_rate_hz": FAST_RATE_HZ,
+                    "version": 1,
+                },
+                self.flux_current_data,
+            )
+        if self.flux_state_data is not None:
+            capture_write(
+                self.flux_state_path,
+                {
+                    "capture": "flux_state",
+                    "channels": [
+                        {"name": name, "unit": FLUX_NORMAL_UNITS[name]}
+                        for name, _ in FLUX_NORMAL_VARS
+                    ],
+                    "dtype": "<f4",
+                    "sample_count": self.flux_normal_sample,
+                    "sample_rate_hz": NORMAL_RATE_HZ,
+                    "version": 1,
+                },
+                self.flux_state_data,
+            )
+        self.flux_current_path = None
+        self.flux_current_data = None
+        self.flux_state_path = None
+        self.flux_state_data = None
 
     def process_fast(self, payload):
         if len(payload) < 4 or payload[2] != FAST_CONFIG_ID:
@@ -365,29 +392,21 @@ class IdentificationClient:
         if not self.ident_active:
             return
 
+        if self.flux_current_data is not None:
+            self.flux_current_data.extend(payload[4:expected_length])
+            self.flux_fast_sample += sample_count
+
+        ia_index = FAST_INDEX["Ia"]
+        ib_index = FAST_INDEX["Ib"]
+        ia_scale = self.fast_vars[ia_index][2]
+        ib_scale = self.fast_vars[ib_index][2]
         for sample in range(sample_count):
             start = sample * count
-            values = tuple(
-                raw[start + index] * self.fast_vars[index][2]
-                for index in range(count)
-            )
-            peak = max(
-                abs(values[FAST_INDEX[name]])
-                for name in ("Ia", "Ib", "Ic")
-            )
+            ia = raw[start + ia_index] * ia_scale
+            ib = raw[start + ib_index] * ib_scale
+            ic = -(ia + ib)
+            peak = max(abs(ia), abs(ib), abs(ic))
             self.run_peak = max(self.run_peak, peak)
-
-            if self.flux_current_writer is not None:
-                self.flux_current_writer.writerow(
-                    (
-                        self.flux_fast_sample / FAST_RATE_HZ,
-                        values[FAST_INDEX["Ia"]],
-                        values[FAST_INDEX["Ib"]],
-                        values[FAST_INDEX["Ic"]],
-                    )
-                )
-
-            self.flux_fast_sample += 1
             if self.run_trip:
                 continue
 
@@ -424,38 +443,14 @@ class IdentificationClient:
             self.normal_lost += (seq - expected) & 0xFFFF
         self.normal_last = seq
         self.normal_frames += 1
-        values = struct.unpack_from(f"<{count}f", payload, 4)
-        self.vbus.append(values[NORMAL_INDEX["Vbus"]])
+        vbus, = struct.unpack_from("<f", payload, 4)
+        self.vbus.append(vbus)
 
-        if not self.ident_active or self.flux_state_writer is None:
+        if not self.ident_active or self.flux_state_data is None:
             return
 
-        theta = values[NORMAL_INDEX["Theta_e"]]
-        if self.flux_state_theta is None:
-            we_ctrl = ""
-        else:
-            delta = theta - self.flux_state_theta
-            if delta > math.pi:
-                delta -= 2.0 * math.pi
-            elif delta < -math.pi:
-                delta += 2.0 * math.pi
-            we_ctrl = delta * NORMAL_RATE_HZ
-
-        self.flux_state_writer.writerow(
-            (
-                self.flux_normal_sample / NORMAL_RATE_HZ,
-                values[NORMAL_INDEX["Vbus"]],
-                values[NORMAL_INDEX["Id"]],
-                values[NORMAL_INDEX["Iq"]],
-                values[NORMAL_INDEX["Ud"]],
-                values[NORMAL_INDEX["Uq"]],
-                theta,
-                we_ctrl,
-                values[NORMAL_INDEX["We_obs"]],
-            )
-        )
+        self.flux_state_data.extend(payload[4:expected_length])
         self.flux_normal_sample += 1
-        self.flux_state_theta = theta
 
     def process(self, frames):
         responses = []
@@ -826,7 +821,6 @@ class IdentificationClient:
             failure = exc
         finally:
             self.ident_active = False
-            self.flux_plot_stop()
             if failure is not None:
                 try:
                     self.parameter_action(ACTION_IDENT_ABORT)
@@ -836,6 +830,7 @@ class IdentificationClient:
                 self.parameter_action(ACTION_MOTOR_DISABLE)
             except (TimeoutError, RuntimeError) as exc:
                 print(f"DISABLE warning: {exc}", file=sys.stderr)
+            self.flux_plot_stop()
 
         if result is None:
             result = {
@@ -853,8 +848,8 @@ class IdentificationClient:
         result["fast_sample_rate_hz"] = result["fast_samples"] / result["time_s"]
         result["normal_sample_rate_hz"] = result["normal_frames"] / result["time_s"]
         if plot_paths is not None:
-            result["current_csv"] = str(plot_paths[0])
-            result["state_csv"] = str(plot_paths[1])
+            result["current_binary"] = str(plot_paths[0])
+            result["state_binary"] = str(plot_paths[1])
             result["current_rate_hz"] = FAST_RATE_HZ
             result["state_rate_hz"] = NORMAL_RATE_HZ
         if failure is not None:
@@ -1061,9 +1056,9 @@ def run_group(client, mode, count, args, results, direction=None, run_offset=0):
             result = exc.result
             results.append(result)
             result_print(name, index, count, mode, result)
-            if result.get("current_csv"):
-                print(f"  Current CSV: {result['current_csv']}")
-                print(f"  State CSV: {result['state_csv']}")
+            if result.get("current_binary"):
+                print(f"  Current binary: {result['current_binary']}")
+                print(f"  State binary: {result['state_binary']}")
             if args.stop_on_error:
                 return False
         else:
@@ -1333,6 +1328,13 @@ def main():
             "max_lost": args.max_lost,
             "flux_current_rate_hz": FAST_RATE_HZ,
             "flux_state_rate_hz": NORMAL_RATE_HZ,
+            "flux_current_channels": [
+                name for name, _, _ in CURRENT_FAST_VARS
+            ],
+            "flux_state_channels": [
+                name for name, _ in FLUX_NORMAL_VARS
+            ],
+            "flux_capture_format": "AXDRCAP1",
         },
         "rs_ls": {
             "results": [],
