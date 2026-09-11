@@ -619,13 +619,19 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
 
     if (Coarse_Valid)
     {
-        /* Once the 6 s initial I/F ramp has completed, I/F keeps accelerating
-         * toward the current fitted work point until handover actually occurs.
-         * The 0.30 EMF ratio is not a handover gate; it belongs to the
-         * post-handover observer-acceleration stage. */
-        if (State == FLUX_OBS_WAIT)
+        if ((State == FLUX_OBS_WAIT) && !Work_Point_Reached)
         {
-            (void)Flux_IF_Target_Update(Context->Dir, Flux_IF.State.We);
+            if (Emf_Valid && __builtin_isfinite(Emf_Ratio_F) &&
+                (Emf_Ratio_F >= Flux_Config.Observer.Work_Ratio))
+            {
+                We_Target = Flux_IF.State.We;
+                IF_Target_Set(&Flux_IF, We_Target);
+                Work_Point_Reached = true;
+            }
+            else
+            {
+                (void)Flux_IF_Target_Update(Context->Dir, Flux_IF.State.We);
+            }
         }
 
         if (!Obs_Active)
@@ -697,8 +703,6 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
     {
         Motion_Lost_Armed = false;
         Motion_Lost_Cnt = 0U;
-        Handover_Ready_Cnt = 0U;
-        Handover_Compare_Reset(&Handover);
         State = FLUX_OBS_WAIT;
     }
 
