@@ -29,7 +29,6 @@ typedef struct
 {
     struct
     {
-        uint32_t Observer_Feed_Blank_Cnt;
         float Est_Num_Min_Wb;
         float Finish_Iq_Slew_A_S;
         uint32_t Finish_Cnt;
@@ -82,7 +81,6 @@ typedef struct
 
 static const Flux_Config_T Flux_Config = {
     .Workflow = {
-        .Observer_Feed_Blank_Cnt = (uint32_t)(6.0f / CUR_TS + 0.5f),
         .Est_Num_Min_Wb = 1.0e-12f,
         .Finish_Iq_Slew_A_S = 20.0f,
         .Finish_Cnt = (uint32_t)(0.100f / CUR_TS + 0.5f),
@@ -171,7 +169,6 @@ static Handover_T Handover = { 0 };
 static volatile float We_Target = 0.0f;
 static float We_Search = 0.0f;
 static uint32_t Cnt = 0U;
-static uint32_t Observer_Feed_Cnt = 0U;
 static float We_Obs_F = 0.0f;
 static float Emf_Ratio_F = 0.0f;
 static float Obs_Id_Ref = 0.0f;
@@ -185,6 +182,7 @@ static uint8_t Finish_Init = 0U;
 static bool Model_U_Valid = false;
 static bool Emf_Valid = false;
 static bool Search_Target_Ready = false;
+static bool Handover_Gate_Armed = false;
 static bool Obs_Active = false;
 static bool PLL_Active = false;
 static bool Obs_Control = false;
@@ -595,7 +593,6 @@ static Motor_Fast_Mode_e Flux_Align_Run(int8_t Dir, float *Id_Ref, float *Iq_Ref
         {
             return Flux_Fail_Off();
         }
-        Observer_Feed_Cnt = 0U;
         Current_Control_Active = true;
         State = FLUX_IF;
     }
@@ -654,14 +651,16 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
                                       float *Iq_Ref)
 {
     float Theta_Rough;
+    bool Coarse_Valid;
 
+    Coarse_Valid = false;
     if (Model_U_Valid)
     {
-        (void)Coarse_Run(Context->Ud_Open,
-                         Context->Uq_Open,
-                         Context->Id_Open,
-                         Context->Iq_Open,
-                         Flux_IF.State.We);
+        Coarse_Valid = Coarse_Run(Context->Ud_Open,
+                                  Context->Uq_Open,
+                                  Context->Id_Open,
+                                  Context->Iq_Open,
+                                  Flux_IF.State.We);
         if (!__builtin_isfinite(Flux_Estimator.State.Psi_d) ||
             !__builtin_isfinite(Flux_Estimator.State.Psi_q))
         {
@@ -670,41 +669,11 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
         }
     }
 
-    if ((State == FLUX_IF) &&
-        (Observer_Feed_Cnt < Flux_Config.Workflow.Observer_Feed_Blank_Cnt))
-    {
-        Observer_Feed_Cnt++;
-    }
-
-    /* Stage 1 ends at the RL-derived base speed. Once the coarse flux is
-     * available there, derive one second-stage I/F speed target from the
-     * measured coarse flux and the fixed user I/F current. No runtime signal
-     * is allowed to modify this target after it has been built. */
-    if ((State == FLUX_IF) && !Search_Target_Ready &&
-        (Flux_IF.State.Mode == IF_HOLD) &&
-        (Abs_Value(Flux_IF.State.We) >= Start_Para.We_Base) &&
-        __builtin_isfinite(Flux_Estimator.State.Flux) &&
-        (Flux_Estimator.State.Flux > Flux_Config.Workflow.Est_Num_Min_Wb))
-    {
-        if (!Flux_IF_Search_Target_Build(Context->Dir, &We_Search))
-        {
-            Flux_Fail_Off();
-            return FLUX_STEP_OFF;
-        }
-
-        Search_Target_Ready = true;
-        We_Target = We_Search;
-        IF_Target_Set(&Flux_IF, We_Target);
-        if (Flux_IF.State.Mode == IF_FAILED)
-        {
-            Flux_Fail_Off();
-            return FLUX_STEP_OFF;
-        }
-    }
-
-    if ((Observer_Feed_Cnt >= Flux_Config.Workflow.Observer_Feed_Blank_Cnt) &&
-        __builtin_isfinite(Flux_Estimator.State.Flux) &&
-        (Flux_Estimator.State.Flux > Flux_Config.Workflow.Est_Num_Min_Wb))
+    /* Coarse flux and the observer form one continuous shadow pipeline during
+     * I/F. Every valid coarse estimate updates the observer parameter. The
+     * first valid estimate initializes Observer/PLL; later estimates never
+     * reset their dynamic state. */
+    if (Coarse_Valid)
     {
         if (!Obs_Active)
         {
@@ -731,6 +700,31 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
         }
     }
 
+    /* Stage 1 ends at the RL-derived base speed. Once the coarse flux is
+     * available there, derive one second-stage I/F speed target from the
+     * measured coarse flux and the fixed user I/F current. No runtime signal
+     * is allowed to modify this target after it has been built. */
+    if ((State == FLUX_IF) && !Search_Target_Ready &&
+        (Flux_IF.State.Mode == IF_HOLD) &&
+        (Abs_Value(Flux_IF.State.We) >= Start_Para.We_Base) &&
+        Coarse_Valid)
+    {
+        if (!Flux_IF_Search_Target_Build(Context->Dir, &We_Search))
+        {
+            Flux_Fail_Off();
+            return FLUX_STEP_OFF;
+        }
+
+        Search_Target_Ready = true;
+        We_Target = We_Search;
+        IF_Target_Set(&Flux_IF, We_Target);
+        if (Flux_IF.State.Mode == IF_FAILED)
+        {
+            Flux_Fail_Off();
+            return FLUX_STEP_OFF;
+        }
+    }
+
     if (Obs_Active && !PLL_Active)
     {
         Theta_Rough = Angle_Wrap(__builtin_atan2f(Ident_Observer.State.PsiBeta,
@@ -743,8 +737,19 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
         PLL_Active = true;
     }
 
+    /* We_Base is only the minimum handover speed. Observer/PLL may already
+     * have been shadowing for a long time below it. At the first crossing,
+     * discard low-speed comparison history without resetting Observer/PLL. */
+    if (!Handover_Gate_Armed &&
+        (Abs_Value(Flux_IF.State.We) >= Start_Para.We_Base))
+    {
+        Handover_Gate_Armed = true;
+        Handover_Ready_Cnt = 0U;
+        Handover_Compare_Reset(&Handover);
+    }
+
     Context->Theta_Obs = Ident_PLL.State.Theta;
-    if (PLL_Active)
+    if (PLL_Active && Handover_Gate_Armed)
     {
         Handover_Source_Compare(&Handover,
                                 Context->Theta_Open,
@@ -772,13 +777,20 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
 
     if (State == FLUX_IF)
     {
-        Handover_Qualification_Accumulate(&Handover_Ready_Cnt,
-                                          Flux_Config.Handover.Ready_Cnt,
-                                          PLL_Active && Obs_Open_Stable());
-        if (Handover_Ready_Cnt >= Flux_Config.Handover.Ready_Cnt)
+        if (!Handover_Gate_Armed)
         {
-            Handover_Blend_Reset(&Handover);
-            State = FLUX_HANDOVER_BLEND;
+            Handover_Ready_Cnt = 0U;
+        }
+        else
+        {
+            Handover_Qualification_Accumulate(&Handover_Ready_Cnt,
+                                              Flux_Config.Handover.Ready_Cnt,
+                                              PLL_Active && Obs_Open_Stable());
+            if (Handover_Ready_Cnt >= Flux_Config.Handover.Ready_Cnt)
+            {
+                Handover_Blend_Reset(&Handover);
+                State = FLUX_HANDOVER_BLEND;
+            }
         }
     }
 
@@ -1013,7 +1025,6 @@ bool Flux_Start(float Wm_Target)
     We_Target = 0.0f;
     We_Search = 0.0f;
     Cnt = 0U;
-    Observer_Feed_Cnt = 0U;
     We_Obs_F = 0.0f;
     Emf_Ratio_F = 0.0f;
     Obs_Id_Ref = 0.0f;
@@ -1027,6 +1038,7 @@ bool Flux_Start(float Wm_Target)
     Model_U_Valid = false;
     Emf_Valid = false;
     Search_Target_Ready = false;
+    Handover_Gate_Armed = false;
     Obs_Active = false;
     PLL_Active = false;
     Obs_Control = false;
