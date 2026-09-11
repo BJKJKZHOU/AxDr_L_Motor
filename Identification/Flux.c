@@ -159,6 +159,8 @@ typedef struct
     float Theta_Obs;
     float Id_Open;
     float Iq_Open;
+    float Id_Ref_Open;
+    float Iq_Ref_Open;
     float Ud_Open;
     float Uq_Open;
     int8_t Dir;
@@ -411,7 +413,7 @@ static void Fine_Begin(void)
 {
     float Flux_Init;
 
-    Flux_Init = Ident_Observer.Para.Flux;
+    Flux_Init = Flux_Estimator.State.Flux;
     Flux_Estimator.State = (Flux_Estimator_State_T){ 0 };
     Flux_Estimator.State.Flux = Flux_Init;
     Flux_Estimator.Para.I_BW_Hz = Flux_Config.Fine.I_BW_Hz;
@@ -474,6 +476,8 @@ static void Flux_Context_Init(Flux_Fast_Context_T *Context, float Ia_A, float Ib
     SinCos(Context->Theta_Open, &Sin, &Cos);
     Context->Id_Open = Context->Ialpha * Cos + Context->Ibeta * Sin;
     Context->Iq_Open = -Context->Ialpha * Sin + Context->Ibeta * Cos;
+    Context->Id_Ref_Open = 0.0f;
+    Context->Iq_Ref_Open = 0.0f;
     Context->Ud_Open = Motor_Run.Ualpha * Cos + Motor_Run.Ubeta * Sin;
     Context->Uq_Open = -Motor_Run.Ualpha * Sin + Motor_Run.Ubeta * Cos;
     Context->Dir = (We_Target < 0.0f) ? -1 : 1;
@@ -553,12 +557,28 @@ static Motor_Fast_Mode_e Flux_Finish_Run(const Flux_Fast_Context_T *Context,
 {
     float Iq_Step;
 
-    *Theta_e = Obs_Control ? Context->Theta_Obs : Motor_Run.Theta_e;
-    *Id_Ref = 0.0f;
+    if (Obs_Control)
+    {
+        *Theta_e = Context->Theta_Obs;
+        *Id_Ref = 0.0f;
+        *Iq_Ref = Obs_Iq_Ref;
+    }
+    else
+    {
+        IF_Run(&Flux_IF,
+               Context->Id_Open,
+               Context->Iq_Open,
+               Context->Ud_Open,
+               Context->Uq_Open,
+               Theta_e,
+               Id_Ref,
+               Iq_Ref,
+               CUR_TS);
+    }
 
     if (Finish_Init == 0U)
     {
-        Finish_Iq = Obs_Control ? Obs_Iq_Ref : Motor_Run.Iq;
+        Finish_Iq = *Iq_Ref;
         Finish_Init = 1U;
     }
 
@@ -576,6 +596,7 @@ static Motor_Fast_Mode_e Flux_Finish_Run(const Flux_Fast_Context_T *Context,
         Finish_Iq = 0.0f;
     }
 
+    *Id_Ref = 0.0f;
     *Iq_Ref = Finish_Iq;
     if (Finish_Iq == 0.0f)
     {
@@ -655,6 +676,32 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
         }
     }
 
+    IF_Run(&Flux_IF,
+           Context->Id_Open,
+           Context->Iq_Open,
+           Context->Ud_Open,
+           Context->Uq_Open,
+           Theta_e,
+           Id_Ref,
+           Iq_Ref,
+           CUR_TS);
+    if (Flux_IF.State.Mode == IF_FAILED)
+    {
+        Flux_Fail_Off();
+        return FLUX_STEP_OFF;
+    }
+
+    Context->Theta_Open = *Theta_e;
+    Context->Id_Ref_Open = *Id_Ref;
+    Context->Iq_Ref_Open = *Iq_Ref;
+
+    if ((State == FLUX_IF) && (Flux_IF.State.Mode == IF_HOLD))
+    {
+        Motion_Lost_Armed = false;
+        Motion_Lost_Cnt = 0U;
+        State = FLUX_OBS_WAIT;
+    }
+
     /* A transient PLL failure before handover is recoverable. Rebuild it from
      * the current observer flux angle while I/F remains in control. */
     if (Obs_Active && !PLL_Active)
@@ -679,28 +726,6 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
                                 We_Obs_F,
                                 Ident_PLL.State.Err,
                                 Flux_Config.Handover.Compare_Alpha);
-    }
-
-    IF_Run(&Flux_IF,
-           Context->Id_Open,
-           Context->Iq_Open,
-           Context->Ud_Open,
-           Context->Uq_Open,
-           Theta_e,
-           Id_Ref,
-           Iq_Ref,
-           CUR_TS);
-    if (Flux_IF.State.Mode == IF_FAILED)
-    {
-        Flux_Fail_Off();
-        return FLUX_STEP_OFF;
-    }
-
-    if ((State == FLUX_IF) && (Flux_IF.State.Mode == IF_HOLD))
-    {
-        Motion_Lost_Armed = false;
-        Motion_Lost_Cnt = 0U;
-        State = FLUX_OBS_WAIT;
     }
 
     /* INITIAL I/F is a handover blanking window. Motion-lost is only armed
@@ -750,8 +775,8 @@ static Motor_Fast_Mode_e Flux_Handover_Blend_Run(Flux_Fast_Context_T *Context,
                            Flux_Config.Handover.Blend_Cnt,
                            Context->Theta_Open,
                            Context->Theta_Obs,
-                           Context->Id_Open,
-                           Context->Iq_Open,
+                           Context->Id_Ref_Open,
+                           Context->Iq_Ref_Open,
                            Theta_e,
                            Id_Ref,
                            Iq_Ref))
@@ -809,7 +834,7 @@ static Motor_Fast_Mode_e Flux_Handover_Current_Run(const Flux_Fast_Context_T *Co
         Cnt = 0U;
         Fine_Flux_Pre = 0.0f;
         Fine_Stable_Cnt = 0U;
-        State = FLUX_OBS_ACCEL;
+        State = Work_Point_Reached ? FLUX_REFINE_SETTLE : FLUX_OBS_ACCEL;
     }
     return FAST_CURRENT;
 }

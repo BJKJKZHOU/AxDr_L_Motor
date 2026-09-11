@@ -12,6 +12,7 @@
 #include "Rs_Ls.h"
 #include "control_params.h"
 
+#define IDENT_U_MAX_RATIO  0.80f
 #define IDENT_I_TRIP_COUNT 5U
 
 Flux_Observer_T Ident_Observer = { 0 };
@@ -74,9 +75,7 @@ static void Envelope_Voltage_Update(void)
         Ident_Envelope.U_Available = 0.0f;
     }
 
-    /* Voltage is the PWM actuator boundary, not an additional identification
-     * safety limit. Current remains the caller/user-owned safety envelope. */
-    Ident_Envelope.U_Max = Ident_Envelope.U_Available;
+    Ident_Envelope.U_Max = IDENT_U_MAX_RATIO * Ident_Envelope.U_Available;
 }
 
 bool Identification_Start(Ident_Mode_e Mode, float Wm_Target)
