@@ -103,6 +103,14 @@ void Handover_Source_Compare(Handover_T *Handover,
         return;
     }
 
+    if (!__builtin_isfinite(Theta_Source) || !__builtin_isfinite(We_Source) ||
+        !__builtin_isfinite(Theta_Obs) || !__builtin_isfinite(We_Obs) ||
+        !__builtin_isfinite(PLL_Err) || !__builtin_isfinite(Alpha))
+    {
+        Handover_Compare_Reset(Handover);
+        return;
+    }
+
     Handover_Speed_Compare(Handover, We_Source, We_Obs, PLL_Err, Alpha);
 
     Theta_Err = Handover_Angle_Diff(Theta_Obs, Theta_Source);
