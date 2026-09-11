@@ -667,6 +667,7 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
                                                   Ident_Observer.State.PsiAlpha));
         PLL_Reset(&Ident_PLL, Theta_Rough, Flux_IF.State.We);
         We_Obs_F = Flux_IF.State.We;
+        Motion_Lost_Cnt = 0U;
         Handover_Ready_Cnt = 0U;
         Handover_Compare_Reset(&Handover);
         PLL_Active = true;
