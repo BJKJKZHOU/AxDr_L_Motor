@@ -968,8 +968,6 @@ static bool Flux_Coarse_Control_Run(const Flux_Slow_Snapshot_T *Snapshot, bool S
 static void Flux_Open_Supervision_Run(Flux_State_e State_Local,
                                       const Flux_Slow_Snapshot_T *Snapshot)
 {
-    bool Motion_Valid;
-
     (void)Flux_Coarse_Control_Run(Snapshot, State_Local == FLUX_OBS_WAIT);
     if ((State != State_Local) || (State_Local == FLUX_IF))
     {
@@ -985,15 +983,6 @@ static void Flux_Open_Supervision_Run(Flux_State_e State_Local,
                                 Snapshot->We_Obs,
                                 Snapshot->PLL_Err,
                                 Flux_Config.Handover.Compare_Alpha);
-    }
-
-    Motion_Valid = Emf_Valid && __builtin_isfinite(Emf_Ratio_F) &&
-                   (Emf_Ratio_F >= Flux_Config.Observer.Motion_Lost_Ratio);
-    if (Motion_Lost_Run(Motion_Valid))
-    {
-        Result.Valid = false;
-        Flux_Finish_Start();
-        return;
     }
 
     Handover_Qualification_Accumulate(&Handover_Ready_Cnt,
