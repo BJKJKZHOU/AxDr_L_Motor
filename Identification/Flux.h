@@ -7,6 +7,7 @@
 #define FLUX_IDENT_H
 
 #include <stdbool.h>
+#include <stdint.h>
 
 #include "Motor_Type.h"
 
@@ -16,6 +17,26 @@ typedef struct
     bool Valid;
 
 } Flux_Result_T;
+
+/* DWT cycle profile for the overloaded FLUX_OBS_WAIT fast path.
+ * Current and Max fields are updated only for cycles that enter OBS_WAIT. */
+typedef struct
+{
+    uint32_t State;
+    uint32_t Context_Open_Cyc;
+    uint32_t Context_Open_Max;
+    uint32_t Observer_Cyc;
+    uint32_t Observer_Max;
+    uint32_t Coarse_Cyc;
+    uint32_t Coarse_Max;
+    uint32_t IF_Cyc;
+    uint32_t IF_Max;
+    uint32_t Handover_Cyc;
+    uint32_t Handover_Max;
+
+} Flux_Time_T;
+
+extern volatile Flux_Time_T Flux_Time;
 
 bool Flux_Start(float Wm_Target);
 bool Flux_Active(void);
