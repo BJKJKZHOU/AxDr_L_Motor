@@ -18,8 +18,11 @@ typedef struct
 
 } Flux_Result_T;
 
-/* DWT cycle profile for the overloaded FLUX_OBS_WAIT fast path.
- * Current and Max fields are updated only for cycles that enter OBS_WAIT. */
+/* DWT cycle profile for Flux timing diagnosis.
+ * Context_Open / Observer / IF still describe the 20 kHz fast path.
+ * Coarse / Handover are retained for host/debug compatibility after their
+ * supervisory work moved to the 2 kHz Motor Thread; they are not summed with
+ * fast-path timing unless explicitly instrumented there again. */
 typedef struct
 {
     uint32_t State;
