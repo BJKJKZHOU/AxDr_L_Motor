@@ -1079,8 +1079,8 @@ bool Flux_Start(float Wm_Target)
     Flux_IF.Para.Lq_H = Motor_Para.Lq;
 
     Flux_Estimator.Para.Rs = Motor_Para.Rs;
-    Flux_Estimator.Para.Ld_H = Motor_Para.Ld;
-    Flux_Estimator.Para.Lq_H = Motor_Para.Lq;
+    Flux_Estimator.Para.Ld = Motor_Para.Ld;
+    Flux_Estimator.Para.Lq = Motor_Para.Lq;
     Flux_Estimator.Para.I_BW_Hz = Flux_Config.Coarse.I_BW_Hz;
     Flux_Estimator.Para.Est_BW_Hz = Flux_Config.Coarse.Est_BW_Hz;
     Flux_Estimator.Para.We_Min = Flux_Config.Coarse.We_Min_Ratio * Start_Para.We_Base;
