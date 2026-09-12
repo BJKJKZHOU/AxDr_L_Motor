@@ -24,6 +24,7 @@
 #include "PLL.h"
 #include "Sin_LUT.h"
 #include "control_params.h"
+#include "main.h"
 
 typedef struct
 {
@@ -167,6 +168,8 @@ typedef struct
 
 } Flux_Fast_Context_T;
 
+volatile Flux_Time_T Flux_Time = { 0 };
+
 static volatile Flux_State_e State = FLUX_IDLE;
 static Flux_Result_T Result = { 0 };
 static Motor_IF_Para_T Start_Para = { 0 };
@@ -197,6 +200,15 @@ static bool Motion_Lost_Armed = false;
 static float Abs_Value(float Value)
 {
     return (Value >= 0.0f) ? Value : -Value;
+}
+
+static void Flux_Time_Set(uint32_t Cyc, volatile uint32_t *Current, volatile uint32_t *Max)
+{
+    *Current = Cyc;
+    if (Cyc > *Max)
+    {
+        *Max = Cyc;
+    }
 }
 
 static void Flux_Finish_Start(void)
@@ -462,17 +474,21 @@ static bool Fine_Run(bool Adapt, bool Measure)
     return true;
 }
 
-static void Flux_Context_Init(Flux_Fast_Context_T *Context, float Ia_A, float Ib_A)
+static void Flux_Context_Base_Init(Flux_Fast_Context_T *Context, float Ia_A, float Ib_A)
+{
+    Context->Envelope = Identification_Envelope_Get();
+    Context->Ialpha = Ia_A;
+    Context->Ibeta = (Ia_A + 2.0f * Ib_A) * INV_SQRT3_F;
+    Context->Theta_Obs = Ident_PLL.State.Theta;
+    Context->Dir = (We_Target < 0.0f) ? -1 : 1;
+}
+
+static void Flux_Context_Open_Init(Flux_Fast_Context_T *Context)
 {
     float Sin;
     float Cos;
 
-    Context->Envelope = Identification_Envelope_Get();
-    Context->Ialpha = Ia_A;
-    Context->Ibeta = (Ia_A + 2.0f * Ib_A) * INV_SQRT3_F;
     Context->Theta_Open = Flux_IF.State.Theta_e;
-    Context->Theta_Obs = Ident_PLL.State.Theta;
-
     SinCos(Context->Theta_Open, &Sin, &Cos);
     Context->Id_Open = Context->Ialpha * Cos + Context->Ibeta * Sin;
     Context->Iq_Open = -Context->Ialpha * Sin + Context->Ibeta * Cos;
@@ -480,7 +496,6 @@ static void Flux_Context_Init(Flux_Fast_Context_T *Context, float Ia_A, float Ib
     Context->Iq_Ref_Open = 0.0f;
     Context->Ud_Open = Motor_Run.Ualpha * Cos + Motor_Run.Ubeta * Sin;
     Context->Uq_Open = -Motor_Run.Ualpha * Sin + Motor_Run.Ubeta * Cos;
-    Context->Dir = (We_Target < 0.0f) ? -1 : 1;
 }
 
 static void Flux_Observer_Runtime_Run(Flux_Fast_Context_T *Context)
@@ -618,11 +633,17 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
                                       float *Id_Ref,
                                       float *Iq_Ref)
 {
+    uint32_t T0;
+    uint32_t Cyc;
     float Theta_Rough;
     bool Coarse_Valid;
     bool Motion_Valid;
+    bool Profile;
+
+    Profile = (State == FLUX_OBS_WAIT);
 
     Coarse_Valid = false;
+    T0 = DWT->CYCCNT;
     if (Model_U_Valid)
     {
         Coarse_Valid = Coarse_Run();
@@ -675,7 +696,13 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
             Obs_Para_Update();
         }
     }
+    if (Profile)
+    {
+        Cyc = DWT->CYCCNT - T0;
+        Flux_Time_Set(Cyc, &Flux_Time.Coarse_Cyc, &Flux_Time.Coarse_Max);
+    }
 
+    T0 = DWT->CYCCNT;
     IF_Run(&Flux_IF,
            Context->Id_Open,
            Context->Iq_Open,
@@ -685,6 +712,11 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
            Id_Ref,
            Iq_Ref,
            CUR_TS);
+    if (Profile)
+    {
+        Cyc = DWT->CYCCNT - T0;
+        Flux_Time_Set(Cyc, &Flux_Time.IF_Cyc, &Flux_Time.IF_Max);
+    }
     if (Flux_IF.State.Mode == IF_FAILED)
     {
         Flux_Fail_Off();
@@ -702,6 +734,7 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
         State = FLUX_OBS_WAIT;
     }
 
+    T0 = DWT->CYCCNT;
     /* A transient PLL failure before handover is recoverable. Rebuild it from
      * the current observer flux angle while I/F remains in control. */
     if (Obs_Active && !PLL_Active)
@@ -738,6 +771,11 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
         {
             Result.Valid = false;
             Flux_Finish_Start();
+            if (Profile)
+            {
+                Cyc = DWT->CYCCNT - T0;
+                Flux_Time_Set(Cyc, &Flux_Time.Handover_Cyc, &Flux_Time.Handover_Max);
+            }
             return FLUX_STEP_CONTINUE;
         }
     }
@@ -752,6 +790,11 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
             Handover_Blend_Reset(&Handover);
             State = FLUX_HANDOVER_BLEND;
         }
+    }
+    if (Profile)
+    {
+        Cyc = DWT->CYCCNT - T0;
+        Flux_Time_Set(Cyc, &Flux_Time.Handover_Cyc, &Flux_Time.Handover_Max);
     }
 
     Motor_Run.Theta_e = Context->Theta_Open;
@@ -984,6 +1027,7 @@ bool Flux_Start(float Wm_Target)
     Result = (Flux_Result_T){ 0 };
     Start_Para = (Motor_IF_Para_T){ 0 };
     Flux_IF = (IF_T){ 0 };
+    Flux_Time = (Flux_Time_T){ 0 };
     We_Target = 0.0f;
     Cnt = 0U;
     We_Obs_F = 0.0f;
@@ -1035,8 +1079,8 @@ bool Flux_Start(float Wm_Target)
     Flux_IF.Para.Lq_H = Motor_Para.Lq;
 
     Flux_Estimator.Para.Rs = Motor_Para.Rs;
-    Flux_Estimator.Para.Ld = Motor_Para.Ld;
-    Flux_Estimator.Para.Lq = Motor_Para.Lq;
+    Flux_Estimator.Para.Ld_H = Motor_Para.Ld;
+    Flux_Estimator.Para.Lq_H = Motor_Para.Lq;
     Flux_Estimator.Para.I_BW_Hz = Flux_Config.Coarse.I_BW_Hz;
     Flux_Estimator.Para.Est_BW_Hz = Flux_Config.Coarse.Est_BW_Hz;
     Flux_Estimator.Para.We_Min = Flux_Config.Coarse.We_Min_Ratio * Start_Para.We_Base;
@@ -1084,6 +1128,10 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A,
 {
     Flux_Fast_Context_T Context;
     Flux_Step_e Step;
+    uint32_t T0;
+    uint32_t Cyc;
+    bool Need_Open_Context;
+    bool Profile;
 
     (void)Ic_A;
     *Theta_e = 0.0f;
@@ -1096,14 +1144,40 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A,
         return FAST_OFF;
     }
 
-    Flux_Context_Init(&Context, Ia_A, Ib_A);
+    Flux_Time.State = (uint32_t)State;
+    Profile = (State == FLUX_OBS_WAIT);
+
+    Flux_Context_Base_Init(&Context, Ia_A, Ib_A);
+
+    Need_Open_Context = (State == FLUX_IF) ||
+                        (State == FLUX_OBS_WAIT) ||
+                        (State == FLUX_HANDOVER_BLEND) ||
+                        ((State == FLUX_FINISH) && !Obs_Control);
+    if (Need_Open_Context)
+    {
+        T0 = DWT->CYCCNT;
+        Flux_Context_Open_Init(&Context);
+        if (Profile)
+        {
+            Cyc = DWT->CYCCNT - T0;
+            Flux_Time_Set(Cyc,
+                          &Flux_Time.Context_Open_Cyc,
+                          &Flux_Time.Context_Open_Max);
+        }
+    }
 
     if (State == FLUX_ALIGN)
     {
         return Flux_Align_Run(Context.Dir, Id_Ref, Iq_Ref);
     }
 
+    T0 = DWT->CYCCNT;
     Flux_Observer_Runtime_Run(&Context);
+    if (Profile)
+    {
+        Cyc = DWT->CYCCNT - T0;
+        Flux_Time_Set(Cyc, &Flux_Time.Observer_Cyc, &Flux_Time.Observer_Max);
+    }
 
     if (State == FLUX_FINISH)
     {
