@@ -53,9 +53,36 @@ typedef enum
 
 } Motor_Parameter_Request_Status_e;
 
+/* DWT cycle timing for the 2 kHz Motor Thread. Current and Max are kept
+ * separately so a non-halting SWD trace can inspect both transient load and
+ * worst-case load without adding any runtime logging. */
+typedef struct
+{
+    uint32_t Total_Cyc;
+    uint32_t Total_Max;
+    uint32_t Protection_Cyc;
+    uint32_t Protection_Max;
+    uint32_t Cmd_Cyc;
+    uint32_t Cmd_Max;
+    uint32_t Control_Cyc;
+    uint32_t Control_Max;
+    uint32_t Async_Cyc;
+    uint32_t Async_Max;
+    uint32_t Event_Cyc;
+    uint32_t Event_Max;
+    uint32_t USB_Poll_Cyc;
+    uint32_t USB_Poll_Max;
+    uint32_t Plot_Cyc;
+    uint32_t Plot_Max;
+    uint32_t Sem_Count;
+    uint32_t Sem_Max;
+
+} Motor_Time_T;
+
 extern TX_SEMAPHORE Motor_Sem;
 extern TX_QUEUE Motor_Cmd_Q;
 extern volatile ULONG Motor_Ready;
+extern volatile Motor_Time_T Motor_Time;
 
 Motor_Parameter_Request_Status_e Motor_Parameter_Write_Request(
     uint16_t Id,
