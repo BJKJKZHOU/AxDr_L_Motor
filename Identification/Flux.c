@@ -173,10 +173,15 @@ typedef struct
     float Ialpha;
     float Ibeta;
     float Theta_Open;
+    float We_Open;
+    float Theta_Obs;
+    float We_Obs;
+    float PLL_Err;
     float Id_Open;
     float Iq_Open;
     float Ud_Open;
     float Uq_Open;
+    bool PLL_Active;
 
 } Flux_Slow_Snapshot_T;
 
@@ -209,8 +214,9 @@ static bool Current_Control_Active = false;
 static bool Work_Point_Reached = false;
 static bool Motion_Lost_Armed = false;
 
-/* Fast ISR publishes open-loop source data for the 2 kHz supervisory path.
- * Sequence is odd while the ISR writes and even while the snapshot is stable. */
+/* Fast ISR publishes open-loop source and observer data for the 2 kHz
+ * supervisory path. Sequence is odd while the ISR writes and even while the
+ * complete source/observer sample is stable. */
 static volatile uint32_t Slow_Snapshot_Seq = 0U;
 static Flux_Slow_Snapshot_T Slow_Snapshot = { 0 };
 
@@ -309,11 +315,19 @@ static bool Obs_Speed_Stable(float We_Ref)
                                  Flux_Config.Handover.Pll_Rms_Max);
 }
 
-static bool Obs_Open_Stable(void)
+static bool Obs_Open_Stable(const Flux_Slow_Snapshot_T *Snapshot)
 {
-    return Obs_State_Stable() && (Flux_IF.State.We * We_Obs_F > 0.0f) &&
+    if ((Snapshot == NULL) || !Snapshot->PLL_Active ||
+        !__builtin_isfinite(Snapshot->We_Open) ||
+        !__builtin_isfinite(Snapshot->We_Obs) ||
+        !__builtin_isfinite(Snapshot->PLL_Err))
+    {
+        return false;
+    }
+
+    return (Snapshot->We_Open * Snapshot->We_Obs > 0.0f) &&
            Handover_Source_Stable(&Handover,
-                                  Flux_IF.State.We,
+                                  Snapshot->We_Open,
                                   Start_Para.We_Base,
                                   Flux_Config.Handover.We_Mean_Ratio,
                                   Flux_Config.Handover.We_Rms_Ratio,
@@ -531,10 +545,15 @@ static void Slow_Snapshot_Publish(const Flux_Fast_Context_T *Context)
     Slow_Snapshot.Ialpha = Context->Ialpha;
     Slow_Snapshot.Ibeta = Context->Ibeta;
     Slow_Snapshot.Theta_Open = Context->Theta_Open;
+    Slow_Snapshot.We_Open = Flux_IF.State.We;
+    Slow_Snapshot.Theta_Obs = Context->Theta_Obs;
+    Slow_Snapshot.We_Obs = We_Obs_F;
+    Slow_Snapshot.PLL_Err = Ident_PLL.State.Err;
     Slow_Snapshot.Id_Open = Context->Id_Open;
     Slow_Snapshot.Iq_Open = Context->Iq_Open;
     Slow_Snapshot.Ud_Open = Context->Ud_Open;
     Slow_Snapshot.Uq_Open = Context->Uq_Open;
+    Slow_Snapshot.PLL_Active = PLL_Active;
     __DMB();
     Slow_Snapshot_Seq++;
 }
@@ -900,7 +919,7 @@ static bool Flux_Coarse_Control_Run(const Flux_Slow_Snapshot_T *Snapshot, bool S
         if (Emf_Valid && __builtin_isfinite(Emf_Ratio_F) &&
             (Emf_Ratio_F >= Flux_Config.Observer.Work_Ratio))
         {
-            We_Target = Flux_IF.State.We;
+            We_Target = (Snapshot != NULL) ? Snapshot->We_Open : Flux_IF.State.We;
             IF_Acc_Command = Abs_Value(We_Target) / Flux_Config.Workflow.Open_Accel_S;
             IF_Target_Command = We_Target;
             __DMB();
@@ -909,7 +928,8 @@ static bool Flux_Coarse_Control_Run(const Flux_Slow_Snapshot_T *Snapshot, bool S
         }
         else
         {
-            (void)Flux_IF_Target_Request(Dir, Flux_IF.State.We);
+            (void)Flux_IF_Target_Request(Dir,
+                                         (Snapshot != NULL) ? Snapshot->We_Open : Flux_IF.State.We);
         }
     }
 
@@ -929,8 +949,8 @@ static bool Flux_Coarse_Control_Run(const Flux_Slow_Snapshot_T *Snapshot, bool S
         Ident_PLL.Para.Kp = Flux_Config.Observer.Pll_Kp;
         Ident_PLL.Para.Ki = Flux_Config.Observer.Pll_Ki;
         Flux_Observer_Reset(&Ident_Observer, Theta_Rough, Snapshot->Ialpha, Snapshot->Ibeta);
-        PLL_Reset(&Ident_PLL, Theta_Rough, Flux_IF.State.We);
-        We_Obs_F = Flux_IF.State.We;
+        PLL_Reset(&Ident_PLL, Theta_Rough, Snapshot->We_Open);
+        We_Obs_F = Snapshot->We_Open;
         Handover_Ready_Cnt = 0U;
         Handover_Compare_Reset(&Handover);
         __DMB();
@@ -956,14 +976,14 @@ static void Flux_Open_Supervision_Run(Flux_State_e State_Local,
         return;
     }
 
-    if (PLL_Active && (Snapshot != NULL))
+    if ((Snapshot != NULL) && Snapshot->PLL_Active)
     {
         Handover_Source_Compare(&Handover,
                                 Snapshot->Theta_Open,
-                                Flux_IF.State.We,
-                                Ident_PLL.State.Theta,
-                                We_Obs_F,
-                                Ident_PLL.State.Err,
+                                Snapshot->We_Open,
+                                Snapshot->Theta_Obs,
+                                Snapshot->We_Obs,
+                                Snapshot->PLL_Err,
                                 Flux_Config.Handover.Compare_Alpha);
     }
 
@@ -978,7 +998,7 @@ static void Flux_Open_Supervision_Run(Flux_State_e State_Local,
 
     Handover_Qualification_Accumulate(&Handover_Ready_Cnt,
                                       Flux_Config.Handover.Ready_Cnt,
-                                      PLL_Active && Obs_Open_Stable());
+                                      Obs_Open_Stable(Snapshot));
     if ((State == State_Local) &&
         (Handover_Ready_Cnt >= Flux_Config.Handover.Ready_Cnt))
     {
