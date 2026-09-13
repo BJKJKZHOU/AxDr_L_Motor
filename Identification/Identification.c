@@ -11,6 +11,7 @@
 #include "Motor_Para.h"
 #include "Rs_Ls.h"
 #include "control_params.h"
+#include "main.h"
 
 #define IDENT_U_MAX_RATIO  0.80f
 #define IDENT_I_TRIP_COUNT 5U
@@ -24,6 +25,7 @@ static volatile Ident_State_e Ident_State = IDENT_IDLE;
 static volatile Ident_Fail_Reason_e Ident_Fail_Reason = IDENT_FAIL_NONE;
 static Ident_Envelope_T Ident_Envelope = { 0 };
 static uint8_t Current_Over_Cnt = 0U;
+static uint32_t Finish_Cyc = 0U;
 
 static float Abs_Value(float Value)
 {
@@ -83,7 +85,7 @@ bool Identification_Start(Ident_Mode_e Mode, float Wm_Target)
     Ident_Fail_Reason = IDENT_FAIL_NONE;
     Current_Over_Cnt = 0U;
 
-    if (Ident_State == IDENT_RUNNING)
+    if (Identification_Active())
     {
         return false;
     }
@@ -144,6 +146,15 @@ void Identification_Control(void)
     const Rs_Ls_Result_T *Rs_Ls_Result;
     const Flux_Result_T *Flux_Result;
 
+    if (Ident_State == IDENT_FINISH)
+    {
+        if ((uint32_t)(DWT->CYCCNT - Finish_Cyc) >= SystemCoreClock / 2U)
+        {
+            Ident_State = IDENT_DONE;
+        }
+        return;
+    }
+
     if (Ident_State != IDENT_RUNNING)
     {
         return;
@@ -157,7 +168,7 @@ void Identification_Control(void)
         }
 
         Rs_Ls_Result = Rs_Ls_Result_Get();
-        Ident_State = Rs_Ls_Result->Valid ? IDENT_DONE : IDENT_FAILED;
+        Ident_State = Rs_Ls_Result->Valid ? IDENT_FINISH : IDENT_FAILED;
     }
     else if (Ident_Mode == IDENT_FLUX)
     {
@@ -171,7 +182,7 @@ void Identification_Control(void)
         Flux_Result = Flux_Result_Get();
         if (Flux_Result->Valid)
         {
-            Ident_State = IDENT_DONE;
+            Ident_State = IDENT_FINISH;
         }
         else
         {
@@ -181,6 +192,13 @@ void Identification_Control(void)
             }
             Ident_State = IDENT_FAILED;
         }
+    }
+
+    if (Ident_State == IDENT_FINISH)
+    {
+        /* The algorithm's final FAST_OFF has already disabled PWM in the ADC
+         * ISR. Keep identification active for 500 ms before reporting done. */
+        Finish_Cyc = DWT->CYCCNT;
     }
 }
 
@@ -227,7 +245,7 @@ bool Identification_Apply(void)
 
 bool Identification_Active(void)
 {
-    return Ident_State == IDENT_RUNNING;
+    return (Ident_State == IDENT_RUNNING) || (Ident_State == IDENT_FINISH);
 }
 
 bool Identification_Result_Valid(void)

@@ -27,6 +27,7 @@ typedef enum
     IDENT_RUNNING,
     IDENT_DONE,
     IDENT_FAILED,
+    IDENT_FINISH,
 
 } Ident_State_e;
 

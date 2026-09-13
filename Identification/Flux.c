@@ -76,6 +76,7 @@ typedef struct
         float Compare_Alpha;
         float We_Mean_Ratio;
         float We_Rms_Ratio;
+        float Open_We_Rms_Ratio;
         float Pll_Rms_Max;
         float Theta_Rms_Max;
     } Handover;
@@ -122,8 +123,10 @@ static const Flux_Config_T Flux_Config = {
         .Compare_Alpha = SPD_TS / (0.050f + SPD_TS),
         .We_Mean_Ratio = 0.010f,
         .We_Rms_Ratio = 0.015f,
+        /* Allow I/F ripple at takeover; keep closed-loop qualification tighter. */
+        .Open_We_Rms_Ratio = 0.025f,
         .Pll_Rms_Max = 0.08f,
-        .Theta_Rms_Max = 0.08f,
+        .Theta_Rms_Max = 0.20f,
     },
 };
 
@@ -177,10 +180,10 @@ typedef struct
     float Theta_Obs;
     float We_Obs;
     float PLL_Err;
-    float Id_Open;
-    float Iq_Open;
-    float Ud_Open;
-    float Uq_Open;
+    float Id;
+    float Iq;
+    float Ud;
+    float Uq;
     bool PLL_Active;
 
 } Flux_Slow_Snapshot_T;
@@ -330,7 +333,7 @@ static bool Obs_Open_Stable(const Flux_Slow_Snapshot_T *Snapshot)
                                   Snapshot->We_Open,
                                   Start_Para.We_Base,
                                   Flux_Config.Handover.We_Mean_Ratio,
-                                  Flux_Config.Handover.We_Rms_Ratio,
+                                  Flux_Config.Handover.Open_We_Rms_Ratio,
                                   Flux_Config.Handover.Pll_Rms_Max,
                                   Flux_Config.Handover.Theta_Rms_Max);
 }
@@ -371,17 +374,17 @@ static bool Motion_Lost_Run(bool Motion_Valid)
     return Motion_Lost_Cnt >= Flux_Config.Observer.Motion_Lost_Cnt;
 }
 
-static bool Coarse_Run(void)
+static bool Coarse_Run(const Flux_Slow_Snapshot_T *Snapshot)
 {
     if (!Flux_Estimator_Run(&Flux_Estimator,
                             FLUX_EST_VECTOR,
                             FLUX_EST_UPDATE,
                             false,
-                            Motor_Run.Ud,
-                            Motor_Run.Uq,
-                            Motor_Run.Id,
-                            Motor_Run.Iq,
-                            Flux_IF.State.We,
+                            Snapshot->Ud,
+                            Snapshot->Uq,
+                            Snapshot->Id,
+                            Snapshot->Iq,
+                            Snapshot->We_Open,
                             SPD_TS))
     {
         return false;
@@ -498,21 +501,21 @@ static void Fine_Begin(void)
     Flux_Estimator.Para.Window_Samples = Flux_Config.Fine.Measure_Cnt;
 }
 
-static bool Fine_Run(bool Adapt, bool Measure)
+static bool Fine_Run(const Flux_Slow_Snapshot_T *Snapshot, bool Adapt, bool Measure)
 {
     Flux_Estimator_Action_e Action;
     float We;
 
-    We = We_Obs_F;
+    We = Snapshot->We_Obs;
     Action = Adapt ? FLUX_EST_UPDATE : FLUX_EST_HOLD;
     if (!Flux_Estimator_Run(&Flux_Estimator,
                             FLUX_EST_SCALAR,
                             Action,
                             Measure,
-                            Motor_Run.Ud,
-                            Motor_Run.Uq,
-                            Motor_Run.Id,
-                            Motor_Run.Iq,
+                            Snapshot->Ud,
+                            Snapshot->Uq,
+                            Snapshot->Id,
+                            Snapshot->Iq,
                             We,
                             SPD_TS))
     {
@@ -549,39 +552,43 @@ static void Slow_Snapshot_Publish(const Flux_Fast_Context_T *Context)
     Slow_Snapshot.Theta_Obs = Context->Theta_Obs;
     Slow_Snapshot.We_Obs = We_Obs_F;
     Slow_Snapshot.PLL_Err = Ident_PLL.State.Err;
-    Slow_Snapshot.Id_Open = Context->Id_Open;
-    Slow_Snapshot.Iq_Open = Context->Iq_Open;
-    Slow_Snapshot.Ud_Open = Context->Ud_Open;
-    Slow_Snapshot.Uq_Open = Context->Uq_Open;
     Slow_Snapshot.PLL_Active = PLL_Active;
     __DMB();
     Slow_Snapshot_Seq++;
 }
 
-static bool Slow_Snapshot_Read(Flux_Slow_Snapshot_T *Snapshot)
+static bool Slow_Snapshot_Read(Flux_Slow_Snapshot_T *Snapshot, Flux_State_e *State_Out)
 {
-    uint32_t Seq_Begin;
-    uint32_t Seq_End;
+    uint32_t Primask;
+    bool Valid;
 
-    if (Snapshot == NULL)
+    if ((Snapshot == NULL) || (State_Out == NULL))
     {
         return false;
     }
 
-    do
-    {
-        Seq_Begin = Slow_Snapshot_Seq;
-        if ((Seq_Begin & 1U) != 0U)
-        {
-            continue;
-        }
-        __DMB();
-        *Snapshot = Slow_Snapshot;
-        __DMB();
-        Seq_End = Slow_Snapshot_Seq;
-    } while ((Seq_Begin != Seq_End) || ((Seq_End & 1U) != 0U));
+    /* The Motor Thread can only run after the ADC ISR completes Current_Loop.
+     * Copy its dq sample and speed with interrupts masked; no model calculation
+     * runs in this section. This also pairs the sample with its Flux stage. */
+    Primask = __get_PRIMASK();
+    __disable_irq();
+    __DMB();
+    *State_Out = State;
+    Valid = Slow_Snapshot_Seq != 0U;
+    *Snapshot = Slow_Snapshot;
+    Snapshot->Id = Motor_Run.Id;
+    Snapshot->Iq = Motor_Run.Iq;
+    Snapshot->Ud = Motor_Run.Ud;
+    Snapshot->Uq = Motor_Run.Uq;
+    Snapshot->We_Open = Flux_IF.State.We;
+    Snapshot->Theta_Obs = Ident_PLL.State.Theta;
+    Snapshot->We_Obs = We_Obs_F;
+    Snapshot->PLL_Err = Ident_PLL.State.Err;
+    Snapshot->PLL_Active = PLL_Active;
+    __DMB();
+    __set_PRIMASK(Primask);
 
-    return Seq_End != 0U;
+    return Valid;
 }
 
 static void Flux_Context_Base_Init(Flux_Fast_Context_T *Context, float Ia_A, float Ib_A)
@@ -663,7 +670,6 @@ static Motor_Fast_Mode_e Flux_Align_Run(int8_t Dir, float *Id_Ref, float *Iq_Ref
     {
         Current_Loop_State_Reset();
         IF_Init(&Flux_IF, -0.5f * PI_F * (float)Dir, 0.0f);
-        Flux_IF.State.Iq = (float)Dir * Start_Para.Iq_Start_A;
         IF_Target_Set(&Flux_IF, We_Target);
         if (Flux_IF.State.Mode == IF_FAILED)
         {
@@ -752,6 +758,14 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
 
     Flux_IF_Target_Apply();
 
+    if (State == FLUX_IF)
+    {
+        /* 6d26e0a preset: reach half base speed in 1 s, then base speed in
+         * another 5 s. Only the initial ramp uses this fixed profile. */
+        Flux_IF.Para.Acc = Abs_Value(We_Target) / Flux_Config.Workflow.Open_Accel_S *
+                           ((Abs_Value(Flux_IF.State.We) < 0.50f * Start_Para.We_Base) ? 3.0f : 0.60f);
+    }
+
     T0 = DWT->CYCCNT;
     IF_Run(&Flux_IF,
            Context->Id_Open,
@@ -779,6 +793,7 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
 
     if ((State == FLUX_IF) && (Flux_IF.State.Mode == IF_HOLD))
     {
+        Flux_IF.Para.Acc = Abs_Value(We_Target) / Flux_Config.Workflow.Open_Accel_S;
         Motion_Lost_Armed = false;
         Motion_Lost_Cnt = 0U;
         State = FLUX_OBS_WAIT;
@@ -832,7 +847,6 @@ static Motor_Fast_Mode_e Flux_Handover_Blend_Run(Flux_Fast_Context_T *Context,
         Obs_Iq_Ref = *Iq_Ref;
         I_Max = 0.35f * Start_Para.Iq_Max_A;
         Speed_Loop_Track(We_Target, Ident_PLL.State.We, Obs_Iq_Ref, -I_Max, I_Max);
-        Fine_Begin();
         Obs_Control = true;
         State = FLUX_HANDOVER_CURRENT;
     }
@@ -899,7 +913,7 @@ static bool Flux_Coarse_Control_Run(const Flux_Slow_Snapshot_T *Snapshot, bool S
         return false;
     }
 
-    Coarse_Valid = Coarse_Run();
+    Coarse_Valid = Coarse_Run(Snapshot);
     if (!__builtin_isfinite(Flux_Estimator.State.Psi_d) ||
         !__builtin_isfinite(Flux_Estimator.State.Psi_q))
     {
@@ -996,9 +1010,16 @@ static void Flux_Open_Supervision_Run(Flux_State_e State_Local,
     }
 }
 
-static void Flux_Handover_Current_Control_Run(Flux_State_e State_Local)
+static void Flux_Handover_Current_Control_Run(Flux_State_e State_Local, const Flux_Slow_Snapshot_T *Snapshot)
 {
     bool Adapt_Valid;
+
+    /* Blend may finish while slow coarse fitting is still running. Keep the
+     * estimator transition in this context, after the last coarse update. */
+    if (Flux_Estimator.Para.Window_Samples == 0U)
+    {
+        Fine_Begin();
+    }
 
     Flux_Speed_Control_Run();
     Handover_Speed_Compare(&Handover,
@@ -1008,7 +1029,7 @@ static void Flux_Handover_Current_Control_Run(Flux_State_e State_Local)
                            Flux_Config.Handover.Compare_Alpha);
 
     Adapt_Valid = Obs_Run_Valid();
-    (void)Fine_Run(Adapt_Valid, false);
+    (void)Fine_Run(Snapshot, Adapt_Valid, false);
     if (!Flux_Observer_Motion_Check())
     {
         return;
@@ -1023,7 +1044,7 @@ static void Flux_Handover_Current_Control_Run(Flux_State_e State_Local)
     }
 }
 
-static void Flux_Obs_Accel_Control_Run(Flux_State_e State_Local)
+static void Flux_Obs_Accel_Control_Run(Flux_State_e State_Local, const Flux_Slow_Snapshot_T *Snapshot)
 {
     bool Adapt_Valid;
     bool Fine_Valid;
@@ -1037,7 +1058,7 @@ static void Flux_Obs_Accel_Control_Run(Flux_State_e State_Local)
                            Flux_Config.Handover.Compare_Alpha);
 
     Adapt_Valid = Obs_Run_Valid();
-    Fine_Valid = Fine_Run(Adapt_Valid, false);
+    Fine_Valid = Fine_Run(Snapshot, Adapt_Valid, false);
     if (!Flux_Observer_Motion_Check())
     {
         return;
@@ -1061,7 +1082,7 @@ static void Flux_Obs_Accel_Control_Run(Flux_State_e State_Local)
     }
 }
 
-static void Flux_Refine_Settle_Control_Run(Flux_State_e State_Local)
+static void Flux_Refine_Settle_Control_Run(Flux_State_e State_Local, const Flux_Slow_Snapshot_T *Snapshot)
 {
     bool Adapt_Valid;
     bool Fine_Valid;
@@ -1074,7 +1095,7 @@ static void Flux_Refine_Settle_Control_Run(Flux_State_e State_Local)
                            Flux_Config.Handover.Compare_Alpha);
 
     Adapt_Valid = Obs_Run_Valid();
-    Fine_Valid = Fine_Run(Adapt_Valid, false);
+    Fine_Valid = Fine_Run(Snapshot, Adapt_Valid, false);
     if (!Flux_Observer_Motion_Check())
     {
         return;
@@ -1089,7 +1110,7 @@ static void Flux_Refine_Settle_Control_Run(Flux_State_e State_Local)
     }
 }
 
-static void Flux_Refine_Measure_Control_Run(Flux_State_e State_Local)
+static void Flux_Refine_Measure_Control_Run(Flux_State_e State_Local, const Flux_Slow_Snapshot_T *Snapshot)
 {
     const Ident_Envelope_T *Envelope;
     float Flux_Fine;
@@ -1107,11 +1128,11 @@ static void Flux_Refine_Measure_Control_Run(Flux_State_e State_Local)
                            Flux_Config.Handover.Compare_Alpha);
 
     Adapt_Valid = Obs_Run_Valid();
-    U_Mag2 = Motor_Run.Ud * Motor_Run.Ud + Motor_Run.Uq * Motor_Run.Uq;
+    U_Mag2 = Snapshot->Ud * Snapshot->Ud + Snapshot->Uq * Snapshot->Uq;
     Fine_Sample_Valid = Adapt_Valid &&
                         Obs_Control_Stable() &&
                         (U_Mag2 <= Envelope->U_Max * Envelope->U_Max);
-    Fine_Valid = Fine_Run(Adapt_Valid, Fine_Sample_Valid);
+    Fine_Valid = Fine_Run(Snapshot, Adapt_Valid, Fine_Sample_Valid);
     if (!Flux_Observer_Motion_Check())
     {
         return;
@@ -1199,6 +1220,7 @@ bool Flux_Start(float Wm_Target)
         return false;
     }
 
+    Start_Para.Iq_Start_A = 0.15f * Envelope->I_Max;
     Sign = (Wm_Target < 0.0f) ? -1.0f : 1.0f;
     We_Target = Sign * ((Start_Para.We_Base < We_Max) ? Start_Para.We_Base : We_Max);
 
@@ -1235,39 +1257,44 @@ void Flux_Control(void)
 {
     Flux_State_e State_Local;
     Flux_Slow_Snapshot_T Snapshot;
-    Flux_Slow_Snapshot_T *Snapshot_Ptr;
 
-    State_Local = State;
+    if (!Slow_Snapshot_Read(&Snapshot, &State_Local))
+    {
+        return;
+    }
+
     if ((State_Local == FLUX_IDLE) || (State_Local == FLUX_ALIGN) ||
-        (State_Local == FLUX_HANDOVER_BLEND) || (State_Local == FLUX_FINISH) ||
+        (State_Local == FLUX_FINISH) ||
         (State_Local == FLUX_DONE) || (State_Local == FLUX_FAILED))
     {
         return;
     }
 
-    Snapshot_Ptr = Slow_Snapshot_Read(&Snapshot) ? &Snapshot : NULL;
-
     switch (State_Local)
     {
         case FLUX_IF:
         case FLUX_OBS_WAIT:
-            Flux_Open_Supervision_Run(State_Local, Snapshot_Ptr);
+            Flux_Open_Supervision_Run(State_Local, &Snapshot);
+            break;
+
+        case FLUX_HANDOVER_BLEND:
+            (void)Flux_Coarse_Control_Run(&Snapshot, false);
             break;
 
         case FLUX_HANDOVER_CURRENT:
-            Flux_Handover_Current_Control_Run(State_Local);
+            Flux_Handover_Current_Control_Run(State_Local, &Snapshot);
             break;
 
         case FLUX_OBS_ACCEL:
-            Flux_Obs_Accel_Control_Run(State_Local);
+            Flux_Obs_Accel_Control_Run(State_Local, &Snapshot);
             break;
 
         case FLUX_REFINE_SETTLE:
-            Flux_Refine_Settle_Control_Run(State_Local);
+            Flux_Refine_Settle_Control_Run(State_Local, &Snapshot);
             break;
 
         case FLUX_REFINE_MEASURE:
-            Flux_Refine_Measure_Control_Run(State_Local);
+            Flux_Refine_Measure_Control_Run(State_Local, &Snapshot);
             break;
 
         default:
