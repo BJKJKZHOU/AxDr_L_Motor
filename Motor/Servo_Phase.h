@@ -28,7 +28,6 @@ typedef enum
     SERVO_PHASE_FAIL_ENCODER,
     SERVO_PHASE_FAIL_NO_POS_MOVE,
     SERVO_PHASE_FAIL_NO_NEG_MOVE,
-    SERVO_PHASE_FAIL_OFFSET_MISMATCH,
     SERVO_PHASE_FAIL_VERIFY_DIR,
     SERVO_PHASE_FAIL_ABORTED,
 
@@ -36,11 +35,6 @@ typedef enum
 
 typedef struct
 {
-    /*
-     * Maximum dq current magnitude allowed throughout one servo phase search.
-     * Unit/basis is identical to Motor_Run.Id/Iq. The runtime value is further
-     * limited by the phase-search firmware ceiling and Motor/User current limits.
-     */
     float I_Search_A;
 
 } Servo_Phase_Config_T;
@@ -51,10 +45,6 @@ typedef struct
     Servo_Phase_Fail_e Fail;
 
     int8_t Enc_Dir;
-
-    float Theta_Off_Pos;
-    float Theta_Off_Neg;
-    float Theta_Off_Error;
     float Theta_Off;
 
     float Pos_Move;
@@ -79,9 +69,21 @@ static inline bool Servo_Phase_Result_Valid(void)
     return Servo_Phase_Last_Result_Get()->State == SERVO_PHASE_RESULT_PASS;
 }
 
+/* Legacy host diagnostic retained until the generated parameter dictionary is
+ * regenerated; dynamic scan offset mismatch is no longer part of calibration. */
 static inline float Servo_Phase_Theta_Off_Error_Get(void)
 {
-    return Servo_Phase_Last_Result_Get()->Theta_Off_Error;
+    return 0.0f;
+}
+
+static inline float Servo_Phase_Pos_Move_Get(void)
+{
+    return Servo_Phase_Last_Result_Get()->Pos_Move;
+}
+
+static inline float Servo_Phase_Neg_Move_Get(void)
+{
+    return Servo_Phase_Last_Result_Get()->Neg_Move;
 }
 
 static inline float Servo_Phase_Verify_Move_Get(void)
