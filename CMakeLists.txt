@@ -55,8 +55,10 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Identification/Identification.c
     Identification/Rs_Ls.c
     Identification/Flux.c
+    Observer/Flux_Estimator.c
     Observer/Flux_Observer.c
     Observer/PLL.c
+    Sensorless/Handover.c
     Sensorless/IF_Start.c
     Sensorless/Sensorless.c
     Motion/Motion.c
@@ -73,6 +75,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Motor/Current_Loop.c
     Motor/Motion_Loop.c
     Motor/Align.c
+    Motor/VF.c
     Motor/Open_Loop.c
     Motor/Servo_Phase.c
     Motor/Motor_PWM.c
