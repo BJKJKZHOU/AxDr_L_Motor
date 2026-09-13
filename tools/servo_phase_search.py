@@ -1,38 +1,30 @@
 #!/usr/bin/env python3
 """Run servo phase search for an encoder motor over USB CDC.
 
-For an unknown motor, first run new_motor_commission.py --identify-only and
-accept both Rs/Ls and Flux results so they are applied to firmware RAM. Do not
-reset the MCU between the two scripts because the applied parameters are still
-RAM-only.
+The current firmware exposes servo phase search through the Parameter/Action
+interface. Configure encoder/pole-pairs/search current while DISABLED, then use
+MOTOR_ENABLE + MOTOR_RUN in PHASE_SEARCH mode. MOTOR_RUN completes
+asynchronously when the phase search finishes.
 
-The script configures/validates encoder type and pole pairs, optionally overrides
-the phase-search current, waits for a healthy encoder, runs PHASE_SEARCH, and
-prints the complete result including Enc_Dir and Theta_Off.
+Servo phase search establishes a self-consistent encoder/FOC coordinate:
+encoder native direction -> Enc_Dir, aligned encoder zero -> Theta_Off, and
++Iq -> internal positive mechanical motion.
 
-Example prerequisite:
-    python3 tools/new_motor_commission.py \
-        --port /dev/ttyACM0 \
-        --current-limit 2.0 \
-        --pole-pairs 11 \
-        --identify-only \
-        --run
-
-Then, without resetting the MCU:
+Example:
     python3 tools/servo_phase_search.py \
         --port /dev/ttyACM0 \
         --encoder mt6835 \
         --pole-pairs 11 \
         --phase-current 0.5 \
+        --current-limit 2.0 \
         --run
 """
 
 import argparse
-import struct
 import sys
 import time
 
-import sensorless_test as base
+import identification_test as base
 
 try:
     import serial
@@ -42,111 +34,102 @@ except ImportError:
 
 
 MODE_PHASE_SEARCH = 6
-
-CTRL_PHASE_STATUS = 0x10
+MOTOR_DISABLED = 0
+PARAM_I8 = 1
+base.PARAM_FORMAT[PARAM_I8] = "<b"
 
 ENCODER_TYPES = {
     "mt6816": 1,
     "mt6835": 2,
 }
 
-RESULT_NAME = {
-    0: "NONE",
-    1: "RUNNING",
-    2: "PASS",
-    3: "FAIL",
-}
 
-FAIL_NAME = {
-    0: "NONE",
-    1: "ENCODER",
-    2: "NO_POS_MOVE",
-    3: "NO_NEG_MOVE",
-    4: "OFFSET_MISMATCH",
-    5: "VERIFY_DIR",
-    6: "ABORTED",
-}
-
-
-class PhaseSearch(base.SensorlessTest):
+class PhaseSearch(base.IdentificationClient):
     def prepare(self):
-        for op in (base.CTRL_STOP, base.CTRL_DISABLE):
-            try:
-                self.request(base.MSG_CONTROL, op)
-            except (TimeoutError, RuntimeError):
-                pass
+        try:
+            self.parameter_action(base.ACTION_MOTOR_DISABLE)
+        except (serial.SerialException, TimeoutError, RuntimeError):
+            pass
 
-    def read_encoder_type(self):
-        return self.parameter_read(
-            base.PARAM_ENCODER_TYPE, base.PARAM_U8
-        )
+        state = self.parameter_read(base.PARAM_MOTOR_STATE, base.PARAM_U8)
+        if state != MOTOR_DISABLED:
+            raise RuntimeError(
+                f"motor did not enter DISABLED state: state={state}"
+            )
 
-    def set_encoder_type(self, encoder_type):
-        self.parameter_write(
-            base.PARAM_ENCODER_TYPE, base.PARAM_U8, encoder_type
-        )
+        error = self.parameter_read(base.PARAM_EVENT_ERROR, base.PARAM_U32)
+        trip = self.parameter_read(base.PARAM_EVENT_TRIP, base.PARAM_U32)
+        if error != 0 or trip != 0:
+            print(
+                "Clearing latched protection before phase search: "
+                f"error=0x{error:08X} ({base.protection_text(error)}), "
+                f"trip=0x{trip:08X} ({base.protection_text(trip)})"
+            )
+            self.parameter_action(base.ACTION_PROTECTION_CLEAR)
+            error = self.parameter_read(base.PARAM_EVENT_ERROR, base.PARAM_U32)
+            trip = self.parameter_read(base.PARAM_EVENT_TRIP, base.PARAM_U32)
+            if error != 0 or trip != 0:
+                raise RuntimeError(
+                    "protection remains active after clear: "
+                    f"error=0x{error:08X} ({base.protection_text(error)}), "
+                    f"trip=0x{trip:08X} ({base.protection_text(trip)})"
+                )
 
-    def read_pole_pairs(self):
-        return self.parameter_read(base.PARAM_MOTOR_PP, base.PARAM_U8)
+    def configure(self):
+        encoder_type = ENCODER_TYPES[self.args.encoder]
+        self.parameter_write(base.PARAM_ENCODER_TYPE, base.PARAM_U8, encoder_type)
+        self.parameter_write(base.PARAM_MOTOR_PP, base.PARAM_U8, self.args.pole_pairs)
+        self.parameter_write(base.PARAM_MOTOR_MODE, base.PARAM_U8, MODE_PHASE_SEARCH)
 
-    def set_pole_pairs(self, pole_pairs):
-        self.parameter_write(
-            base.PARAM_MOTOR_PP, base.PARAM_U8, pole_pairs
-        )
+        if self.args.current_limit is not None:
+            self.parameter_write(
+                base.PARAM_LIMIT_I_MAX,
+                base.PARAM_FLOAT,
+                self.args.current_limit,
+            )
 
-    def read_phase_current(self):
-        return self.parameter_read(
-            base.PARAM_PHASE_I_SEARCH, base.PARAM_FLOAT
-        )
+        if self.args.phase_current is not None:
+            self.parameter_write(
+                base.PARAM_PHASE_I_SEARCH,
+                base.PARAM_FLOAT,
+                self.args.phase_current,
+            )
 
-    def set_phase_current(self, current):
-        self.parameter_write(
-            base.PARAM_PHASE_I_SEARCH, base.PARAM_FLOAT, current
-        )
-        return self.read_phase_current()
+        encoder_readback = self.parameter_read(base.PARAM_ENCODER_TYPE, base.PARAM_U8)
+        pp_readback = self.parameter_read(base.PARAM_MOTOR_PP, base.PARAM_U8)
+        phase_current = self.parameter_read(base.PARAM_PHASE_I_SEARCH, base.PARAM_FLOAT)
 
-    def set_current_limit(self, current):
-        self.parameter_write(
-            base.PARAM_LIMIT_I_MAX, base.PARAM_FLOAT, current
-        )
+        if encoder_readback != encoder_type:
+            raise RuntimeError(
+                f"encoder type readback {encoder_readback} != {encoder_type}"
+            )
+        if pp_readback != self.args.pole_pairs:
+            raise RuntimeError(
+                f"pole-pairs readback {pp_readback} != {self.args.pole_pairs}"
+            )
 
-    def phase_status(self):
-        data = self.request(base.MSG_CONTROL, CTRL_PHASE_STATUS)
-        if len(data) != 40:
-            raise RuntimeError(f"invalid phase status length: {len(data)}")
+        print(f"Encoder={self.args.encoder} ({encoder_readback})")
+        print(f"Pole pairs={pp_readback}")
+        if self.args.current_limit is not None:
+            print(f"User current limit={self.args.current_limit:.3f} A")
+        print(f"Configured phase-search current={phase_current:.3f} A")
 
-        state, fail, cal_valid, enc_dir = struct.unpack_from("<BBBb", data, 0)
-        encoder_ready, encoder_fault, encoder_valid, encoder_type = data[4:8]
-        values = struct.unpack_from("<8f", data, 8)
+    def encoder_status(self):
         return {
-            "state": state,
-            "fail": fail,
-            "cal_valid": bool(cal_valid),
-            "enc_dir": enc_dir,
-            "encoder_ready": bool(encoder_ready),
-            "encoder_fault": bool(encoder_fault),
-            "encoder_valid": bool(encoder_valid),
-            "encoder_type": encoder_type,
-            "theta_off_pos": values[0],
-            "theta_off_neg": values[1],
-            "theta_off_error": values[2],
-            "theta_off": values[3],
-            "pos_move": values[4],
-            "neg_move": values[5],
-            "verify_move": values[6],
-            "i_search": values[7],
+            "ready": bool(self.parameter_read(base.PARAM_ENCODER_READY, base.PARAM_U8)),
+            "valid": bool(self.parameter_read(base.PARAM_ENCODER_VALID, base.PARAM_U8)),
+            "fault": bool(self.parameter_read(base.PARAM_ENCODER_FAULT, base.PARAM_U8)),
         }
 
     def wait_encoder_ready(self):
         deadline = time.monotonic() + self.args.encoder_timeout
         last = None
         while time.monotonic() < deadline:
-            status = self.phase_status()
-            last = status
-            if status["encoder_fault"]:
+            last = self.encoder_status()
+            if last["fault"]:
                 raise RuntimeError("encoder reported fault before phase search")
-            if status["encoder_ready"] and status["encoder_valid"]:
-                return status
+            if last["ready"] and last["valid"]:
+                return last
             time.sleep(self.args.poll_interval)
 
         raise TimeoutError(
@@ -154,71 +137,70 @@ class PhaseSearch(base.SensorlessTest):
             f"last status={last}"
         )
 
-    def run_phase_search(self):
-        self.request(base.MSG_CONTROL, base.CTRL_MODE_SET, bytes([MODE_PHASE_SEARCH]))
-        self.request(base.MSG_CONTROL, base.CTRL_ENABLE)
-        self.request(base.MSG_CONTROL, base.CTRL_RUN)
+    def read_result(self):
+        return {
+            "cal_valid": bool(self.parameter_read(base.PARAM_CAL_VALID, base.PARAM_U8)),
+            "enc_dir": self.parameter_read(base.PARAM_CAL_ENC_DIR, PARAM_I8),
+            "theta_off": self.parameter_read(base.PARAM_CAL_THETA_OFF, base.PARAM_FLOAT),
+            "verify_move": self.parameter_read(
+                base.PARAM_PHASE_VERIFY_MOVE, base.PARAM_FLOAT
+            ),
+            "i_search": self.parameter_read(
+                base.PARAM_PHASE_I_SEARCH, base.PARAM_FLOAT
+            ),
+        }
 
+    def run_phase_search(self):
+        self.parameter_action(base.ACTION_MOTOR_ENABLE)
+        state = self.parameter_read(base.PARAM_MOTOR_STATE, base.PARAM_U8)
+        if state == MOTOR_DISABLED:
+            raise RuntimeError("motor enable did not take effect")
+
+        txn = self.parameter_action(base.ACTION_MOTOR_RUN)
         deadline = time.monotonic() + self.args.phase_timeout
-        previous = None
-        last = None
 
         while time.monotonic() < deadline:
-            status = self.phase_status()
-            last = status
-            state = status["state"]
-            visible_state = (state, status["cal_valid"])
-            if visible_state != previous:
-                print(
-                    "Phase state="
-                    f"{RESULT_NAME.get(state, state)} "
-                    f"encoder_ready={int(status['encoder_ready'])} "
-                    f"cal_valid={int(status['cal_valid'])}"
+            rx = self.ser.read(4096)
+            self.process(self.parser.feed(rx))
+
+            status = self.action_complete_status(txn, base.ACTION_MOTOR_RUN)
+            if status is None:
+                continue
+
+            result = self.read_result()
+            if status != 0:
+                print_result(result)
+                name = base.STATUS_NAME.get(status, str(status))
+                raise RuntimeError(f"servo phase search completion: {name}")
+
+            if not result["cal_valid"]:
+                print_result(result)
+                raise RuntimeError(
+                    "servo phase search completed without a valid calibration"
                 )
-                previous = visible_state
+            return result
 
-            if state == 2 and status["cal_valid"]:
-                return status
-            if state == 3:
-                return status
-
-            time.sleep(self.args.poll_interval)
-
-        raise TimeoutError(f"phase search timeout; last status={last}")
+        raise TimeoutError("servo phase search timeout")
 
     def disable(self):
         try:
-            self.request(base.MSG_CONTROL, base.CTRL_DISABLE)
-        except (TimeoutError, RuntimeError) as exc:
+            self.parameter_action(base.ACTION_MOTOR_DISABLE)
+        except (serial.SerialException, TimeoutError, RuntimeError) as exc:
             print(f"DISABLE warning: {exc}", file=sys.stderr)
 
 
 def print_result(result):
-    state = RESULT_NAME.get(result["state"], str(result["state"]))
-    fail = FAIL_NAME.get(result["fail"], str(result["fail"]))
     print("\nServo phase result")
-    print(f"  state={state} fail={fail}")
-    print(
-        f"  encoder: type={result['encoder_type']} "
-        f"ready={int(result['encoder_ready'])} "
-        f"valid={int(result['encoder_valid'])} "
-        f"fault={int(result['encoder_fault'])}"
-    )
     print(f"  Motor_Cal.Valid={int(result['cal_valid'])}")
     print(f"  Enc_Dir={result['enc_dir']:+d}")
-    print(f"  Theta_Off_Pos={result['theta_off_pos']:+.6f} rad")
-    print(f"  Theta_Off_Neg={result['theta_off_neg']:+.6f} rad")
-    print(f"  Theta_Off_Error={result['theta_off_error']:+.6f} rad")
     print(f"  Theta_Off={result['theta_off']:+.6f} rad")
-    print(f"  Pos_Move={result['pos_move']:+.6f} rad")
-    print(f"  Neg_Move={result['neg_move']:+.6f} rad")
     print(f"  Verify_Move={result['verify_move']:+.6f} rad")
     print(f"  I_Search={result['i_search']:.3f} A")
 
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Run encoder servo phase search after unknown-motor identification"
+        description="Run encoder servo phase search through Parameter/Action"
     )
     parser.add_argument("--port", required=True, help="STM32 USB CDC port")
     parser.add_argument("--encoder", required=True, choices=tuple(ENCODER_TYPES))
@@ -233,17 +215,17 @@ def parse_args():
         "--current-limit",
         type=float,
         default=None,
-        help="optional user current limit to apply before phase search",
+        help="optional user current limit applied before phase search",
     )
     parser.add_argument("--encoder-timeout", type=float, default=2.0)
-    parser.add_argument("--phase-timeout", type=float, default=6.0)
+    parser.add_argument("--phase-timeout", type=float, default=8.0)
     parser.add_argument("--poll-interval", type=float, default=0.05)
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=1.0)
     parser.add_argument(
         "--run",
         action="store_true",
-        help="required confirmation that motor identification has been applied and the motor may be energized",
+        help="required confirmation that the motor may be energized",
     )
     args = parser.parse_args()
 
@@ -259,6 +241,8 @@ def parse_args():
         parser.error("timeouts must be positive")
     if args.poll_interval <= 0.0:
         parser.error("--poll-interval must be positive")
+    if args.timeout <= 0.0:
+        parser.error("--timeout must be positive")
 
     return args
 
@@ -267,10 +251,9 @@ def main():
     args = parse_args()
 
     print(
-        "Prerequisite: run new_motor_commission.py --identify-only and apply "
-        "both Rs/Ls and Flux to firmware RAM."
+        "Servo phase search aligns encoder direction, electrical zero and +Iq "
+        "mechanical direction."
     )
-    print("Do not reset the MCU between identification and servo phase search.")
 
     try:
         with serial.Serial(
@@ -284,41 +267,21 @@ def main():
             time.sleep(0.1)
 
             test = PhaseSearch(ser, args)
-            test.prepare()
-
-            encoder_type = ENCODER_TYPES[args.encoder]
-            test.set_encoder_type(encoder_type)
-            test.set_pole_pairs(args.pole_pairs)
-
-            if args.current_limit is not None:
-                test.set_current_limit(args.current_limit)
-                print(f"User current limit={args.current_limit:.3f} A")
-
-            if args.phase_current is not None:
-                phase_current = test.set_phase_current(args.phase_current)
-            else:
-                phase_current = test.read_phase_current()
-
-            print(f"Encoder={args.encoder} ({encoder_type})")
-            print(f"Pole pairs={test.read_pole_pairs()}")
-            print(f"Configured phase-search current={phase_current:.3f} A")
-
-            ready = test.wait_encoder_ready()
-            print(
-                "Encoder ready: "
-                f"valid={int(ready['encoder_valid'])} "
-                f"fault={int(ready['encoder_fault'])}"
-            )
-
             try:
+                test.prepare()
+                test.configure()
+
+                ready = test.wait_encoder_ready()
+                print(
+                    "Encoder ready: "
+                    f"valid={int(ready['valid'])} "
+                    f"fault={int(ready['fault'])}"
+                )
+
                 result = test.run_phase_search()
+                print_result(result)
             finally:
                 test.disable()
-
-            print_result(result)
-            if result["state"] != 2:
-                fail = FAIL_NAME.get(result["fail"], str(result["fail"]))
-                raise RuntimeError(f"servo phase search failed: {fail}")
 
     except (serial.SerialException, OSError, TimeoutError, RuntimeError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

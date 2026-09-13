@@ -25,32 +25,28 @@ import time
 import sensorless_test as base
 
 
-SENSORLESS_RUN = 3
 IF_WE_RAD_S = 120.0
 FAST_CONFIG_ID = 11
 NORMAL_CONFIG_ID = 12
 FAST_BLOCK_SAMPLES = 20
 MONITOR_HZ = 1000.0
+NORMAL_HZ = 500.0
 INV_SQRT3 = 1.0 / math.sqrt(3.0)
 VOLT_MOD_MAX = 0.95
 
 FAST_VARS = (
-    ("Id", 0x0010, 0.001),
-    ("Iq", 0x0011, 0.001),
-    ("Ud", 0x0012, 0.001),
-    ("Uq", 0x0013, 0.001),
-    ("We_obs", 0x0021, 0.1),
-    ("PLL_Err", 0x0022, 0.0001),
+    ("Id", base.PARAM_RUN_ID, 0.001),
+    ("Iq", base.PARAM_RUN_IQ, 0.001),
+    ("Ud", base.PARAM_RUN_UD, 0.001),
+    ("Uq", base.PARAM_RUN_UQ, 0.001),
+    ("We_obs", base.PARAM_OBS_WE, 0.1),
 )
 FAST_INDEX = {name: index for index, (name, _, _) in enumerate(FAST_VARS)}
-VBUS_ID = 0x0004
-
-STAGE_NAME = {
-    0: "ALIGN",
-    1: "IF",
-    2: "IF_TO_OBS",
-    3: "OBS",
-}
+NORMAL_VARS = (
+    ("Vbus", base.PARAM_ADC_VBUS),
+    ("Theta_e", base.PARAM_RUN_THETA_E),
+    ("Theta_obs", base.PARAM_OBS_THETA),
+)
 
 
 def mean(values):
@@ -59,6 +55,10 @@ def mean(values):
 
 def rms(values):
     return math.sqrt(sum(value * value for value in values) / len(values))
+
+
+def angle_diff(a, b):
+    return (a - b + math.pi) % (2.0 * math.pi) - math.pi
 
 
 class StopRequest:
@@ -88,11 +88,12 @@ class SensorlessRun(base.SensorlessTest):
         self.stop_request = stop
         monitor_count = max(
             2000,
-            int(math.ceil(args.pll_window * MONITOR_HZ)),
+            int(math.ceil(args.observer_window * MONITOR_HZ)),
             int(math.ceil(args.speed_error_time * MONITOR_HZ)),
         )
         self.blocks = deque(maxlen=monitor_count)
         self.vbus = deque(maxlen=2000)
+        self.theta_errors = deque(maxlen=2000)
         self.normal_last = None
         self.normal_lost = 0
         self.fast_saturation = [0] * len(FAST_VARS)
@@ -105,17 +106,22 @@ class SensorlessRun(base.SensorlessTest):
         self.monitor_started = None
         self.command_wm = 0.0
         self.target_we = 0.0
+        self.motor_state = 0
+        self.observer_ready = False
 
     def prepare(self):
-        for msg_type, op, data in (
-            (base.MSG_CONTROL, base.CTRL_DISABLE, b""),
-            (base.MSG_PLOT, base.PLOT_STOP,
-             bytes([base.FAST_MASK | base.NORMAL_MASK])),
-        ):
-            try:
-                self.request(msg_type, op, data)
-            except (TimeoutError, RuntimeError):
-                pass
+        try:
+            self.parameter_action(base.ACTION_MOTOR_DISABLE)
+        except (TimeoutError, RuntimeError):
+            pass
+        try:
+            self.request(
+                base.MSG_PLOT,
+                base.PLOT_STOP,
+                bytes([base.FAST_MASK | base.NORMAL_MASK]),
+            )
+        except (TimeoutError, RuntimeError):
+            pass
 
     def configure_plot(self):
         fast_data = bytes([
@@ -128,8 +134,14 @@ class SensorlessRun(base.SensorlessTest):
         )
         self.request(base.MSG_PLOT, base.PLOT_CONFIG, fast_data)
 
-        normal_data = bytes([base.NORMAL_GROUP, NORMAL_CONFIG_ID, 1])
-        normal_data += struct.pack("<H", VBUS_ID)
+        normal_data = bytes([
+            base.NORMAL_GROUP,
+            NORMAL_CONFIG_ID,
+            len(NORMAL_VARS),
+        ])
+        normal_data += b"".join(
+            struct.pack("<H", var_id) for _, var_id in NORMAL_VARS
+        )
         self.request(base.MSG_PLOT, base.PLOT_CONFIG, normal_data)
         self.request(
             base.MSG_PLOT,
@@ -189,8 +201,9 @@ class SensorlessRun(base.SensorlessTest):
                 self.block_count = 0
 
     def process_normal(self, payload):
-        if (len(payload) != 8 or payload[2] != NORMAL_CONFIG_ID or
-                payload[3] != 1):
+        count = len(NORMAL_VARS)
+        if (len(payload) != 4 + count * 4 or
+                payload[2] != NORMAL_CONFIG_ID or payload[3] != count):
             return
 
         seq, = struct.unpack_from("<H", payload, 0)
@@ -198,22 +211,18 @@ class SensorlessRun(base.SensorlessTest):
             expected = (self.normal_last + 1) & 0xFFFF
             self.normal_lost += (seq - expected) & 0xFFFF
         self.normal_last = seq
-        value, = struct.unpack_from("<f", payload, 4)
-        self.vbus.append(value)
+        vbus, theta_e, theta_obs = struct.unpack_from("<fff", payload, 4)
+        self.vbus.append(vbus)
+        self.theta_errors.append(angle_diff(theta_e, theta_obs))
         self.last_normal_rx = time.monotonic()
 
-    def read_stage(self):
-        data = self.request(base.MSG_SENSORLESS, base.SENSORLESS_STATUS)
-        if len(data) != 8:
-            raise RuntimeError(f"invalid Sensorless status length: {len(data)}")
-
-        active, ready, stage, if_stage = data[:4]
-        self.stage = stage
-        self.if_stage = if_stage
-        self.ready = bool(ready)
-        if not active:
+    def read_motor_state(self):
+        self.motor_state = self.parameter_read(
+            base.PARAM_MOTOR_STATE,
+            base.PARAM_U8,
+        )
+        if self.motor_state != 2:
             raise RuntimeError("Sensorless stopped while running")
-        return stage
 
     def speed_set(self, wm):
         self.command_wm = float(wm)
@@ -224,21 +233,21 @@ class SensorlessRun(base.SensorlessTest):
         return list(self.blocks)[-count:]
 
     def snapshot(self):
-        rows = self.recent(self.args.pll_window)
-        if not rows or not self.vbus:
+        rows = self.recent(self.args.observer_window)
+        if not rows or not self.vbus or not self.theta_errors:
             return None
 
         values = {}
         for name in FAST_INDEX:
             index = FAST_INDEX[name]
             values[name] = mean([row[index] for row in rows])
-        values["PLL_RMS"] = rms([
-            row[FAST_INDEX["PLL_Err"]] for row in rows
-        ])
         vbus_count = max(1, int(math.ceil(
-            self.args.pll_window * MONITOR_HZ
+            self.args.observer_window * NORMAL_HZ
         )))
         values["Vbus"] = mean(list(self.vbus)[-vbus_count:])
+        values["Theta_err_RMS"] = rms(
+            list(self.theta_errors)[-vbus_count:]
+        )
         values["U_mag"] = max(
             math.hypot(row[FAST_INDEX["Ud"]], row[FAST_INDEX["Uq"]])
             for row in rows
@@ -261,8 +270,8 @@ class SensorlessRun(base.SensorlessTest):
             raise RuntimeError(f"FAST lost {self.fast_lost} frames")
         if self.normal_lost > self.args.max_lost:
             raise RuntimeError(f"NORMAL lost {self.normal_lost} frames")
-        if require_run and self.stage != SENSORLESS_RUN:
-            raise RuntimeError(f"left SENSORLESS_RUN: stage={self.stage}")
+        if require_run and not self.observer_ready:
+            raise RuntimeError("observer takeover is not established")
         if (self.monitor_started is not None and self.last_fast_rx is None and
                 now - self.monitor_started > 0.5):
             raise RuntimeError("no FAST monitor data")
@@ -282,13 +291,8 @@ class SensorlessRun(base.SensorlessTest):
                 f"Vbus {values['Vbus']:.3f} V outside "
                 f"{self.args.vbus_min:.3f} .. {self.args.vbus_max:.3f} V"
             )
-        required = int(math.ceil(self.args.pll_window * MONITOR_HZ))
+        required = int(math.ceil(self.args.observer_window * MONITOR_HZ))
         if require_run and len(self.blocks) >= required:
-            if values["PLL_RMS"] > self.args.pll_rms_limit:
-                raise RuntimeError(
-                    f"PLL error RMS {values['PLL_RMS']:.4f} exceeded "
-                    f"{self.args.pll_rms_limit:.4f}"
-                )
             if values["U_util"] > self.args.voltage_util_limit:
                 raise RuntimeError(
                     f"voltage utilization {values['U_util']:.3f} exceeded "
@@ -304,7 +308,7 @@ class SensorlessRun(base.SensorlessTest):
 
             now = time.monotonic()
             if now >= next_status:
-                self.read_stage()
+                self.read_motor_state()
                 next_status = now + 0.05
             else:
                 self.process(self.parser.feed(self.ser.read(4096)))
@@ -313,28 +317,43 @@ class SensorlessRun(base.SensorlessTest):
 
     def wait_run(self):
         deadline = time.monotonic() + self.args.ready_timeout
-        next_status = time.monotonic()
-        last_stage = None
+        stable_since = None
+        target_we = math.copysign(IF_WE_RAD_S, self.command_wm)
+        tolerance = max(
+            self.args.we_tolerance,
+            IF_WE_RAD_S * self.args.we_relative_tolerance,
+        )
 
         while time.monotonic() < deadline:
             if self.stop_request.requested:
                 return False
+            if not self.pump(0.05, require_run=False):
+                return False
 
-            now = time.monotonic()
-            if now >= next_status:
-                stage = self.read_stage()
-                if stage != last_stage:
-                    name = STAGE_NAME.get(stage, str(stage))
-                    print(f"  Sensorless stage={name}")
-                    last_stage = stage
-                if stage == SENSORLESS_RUN:
+            values = self.snapshot()
+            if values is None:
+                continue
+            speed_ok = abs(values["We_obs"] - target_we) <= tolerance
+            angle_ok = (values["Theta_err_RMS"] <=
+                        self.args.observer_angle_rms_limit)
+            if speed_ok and angle_ok:
+                if stable_since is None:
+                    stable_since = time.monotonic()
+                elif (time.monotonic() - stable_since >=
+                      self.args.observer_settle_seconds):
+                    self.observer_ready = True
+                    print(
+                        "  Observer takeover inferred: "
+                        f"We={values['We_obs']:.1f} rad/s, "
+                        f"Theta RMS={values['Theta_err_RMS']:.4f} rad"
+                    )
                     return True
-                next_status = now + 0.05
             else:
-                self.process(self.parser.feed(self.ser.read(4096)))
-            self.guard(require_run=False)
+                stable_since = None
 
-        raise TimeoutError("Sensorless did not enter SENSORLESS_RUN")
+        raise TimeoutError(
+            "observer takeover was not inferred from speed/angle tracking"
+        )
 
     def ramp_to(self, wm_target, honor_stop=True):
         while abs(self.command_wm - wm_target) > 1e-6:
@@ -392,7 +411,7 @@ class SensorlessRun(base.SensorlessTest):
             f"t={elapsed:8.1f} s RPM={rpm:8.1f} "
             f"We={values['We_obs']:8.1f} rad/s "
             f"Id={values['Id']:+.3f} A Iq={values['Iq']:+.3f} A "
-            f"PLL={values['PLL_RMS']:.4f} "
+            f"ThetaErr={values['Theta_err_RMS']:.4f} rad "
             f"U={100.0 * values['U_util']:.1f}% "
             f"Vbus={values['Vbus']:.2f} V"
         )
@@ -436,12 +455,18 @@ class SensorlessRun(base.SensorlessTest):
         wm_if = sign * IF_WE_RAD_S / self.args.pole_pairs
         self.target_we = wm_target * self.args.pole_pairs
 
-        self.request(base.MSG_CONTROL, base.CTRL_MODE_SET,
-                     bytes([base.MODE_SENSORLESS_SPEED]))
+        self.parameter_write(
+            base.PARAM_MOTOR_MODE,
+            base.PARAM_U8,
+            base.MODE_SENSORLESS_SPEED,
+        )
         self.speed_set(wm_if)
-        self.request(base.MSG_CONTROL, base.CTRL_ENABLE)
-        self.request(base.MSG_CONTROL, base.CTRL_RUN)
-        print("ALIGN -> I/F 120 rad/s -> Observer takeover")
+        self.parameter_action(base.ACTION_MOTOR_ENABLE)
+        self.parameter_action(base.ACTION_MOTOR_RUN)
+        print(
+            "ALIGN -> I/F 120 rad/s -> Observer takeover "
+            "(inferred from public speed/angle signals)"
+        )
 
         if not self.wait_run():
             return
@@ -454,7 +479,7 @@ class SensorlessRun(base.SensorlessTest):
         self.hold()
 
     def stop_all(self, graceful):
-        if graceful and self.stage == SENSORLESS_RUN and not self.stop_request.force:
+        if graceful and self.observer_ready and not self.stop_request.force:
             try:
                 sign = 1.0 if self.command_wm >= 0.0 else -1.0
                 wm_if = sign * IF_WE_RAD_S / self.args.pole_pairs
@@ -463,17 +488,24 @@ class SensorlessRun(base.SensorlessTest):
             except (TimeoutError, RuntimeError) as exc:
                 print(f"Ramp-down warning: {exc}", file=sys.stderr)
 
-        for name, msg_type, op, data in (
-            ("STOP", base.MSG_CONTROL, base.CTRL_STOP, b""),
-            ("DISABLE", base.MSG_CONTROL, base.CTRL_DISABLE, b""),
-            ("PLOT_STOP", base.MSG_PLOT, base.PLOT_STOP,
-             bytes([base.FAST_MASK | base.NORMAL_MASK])),
+        for name, action_id in (
+            ("STOP", base.ACTION_MOTOR_STOP),
+            ("DISABLE", base.ACTION_MOTOR_DISABLE),
         ):
             try:
-                self.request(msg_type, op, data)
+                self.parameter_action(action_id)
                 print(f"{name} OK")
             except (TimeoutError, RuntimeError) as exc:
                 print(f"{name} warning: {exc}", file=sys.stderr)
+        try:
+            self.request(
+                base.MSG_PLOT,
+                base.PLOT_STOP,
+                bytes([base.FAST_MASK | base.NORMAL_MASK]),
+            )
+            print("PLOT_STOP OK")
+        except (TimeoutError, RuntimeError) as exc:
+            print(f"PLOT_STOP warning: {exc}", file=sys.stderr)
 
 
 def parse_args():
@@ -493,8 +525,18 @@ def parse_args():
                         help="mechanical rad/s per ramp step")
     parser.add_argument("--ramp-interval", type=float, default=0.02)
     parser.add_argument("--current-limit", type=float, default=2.6)
-    parser.add_argument("--pll-rms-limit", type=float, default=0.08)
-    parser.add_argument("--pll-window", type=float, default=0.2)
+    parser.add_argument(
+        "--observer-angle-rms-limit", type=float, default=0.03,
+        help="maximum control/observer angle RMS used to infer takeover",
+    )
+    parser.add_argument(
+        "--observer-window", type=float, default=0.2,
+        help="speed/angle inference window in seconds",
+    )
+    parser.add_argument(
+        "--observer-settle-seconds", type=float, default=0.5,
+        help="continuous stable time required before the final speed ramp",
+    )
     parser.add_argument("--we-tolerance", type=float, default=20.0)
     parser.add_argument("--we-relative-tolerance", type=float, default=0.03)
     parser.add_argument("--speed-error-time", type=float, default=1.0)
@@ -518,8 +560,9 @@ def parse_args():
     if args.duration < 0.0:
         parser.error("duration must be non-negative")
     for name in (
-            "ramp_step", "ramp_interval", "current_limit", "pll_rms_limit",
-            "pll_window", "we_tolerance", "we_relative_tolerance",
+            "ramp_step", "ramp_interval", "current_limit",
+            "observer_angle_rms_limit", "observer_window",
+            "observer_settle_seconds", "we_tolerance", "we_relative_tolerance",
             "speed_error_time", "voltage_util_limit", "vbus_min",
             "vbus_max", "vbus_seconds", "ready_timeout", "target_timeout",
             "settle_seconds", "status_interval", "timeout"):
