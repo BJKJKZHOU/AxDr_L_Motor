@@ -38,15 +38,6 @@ import time
 import sensorless_run
 import sensorless_test as base
 
-
-MSG_IDENTIFICATION = 0x05
-
-IDENT_RS_LS_START = 0x01
-IDENT_FLUX_START = 0x02
-IDENT_STATUS = 0x03
-IDENT_ABORT = 0x04
-IDENT_APPLY = 0x05
-
 IDENT_RS_LS = 0x01
 IDENT_FLUX = 0x02
 
@@ -133,15 +124,18 @@ class Commission(base.SensorlessTest):
         self.vbus.append(value)
 
     def prepare(self):
-        for msg_type, op, data in (
-                (base.MSG_CONTROL, base.CTRL_STOP, b""),
-                (base.MSG_CONTROL, base.CTRL_DISABLE, b""),
-                (base.MSG_PLOT, base.PLOT_STOP,
-                 bytes([base.FAST_MASK | base.NORMAL_MASK]))):
-            try:
-                self.request(msg_type, op, data)
-            except (TimeoutError, RuntimeError):
-                pass
+        try:
+            self.parameter_action(base.ACTION_MOTOR_DISABLE)
+        except (TimeoutError, RuntimeError):
+            pass
+        try:
+            self.request(
+                base.MSG_PLOT,
+                base.PLOT_STOP,
+                bytes([base.FAST_MASK | base.NORMAL_MASK]),
+            )
+        except (TimeoutError, RuntimeError):
+            pass
 
     def current_limit_set(self):
         self.parameter_write(
@@ -225,28 +219,30 @@ class Commission(base.SensorlessTest):
                 f"{self.args.vbus_min:.3f} .. {self.args.vbus_max:.3f} V"
             )
 
-    def ident_status(self, mode):
-        data = self.request(MSG_IDENTIFICATION, IDENT_STATUS)
-        expected = 11 if mode == IDENT_RS_LS else 7
-        if len(data) != expected:
-            raise RuntimeError(
-                f"invalid identification status length: {len(data)}"
-            )
-
-        rx_mode, state, valid = data[:3]
-        if rx_mode != mode:
-            raise RuntimeError(f"unexpected identification mode: {rx_mode}")
-
-        result = {
-            "state": state,
-            "valid": bool(valid),
-        }
+    def ident_result(self, mode):
+        result = {"state": IDENT_DONE}
         if mode == IDENT_RS_LS:
-            result["rs_ohm"], result["ls_h"] = struct.unpack_from(
-                "<ff", data, 3
+            result["valid"] = bool(self.parameter_read(
+                base.PARAM_IDENT_RS_LS_VALID,
+                base.PARAM_U8,
+            ))
+            result["rs_ohm"] = self.parameter_read(
+                base.PARAM_IDENT_RS_RESULT,
+                base.PARAM_FLOAT,
+            )
+            result["ls_h"] = self.parameter_read(
+                base.PARAM_IDENT_LS_RESULT,
+                base.PARAM_FLOAT,
             )
         else:
-            result["flux_wb"], = struct.unpack_from("<f", data, 3)
+            result["valid"] = bool(self.parameter_read(
+                base.PARAM_IDENT_FLUX_VALID,
+                base.PARAM_U8,
+            ))
+            result["flux_wb"] = self.parameter_read(
+                base.PARAM_IDENT_FLUX_RESULT,
+                base.PARAM_FLOAT,
+            )
         return result
 
     def run_ident(self, mode, run_number, direction=None):
@@ -255,11 +251,12 @@ class Commission(base.SensorlessTest):
             wm_test = sign * base.IF_WE_RAD_S / self.args.pole_pairs
             self.speed_set(wm_test)
 
-        start_op = (IDENT_RS_LS_START if mode == IDENT_RS_LS
-                    else IDENT_FLUX_START)
+        start_action = (base.ACTION_IDENT_RS_LS_START
+                        if mode == IDENT_RS_LS
+                        else base.ACTION_IDENT_FLUX_START)
 
         self.parameter_write(base.PARAM_MOTOR_MODE, base.PARAM_U8, MODE_IDENT)
-        self.request(base.MSG_CONTROL, base.CTRL_ENABLE)
+        self.parameter_action(base.ACTION_MOTOR_ENABLE)
 
         self.run_peak = 0.0
         self.run_trip = False
@@ -273,17 +270,11 @@ class Commission(base.SensorlessTest):
         failure = None
 
         try:
-            self.request(MSG_IDENTIFICATION, start_op)
+            txn = self.parameter_action(start_action)
             deadline = start + self.args.ident_timeout
-            next_status = start
 
             while time.monotonic() < deadline:
-                now = time.monotonic()
-                if now >= next_status:
-                    result = self.ident_status(mode)
-                    next_status = now + self.args.poll_interval
-                else:
-                    self.process(self.parser.feed(self.ser.read(4096)))
+                self.process(self.parser.feed(self.ser.read(4096)))
 
                 if self.run_trip:
                     failure = RuntimeError(
@@ -291,23 +282,48 @@ class Commission(base.SensorlessTest):
                         f"{self.args.ident_current_limit:.3f} A"
                     )
                     break
-                if result is not None and result["state"] == IDENT_DONE:
-                    break
-                if result is not None and result["state"] == IDENT_FAILED:
-                    name = "Rs/Ls" if mode == IDENT_RS_LS else "Flux"
-                    failure = RuntimeError(
-                        f"{name} identification failed; "
-                        f"captured phase peak={self.run_peak:.3f} A"
-                    )
+
+                status = self.action_complete_status(txn, start_action)
+                if status is not None:
+                    if status != 0:
+                        result = {
+                            "state": IDENT_FAILED,
+                            "valid": False,
+                        }
+                        status_name = base.STATUS_NAME.get(status, str(status))
+                        failure = RuntimeError(
+                            f"identification completion: {status_name}"
+                        )
+                    else:
+                        result = self.ident_result(mode)
+                        if not result["valid"]:
+                            result["state"] = IDENT_FAILED
+                            failure = RuntimeError(
+                                "identification completed without a valid result"
+                            )
+                    if failure is not None:
+                        name = "Rs/Ls" if mode == IDENT_RS_LS else "Flux"
+                        failure = RuntimeError(
+                            f"{name} identification failed; {failure}; "
+                            f"captured phase peak={self.run_peak:.3f} A"
+                        )
                     break
             else:
                 failure = TimeoutError("identification timeout")
+
+            if result is None and failure is None:
+                failure = RuntimeError("identification completion missing")
         except (TimeoutError, RuntimeError) as exc:
             failure = exc
         finally:
             self.ident_active = False
+            if failure is not None:
+                try:
+                    self.parameter_action(base.ACTION_IDENT_ABORT)
+                except (TimeoutError, RuntimeError):
+                    pass
             try:
-                self.request(base.MSG_CONTROL, base.CTRL_DISABLE)
+                self.parameter_action(base.ACTION_MOTOR_DISABLE)
             except (TimeoutError, RuntimeError) as exc:
                 print(f"DISABLE warning: {exc}", file=sys.stderr)
 
@@ -330,19 +346,22 @@ class Commission(base.SensorlessTest):
         return result
 
     def apply(self):
-        self.request(MSG_IDENTIFICATION, IDENT_APPLY)
+        self.parameter_action(base.ACTION_IDENT_APPLY)
 
     def stop_all(self):
         self.ident_active = False
-        for name, msg_type, op, data in (
-                ("STOP", base.MSG_CONTROL, base.CTRL_STOP, b""),
-                ("DISABLE", base.MSG_CONTROL, base.CTRL_DISABLE, b""),
-                ("PLOT_STOP", base.MSG_PLOT, base.PLOT_STOP,
-                 bytes([base.FAST_MASK | base.NORMAL_MASK]))):
-            try:
-                self.request(msg_type, op, data)
-            except (TimeoutError, RuntimeError) as exc:
-                print(f"{name} warning: {exc}", file=sys.stderr)
+        try:
+            self.parameter_action(base.ACTION_MOTOR_DISABLE)
+        except (TimeoutError, RuntimeError) as exc:
+            print(f"DISABLE warning: {exc}", file=sys.stderr)
+        try:
+            self.request(
+                base.MSG_PLOT,
+                base.PLOT_STOP,
+                bytes([base.FAST_MASK | base.NORMAL_MASK]),
+            )
+        except (TimeoutError, RuntimeError) as exc:
+            print(f"PLOT_STOP warning: {exc}", file=sys.stderr)
         self.plot_started = False
 
 
@@ -501,12 +520,21 @@ def parse_args():
     parser.add_argument("--vbus-max", type=float, default=20.0)
     parser.add_argument("--vbus-seconds", type=float, default=0.2)
     parser.add_argument("--ident-timeout", type=float, default=25.0)
-    parser.add_argument("--poll-interval", type=float, default=0.05)
     parser.add_argument("--ramp-step", type=float, default=0.5,
                         help="mechanical rad/s per final-run ramp step")
     parser.add_argument("--ramp-interval", type=float, default=0.02)
-    parser.add_argument("--pll-rms-limit", type=float, default=0.08)
-    parser.add_argument("--pll-window", type=float, default=0.2)
+    parser.add_argument(
+        "--observer-angle-rms-limit", type=float, default=0.03,
+        help="maximum control/observer angle RMS used to infer takeover",
+    )
+    parser.add_argument(
+        "--observer-window", type=float, default=0.2,
+        help="speed/angle inference window in seconds",
+    )
+    parser.add_argument(
+        "--observer-settle-seconds", type=float, default=0.5,
+        help="continuous stable time required before the final speed ramp",
+    )
     parser.add_argument("--we-tolerance", type=float, default=20.0)
     parser.add_argument("--we-relative-tolerance", type=float, default=0.03)
     parser.add_argument("--speed-error-time", type=float, default=1.0)
@@ -532,8 +560,10 @@ def parse_args():
     for name in (
             "current_limit", "rl_repeat_limit", "flux_repeat_limit",
             "vbus_min", "vbus_max", "vbus_seconds", "ident_timeout",
-            "poll_interval", "ramp_step", "ramp_interval", "pll_rms_limit",
-            "pll_window", "we_tolerance", "we_relative_tolerance",
+            "ramp_step", "ramp_interval",
+            "observer_angle_rms_limit", "observer_window",
+            "observer_settle_seconds", "we_tolerance",
+            "we_relative_tolerance",
             "speed_error_time", "voltage_util_limit", "ready_timeout",
             "target_timeout", "settle_seconds", "status_interval", "timeout"):
         if getattr(args, name) <= 0:

@@ -21,15 +21,17 @@
 #define RS_LS_FREQ_MAX_HZ         500.0f
 #define RS_LS_FREQ_RL_RATIO       0.5f
 #define RS_LS_U_RAMP_TIME_S       0.20f
+#define RS_LS_NOISE_CYCLE         20U
 #define RS_LS_PROBE_MEASURE_CYCLE 5U
 #define RS_LS_MEASURE_CYCLE       10U
 
-#define RS_LS_PROBE_I_RATIO       0.10f
-#define RS_LS_MEASURE_I_RATIO     0.15f
-#define RS_LS_MEASURE_I_MAX_RATIO 0.20f
-#define RS_LS_ALIGN_I_RATIO       0.20f
-#define RS_LS_ALIGN_I_MAX_RATIO   0.50f
+/* Rs/Ls working point is defined in the current domain. */
+#define RS_LS_I_PEAK_RATIO        0.35f
+#define RS_LS_I_DC_SHARE          0.65f
+#define RS_LS_I_AC_SHARE          0.25f
 #define RS_LS_I_MIN_RATIO         0.02f
+#define RS_LS_SNR_POWER_MIN       100.0f
+#define RS_LS_COH_SQ_MIN          0.95f
 
 #define RS_LS_ALIGN_TIME_S  0.5f
 #define RS_LS_ALIGN_CNT     ((uint32_t)(RS_LS_ALIGN_TIME_S / CUR_TS + 0.5f))
@@ -46,6 +48,7 @@
 typedef enum
 {
     RS_LS_IDLE = 0,
+    RS_LS_NOISE,
     RS_LS_PROBE_RAMP,
     RS_LS_PROBE_MEASURE,
     RS_LS_ALIGN,
@@ -68,16 +71,25 @@ static float Phase_Step;
 static float Probe_Freq;
 static uint32_t Sample_Per_Cycle;
 static float U_Hold;
-static float U_Ac;
+static float U_DC;
+static float U_AC;
 
 static uint32_t Ramp_Cnt;
 static float Ramp_I_Re;
 static float Ramp_I_Im;
 
+static float I_DC_Sum;
 static float U_Re;
 static float U_Im;
 static float I_Re;
 static float I_Im;
+
+static uint32_t Coh_Cnt;
+static float Coh_I_Pow;
+
+static float I_Noise;
+static float SNR_Pow;
+static float Coh_Sq;
 
 static float Rs_A;
 static float Ls_A;
@@ -88,9 +100,15 @@ static float Ls_C;
 
 static bool RL_Temporary;
 static bool Align_Pending;
+static bool Freq_Refined;
 static float Rs_Save;
 static float Ld_Save;
 static float Lq_Save;
+
+static float Abs_Value(float Value)
+{
+    return (Value >= 0.0f) ? Value : -Value;
+}
 
 static void Frequency_Set(float Freq_Target)
 {
@@ -123,45 +141,69 @@ static void Ramp_Reset(void)
 static void Measure_Reset(void)
 {
     Cnt = 0U;
+    I_DC_Sum = 0.0f;
     U_Re = 0.0f;
     U_Im = 0.0f;
     I_Re = 0.0f;
     I_Im = 0.0f;
+    Coh_Cnt = 0U;
+    Coh_I_Pow = 0.0f;
 }
 
-static void Voltage_Ramp(float U_Max)
+static float Voltage_Target_Update(float U,
+                                   float I_Meas,
+                                   float I_Target,
+                                   float U_Max,
+                                   float U_Share,
+                                   float Window_S)
 {
+    float I_Next;
+    float I_Step;
     float U_Step;
 
-    if (U_Max <= 0.0f)
+    if ((I_Target <= 0.0f) || (U_Max <= 0.0f))
     {
-        return;
+        return 0.0f;
     }
 
-    U_Step = U_Max * CUR_TS / RS_LS_U_RAMP_TIME_S;
-    U_Ac += U_Step;
-
-    if (U_Ac > U_Max)
+    if ((U > 0.0f) && (I_Meas > 0.0f))
     {
-        U_Ac = U_Max;
+        I_Step = I_Target * Window_S / RS_LS_U_RAMP_TIME_S;
+        I_Next = I_Meas + I_Step;
+
+        if (I_Next > I_Target)
+        {
+            I_Next = I_Target;
+        }
+
+        U *= I_Next / I_Meas;
     }
+    else
+    {
+        /* Zero voltage must bootstrap additively; measured AC noise is non-zero. */
+        U_Step = U_Max * U_Share * CUR_TS / RS_LS_U_RAMP_TIME_S;
+        U += U_Step;
+    }
+
+    if (U > U_Max)
+    {
+        U = U_Max;
+    }
+
+    return U;
 }
 
-static void Voltage_Backoff(float U_Max)
+static void Probe_Voltage_Limit(float U_Max)
 {
-    float U_Step;
+    float Scale;
+    float U_Sum;
 
-    if ((U_Max <= 0.0f) || (U_Ac <= 0.0f))
+    U_Sum = U_DC + U_AC;
+    if ((U_Sum > U_Max) && (U_Sum > 0.0f))
     {
-        return;
-    }
-
-    U_Step = U_Max * CUR_TS / RS_LS_U_RAMP_TIME_S;
-    U_Ac -= U_Step;
-
-    if (U_Ac < 0.0f)
-    {
-        U_Ac = 0.0f;
+        Scale = U_Max / U_Sum;
+        U_DC *= Scale;
+        U_AC *= Scale;
     }
 }
 
@@ -205,11 +247,10 @@ static void Fail(void)
     State = RS_LS_FAILED;
 }
 
-static bool Measure_Calc(uint32_t Sample_Cnt, float I_Min, float *Rs, float *Ls)
+static bool Measure_Calc(uint32_t Sample_Cnt, float I_Min, float *I_Amp, float *Rs, float *Ls)
 {
     float Den;
     float Freq;
-    float I_Amp;
     float Scale;
     float Z_Re;
     float Z_Im;
@@ -222,9 +263,9 @@ static bool Measure_Calc(uint32_t Sample_Cnt, float I_Min, float *Rs, float *Ls)
     }
 
     Scale = 2.0f / (float)Sample_Cnt;
-    I_Amp = Scale * __builtin_sqrtf(Den);
+    *I_Amp = Scale * __builtin_sqrtf(Den);
 
-    if (I_Amp < I_Min)
+    if (*I_Amp < I_Min)
     {
         return false;
     }
@@ -325,10 +366,14 @@ static bool Probe_Retry(void)
 
     Frequency_Set(Probe_Freq);
     Phase = 0.0f;
-    U_Ac = 0.0f;
+    U_DC = 0.0f;
+    U_AC = 0.0f;
+    I_Noise = 0.0f;
+    SNR_Pow = 0.0f;
+    Coh_Sq = 0.0f;
     Ramp_Reset();
     Measure_Reset();
-    State = RS_LS_PROBE_RAMP;
+    State = RS_LS_NOISE;
     return true;
 }
 
@@ -342,15 +387,20 @@ void Rs_Ls_Start(void)
 
     Phase = 0.0f;
     U_Hold = 0.0f;
-    U_Ac = 0.0f;
+    U_DC = 0.0f;
+    U_AC = 0.0f;
+    I_Noise = 0.0f;
+    SNR_Pow = 0.0f;
+    Coh_Sq = 0.0f;
     Align_Pending = false;
+    Freq_Refined = false;
 
     Probe_Freq = RS_LS_PROBE_FREQ_HZ;
     Frequency_Set(Probe_Freq);
     Ramp_Reset();
     Measure_Reset();
 
-    State = RS_LS_PROBE_RAMP;
+    State = RS_LS_NOISE;
 }
 
 void Rs_Ls_Abort(void)
@@ -376,23 +426,30 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
     const Ident_Envelope_T *Envelope;
     float Sin;
     float Cos;
+    float Scale;
     float Ramp_I_Amp;
+    float I_Cyc_Re;
+    float I_Cyc_Im;
+    float Coh_Num;
+    float Coh_Den;
+    float I_Amp;
+    float I_DC_Meas;
     float Rs;
     float Ls;
+    float Xs;
     float Freq_Target;
-    float I_Probe;
-    float I_Measure;
-    float I_Measure_Max;
-    float I_Align;
-    float I_Align_Max;
+    float Freq;
     float I_Min;
-    float I_Target;
-    float I_Soft;
-    float I_Abs;
-    float U_Ac_Max;
+    float I_Peak_Target;
+    float I_DC_Target;
+    float I_AC_Target;
+    float U_AC_Max;
     float U_Hold_Abs;
+    float Window_S;
     uint32_t Sample_Cnt;
     bool Align_Done;
+    bool DC_Ready;
+    bool AC_Ready;
 
     *Theta_e = 0.0f;
     *Id_Ref = 0.0f;
@@ -413,153 +470,84 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
     }
 
     I_Min = RS_LS_I_MIN_RATIO * Envelope->I_Max;
-    I_Probe = RS_LS_PROBE_I_RATIO * Envelope->I_Max;
-    if (I_Probe < I_Min)
-    {
-        I_Probe = I_Min;
-    }
+    I_Peak_Target = RS_LS_I_PEAK_RATIO * Envelope->I_Max;
+    I_DC_Target = RS_LS_I_DC_SHARE * I_Peak_Target;
+    I_AC_Target = RS_LS_I_AC_SHARE * I_Peak_Target;
 
-    I_Measure = RS_LS_MEASURE_I_RATIO * Envelope->I_Max;
-    if (I_Measure < I_Min)
+    if ((I_DC_Target <= 0.0f) || (I_AC_Target < I_Min))
     {
-        I_Measure = I_Min;
+        Fail();
+        return FAST_OFF;
     }
-
-    I_Measure_Max = RS_LS_MEASURE_I_MAX_RATIO * Envelope->I_Max;
-    I_Align = RS_LS_ALIGN_I_RATIO * Envelope->I_Max;
-    I_Align_Max = RS_LS_ALIGN_I_MAX_RATIO * Envelope->I_Max;
 
     if (State == RS_LS_ALIGN)
     {
         if (!Align_Pending)
         {
-            Align_Done = Align_Current(I_Align, RS_LS_ALIGN_CNT, Id_Ref, Iq_Ref);
+            Align_Done = Align_Current(I_DC_Target, RS_LS_ALIGN_CNT, Id_Ref, Iq_Ref);
 
             if (Align_Done)
             {
                 Align_Pending = true;
+                Cnt = 0U;
+                U_Hold = 0.0f;
             }
 
             return FAST_CURRENT;
         }
 
-        /* Capture Ud after the final FAST_CURRENT cycle has completed. */
-        U_Hold = Motor_Run.Ud;
+        /* Average the completed FAST_CURRENT Ud over one injection cycle. */
+        U_Hold += Motor_Run.Ud;
+        Cnt++;
+
+        if (Cnt < Sample_Per_Cycle)
+        {
+            *Id_Ref = I_DC_Target;
+            *Iq_Ref = 0.0f;
+            return FAST_CURRENT;
+        }
+
+        U_Hold /= (float)Cnt;
         Rough_RL_Restore();
-        U_Ac = 0.0f;
         Phase = 0.0f;
         Ramp_Reset();
         Align_Pending = false;
         State = RS_LS_RAMP;
     }
 
-    if ((State == RS_LS_PROBE_RAMP) || (State == RS_LS_PROBE_MEASURE))
+    if ((State == RS_LS_NOISE) || (State == RS_LS_PROBE_RAMP) || (State == RS_LS_PROBE_MEASURE))
     {
-        U_Ac_Max = Envelope->U_Max;
-        I_Soft = I_Measure_Max;
+        Probe_Voltage_Limit(Envelope->U_Max);
     }
     else
     {
-        U_Hold_Abs = (U_Hold >= 0.0f) ? U_Hold : -U_Hold;
-
+        U_Hold_Abs = Abs_Value(U_Hold);
         if (U_Hold_Abs >= Envelope->U_Max)
         {
             Fail();
             return FAST_OFF;
         }
 
-        U_Ac_Max = Envelope->U_Max - U_Hold_Abs;
-        I_Soft = I_Align_Max;
+        U_AC_Max = Envelope->U_Max - U_Hold_Abs;
+        if (U_AC > U_AC_Max)
+        {
+            U_AC = U_AC_Max;
+        }
     }
 
-    if (U_Ac > U_Ac_Max)
-    {
-        U_Ac = U_Ac_Max;
-    }
-
-    I_Abs = (Ialpha_A >= 0.0f) ? Ialpha_A : -Ialpha_A;
     SinCos(Phase, &Sin, &Cos);
 
-    if ((State == RS_LS_PROBE_RAMP) || (State == RS_LS_PROBE_MEASURE))
+    if ((State == RS_LS_NOISE) || (State == RS_LS_PROBE_RAMP) || (State == RS_LS_PROBE_MEASURE))
     {
-        *Ualpha_V = U_Ac * Sin;
+        *Ualpha_V = U_DC + U_AC * Sin;
     }
     else
     {
-        *Ualpha_V = U_Hold + U_Ac * Sin;
+        *Ualpha_V = U_Hold + U_AC * Sin;
     }
 
-    if ((State == RS_LS_PROBE_RAMP) || (State == RS_LS_RAMP))
+    if (State == RS_LS_NOISE)
     {
-        Ramp_I_Re += Ialpha_A * Cos;
-        Ramp_I_Im -= Ialpha_A * Sin;
-        Ramp_Cnt++;
-
-        if (I_Abs < I_Soft)
-        {
-            Voltage_Ramp(U_Ac_Max);
-        }
-        else
-        {
-            Voltage_Backoff(U_Ac_Max);
-        }
-
-        if (Ramp_Cnt >= Sample_Per_Cycle)
-        {
-            Ramp_I_Amp = (2.0f / (float)Sample_Per_Cycle) *
-                         __builtin_sqrtf(Ramp_I_Re * Ramp_I_Re + Ramp_I_Im * Ramp_I_Im);
-
-            Ramp_Reset();
-            I_Target = (State == RS_LS_PROBE_RAMP) ? I_Probe : I_Measure;
-
-            if (Ramp_I_Amp > I_Measure_Max)
-            {
-                if (Ramp_I_Amp > 0.0f)
-                {
-                    U_Ac *= I_Target / Ramp_I_Amp;
-                }
-            }
-            else if (Ramp_I_Amp >= I_Target)
-            {
-                if (State == RS_LS_PROBE_RAMP)
-                {
-                    Measure_Reset();
-                    State = RS_LS_PROBE_MEASURE;
-                }
-                else
-                {
-                    Cnt = 0U;
-                    State = RS_LS_SETTLE;
-                }
-            }
-            else if (U_Ac >= U_Ac_Max)
-            {
-                if (Ramp_I_Amp >= I_Min)
-                {
-                    if (State == RS_LS_PROBE_RAMP)
-                    {
-                        Measure_Reset();
-                        State = RS_LS_PROBE_MEASURE;
-                    }
-                    else
-                    {
-                        Cnt = 0U;
-                        State = RS_LS_SETTLE;
-                    }
-                }
-                else
-                {
-                    Fail();
-                    *Ualpha_V = 0.0f;
-                    return FAST_OFF;
-                }
-            }
-        }
-    }
-    else if (State == RS_LS_PROBE_MEASURE)
-    {
-        U_Re += *Ualpha_V * Cos;
-        U_Im -= *Ualpha_V * Sin;
         I_Re += Ialpha_A * Cos;
         I_Im -= Ialpha_A * Sin;
         Cnt++;
@@ -567,21 +555,201 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
         Sample_Cnt = Sample_Per_Cycle * RS_LS_PROBE_MEASURE_CYCLE;
         if (Cnt >= Sample_Cnt)
         {
-            if (!Measure_Calc(Sample_Cnt, I_Min, &Rs, &Ls))
+            Scale = 2.0f / (float)Sample_Cnt;
+            I_Amp = Scale * __builtin_sqrtf(I_Re * I_Re + I_Im * I_Im);
+            Coh_I_Pow += I_Amp * I_Amp;
+            Coh_Cnt++;
+            Cnt = 0U;
+            I_Re = 0.0f;
+            I_Im = 0.0f;
+
+            if ((Coh_Cnt * RS_LS_PROBE_MEASURE_CYCLE) >= RS_LS_NOISE_CYCLE)
+            {
+                I_Noise = __builtin_sqrtf(Coh_I_Pow / (float)Coh_Cnt);
+                Measure_Reset();
+                Ramp_Reset();
+                State = RS_LS_PROBE_RAMP;
+            }
+        }
+    }
+    else if (State == RS_LS_PROBE_RAMP)
+    {
+        I_DC_Sum += Ialpha_A;
+        Ramp_I_Re += Ialpha_A * Cos;
+        Ramp_I_Im -= Ialpha_A * Sin;
+        Ramp_Cnt++;
+
+        if (Ramp_Cnt >= Sample_Per_Cycle)
+        {
+            I_DC_Meas = I_DC_Sum / (float)Sample_Per_Cycle;
+            I_Amp = (2.0f / (float)Sample_Per_Cycle) *
+                    __builtin_sqrtf(Ramp_I_Re * Ramp_I_Re + Ramp_I_Im * Ramp_I_Im);
+            DC_Ready = I_DC_Meas >= I_DC_Target;
+            AC_Ready = I_Amp >= I_AC_Target;
+
+            if (DC_Ready && AC_Ready)
+            {
+                Ramp_Reset();
+                Measure_Reset();
+                State = RS_LS_PROBE_MEASURE;
+            }
+            else
+            {
+                if (((U_DC + U_AC) >= (0.999f * Envelope->U_Max)) &&
+                    (!DC_Ready || !AC_Ready))
+                {
+                    Fail();
+                    *Ualpha_V = 0.0f;
+                    return FAST_OFF;
+                }
+
+                Window_S = (float)Sample_Per_Cycle * CUR_TS;
+
+                if (!DC_Ready)
+                {
+                    U_DC = Voltage_Target_Update(U_DC, I_DC_Meas, I_DC_Target,
+                                                 Envelope->U_Max, RS_LS_I_DC_SHARE, Window_S);
+                }
+
+                if (!AC_Ready)
+                {
+                    U_AC = Voltage_Target_Update(U_AC, I_Amp, I_AC_Target,
+                                                 Envelope->U_Max, RS_LS_I_AC_SHARE, Window_S);
+                }
+
+                Probe_Voltage_Limit(Envelope->U_Max);
+                I_DC_Sum = 0.0f;
+                Ramp_Reset();
+            }
+        }
+    }
+    else if (State == RS_LS_RAMP)
+    {
+        Ramp_I_Re += Ialpha_A * Cos;
+        Ramp_I_Im -= Ialpha_A * Sin;
+        Ramp_Cnt++;
+
+        if (Ramp_Cnt >= Sample_Per_Cycle)
+        {
+            Ramp_I_Amp = (2.0f / (float)Sample_Per_Cycle) *
+                         __builtin_sqrtf(Ramp_I_Re * Ramp_I_Re + Ramp_I_Im * Ramp_I_Im);
+            Ramp_Reset();
+
+            if (Ramp_I_Amp >= I_AC_Target)
+            {
+                Cnt = 0U;
+                State = RS_LS_SETTLE;
+            }
+            else
+            {
+                U_Hold_Abs = Abs_Value(U_Hold);
+                U_AC_Max = Envelope->U_Max - U_Hold_Abs;
+
+                if (U_AC >= U_AC_Max)
+                {
+                    Fail();
+                    *Ualpha_V = 0.0f;
+                    return FAST_OFF;
+                }
+
+                Window_S = (float)Sample_Per_Cycle * CUR_TS;
+                U_AC = Voltage_Target_Update(U_AC, Ramp_I_Amp, I_AC_Target,
+                                             U_AC_Max, 1.0f, Window_S);
+            }
+        }
+    }
+    else if (State == RS_LS_PROBE_MEASURE)
+    {
+        I_DC_Sum += Ialpha_A;
+        U_Re += *Ualpha_V * Cos;
+        U_Im -= *Ualpha_V * Sin;
+        I_Re += Ialpha_A * Cos;
+        I_Im -= Ialpha_A * Sin;
+        Ramp_I_Re += Ialpha_A * Cos;
+        Ramp_I_Im -= Ialpha_A * Sin;
+        Ramp_Cnt++;
+        Cnt++;
+
+        if (Ramp_Cnt >= Sample_Per_Cycle)
+        {
+            Scale = 2.0f / (float)Sample_Per_Cycle;
+            I_Cyc_Re = Scale * Ramp_I_Re;
+            I_Cyc_Im = Scale * Ramp_I_Im;
+            Coh_I_Pow += I_Cyc_Re * I_Cyc_Re + I_Cyc_Im * I_Cyc_Im;
+            Coh_Cnt++;
+            Ramp_Reset();
+        }
+
+        Sample_Cnt = Sample_Per_Cycle * RS_LS_PROBE_MEASURE_CYCLE;
+        if (Cnt >= Sample_Cnt)
+        {
+            Scale = 2.0f / (float)Sample_Cnt;
+            I_Amp = Scale * __builtin_sqrtf(I_Re * I_Re + I_Im * I_Im);
+            I_DC_Meas = I_DC_Sum / (float)Sample_Cnt;
+            Scale = 2.0f / (float)Sample_Per_Cycle;
+            I_Cyc_Re = Scale * I_Re;
+            I_Cyc_Im = Scale * I_Im;
+            Coh_Num = I_Cyc_Re * I_Cyc_Re + I_Cyc_Im * I_Cyc_Im;
+            Coh_Den = (float)Coh_Cnt * Coh_I_Pow;
+            SNR_Pow = (I_Noise > 0.0f) ? (I_Amp * I_Amp / (I_Noise * I_Noise)) : 1.0e30f;
+            Coh_Sq = (Coh_Den > 0.0f) ? (Coh_Num / Coh_Den) : 0.0f;
+
+            DC_Ready = I_DC_Meas >= I_DC_Target;
+            AC_Ready = I_Amp >= I_AC_Target;
+            if (!DC_Ready || !AC_Ready)
+            {
+                if (((U_DC + U_AC) >= (0.999f * Envelope->U_Max)) &&
+                    (!DC_Ready || !AC_Ready))
+                {
+                    Fail();
+                    *Ualpha_V = 0.0f;
+                    return FAST_OFF;
+                }
+
+                Window_S = (float)Sample_Cnt * CUR_TS;
+
+                if (!DC_Ready)
+                {
+                    U_DC = Voltage_Target_Update(U_DC, I_DC_Meas, I_DC_Target,
+                                                 Envelope->U_Max, RS_LS_I_DC_SHARE, Window_S);
+                }
+
+                if (!AC_Ready)
+                {
+                    U_AC = Voltage_Target_Update(U_AC, I_Amp, I_AC_Target,
+                                                 Envelope->U_Max, RS_LS_I_AC_SHARE, Window_S);
+                }
+
+                Probe_Voltage_Limit(Envelope->U_Max);
+                Ramp_Reset();
+                Measure_Reset();
+                State = RS_LS_PROBE_RAMP;
+            }
+            else if ((I_Amp < I_Min) || (SNR_Pow < RS_LS_SNR_POWER_MIN) || (Coh_Sq < RS_LS_COH_SQ_MIN))
+            {
+                if (!Probe_Retry())
+                {
+                    Fail();
+                    *Ualpha_V = 0.0f;
+                    return FAST_OFF;
+                }
+
+                *Ualpha_V = 0.0f;
+                return FAST_VOLTAGE;
+            }
+            else if (!Measure_Calc(Sample_Cnt, I_Min, &I_Amp, &Rs, &Ls))
             {
                 Fail();
                 *Ualpha_V = 0.0f;
                 return FAST_OFF;
             }
-
-            if ((Rs <= RS_LS_RS_MIN_OHM) || (Rs >= RS_LS_RS_MAX_OHM))
+            else if ((Rs <= RS_LS_RS_MIN_OHM) || (Rs >= RS_LS_RS_MAX_OHM))
             {
                 Fail();
                 *Ualpha_V = 0.0f;
                 return FAST_OFF;
             }
-
-            if ((Ls <= RS_LS_LS_MIN_H) || (Ls >= RS_LS_LS_MAX_H))
+            else if ((Ls <= RS_LS_LS_MIN_H) || (Ls >= RS_LS_LS_MAX_H))
             {
                 if (Probe_Retry())
                 {
@@ -593,15 +761,20 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
                 *Ualpha_V = 0.0f;
                 return FAST_OFF;
             }
-
-            Freq_Target = RS_LS_FREQ_RL_RATIO * Rs / (TWO_PI_F * Ls);
-            Frequency_Set(Freq_Target);
-            Rough_RL_Apply(Rs, Ls);
-            Align_Reset();
-            Align_Pending = false;
-            State = RS_LS_ALIGN;
-            *Ualpha_V = 0.0f;
-            return FAST_VOLTAGE;
+            else
+            {
+                Freq_Target = RS_LS_FREQ_RL_RATIO * Rs / (TWO_PI_F * Ls);
+                Frequency_Set(Freq_Target);
+                Freq = CUR_FREQ_HZ_DEFAULT / (float)Sample_Per_Cycle;
+                Xs = TWO_PI_F * Freq * Ls;
+                U_AC = I_AC_Target * __builtin_sqrtf(Rs * Rs + Xs * Xs);
+                Rough_RL_Apply(Rs, Ls);
+                Align_Reset();
+                Align_Pending = false;
+                State = RS_LS_ALIGN;
+                *Ualpha_V = 0.0f;
+                return FAST_VOLTAGE;
+            }
         }
     }
     else if (State == RS_LS_SETTLE)
@@ -627,11 +800,24 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
         {
             if (State == RS_LS_MEASURE_A)
             {
-                if (!Measure_Calc(Sample_Cnt, I_Min, &Rs_A, &Ls_A) || !Result_Valid(Rs_A, Ls_A))
+                if (!Measure_Calc(Sample_Cnt, I_Min, &I_Amp, &Rs_A, &Ls_A) || !Result_Valid(Rs_A, Ls_A))
                 {
                     Fail();
                     *Ualpha_V = 0.0f;
                     return FAST_OFF;
+                }
+
+                if (!Freq_Refined)
+                {
+                    Freq_Target = RS_LS_FREQ_RL_RATIO * Rs_A / (TWO_PI_F * Ls_A);
+                    Frequency_Set(Freq_Target);
+                    Phase = 0.0f;
+                    Freq_Refined = true;
+                    Ramp_Reset();
+                    Measure_Reset();
+                    State = RS_LS_RAMP;
+                    *Ualpha_V = 0.0f;
+                    return FAST_VOLTAGE;
                 }
 
                 Measure_Reset();
@@ -639,7 +825,7 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
             }
             else if (State == RS_LS_MEASURE_B)
             {
-                if (!Measure_Calc(Sample_Cnt, I_Min, &Rs_B, &Ls_B) || !Result_Valid(Rs_B, Ls_B))
+                if (!Measure_Calc(Sample_Cnt, I_Min, &I_Amp, &Rs_B, &Ls_B) || !Result_Valid(Rs_B, Ls_B))
                 {
                     Fail();
                     *Ualpha_V = 0.0f;
@@ -661,7 +847,7 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
             }
             else
             {
-                if (!Measure_Calc(Sample_Cnt, I_Min, &Rs_C, &Ls_C) || !Result_Valid(Rs_C, Ls_C))
+                if (!Measure_Calc(Sample_Cnt, I_Min, &I_Amp, &Rs_C, &Ls_C) || !Result_Valid(Rs_C, Ls_C))
                 {
                     Fail();
                     *Ualpha_V = 0.0f;

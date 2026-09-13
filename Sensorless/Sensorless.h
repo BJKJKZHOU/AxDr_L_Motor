@@ -9,7 +9,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "Flux_Observer.h"
+#include "Motor_Type.h"
 #include "PLL.h"
 
 typedef enum
@@ -24,8 +24,15 @@ typedef enum
 
 } Sensorless_State_e;
 
-extern Flux_Observer_T Flux_Obs;
-extern PLL_T Flux_PLL;
+/* Normal SENSORLESS_SPEED mode PLL runtime.
+ *
+ * PARAM_OBS_THETA / PARAM_OBS_WE intentionally remain bound to the normal
+ * sensorless Flux-Observer PLL. Identification owns a separate Ident_PLL
+ * instance and may run concurrently in a different workflow context. */
+extern PLL_T Sensorless_PLL;
+
+/* Stable compatibility name used by the generated Parameter binding. */
+#define Flux_PLL Sensorless_PLL
 
 bool Sensorless_Begin(void);
 void Sensorless_Stop(void);

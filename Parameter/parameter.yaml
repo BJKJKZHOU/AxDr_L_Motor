@@ -509,6 +509,24 @@ objects:
     unit: Wb
     description: "最近一次Flux辨识得到的永磁磁链结果。"
 
+  PARAM_IDENT_FAIL_REASON:
+    id: 0x0912
+    type: u8
+    access: ro
+    getter: Identification_Fail_Reason_Get
+    description: "最近一次辨识失败原因；0表示无失败，非零仅用于最终诊断。"
+    range: { min: 0, max: 3 }
+
+  PARAM_IDENT_IF_CURRENT:
+    id: 0x0913
+    type: f32
+    access: rw
+    binding: Ident_IF_Current_A
+    unit: A
+    description: "Flux辨识标准I/F开环启动使用的q轴电流，由Host按被测电机显式给定；与Imax安全上限独立。"
+    write_state: disabled
+    range: { min: 0.0, exclusive_min: true, max_binding: User_Lim.I_Max }
+
   ACTION_MOTOR_ENABLE:
     id: 0x1001
     type: action

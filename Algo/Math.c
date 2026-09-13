@@ -51,14 +51,30 @@ void Vector2_Limit(float *X, float *Y, float Lim)
 
 float Angle_Wrap(float Theta)
 {
-    while (Theta >= TWO_PI_F)
+    if (!__builtin_isfinite(Theta))
     {
-        Theta -= TWO_PI_F;
+        return Theta;
     }
 
-    while (Theta < 0.0f)
+    if (Theta >= TWO_PI_F)
     {
-        Theta += TWO_PI_F;
+        if (Theta < (2.0f * TWO_PI_F))
+        {
+            return Theta - TWO_PI_F;
+        }
+        Theta = __builtin_fmodf(Theta, TWO_PI_F);
+    }
+    else if (Theta < 0.0f)
+    {
+        if (Theta >= -TWO_PI_F)
+        {
+            return Theta + TWO_PI_F;
+        }
+        Theta = __builtin_fmodf(Theta, TWO_PI_F);
+        if (Theta < 0.0f)
+        {
+            Theta += TWO_PI_F;
+        }
     }
 
     return Theta;

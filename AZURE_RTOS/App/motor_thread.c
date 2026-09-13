@@ -15,6 +15,7 @@
 #include "Protection.h"
 #include "Servo_Phase.h"
 #include "USB_Thread.h"
+#include "main.h"
 
 #define MOTOR_STACK_SIZE  512U
 #define MOTOR_THREAD_PRIO 5U
@@ -24,6 +25,7 @@
 TX_SEMAPHORE Motor_Sem;
 TX_QUEUE Motor_Cmd_Q;
 volatile ULONG Motor_Ready = 0U;
+volatile Motor_Time_T Motor_Time = { 0 };
 
 static TX_THREAD Motor_Thread;
 static uint8_t Normal_Div = 0U;
@@ -33,6 +35,15 @@ static bool Phase_Action_Pending = false;
 static Motor_Cmd_Msg_T Phase_Action_Msg = { 0 };
 
 static void Motor_Entry(ULONG thread_input);
+
+static void Motor_Time_Set(uint32_t Cyc, volatile uint32_t *Current, volatile uint32_t *Max)
+{
+    *Current = Cyc;
+    if (Cyc > *Max)
+    {
+        *Max = Cyc;
+    }
+}
 
 Motor_Parameter_Request_Status_e Motor_Parameter_Write_Request(
     uint16_t Id,
@@ -354,6 +365,11 @@ UINT Motor_Thread_Init(VOID *memory_ptr)
 
 static void Motor_Entry(ULONG thread_input)
 {
+    uint32_t Total_T0;
+    uint32_t T0;
+    uint32_t Cyc;
+    uint32_t Sem_Count;
+
     (void)thread_input;
 
     Motor_Ready = 1U;
@@ -362,19 +378,59 @@ static void Motor_Entry(ULONG thread_input)
     {
         if (tx_semaphore_get(&Motor_Sem, TX_WAIT_FOREVER) == TX_SUCCESS)
         {
+            Total_T0 = DWT->CYCCNT;
+
+            /* Count remaining tokens after consuming this activation. A nonzero
+             * value means the 2 kHz Motor Thread has already fallen behind. */
+            Sem_Count = (uint32_t)Motor_Sem.tx_semaphore_count;
+            Motor_Time.Sem_Count = Sem_Count;
+            if (Sem_Count > Motor_Time.Sem_Max)
+            {
+                Motor_Time.Sem_Max = Sem_Count;
+            }
+
+            T0 = DWT->CYCCNT;
             Protection_Control();
+            Cyc = DWT->CYCCNT - T0;
+            Motor_Time_Set(Cyc, &Motor_Time.Protection_Cyc, &Motor_Time.Protection_Max);
+
+            T0 = DWT->CYCCNT;
             Motor_Cmd_Run();
+            Cyc = DWT->CYCCNT - T0;
+            Motor_Time_Set(Cyc, &Motor_Time.Cmd_Cyc, &Motor_Time.Cmd_Max);
+
+            T0 = DWT->CYCCNT;
             Motor_Control();
+            Cyc = DWT->CYCCNT - T0;
+            Motor_Time_Set(Cyc, &Motor_Time.Control_Cyc, &Motor_Time.Control_Max);
+
+            T0 = DWT->CYCCNT;
             Motor_Async_Action_Poll();
+            Cyc = DWT->CYCCNT - T0;
+            Motor_Time_Set(Cyc, &Motor_Time.Async_Cyc, &Motor_Time.Async_Max);
+
+            T0 = DWT->CYCCNT;
             Protocol_Event_Poll();
+            Cyc = DWT->CYCCNT - T0;
+            Motor_Time_Set(Cyc, &Motor_Time.Event_Cyc, &Motor_Time.Event_Max);
+
+            T0 = DWT->CYCCNT;
             USB_Tx_Poll();
+            Cyc = DWT->CYCCNT - T0;
+            Motor_Time_Set(Cyc, &Motor_Time.USB_Poll_Cyc, &Motor_Time.USB_Poll_Max);
 
             Normal_Div ^= 1U;
 
+            T0 = DWT->CYCCNT;
             if (Normal_Div == 0U)
             {
                 Plot_Normal_Sample();
             }
+            Cyc = DWT->CYCCNT - T0;
+            Motor_Time_Set(Cyc, &Motor_Time.Plot_Cyc, &Motor_Time.Plot_Max);
+
+            Cyc = DWT->CYCCNT - Total_T0;
+            Motor_Time_Set(Cyc, &Motor_Time.Total_Cyc, &Motor_Time.Total_Max);
         }
     }
 }

@@ -11,16 +11,61 @@
 #include "Motor_Para.h"
 #include "Rs_Ls.h"
 #include "control_params.h"
+#include "main.h"
 
-#define IDENT_U_MAX_RATIO 0.80f
+#define IDENT_U_MAX_RATIO  0.80f
+#define IDENT_I_TRIP_COUNT 5U
+
+Flux_Observer_T Ident_Observer = { 0 };
+PLL_T Ident_PLL = { 0 };
+volatile float Ident_IF_Current_A = 1.0f;
 
 static volatile Ident_Mode_e Ident_Mode = IDENT_NONE;
 static volatile Ident_State_e Ident_State = IDENT_IDLE;
+static volatile Ident_Fail_Reason_e Ident_Fail_Reason = IDENT_FAIL_NONE;
 static Ident_Envelope_T Ident_Envelope = { 0 };
+static uint8_t Current_Over_Cnt = 0U;
+static uint32_t Finish_Cyc = 0U;
 
 static float Abs_Value(float Value)
 {
     return (Value >= 0.0f) ? Value : -Value;
+}
+
+static bool Current_Over_Trip(float Ia_A, float Ib_A, float Ic_A)
+{
+    float I_Peak;
+
+    if (!__builtin_isfinite(Ia_A) || !__builtin_isfinite(Ib_A) ||
+        !__builtin_isfinite(Ic_A) || !__builtin_isfinite(Ident_Envelope.I_Max) ||
+        (Ident_Envelope.I_Max <= 0.0f))
+    {
+        return true;
+    }
+
+    I_Peak = Abs_Value(Ia_A);
+    if (Abs_Value(Ib_A) > I_Peak)
+    {
+        I_Peak = Abs_Value(Ib_A);
+    }
+    if (Abs_Value(Ic_A) > I_Peak)
+    {
+        I_Peak = Abs_Value(Ic_A);
+    }
+
+    if (I_Peak >= Ident_Envelope.I_Max)
+    {
+        if (Current_Over_Cnt < IDENT_I_TRIP_COUNT)
+        {
+            Current_Over_Cnt++;
+        }
+    }
+    else
+    {
+        Current_Over_Cnt = 0U;
+    }
+
+    return Current_Over_Cnt >= IDENT_I_TRIP_COUNT;
 }
 
 static void Envelope_Voltage_Update(void)
@@ -37,13 +82,17 @@ static void Envelope_Voltage_Update(void)
 
 bool Identification_Start(Ident_Mode_e Mode, float Wm_Target)
 {
-    if (Ident_State == IDENT_RUNNING)
+    Ident_Fail_Reason = IDENT_FAIL_NONE;
+    Current_Over_Cnt = 0U;
+
+    if (Identification_Active())
     {
         return false;
     }
 
     if ((Mode != IDENT_RS_LS) && (Mode != IDENT_FLUX))
     {
+        Ident_Fail_Reason = IDENT_FAIL_START_CONFIG;
         return false;
     }
 
@@ -61,6 +110,7 @@ bool Identification_Start(Ident_Mode_e Mode, float Wm_Target)
     Envelope_Voltage_Update();
     if ((Ident_Envelope.I_Max <= 0.0f) || (Ident_Envelope.U_Max <= 0.0f))
     {
+        Ident_Fail_Reason = IDENT_FAIL_START_CONFIG;
         return false;
     }
 
@@ -70,6 +120,7 @@ bool Identification_Start(Ident_Mode_e Mode, float Wm_Target)
     }
     else if (!Flux_Start(Wm_Target))
     {
+        Ident_Fail_Reason = IDENT_FAIL_START_CONFIG;
         return false;
     }
 
@@ -87,12 +138,22 @@ void Identification_Abort(void)
 
     Ident_Mode = IDENT_NONE;
     Ident_State = IDENT_IDLE;
+    Current_Over_Cnt = 0U;
 }
 
 void Identification_Control(void)
 {
     const Rs_Ls_Result_T *Rs_Ls_Result;
     const Flux_Result_T *Flux_Result;
+
+    if (Ident_State == IDENT_FINISH)
+    {
+        if ((uint32_t)(DWT->CYCCNT - Finish_Cyc) >= SystemCoreClock / 2U)
+        {
+            Ident_State = IDENT_DONE;
+        }
+        return;
+    }
 
     if (Ident_State != IDENT_RUNNING)
     {
@@ -107,17 +168,37 @@ void Identification_Control(void)
         }
 
         Rs_Ls_Result = Rs_Ls_Result_Get();
-        Ident_State = Rs_Ls_Result->Valid ? IDENT_DONE : IDENT_FAILED;
+        Ident_State = Rs_Ls_Result->Valid ? IDENT_FINISH : IDENT_FAILED;
     }
     else if (Ident_Mode == IDENT_FLUX)
     {
+        Flux_Control();
+
         if (Flux_Active())
         {
             return;
         }
 
         Flux_Result = Flux_Result_Get();
-        Ident_State = Flux_Result->Valid ? IDENT_DONE : IDENT_FAILED;
+        if (Flux_Result->Valid)
+        {
+            Ident_State = IDENT_FINISH;
+        }
+        else
+        {
+            if (Ident_Fail_Reason == IDENT_FAIL_NONE)
+            {
+                Ident_Fail_Reason = IDENT_FAIL_FLUX_INTERNAL;
+            }
+            Ident_State = IDENT_FAILED;
+        }
+    }
+
+    if (Ident_State == IDENT_FINISH)
+    {
+        /* The algorithm's final FAST_OFF has already disabled PWM in the ADC
+         * ISR. Keep identification active for 500 ms before reporting done. */
+        Finish_Cyc = DWT->CYCCNT;
     }
 }
 
@@ -164,7 +245,7 @@ bool Identification_Apply(void)
 
 bool Identification_Active(void)
 {
-    return Ident_State == IDENT_RUNNING;
+    return (Ident_State == IDENT_RUNNING) || (Ident_State == IDENT_FINISH);
 }
 
 bool Identification_Result_Valid(void)
@@ -196,8 +277,6 @@ Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
                                           float *Ualpha_V,
                                           float *Ubeta_V)
 {
-    float I_Max;
-
     *Theta_e = 0.0f;
     *Id_Ref = 0.0f;
     *Iq_Ref = 0.0f;
@@ -210,15 +289,14 @@ Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
     }
 
     Envelope_Voltage_Update();
-    I_Max = Ident_Envelope.I_Max;
-
-    if ((I_Max <= 0.0f) || (Abs_Value(Ia_A) > I_Max) || (Abs_Value(Ib_A) > I_Max) || (Abs_Value(Ic_A) > I_Max))
+    if (Current_Over_Trip(Ia_A, Ib_A, Ic_A))
     {
         if (Ident_Mode == IDENT_RS_LS)
         {
             Rs_Ls_Abort();
         }
 
+        Ident_Fail_Reason = IDENT_FAIL_PHASE_CURRENT;
         Ident_State = IDENT_FAILED;
         return FAST_OFF;
     }
@@ -230,7 +308,14 @@ Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
 
     if (Ident_Mode == IDENT_FLUX)
     {
-        return Flux_Fast_Run(Ia_A, Ib_A, Ic_A, Theta_e, Id_Ref, Iq_Ref);
+        return Flux_Fast_Run(Ia_A,
+                             Ib_A,
+                             Ic_A,
+                             Theta_e,
+                             Id_Ref,
+                             Iq_Ref,
+                             Ualpha_V,
+                             Ubeta_V);
     }
 
     return FAST_OFF;
@@ -274,4 +359,9 @@ uint8_t Identification_Flux_Valid_Get(void)
 float Identification_Flux_Get(void)
 {
     return Flux_Result_Get()->Flux_Wb;
+}
+
+uint8_t Identification_Fail_Reason_Get(void)
+{
+    return (uint8_t)Ident_Fail_Reason;
 }

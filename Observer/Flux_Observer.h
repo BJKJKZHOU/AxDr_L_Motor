@@ -6,14 +6,24 @@
 #ifndef FLUX_OBSERVER_H
 #define FLUX_OBSERVER_H
 
+#include <stdbool.h>
+
 typedef struct
 {
     float Rs;
     float Ls;
     float Flux;
-    float Gamma;
+    float BW_Hz;
 
 } Flux_Observer_Para_T;
+
+typedef struct
+{
+    float Gamma;
+    float Flux_Used;
+    float BW_Used;
+
+} Flux_Observer_Calc_T;
 
 typedef struct
 {
@@ -30,12 +40,18 @@ typedef struct
 typedef struct
 {
     Flux_Observer_Para_T Para;
+    Flux_Observer_Calc_T Calc;
     Flux_Observer_State_T State;
 
 } Flux_Observer_T;
 
 void Flux_Observer_Reset(Flux_Observer_T *Obs, float Theta_e, float Ialpha, float Ibeta);
 
-void Flux_Observer_Run(Flux_Observer_T *Obs, float Ualpha, float Ubeta, float Ialpha, float Ibeta, float Ts);
+bool Flux_Observer_Run(Flux_Observer_T *Obs,
+                       float Ualpha,
+                       float Ubeta,
+                       float Ialpha,
+                       float Ibeta,
+                       float Ts);
 
 #endif /* FLUX_OBSERVER_H */
