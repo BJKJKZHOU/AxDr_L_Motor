@@ -139,7 +139,7 @@ typedef enum
     /* Motor_Cmd.Te_Target: Torque模式的用户机械转矩目标。 */
     PARAM_TARGET_TORQUE = 0x0702U,
 
-    /* Motor_Cmd.Wm_Target: Speed、Open-loop、Sensorless及Flux辨识流程使用的用户机械速度目标。 */
+    /* Motor_Cmd.Wm_Target: Speed、Open-loop、Sensorless、Flux及J/B辨识流程使用的用户机械速度目标。 */
     PARAM_TARGET_SPEED = 0x0703U,
 
     /* Motor_Cmd.Position_Target: Position模式的用户机械位置目标；wire格式固定为little-endian int32 Turn + float32 Theta，一次写入。 */
@@ -181,6 +181,15 @@ typedef enum
     /* Ident_IF_Current_A: Flux辨识标准I/F开环启动使用的q轴电流，由Host按被测电机显式给定；与Imax安全上限独立。 */
     PARAM_IDENT_IF_CURRENT = 0x0913U,
 
+    /* Identification_JB_Valid_Get(): 最近一次J/B辨识结果是否有效。 */
+    PARAM_IDENT_JB_VALID = 0x0920U,
+
+    /* Identification_J_Get(): 最近一次J/B辨识得到的转动惯量J。 */
+    PARAM_IDENT_J_RESULT = 0x0921U,
+
+    /* Identification_B_Get(): 最近一次J/B辨识得到的粘性阻尼B。 */
+    PARAM_IDENT_B_RESULT = 0x0922U,
+
     /* MOTOR_CMD_ENABLE: 使能电机功率级。 */
     ACTION_MOTOR_ENABLE = 0x1001U,
 
@@ -204,6 +213,9 @@ typedef enum
 
     /* MOTOR_CMD_IDENT_APPLY: 将最近一次有效辨识结果应用到Motor参数。 */
     ACTION_IDENT_APPLY = 0x1104U,
+
+    /* MOTOR_CMD_IDENT_START: 启动J/B辨识。 */
+    ACTION_IDENT_JB_START = 0x1105U,
 
     /* MOTOR_CMD_PROTECTION_CLEAR: 在DISABLED状态清除可清除的保护状态。 */
     ACTION_PROTECTION_CLEAR = 0x1201U,
