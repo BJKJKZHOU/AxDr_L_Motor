@@ -6,6 +6,7 @@
 #include "Identification.h"
 
 #include "Flux.h"
+#include "JB.h"
 #include "Math.h"
 #include "Motor_ADC.h"
 #include "Motor_Para.h"
@@ -90,7 +91,7 @@ bool Identification_Start(Ident_Mode_e Mode, float Wm_Target)
         return false;
     }
 
-    if ((Mode != IDENT_RS_LS) && (Mode != IDENT_FLUX))
+    if ((Mode != IDENT_RS_LS) && (Mode != IDENT_FLUX) && (Mode != IDENT_JB))
     {
         Ident_Fail_Reason = IDENT_FAIL_START_CONFIG;
         return false;
@@ -118,7 +119,15 @@ bool Identification_Start(Ident_Mode_e Mode, float Wm_Target)
     {
         Rs_Ls_Start();
     }
-    else if (!Flux_Start(Wm_Target))
+    else if (Mode == IDENT_FLUX)
+    {
+        if (!Flux_Start(Wm_Target))
+        {
+            Ident_Fail_Reason = IDENT_FAIL_START_CONFIG;
+            return false;
+        }
+    }
+    else if (!JB_Start(Wm_Target))
     {
         Ident_Fail_Reason = IDENT_FAIL_START_CONFIG;
         return false;
@@ -135,6 +144,10 @@ void Identification_Abort(void)
     {
         Rs_Ls_Abort();
     }
+    else if (Ident_Mode == IDENT_JB)
+    {
+        JB_Abort();
+    }
 
     Ident_Mode = IDENT_NONE;
     Ident_State = IDENT_IDLE;
@@ -145,6 +158,7 @@ void Identification_Control(void)
 {
     const Rs_Ls_Result_T *Rs_Ls_Result;
     const Flux_Result_T *Flux_Result;
+    const JB_Result_T *JB_Result;
 
     if (Ident_State == IDENT_FINISH)
     {
@@ -193,11 +207,32 @@ void Identification_Control(void)
             Ident_State = IDENT_FAILED;
         }
     }
+    else if (Ident_Mode == IDENT_JB)
+    {
+        JB_Control();
+
+        if (JB_Active())
+        {
+            return;
+        }
+
+        JB_Result = JB_Result_Get();
+        if (JB_Result->Valid)
+        {
+            Ident_State = IDENT_FINISH;
+        }
+        else
+        {
+            if (Ident_Fail_Reason == IDENT_FAIL_NONE)
+            {
+                Ident_Fail_Reason = IDENT_FAIL_JB_INTERNAL;
+            }
+            Ident_State = IDENT_FAILED;
+        }
+    }
 
     if (Ident_State == IDENT_FINISH)
     {
-        /* The algorithm's final FAST_OFF has already disabled PWM in the ADC
-         * ISR. Keep identification active for 500 ms before reporting done. */
         Finish_Cyc = DWT->CYCCNT;
     }
 }
@@ -206,6 +241,7 @@ bool Identification_Apply(void)
 {
     const Rs_Ls_Result_T *Rs_Ls_Result;
     const Flux_Result_T *Flux_Result;
+    const JB_Result_T *JB_Result;
 
     if (Ident_State != IDENT_DONE)
     {
@@ -240,6 +276,20 @@ bool Identification_Apply(void)
         return true;
     }
 
+    if (Ident_Mode == IDENT_JB)
+    {
+        JB_Result = JB_Result_Get();
+        if (!JB_Result->Valid)
+        {
+            return false;
+        }
+
+        Motor_Para.J = JB_Result->J_Kgm2;
+        Motor_Para.B = JB_Result->B_Nms;
+        Motor_Para_Update();
+        return true;
+    }
+
     return false;
 }
 
@@ -263,6 +313,11 @@ bool Identification_Result_Valid(void)
     if (Ident_Mode == IDENT_FLUX)
     {
         return Flux_Result_Get()->Valid;
+    }
+
+    if (Ident_Mode == IDENT_JB)
+    {
+        return JB_Result_Get()->Valid;
     }
 
     return false;
@@ -295,6 +350,10 @@ Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
         {
             Rs_Ls_Abort();
         }
+        else if (Ident_Mode == IDENT_JB)
+        {
+            JB_Abort();
+        }
 
         Ident_Fail_Reason = IDENT_FAIL_PHASE_CURRENT;
         Ident_State = IDENT_FAILED;
@@ -316,6 +375,18 @@ Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
                              Iq_Ref,
                              Ualpha_V,
                              Ubeta_V);
+    }
+
+    if (Ident_Mode == IDENT_JB)
+    {
+        return JB_Fast_Run(Ia_A,
+                           Ib_A,
+                           Ic_A,
+                           Theta_e,
+                           Id_Ref,
+                           Iq_Ref,
+                           Ualpha_V,
+                           Ubeta_V);
     }
 
     return FAST_OFF;
@@ -359,6 +430,21 @@ uint8_t Identification_Flux_Valid_Get(void)
 float Identification_Flux_Get(void)
 {
     return Flux_Result_Get()->Flux_Wb;
+}
+
+uint8_t Identification_JB_Valid_Get(void)
+{
+    return JB_Result_Get()->Valid ? 1U : 0U;
+}
+
+float Identification_J_Get(void)
+{
+    return JB_Result_Get()->J_Kgm2;
+}
+
+float Identification_B_Get(void)
+{
+    return JB_Result_Get()->B_Nms;
 }
 
 uint8_t Identification_Fail_Reason_Get(void)

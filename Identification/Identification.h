@@ -18,6 +18,7 @@ typedef enum
     IDENT_NONE = 0,
     IDENT_RS_LS,
     IDENT_FLUX,
+    IDENT_JB,
 
 } Ident_Mode_e;
 
@@ -37,6 +38,7 @@ typedef enum
     IDENT_FAIL_PHASE_CURRENT,
     IDENT_FAIL_FLUX_INTERNAL,
     IDENT_FAIL_START_CONFIG,
+    IDENT_FAIL_JB_INTERNAL,
 
 } Ident_Fail_Reason_e;
 
@@ -51,7 +53,7 @@ typedef struct
 /* Identification-only sensorless runtime.
  *
  * Shared by identification workflows that require sensorless motion
- * (Flux and future J/B identification). These instances are owned by the
+ * (Flux and J/B identification). These instances are owned by the
  * Identification layer and are separate from normal Sensorless-mode runtime.
  * Each identification workflow owns its own configuration/reset policy. */
 extern Flux_Observer_T Ident_Observer;
@@ -89,6 +91,9 @@ float Identification_Rs_Get(void);
 float Identification_Ls_Get(void);
 uint8_t Identification_Flux_Valid_Get(void);
 float Identification_Flux_Get(void);
+uint8_t Identification_JB_Valid_Get(void);
+float Identification_J_Get(void);
+float Identification_B_Get(void);
 uint8_t Identification_Fail_Reason_Get(void);
 
 #endif /* IDENTIFICATION_H */
