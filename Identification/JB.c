@@ -191,7 +191,7 @@ static void Excitation_Run(bool Measure)
 
     if (Measure)
     {
-        Wm = Startup_We_Obs / (float)Motor_Para.Pp;
+        Wm = Ident_PLL.State.We / (float)Motor_Para.Pp;
         DFT.Iq_Cos += Motor_Run.Iq * Cos;
         DFT.Iq_Sin += Motor_Run.Iq * Sin;
         DFT.Wm_Cos += Wm * Cos;
