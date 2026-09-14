@@ -89,6 +89,7 @@ static Handover_T Handover = { 0 };
 static JB_DFT_T DFT = { 0 };
 
 static float We_Target = 0.0f;
+static float We_Startup = 0.0f;
 static float We_Obs_F = 0.0f;
 static float Obs_Id_Ref = 0.0f;
 static volatile float Obs_Iq_Ref = 0.0f;
@@ -267,6 +268,7 @@ bool JB_Start(float Wm_Target)
     const Ident_Envelope_T *Envelope;
     float We_Max;
     float We_Abs;
+    float Sign;
 
     Result = (JB_Result_T){ 0 };
     IF_Para = (Motor_IF_Para_T){ 0 };
@@ -291,10 +293,13 @@ bool JB_Start(float Wm_Target)
         return false;
     }
 
+    Sign = (We_Target < 0.0f) ? -1.0f : 1.0f;
+    We_Startup = Sign * IF_Para.We_Base;
+
     JB_IF.Para.Iq_Min_A = IF_Para.Iq_Start_A;
     JB_IF.Para.Iq_Max_A = IF_Para.Iq_Max_A;
     JB_IF.Para.We_Base = IF_Para.We_Base;
-    JB_IF.Para.Acc = We_Abs / JB_OPEN_ACCEL_S;
+    JB_IF.Para.Acc = IF_Para.We_Base / JB_OPEN_ACCEL_S;
     JB_IF.Para.Iq_Slew_A_S = IF_IQ_SLEW_A_S;
     JB_IF.Para.Rs_Ohm = Motor_Para.Rs;
     JB_IF.Para.Ld_H = Motor_Para.Ld;
@@ -438,7 +443,7 @@ Motor_Fast_Mode_e JB_Fast_Run(float Ia_A,
             Current_Loop_State_Reset();
             IF_Init(&JB_IF, -0.5f * PI_F * (float)Dir, 0.0f);
             JB_IF.State.Iq = (float)Dir * IF_Para.Iq_Start_A;
-            IF_Target_Set(&JB_IF, We_Target);
+            IF_Target_Set(&JB_IF, We_Startup);
             Flux_Observer_Reset(&Ident_Observer, JB_IF.State.Theta_e, Ialpha, Ibeta);
             PLL_Reset(&Ident_PLL, JB_IF.State.Theta_e, 0.0f);
             We_Obs_F = 0.0f;
@@ -478,6 +483,12 @@ Motor_Fast_Mode_e JB_Fast_Run(float Ia_A,
         Iq_Open = -Ialpha * Sin + Ibeta * Cos;
         Ud_Open = Motor_Run.Ualpha * Cos + Motor_Run.Ubeta * Sin;
         Uq_Open = -Motor_Run.Ualpha * Sin + Motor_Run.Ubeta * Cos;
+
+        if (Startup_Phase == JB_START_IF)
+        {
+            JB_IF.Para.Acc = Abs_Value(We_Startup) / JB_OPEN_ACCEL_S *
+                             ((Abs_Value(JB_IF.State.We) < 0.50f * IF_Para.We_Base) ? 3.0f : 0.60f);
+        }
 
         IF_Run(&JB_IF,
                Id_Open,
