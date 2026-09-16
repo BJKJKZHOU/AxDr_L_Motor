@@ -20,6 +20,8 @@
 Flux_Observer_T Ident_Observer = { 0 };
 PLL_T Ident_PLL = { 0 };
 volatile float Ident_IF_Current_A = 1.0f;
+volatile float Ident_JB_Excite_Ratio = 0.10f;
+volatile float Ident_JB_Excite_Hz = 5.0f;
 
 static volatile Ident_Mode_e Ident_Mode = IDENT_NONE;
 static volatile Ident_State_e Ident_State = IDENT_IDLE;
