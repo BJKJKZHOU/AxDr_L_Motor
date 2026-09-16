@@ -45,10 +45,10 @@
 
 #define JB_WORK_RATIO          0.30f
 #define JB_SETTLE_CNT          ((uint32_t)(0.50f / SPD_TS + 0.5f))
-#define JB_EXCITE_HZ           5.0f
+#define JB_EXCITE_HZ           (Ident_JB_Excite_Hz)
 #define JB_EXCITE_CYCLES       3U
 #define JB_MEASURE_CYCLES      10U
-#define JB_WM_EXCITE_RATIO     0.10f
+#define JB_WM_EXCITE_RATIO     (Ident_JB_Excite_Ratio)
 #define JB_IQ_CONTROL_RATIO    0.35f
 #define JB_FINISH_IQ_SLEW_A_S  20.0f
 #define JB_FINISH_CNT          ((uint32_t)(0.10f / CUR_TS + 0.5f))
@@ -389,6 +389,8 @@ bool JB_Start(float Wm_Target)
         !__builtin_isfinite(Motor_Para.Rs) || (Motor_Para.Rs <= 0.0f) ||
         !__builtin_isfinite(Motor_Para.Ld) || (Motor_Para.Ld <= 0.0f) ||
         !__builtin_isfinite(Motor_Para.Flux) || (Motor_Para.Flux <= 0.0f) ||
+        !__builtin_isfinite(Ident_JB_Excite_Ratio) || (Ident_JB_Excite_Ratio <= 0.0f) ||
+        !__builtin_isfinite(Ident_JB_Excite_Hz) || (Ident_JB_Excite_Hz <= 0.0f) ||
         !__builtin_isfinite(We_Max) || (We_Max <= 0.0f) ||
         !__builtin_isfinite(Envelope->U_Available) || (Envelope->U_Available <= 0.0f) ||
         !Motor_IF_Para_Build(ADC.Vbus_V, Envelope->I_Max, &Start_Para))
