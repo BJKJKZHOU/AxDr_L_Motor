@@ -423,7 +423,7 @@ objects:
     access: rw
     binding: Motor_Cmd.Wm_Target
     unit: rad/s
-    description: "Speed、Open-loop、Sensorless、Flux及J/B辨识流程使用的用户机械速度目标。"
+    description: "Speed、Open-loop、Sensorless及Flux辨识流程使用的用户机械速度目标。"
 
   PARAM_TARGET_POSITION:
     id: 0x0704
@@ -550,6 +550,25 @@ objects:
     getter: Identification_B_Get
     unit: N*m*s/rad
     description: "最近一次J/B辨识得到的粘性阻尼B。"
+
+  PARAM_IDENT_JB_EXCITE_RATIO:
+    id: 0x0923
+    type: f32
+    access: rw
+    binding: Ident_JB_Excite_Ratio
+    description: "J/B辨识正弦机械速度激励幅值相对自动工作点速度的比例；默认0.10。"
+    write_state: disabled
+    range: { min: 0.0, exclusive_min: true, max: 1.0, exclusive_max: true }
+
+  PARAM_IDENT_JB_EXCITE_HZ:
+    id: 0x0924
+    type: f32
+    access: rw
+    binding: Ident_JB_Excite_Hz
+    unit: Hz
+    description: "J/B辨识正弦机械速度激励频率；默认5 Hz。"
+    write_state: disabled
+    range: { min: 0.0, exclusive_min: true }
 
   ACTION_MOTOR_ENABLE:
     id: 0x1001
