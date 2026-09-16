@@ -5,6 +5,7 @@
 
 #include "JB.h"
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include "Align.h"
@@ -22,6 +23,7 @@
 #include "PLL.h"
 #include "Sin_LUT.h"
 #include "control_params.h"
+#include "main.h"
 
 #define JB_OPEN_ACCEL_S        6.0f
 #define JB_OBSERVER_BW_HZ      200.0f
@@ -30,6 +32,7 @@
 #define JB_PLL_WN              (TWO_PI_F * JB_PLL_BW_HZ)
 #define JB_PLL_KP              (2.0f * JB_PLL_DAMP * JB_PLL_WN)
 #define JB_PLL_KI              (JB_PLL_WN * JB_PLL_WN)
+#define JB_OBS_WE_ALPHA        (CUR_TS / (0.020f + CUR_TS))
 
 #define JB_HANDOVER_READY_CNT  ((uint32_t)(0.20f / SPD_TS + 0.5f))
 #define JB_HANDOVER_BLEND_CNT  ((uint32_t)(0.15f / CUR_TS + 0.5f))
@@ -51,23 +54,20 @@
 
 typedef enum
 {
-    JB_ALIGN = 0,
-    JB_STARTUP,
+    JB_IDLE = 0,
+    JB_ALIGN,
+    JB_IF,
+    JB_OBS_WAIT,
+    JB_HANDOVER_BLEND,
+    JB_HANDOVER_CURRENT,
     JB_SETTLE,
     JB_EXCITE,
     JB_MEASURE,
     JB_FINISH,
+    JB_DONE,
+    JB_FAILED,
 
-} JB_Phase_e;
-
-typedef enum
-{
-    JB_START_IF = 0,
-    JB_START_WAIT,
-    JB_START_BLEND,
-    JB_START_CURRENT,
-
-} JB_Startup_Phase_e;
+} JB_State_e;
 
 typedef struct
 {
@@ -79,19 +79,28 @@ typedef struct
 
 } JB_DFT_T;
 
-static volatile JB_Phase_e Phase = JB_ALIGN;
-static volatile JB_Startup_Phase_e Startup_Phase = JB_START_IF;
-static volatile bool Active = false;
+typedef struct
+{
+    float Theta_Open;
+    float We_Open;
+    float Theta_Obs;
+    float We_Obs;
+    float PLL_Err;
+    bool PLL_Active;
+
+} JB_Slow_Snapshot_T;
+
+static volatile JB_State_e State = JB_IDLE;
 static JB_Result_T Result = { 0 };
-static Motor_IF_Para_T IF_Para = { 0 };
+static Motor_IF_Para_T Start_Para = { 0 };
 static IF_T JB_IF = { 0 };
 static Handover_T Handover = { 0 };
 static JB_DFT_T DFT = { 0 };
 
 static float We_Target = 0.0f;
 static float We_Startup = 0.0f;
-static float We_Obs_F = 0.0f;
-static float Obs_Id_Ref = 0.0f;
+static volatile float We_Obs_F = 0.0f;
+static volatile float Obs_Id_Ref = 0.0f;
 static volatile float Obs_Iq_Ref = 0.0f;
 static float Iq_Bias = 0.0f;
 static float Iq_Excite = 0.0f;
@@ -104,14 +113,15 @@ static uint32_t Settle_Cnt = 0U;
 static uint32_t Finish_Cnt = 0U;
 static float Finish_Iq = 0.0f;
 static bool Finish_Init = false;
-static bool Obs_U_Valid = false;
-static bool Obs_Control = false;
+static volatile bool Model_U_Valid = false;
+static volatile bool PLL_Active = false;
+static volatile bool Obs_Control = false;
 
-static volatile float Startup_Theta_Open = 0.0f;
-static volatile float Startup_We_Open = 0.0f;
-static volatile float Startup_Theta_Obs = 0.0f;
-static volatile float Startup_We_Obs = 0.0f;
-static volatile float Startup_PLL_Err = 0.0f;
+/* Match the validated Flux workflow boundary: the 20 kHz fast path publishes
+ * one coherent open-loop/observer sample and the 2 kHz supervisory path only
+ * consumes complete snapshots. */
+static volatile uint32_t Slow_Snapshot_Seq = 0U;
+static JB_Slow_Snapshot_T Slow_Snapshot = { 0 };
 
 static float Abs_Value(float Value)
 {
@@ -129,6 +139,12 @@ static float Clamp(float Value, float Min, float Max)
         return Max;
     }
     return Value;
+}
+
+static void JB_Fail(void)
+{
+    Result.Valid = false;
+    State = JB_FAILED;
 }
 
 static void DFT_Reset(void)
@@ -177,6 +193,144 @@ static void Result_Calculate(void)
     Result.Valid = true;
 }
 
+static void Slow_Snapshot_Publish(float Theta_Open)
+{
+    Slow_Snapshot_Seq++;
+    __DMB();
+    Slow_Snapshot.Theta_Open = Theta_Open;
+    Slow_Snapshot.We_Open = JB_IF.State.We;
+    Slow_Snapshot.Theta_Obs = Ident_PLL.State.Theta;
+    Slow_Snapshot.We_Obs = We_Obs_F;
+    Slow_Snapshot.PLL_Err = Ident_PLL.State.Err;
+    Slow_Snapshot.PLL_Active = PLL_Active;
+    __DMB();
+    Slow_Snapshot_Seq++;
+}
+
+static bool Slow_Snapshot_Read(JB_Slow_Snapshot_T *Snapshot, JB_State_e *State_Out)
+{
+    uint32_t Primask;
+    bool Valid;
+
+    if ((Snapshot == NULL) || (State_Out == NULL))
+    {
+        return false;
+    }
+
+    Primask = __get_PRIMASK();
+    __disable_irq();
+    __DMB();
+    *State_Out = State;
+    Valid = Slow_Snapshot_Seq != 0U;
+    *Snapshot = Slow_Snapshot;
+    Snapshot->We_Open = JB_IF.State.We;
+    Snapshot->Theta_Obs = Ident_PLL.State.Theta;
+    Snapshot->We_Obs = We_Obs_F;
+    Snapshot->PLL_Err = Ident_PLL.State.Err;
+    Snapshot->PLL_Active = PLL_Active;
+    __DMB();
+    __set_PRIMASK(Primask);
+
+    return Valid;
+}
+
+static void Observer_Runtime_Run(float Ialpha, float Ibeta, float *Theta_Obs)
+{
+    if (!Model_U_Valid)
+    {
+        *Theta_Obs = Ident_PLL.State.Theta;
+        return;
+    }
+
+    if (!Flux_Observer_Run(&Ident_Observer,
+                           Motor_Run.Ualpha,
+                           Motor_Run.Ubeta,
+                           Ialpha,
+                           Ibeta,
+                           CUR_TS))
+    {
+        *Theta_Obs = Ident_PLL.State.Theta;
+        return;
+    }
+
+    if (PLL_Run(&Ident_PLL,
+                Ident_Observer.State.PsiAlpha,
+                Ident_Observer.State.PsiBeta,
+                CUR_TS))
+    {
+        PLL_Active = true;
+        We_Obs_F += JB_OBS_WE_ALPHA * (Ident_PLL.State.We - We_Obs_F);
+    }
+
+    *Theta_Obs = Ident_PLL.State.Theta;
+}
+
+static bool Observer_Open_Stable(const JB_Slow_Snapshot_T *Snapshot)
+{
+    if ((Snapshot == NULL) || !Snapshot->PLL_Active ||
+        !__builtin_isfinite(Snapshot->We_Open) ||
+        !__builtin_isfinite(Snapshot->We_Obs) ||
+        !__builtin_isfinite(Snapshot->PLL_Err))
+    {
+        return false;
+    }
+
+    return (Snapshot->We_Open * Snapshot->We_Obs > 0.0f) &&
+           Handover_Source_Stable(&Handover,
+                                  Snapshot->We_Open,
+                                  Start_Para.We_Base,
+                                  JB_HANDOVER_WE_MEAN,
+                                  JB_HANDOVER_WE_RMS,
+                                  JB_HANDOVER_PLL_RMS,
+                                  JB_HANDOVER_THETA_RMS);
+}
+
+static void Open_Supervision_Run(JB_State_e State_Local,
+                                 const JB_Slow_Snapshot_T *Snapshot)
+{
+    if ((State_Local != JB_OBS_WAIT) || (Snapshot == NULL))
+    {
+        return;
+    }
+
+    if (Snapshot->PLL_Active)
+    {
+        Handover_Source_Compare(&Handover,
+                                Snapshot->Theta_Open,
+                                Snapshot->We_Open,
+                                Snapshot->Theta_Obs,
+                                Snapshot->We_Obs,
+                                Snapshot->PLL_Err,
+                                JB_HANDOVER_ALPHA);
+    }
+
+    Handover_Qualification_Accumulate(&Handover_Ready_Cnt,
+                                      JB_HANDOVER_READY_CNT,
+                                      Observer_Open_Stable(Snapshot));
+    if ((State == State_Local) &&
+        (Handover_Ready_Cnt >= JB_HANDOVER_READY_CNT))
+    {
+        Handover_Blend_Reset(&Handover);
+        State = JB_HANDOVER_BLEND;
+    }
+}
+
+static void Speed_Control_Run(void)
+{
+    float I_Max;
+
+    I_Max = JB_IQ_CONTROL_RATIO * Start_Para.Iq_Max_A;
+    if (I_Max <= 0.0f)
+    {
+        return;
+    }
+
+    Obs_Iq_Ref = Speed_Loop(We_Target,
+                            Ident_PLL.State.We,
+                            -I_Max,
+                            I_Max);
+}
+
 static void Excitation_Run(bool Measure)
 {
     float Sin;
@@ -186,7 +340,7 @@ static void Excitation_Run(bool Measure)
     uint32_t Limit;
 
     SinCos(Excite_Phase, &Sin, &Cos);
-    I_Max = JB_IQ_CONTROL_RATIO * IF_Para.Iq_Max_A;
+    I_Max = JB_IQ_CONTROL_RATIO * Start_Para.Iq_Max_A;
     Obs_Iq_Ref = Clamp(Iq_Bias + Iq_Excite * Sin, -I_Max, I_Max);
 
     if (Measure)
@@ -216,50 +370,14 @@ static void Excitation_Run(bool Measure)
     if (!Measure)
     {
         DFT_Reset();
-        Phase = JB_MEASURE;
+        State = JB_MEASURE;
     }
     else
     {
         Result_Calculate();
-        Phase = JB_FINISH;
+        State = JB_FINISH;
         Finish_Init = false;
         Finish_Cnt = 0U;
-    }
-}
-
-static void Startup_Supervision(void)
-{
-    bool Stable;
-
-    if (Startup_Phase != JB_START_WAIT)
-    {
-        return;
-    }
-
-    Handover_Source_Compare(&Handover,
-                            Startup_Theta_Open,
-                            Startup_We_Open,
-                            Startup_Theta_Obs,
-                            Startup_We_Obs,
-                            Startup_PLL_Err,
-                            JB_HANDOVER_ALPHA);
-
-    Stable = (Startup_We_Open * Startup_We_Obs > 0.0f) &&
-             Handover_Source_Stable(&Handover,
-                                    Startup_We_Open,
-                                    IF_Para.We_Base,
-                                    JB_HANDOVER_WE_MEAN,
-                                    JB_HANDOVER_WE_RMS,
-                                    JB_HANDOVER_PLL_RMS,
-                                    JB_HANDOVER_THETA_RMS);
-
-    Handover_Qualification_Accumulate(&Handover_Ready_Cnt,
-                                      JB_HANDOVER_READY_CNT,
-                                      Stable);
-    if (Handover_Ready_Cnt >= JB_HANDOVER_READY_CNT)
-    {
-        Handover_Blend_Reset(&Handover);
-        Startup_Phase = JB_START_BLEND;
     }
 }
 
@@ -271,7 +389,7 @@ bool JB_Start(float Wm_Target)
     float Sign;
 
     Result = (JB_Result_T){ 0 };
-    IF_Para = (Motor_IF_Para_T){ 0 };
+    Start_Para = (Motor_IF_Para_T){ 0 };
     JB_IF = (IF_T){ 0 };
     Handover_Reset(&Handover);
     DFT_Reset();
@@ -287,19 +405,20 @@ bool JB_Start(float Wm_Target)
         !__builtin_isfinite(Motor_Para.Flux) || (Motor_Para.Flux <= 0.0f) ||
         !__builtin_isfinite(We_Target) || (We_Abs <= 0.0f) ||
         !__builtin_isfinite(We_Max) || (We_Abs > We_Max) ||
-        !Motor_IF_Para_Build(ADC.Vbus_V, Envelope->I_Max, &IF_Para) ||
-        (We_Abs < IF_Para.We_Base))
+        !Motor_IF_Para_Build(ADC.Vbus_V, Envelope->I_Max, &Start_Para) ||
+        (We_Abs < Start_Para.We_Base))
     {
+        State = JB_FAILED;
         return false;
     }
 
     Sign = (We_Target < 0.0f) ? -1.0f : 1.0f;
-    We_Startup = Sign * IF_Para.We_Base;
+    We_Startup = Sign * Start_Para.We_Base;
 
-    JB_IF.Para.Iq_Min_A = IF_Para.Iq_Start_A;
-    JB_IF.Para.Iq_Max_A = IF_Para.Iq_Max_A;
-    JB_IF.Para.We_Base = IF_Para.We_Base;
-    JB_IF.Para.Acc = IF_Para.We_Base / JB_OPEN_ACCEL_S;
+    JB_IF.Para.Iq_Min_A = Start_Para.Iq_Start_A;
+    JB_IF.Para.Iq_Max_A = Start_Para.Iq_Max_A;
+    JB_IF.Para.We_Base = Start_Para.We_Base;
+    JB_IF.Para.Acc = Abs_Value(We_Startup) / JB_OPEN_ACCEL_S;
     JB_IF.Para.Iq_Slew_A_S = IF_IQ_SLEW_A_S;
     JB_IF.Para.Rs_Ohm = Motor_Para.Rs;
     JB_IF.Para.Ld_H = Motor_Para.Ld;
@@ -315,18 +434,20 @@ bool JB_Start(float Wm_Target)
     Samples_Per_Cycle = (uint32_t)(1.0f / (JB_EXCITE_HZ * SPD_TS) + 0.5f);
     if (Samples_Per_Cycle == 0U)
     {
+        State = JB_FAILED;
         return false;
     }
-    Excite_Phase_Step = TWO_PI_F / (float)Samples_Per_Cycle;
-    Iq_Excite = JB_IQ_EXCITE_RATIO * IF_Para.Iq_Max_A;
 
-    Phase = JB_ALIGN;
-    Startup_Phase = JB_START_IF;
+    Excite_Phase_Step = TWO_PI_F / (float)Samples_Per_Cycle;
+    Iq_Excite = JB_IQ_EXCITE_RATIO * Start_Para.Iq_Max_A;
+
+    State = JB_ALIGN;
     Handover_Ready_Cnt = 0U;
     Settle_Cnt = 0U;
     Finish_Cnt = 0U;
     Finish_Init = false;
-    Obs_U_Valid = false;
+    Model_U_Valid = false;
+    PLL_Active = false;
     Obs_Control = false;
     Obs_Id_Ref = 0.0f;
     Obs_Iq_Ref = 0.0f;
@@ -334,65 +455,72 @@ bool JB_Start(float Wm_Target)
     Excite_Phase = 0.0f;
     Phase_Samples = 0U;
     We_Obs_F = 0.0f;
-    Startup_Theta_Open = 0.0f;
-    Startup_We_Open = 0.0f;
-    Startup_Theta_Obs = 0.0f;
-    Startup_We_Obs = 0.0f;
-    Startup_PLL_Err = 0.0f;
+    Slow_Snapshot_Seq = 0U;
+    Slow_Snapshot = (JB_Slow_Snapshot_T){ 0 };
 
     Align_Reset();
     Current_Loop_State_Reset();
-    Active = true;
     return true;
 }
 
 void JB_Abort(void)
 {
-    Active = false;
     Result.Valid = false;
+    State = JB_IDLE;
 }
 
 bool JB_Active(void)
 {
-    return Active;
+    return (State != JB_IDLE) && (State != JB_DONE) && (State != JB_FAILED);
 }
 
 void JB_Control(void)
 {
-    float I_Max;
+    JB_State_e State_Local;
+    JB_Slow_Snapshot_T Snapshot;
 
-    if (!Active)
+    if (!JB_Active())
     {
         return;
     }
 
-    if (Phase == JB_STARTUP)
+    if ((State == JB_IF) || (State == JB_OBS_WAIT) ||
+        (State == JB_HANDOVER_BLEND))
     {
-        Startup_Supervision();
+        if (!Slow_Snapshot_Read(&Snapshot, &State_Local))
+        {
+            return;
+        }
+        Open_Supervision_Run(State_Local, &Snapshot);
         return;
     }
 
-    if (Phase == JB_SETTLE)
+    if (State == JB_HANDOVER_CURRENT)
     {
-        I_Max = JB_IQ_CONTROL_RATIO * IF_Para.Iq_Max_A;
-        Obs_Iq_Ref = Speed_Loop(We_Target, Startup_We_Obs, -I_Max, I_Max);
+        Speed_Control_Run();
+        return;
+    }
+
+    if (State == JB_SETTLE)
+    {
+        Speed_Control_Run();
         if (++Settle_Cnt >= JB_SETTLE_CNT)
         {
             Iq_Bias = Obs_Iq_Ref;
             Excite_Phase = 0.0f;
             Phase_Samples = 0U;
-            Phase = JB_EXCITE;
+            State = JB_EXCITE;
         }
         return;
     }
 
-    if (Phase == JB_EXCITE)
+    if (State == JB_EXCITE)
     {
         Excitation_Run(false);
         return;
     }
 
-    if (Phase == JB_MEASURE)
+    if (State == JB_MEASURE)
     {
         Excitation_Run(true);
     }
@@ -427,7 +555,7 @@ Motor_Fast_Mode_e JB_Fast_Run(float Ia_A,
     *Ualpha_V = 0.0f;
     *Ubeta_V = 0.0f;
 
-    if (!Active)
+    if (!JB_Active())
     {
         return FAST_OFF;
     }
@@ -436,46 +564,35 @@ Motor_Fast_Mode_e JB_Fast_Run(float Ia_A,
     Ibeta = (Ia_A + 2.0f * Ib_A) * INV_SQRT3_F;
     Dir = (We_Target < 0.0f) ? -1 : 1;
 
-    if (Phase == JB_ALIGN)
+    if (State == JB_ALIGN)
     {
-        if (Align_Current(IF_Para.Iq_Start_A, IF_ALIGN_CNT, Id_Ref, Iq_Ref))
+        if (Align_Current(Start_Para.Iq_Start_A, IF_ALIGN_CNT, Id_Ref, Iq_Ref))
         {
             Current_Loop_State_Reset();
             IF_Init(&JB_IF, -0.5f * PI_F * (float)Dir, 0.0f);
-            JB_IF.State.Iq = (float)Dir * IF_Para.Iq_Start_A;
+            JB_IF.State.Iq = (float)Dir * Start_Para.Iq_Start_A;
             IF_Target_Set(&JB_IF, We_Startup);
+            if (JB_IF.State.Mode == IF_FAILED)
+            {
+                JB_Fail();
+                return FAST_OFF;
+            }
+
             Flux_Observer_Reset(&Ident_Observer, JB_IF.State.Theta_e, Ialpha, Ibeta);
             PLL_Reset(&Ident_PLL, JB_IF.State.Theta_e, 0.0f);
             We_Obs_F = 0.0f;
-            Obs_U_Valid = false;
-            Phase = JB_STARTUP;
+            Model_U_Valid = false;
+            PLL_Active = false;
+            State = JB_IF;
         }
         return FAST_CURRENT;
     }
 
     Theta_Obs = Ident_PLL.State.Theta;
-    if (Obs_U_Valid && Flux_Observer_Run(&Ident_Observer,
-                                         Motor_Run.Ualpha,
-                                         Motor_Run.Ubeta,
-                                         Ialpha,
-                                         Ibeta,
-                                         CUR_TS))
-    {
-        if (PLL_Run(&Ident_PLL,
-                    Ident_Observer.State.PsiAlpha,
-                    Ident_Observer.State.PsiBeta,
-                    CUR_TS))
-        {
-            We_Obs_F += (CUR_TS / (0.020f + CUR_TS)) * (Ident_PLL.State.We - We_Obs_F);
-            Theta_Obs = Ident_PLL.State.Theta;
-        }
-    }
+    Observer_Runtime_Run(Ialpha, Ibeta, &Theta_Obs);
 
-    Startup_Theta_Obs = Theta_Obs;
-    Startup_We_Obs = We_Obs_F;
-    Startup_PLL_Err = Ident_PLL.State.Err;
-
-    if (Phase == JB_STARTUP)
+    if ((State == JB_IF) || (State == JB_OBS_WAIT) ||
+        (State == JB_HANDOVER_BLEND))
     {
         Theta_Open = JB_IF.State.Theta_e;
         SinCos(Theta_Open, &Sin, &Cos);
@@ -484,10 +601,11 @@ Motor_Fast_Mode_e JB_Fast_Run(float Ia_A,
         Ud_Open = Motor_Run.Ualpha * Cos + Motor_Run.Ubeta * Sin;
         Uq_Open = -Motor_Run.Ualpha * Sin + Motor_Run.Ubeta * Cos;
 
-        if (Startup_Phase == JB_START_IF)
+        if (State == JB_IF)
         {
             JB_IF.Para.Acc = Abs_Value(We_Startup) / JB_OPEN_ACCEL_S *
-                             ((Abs_Value(JB_IF.State.We) < 0.50f * IF_Para.We_Base) ? 3.0f : 0.60f);
+                             ((Abs_Value(JB_IF.State.We) < 0.50f * Start_Para.We_Base) ?
+                                  3.0f : 0.60f);
         }
 
         IF_Run(&JB_IF,
@@ -501,29 +619,21 @@ Motor_Fast_Mode_e JB_Fast_Run(float Ia_A,
                CUR_TS);
         if (JB_IF.State.Mode == IF_FAILED)
         {
-            JB_Abort();
+            JB_Fail();
             return FAST_OFF;
         }
 
-        Obs_U_Valid = true;
-        Startup_Theta_Open = Theta_Open;
-        Startup_We_Open = JB_IF.State.We;
+        Model_U_Valid = true;
+        Slow_Snapshot_Publish(Theta_Open);
 
-        if (Startup_Phase == JB_START_IF)
+        if ((State == JB_IF) && (JB_IF.State.Mode == IF_HOLD))
         {
-            *Theta_e = Theta_Open;
-            *Id_Ref = Id_Open;
-            *Iq_Ref = Iq_Open;
-            if (JB_IF.State.Mode == IF_HOLD)
-            {
-                Handover_Ready_Cnt = 0U;
-                Handover_Compare_Reset(&Handover);
-                Startup_Phase = JB_START_WAIT;
-            }
-            return FAST_CURRENT;
+            Handover_Ready_Cnt = 0U;
+            Handover_Compare_Reset(&Handover);
+            State = JB_OBS_WAIT;
         }
 
-        if (Startup_Phase == JB_START_WAIT)
+        if ((State == JB_IF) || (State == JB_OBS_WAIT))
         {
             *Theta_e = Theta_Open;
             *Id_Ref = Id_Open;
@@ -531,7 +641,7 @@ Motor_Fast_Mode_e JB_Fast_Run(float Ia_A,
             return FAST_CURRENT;
         }
 
-        if (Startup_Phase == JB_START_BLEND)
+        if (State == JB_HANDOVER_BLEND)
         {
             if (Handover_Blend_Run(&Handover,
                                    JB_HANDOVER_BLEND_CNT,
@@ -545,14 +655,21 @@ Motor_Fast_Mode_e JB_Fast_Run(float Ia_A,
             {
                 Obs_Id_Ref = *Id_Ref;
                 Obs_Iq_Ref = *Iq_Ref;
-                I_Max = JB_IQ_CONTROL_RATIO * IF_Para.Iq_Max_A;
-                Speed_Loop_Track(We_Target, We_Obs_F, Obs_Iq_Ref, -I_Max, I_Max);
+                I_Max = JB_IQ_CONTROL_RATIO * Start_Para.Iq_Max_A;
+                Speed_Loop_Track(We_Target,
+                                 Ident_PLL.State.We,
+                                 Obs_Iq_Ref,
+                                 -I_Max,
+                                 I_Max);
                 Obs_Control = true;
-                Startup_Phase = JB_START_CURRENT;
+                State = JB_HANDOVER_CURRENT;
             }
             return FAST_CURRENT;
         }
+    }
 
+    if (State == JB_HANDOVER_CURRENT)
+    {
         *Theta_e = Theta_Obs;
         Obs_Id_Ref = Handover_Ramp_Zero(Obs_Id_Ref, JB_HANDOVER_ID_STEP);
         *Id_Ref = Obs_Id_Ref;
@@ -560,12 +677,12 @@ Motor_Fast_Mode_e JB_Fast_Run(float Ia_A,
         if (Obs_Id_Ref == 0.0f)
         {
             Settle_Cnt = 0U;
-            Phase = JB_SETTLE;
+            State = JB_SETTLE;
         }
         return FAST_CURRENT;
     }
 
-    if (Phase == JB_FINISH)
+    if (State == JB_FINISH)
     {
         *Theta_e = Theta_Obs;
         *Id_Ref = 0.0f;
@@ -593,7 +710,7 @@ Motor_Fast_Mode_e JB_Fast_Run(float Ia_A,
         {
             if (++Finish_Cnt >= JB_FINISH_CNT)
             {
-                Active = false;
+                State = Result.Valid ? JB_DONE : JB_FAILED;
                 return FAST_OFF;
             }
         }
@@ -604,7 +721,9 @@ Motor_Fast_Mode_e JB_Fast_Run(float Ia_A,
         return FAST_CURRENT;
     }
 
-    if (Obs_Control)
+    if (Obs_Control && ((State == JB_SETTLE) ||
+                        (State == JB_EXCITE) ||
+                        (State == JB_MEASURE)))
     {
         *Theta_e = Theta_Obs;
         *Id_Ref = 0.0f;
@@ -612,7 +731,7 @@ Motor_Fast_Mode_e JB_Fast_Run(float Ia_A,
         return FAST_CURRENT;
     }
 
-    JB_Abort();
+    JB_Fail();
     return FAST_OFF;
 }
 
