@@ -190,10 +190,10 @@ typedef enum
     /* Identification_B_Get(): 最近一次J/B辨识得到的粘性阻尼B。 */
     PARAM_IDENT_B_RESULT = 0x0922U,
 
-    /* Ident_JB_Excite_Ratio: J/B辨识正弦机械速度激励幅值相对自动工作点速度的比例；默认0.10。 */
+    /* Ident_JB_Excite_Ratio: J/B辨识正弦机械速度激励幅值相对自动工作点速度的比例；默认0.20。 */
     PARAM_IDENT_JB_EXCITE_RATIO = 0x0923U,
 
-    /* Ident_JB_Excite_Hz: J/B辨识正弦机械速度激励频率；默认5 Hz。 */
+    /* Ident_JB_Excite_Hz: J/B辨识正弦机械速度激励频率；默认3 Hz。 */
     PARAM_IDENT_JB_EXCITE_HZ = 0x0924U,
 
     /* MOTOR_CMD_ENABLE: 使能电机功率级。 */

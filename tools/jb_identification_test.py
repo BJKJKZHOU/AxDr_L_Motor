@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Run one or more J/B identifications with known electrical motor parameters.
 
-The firmware performs I/F startup, observer handover, a 5 Hz q-axis current
-excitation and single-frequency DFT internally. This host tool only supplies
+The firmware performs I/F startup, observer handover, sinusoidal speed
+excitation (default 3 Hz, 20%) and single-frequency DFT internally. This host tool only supplies
 known Rs/Ls/Flux/Pp, starts the action, monitors current/protection, and reads
 back the final J/B result.
 

@@ -332,7 +332,12 @@ static void Excitation_Run(bool Measure)
 
     if (Measure)
     {
-        Wm = Ident_PLL.State.We / (float)Motor_Para.Pp;
+        /* PLL_Run advances Theta with We + Kp * Err. Use that phase-advance
+         * speed for the DFT; State.We alone is the integral state and its
+         * phase lag biases B. This is not an empirical delay compensation. */
+        Wm = (Ident_PLL.State.We +
+              Ident_PLL.Para.Kp * Ident_PLL.State.Err) /
+             (float)Motor_Para.Pp;
         DFT.Iq_Cos += Motor_Run.Iq * Cos;
         DFT.Iq_Sin += Motor_Run.Iq * Sin;
         DFT.Wm_Cos += Wm * Cos;

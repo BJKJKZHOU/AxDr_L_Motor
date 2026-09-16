@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Identify an unknown motor and optionally apply results to firmware RAM.
 
-The tool ends after Rs/Ls and optional Flux identification. It never starts a
+The tool ends after Rs/Ls and optional Flux and J/B identification. It never starts a
 sensorless or servo run. Motor output is disabled on normal exit, failure, and
 user interruption.
 
@@ -87,6 +87,7 @@ STATUS_NAME = {
 
 IDENT_RS_LS = 0x01
 IDENT_FLUX = 0x02
+IDENT_JB = 0x03
 IDENT_DONE = 2
 IDENT_FAILED = 3
 MODE_IDENT = 4
@@ -97,6 +98,7 @@ IDENT_FAIL_REASON_NAME = {
     1: "PHASE_CURRENT",
     2: "FLUX_INTERNAL",
     3: "START_CONFIG",
+    4: "JB_INTERNAL",
 }
 
 OBJECT_NAME = {
@@ -112,12 +114,18 @@ OBJECT_NAME = {
     PARAM_IDENT_LS_RESULT: "PARAM_IDENT_LS_RESULT",
     PARAM_IDENT_FLUX_VALID: "PARAM_IDENT_FLUX_VALID",
     PARAM_IDENT_FLUX_RESULT: "PARAM_IDENT_FLUX_RESULT",
+    PARAM_IDENT_JB_VALID: "PARAM_IDENT_JB_VALID",
+    PARAM_IDENT_J_RESULT: "PARAM_IDENT_J_RESULT",
+    PARAM_IDENT_B_RESULT: "PARAM_IDENT_B_RESULT",
+    PARAM_IDENT_JB_EXCITE_RATIO: "PARAM_IDENT_JB_EXCITE_RATIO",
+    PARAM_IDENT_JB_EXCITE_HZ: "PARAM_IDENT_JB_EXCITE_HZ",
     PARAM_IDENT_FAIL_REASON: "PARAM_IDENT_FAIL_REASON",
     PARAM_IDENT_IF_CURRENT: "PARAM_IDENT_IF_CURRENT",
     ACTION_MOTOR_ENABLE: "ACTION_MOTOR_ENABLE",
     ACTION_MOTOR_DISABLE: "ACTION_MOTOR_DISABLE",
     ACTION_IDENT_RS_LS_START: "ACTION_IDENT_RS_LS_START",
     ACTION_IDENT_FLUX_START: "ACTION_IDENT_FLUX_START",
+    ACTION_IDENT_JB_START: "ACTION_IDENT_JB_START",
     ACTION_IDENT_ABORT: "ACTION_IDENT_ABORT",
     ACTION_IDENT_APPLY: "ACTION_IDENT_APPLY",
     ACTION_PROTECTION_CLEAR: "ACTION_PROTECTION_CLEAR",
@@ -719,13 +727,23 @@ class IdentificationClient:
                 PARAM_IDENT_LS_RESULT,
                 PARAM_FLOAT,
             )
-        else:
+        elif mode == IDENT_FLUX:
             result["valid"] = bool(
                 self.parameter_read(PARAM_IDENT_FLUX_VALID, PARAM_U8)
             )
             result["flux_wb"] = self.parameter_read(
                 PARAM_IDENT_FLUX_RESULT,
                 PARAM_FLOAT,
+            )
+        elif mode == IDENT_JB:
+            result["valid"] = bool(
+                self.parameter_read(PARAM_IDENT_JB_VALID, PARAM_U8)
+            )
+            result["j_kgm2"] = self.parameter_read(
+                PARAM_IDENT_J_RESULT, PARAM_FLOAT
+            )
+            result["b_nms"] = self.parameter_read(
+                PARAM_IDENT_B_RESULT, PARAM_FLOAT
             )
         return result
 
@@ -743,11 +761,12 @@ class IdentificationClient:
                 wm_test,
             )
 
-        start_action = (
-            ACTION_IDENT_RS_LS_START
-            if mode == IDENT_RS_LS
-            else ACTION_IDENT_FLUX_START
-        )
+        if mode == IDENT_RS_LS:
+            start_action = ACTION_IDENT_RS_LS_START
+        elif mode == IDENT_FLUX:
+            start_action = ACTION_IDENT_FLUX_START
+        else:
+            start_action = ACTION_IDENT_JB_START
 
         self.parameter_write(PARAM_MOTOR_MODE, PARAM_U8, MODE_IDENT)
         self.parameter_action(ACTION_MOTOR_ENABLE)
@@ -806,7 +825,11 @@ class IdentificationClient:
                                 f"reason={reason_name}"
                             )
                     if failure is not None:
-                        name = "Rs/Ls" if mode == IDENT_RS_LS else "Flux"
+                        name = {
+                            IDENT_RS_LS: "Rs/Ls",
+                            IDENT_FLUX: "Flux",
+                            IDENT_JB: "J/B",
+                        }[mode]
                         failure = RuntimeError(
                             f"{name} identification failed; {failure}; "
                             f"captured phase peak={self.run_peak:.3f} A"
@@ -1030,8 +1053,13 @@ def result_print(name, index, count, mode, result):
             f" Rs={result['rs_ohm']:.9g} ohm"
             f" Ls={result['ls_h'] * 1.0e6:.4f} uH"
         )
-    elif passed:
+    elif passed and mode == IDENT_FLUX:
         text += f" Flux={result['flux_wb']:.10g} Wb"
+    elif passed and mode == IDENT_JB:
+        text += (
+            f" J={result['j_kgm2']:.10g} kg*m^2"
+            f" B={result['b_nms']:.10g} N*m*s"
+        )
 
     text += (
         f" time={result['time_s']:.3f} s"
@@ -1043,11 +1071,11 @@ def result_print(name, index, count, mode, result):
 
 
 def run_group(client, mode, count, args, results, direction=None, run_offset=0):
-    name = (
-        "Rs/Ls"
-        if mode == IDENT_RS_LS
-        else f"Flux {direction}"
-    )
+    name = {
+        IDENT_RS_LS: "Rs/Ls",
+        IDENT_FLUX: f"Flux {direction}",
+        IDENT_JB: "J/B",
+    }[mode]
     for index in range(1, count + 1):
         run = run_offset + index
         try:
@@ -1193,6 +1221,20 @@ def parse_args():
         action="store_true",
         help="apply accepted Flux to firmware RAM",
     )
+    parser.add_argument("--jb-count", type=int, default=0)
+    parser.add_argument(
+        "--jb-ratio", type=float, default=0.20,
+        help="J/B speed excitation amplitude ratio, default 0.20",
+    )
+    parser.add_argument(
+        "--jb-hz", type=float, default=3.0,
+        help="J/B speed excitation frequency in Hz, default 3.0",
+    )
+    parser.add_argument(
+        "--apply-jb",
+        action="store_true",
+        help="apply accepted J/B to firmware RAM",
+    )
     parser.add_argument(
         "--rs-repeat-limit",
         type=float,
@@ -1259,6 +1301,16 @@ def parse_args():
         parser.error("Flux direction counts must be positive")
     if args.apply_flux and (args.skip_flux or not args.apply_rl):
         parser.error("--apply-flux requires --apply-rl and Flux identification")
+    if args.jb_count < 0:
+        parser.error("--jb-count must be non-negative")
+    if args.jb_count > 0 and (not flux_requested or not args.apply_flux):
+        parser.error("--jb-count requires --apply-rl, Flux identification and --apply-flux")
+    if args.apply_jb and args.jb_count == 0:
+        parser.error("--apply-jb requires a positive --jb-count")
+    if not 0.0 < args.jb_ratio < 1.0:
+        parser.error("--jb-ratio must be between 0 and 1 (exclusive)")
+    if not math.isfinite(args.jb_hz) or args.jb_hz <= 0.0:
+        parser.error("--jb-hz must be finite and positive")
     if args.vbus_min >= args.vbus_max:
         parser.error("--vbus-min must be less than --vbus-max")
     for name in (
@@ -1316,6 +1368,9 @@ def main():
             "rs_ls_count": args.rs_ls_count,
             "flux_forward_count": args.flux_forward_count,
             "flux_reverse_count": args.flux_reverse_count,
+            "jb_count": args.jb_count,
+            "jb_ratio": args.jb_ratio,
+            "jb_hz": args.jb_hz,
             "rs_repeatability_limit": args.rs_repeat_limit,
             "ls_repeatability_limit": args.ls_repeat_limit,
             "flux_repeat_limit": args.flux_repeat_limit,
@@ -1324,6 +1379,7 @@ def main():
             "apply_rl": args.apply_rl,
             "skip_flux": args.skip_flux,
             "apply_flux": args.apply_flux,
+            "apply_jb": args.apply_jb,
             "interval_s": args.interval,
             "max_lost": args.max_lost,
             "flux_current_rate_hz": FAST_RATE_HZ,
@@ -1345,6 +1401,11 @@ def main():
             "results": [],
             "applied": False,
         },
+        "jb": {
+            "requested": args.jb_count > 0,
+            "results": [],
+            "applied": False,
+        },
         "status": "running",
     }
     client = None
@@ -1356,6 +1417,7 @@ def main():
         f" Rs/Ls={args.rs_ls_count},"
         f" Flux={args.flux_forward_count} forward +"
         f" {args.flux_reverse_count} reverse"
+        f", J/B={args.jb_count}"
     )
     print("RAM updates are temporary; reset restores compiled parameters.")
 
@@ -1455,6 +1517,35 @@ def main():
 
                 elif args.skip_flux:
                     record["flux"]["skip_reason"] = "disabled by --skip-flux"
+
+                if args.jb_count > 0:
+                    client.parameter_write(
+                        PARAM_IDENT_JB_EXCITE_RATIO, PARAM_FLOAT, args.jb_ratio
+                    )
+                    client.parameter_write(
+                        PARAM_IDENT_JB_EXCITE_HZ, PARAM_FLOAT, args.jb_hz
+                    )
+                    client.configure_plot()
+                    print(f"\nJ/B identification: {args.jb_count} run(s)")
+                    run_group(
+                        client,
+                        IDENT_JB,
+                        args.jb_count,
+                        args,
+                        record["jb"]["results"],
+                    )
+                    client.stop_plot()
+                    if (
+                        len(record["jb"]["results"]) != args.jb_count
+                        or not all(item.get("valid") for item in record["jb"]["results"])
+                    ):
+                        raise QualityFailure("one or more J/B runs failed")
+                    if args.apply_jb:
+                        client.apply()
+                        record["jb"]["applied"] = True
+                        print("J/B applied to firmware RAM.")
+                    else:
+                        print("J/B not applied; results remain in the JSON log.")
 
                 record["status"] = "completed"
             finally:

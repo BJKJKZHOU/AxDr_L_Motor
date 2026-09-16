@@ -556,7 +556,7 @@ objects:
     type: f32
     access: rw
     binding: Ident_JB_Excite_Ratio
-    description: "J/B辨识正弦机械速度激励幅值相对自动工作点速度的比例；默认0.10。"
+    description: "J/B辨识正弦机械速度激励幅值相对自动工作点速度的比例；默认0.20。"
     write_state: disabled
     range: { min: 0.0, exclusive_min: true, max: 1.0, exclusive_max: true }
 
@@ -566,7 +566,7 @@ objects:
     access: rw
     binding: Ident_JB_Excite_Hz
     unit: Hz
-    description: "J/B辨识正弦机械速度激励频率；默认5 Hz。"
+    description: "J/B辨识正弦机械速度激励频率；默认3 Hz。"
     write_state: disabled
     range: { min: 0.0, exclusive_min: true }
 
