@@ -63,6 +63,8 @@
 { PARAM_IDENT_JB_VALID, PARAM_U8, NULL, 0.0f, 1.0f, 0U },
 { PARAM_IDENT_J_RESULT, PARAM_FLOAT, NULL, -INFINITY, INFINITY, 0U },
 { PARAM_IDENT_B_RESULT, PARAM_FLOAT, NULL, -INFINITY, INFINITY, 0U },
+{ PARAM_IDENT_JB_EXCITE_RATIO, PARAM_FLOAT, &Ident_JB_Excite_Ratio, 0.0f, 1.0f, PARAM_FLAG_HOST_WRITE | PARAM_FLAG_DISABLED_ONLY },
+{ PARAM_IDENT_JB_EXCITE_HZ, PARAM_FLOAT, &Ident_JB_Excite_Hz, 0.0f, INFINITY, PARAM_FLAG_HOST_WRITE | PARAM_FLAG_DISABLED_ONLY },
 
 #elif defined(PARAM_GENERATE_VALIDATE)
 case PARAM_MOTOR_RS:
@@ -176,6 +178,21 @@ case PARAM_MOTOR_STATE:
 case PARAM_IDENT_IF_CURRENT:
     if ((Number <= 0.0f) ||
         (Number > (float)User_Lim.I_Max))
+    {
+        return PARAM_ERR_VALUE;
+    }
+    break;
+
+case PARAM_IDENT_JB_EXCITE_RATIO:
+    if ((Number <= 0.0f) ||
+        (Number >= 1.0f))
+    {
+        return PARAM_ERR_VALUE;
+    }
+    break;
+
+case PARAM_IDENT_JB_EXCITE_HZ:
+    if ((Number <= 0.0f))
     {
         return PARAM_ERR_VALUE;
     }
