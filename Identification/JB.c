@@ -47,7 +47,7 @@
 #define JB_EXCITE_HZ           5.0f
 #define JB_EXCITE_CYCLES       3U
 #define JB_MEASURE_CYCLES      10U
-#define JB_IQ_EXCITE_RATIO     0.10f
+#define JB_WM_EXCITE_RATIO     0.10f
 #define JB_IQ_CONTROL_RATIO    0.35f
 #define JB_FINISH_IQ_SLEW_A_S  20.0f
 #define JB_FINISH_CNT          ((uint32_t)(0.10f / CUR_TS + 0.5f))
@@ -60,7 +60,6 @@ typedef enum
     JB_OBS_WAIT,
     JB_HANDOVER_BLEND,
     JB_HANDOVER_CURRENT,
-    JB_SETTLE,
     JB_EXCITE,
     JB_MEASURE,
     JB_FINISH,
@@ -99,11 +98,11 @@ static JB_DFT_T DFT = { 0 };
 
 static float We_Target = 0.0f;
 static float We_Startup = 0.0f;
+static float Wm_Bias = 0.0f;
+static float Wm_Amp = 0.0f;
 static volatile float We_Obs_F = 0.0f;
 static volatile float Obs_Id_Ref = 0.0f;
 static volatile float Obs_Iq_Ref = 0.0f;
-static float Iq_Bias = 0.0f;
-static float Iq_Excite = 0.0f;
 static float Excite_Phase = 0.0f;
 static float Excite_Phase_Step = 0.0f;
 static uint32_t Samples_Per_Cycle = 0U;
@@ -126,19 +125,6 @@ static JB_Slow_Snapshot_T Slow_Snapshot = { 0 };
 static float Abs_Value(float Value)
 {
     return (Value >= 0.0f) ? Value : -Value;
-}
-
-static float Clamp(float Value, float Min, float Max)
-{
-    if (Value < Min)
-    {
-        return Min;
-    }
-    if (Value > Max)
-    {
-        return Max;
-    }
-    return Value;
 }
 
 static void JB_Fail(void)
@@ -315,7 +301,7 @@ static void Open_Supervision_Run(JB_State_e State_Local,
     }
 }
 
-static void Speed_Control_Run(void)
+static void Speed_Control_Run(float We_Ref)
 {
     float I_Max;
 
@@ -325,7 +311,7 @@ static void Speed_Control_Run(void)
         return;
     }
 
-    Obs_Iq_Ref = Speed_Loop(We_Target,
+    Obs_Iq_Ref = Speed_Loop(We_Ref,
                             Ident_PLL.State.We,
                             -I_Max,
                             I_Max);
@@ -335,13 +321,13 @@ static void Excitation_Run(bool Measure)
 {
     float Sin;
     float Cos;
-    float I_Max;
+    float Wm_Ref;
     float Wm;
     uint32_t Limit;
 
     SinCos(Excite_Phase, &Sin, &Cos);
-    I_Max = JB_IQ_CONTROL_RATIO * Start_Para.Iq_Max_A;
-    Obs_Iq_Ref = Clamp(Iq_Bias + Iq_Excite * Sin, -I_Max, I_Max);
+    Wm_Ref = Wm_Bias + Wm_Amp * Sin;
+    Speed_Control_Run((float)Motor_Para.Pp * Wm_Ref);
 
     if (Measure)
     {
@@ -384,7 +370,8 @@ static void Excitation_Run(bool Measure)
 bool JB_Start(float Wm_Target)
 {
     const Ident_Envelope_T *Envelope;
-    float We_Max;
+    float Wm_Max;
+    float Wm_Abs;
     float We_Abs;
     float Sign;
 
@@ -395,16 +382,20 @@ bool JB_Start(float Wm_Target)
     DFT_Reset();
 
     Envelope = Identification_Envelope_Get();
-    We_Max = (float)Motor_Para.Pp * Motor_Wm_Limit_Effective_Get();
+    Wm_Max = Motor_Wm_Limit_Effective_Get();
+    Wm_Abs = Abs_Value(Wm_Target);
     We_Target = (float)Motor_Para.Pp * Wm_Target;
     We_Abs = Abs_Value(We_Target);
+    Wm_Bias = Wm_Target;
+    Wm_Amp = JB_WM_EXCITE_RATIO * Wm_Abs;
 
     if ((Motor_Para.Pp == 0U) ||
         !__builtin_isfinite(Motor_Para.Rs) || (Motor_Para.Rs <= 0.0f) ||
         !__builtin_isfinite(Motor_Para.Ld) || (Motor_Para.Ld <= 0.0f) ||
         !__builtin_isfinite(Motor_Para.Flux) || (Motor_Para.Flux <= 0.0f) ||
-        !__builtin_isfinite(We_Target) || (We_Abs <= 0.0f) ||
-        !__builtin_isfinite(We_Max) || (We_Abs > We_Max) ||
+        !__builtin_isfinite(Wm_Target) || (Wm_Abs <= 0.0f) ||
+        !__builtin_isfinite(Wm_Max) || (Wm_Abs + Wm_Amp > Wm_Max) ||
+        !__builtin_isfinite(We_Target) ||
         !Motor_IF_Para_Build(ADC.Vbus_V, Envelope->I_Max, &Start_Para) ||
         (We_Abs < Start_Para.We_Base))
     {
@@ -439,7 +430,6 @@ bool JB_Start(float Wm_Target)
     }
 
     Excite_Phase_Step = TWO_PI_F / (float)Samples_Per_Cycle;
-    Iq_Excite = JB_IQ_EXCITE_RATIO * Start_Para.Iq_Max_A;
 
     State = JB_ALIGN;
     Handover_Ready_Cnt = 0U;
@@ -451,7 +441,6 @@ bool JB_Start(float Wm_Target)
     Obs_Control = false;
     Obs_Id_Ref = 0.0f;
     Obs_Iq_Ref = 0.0f;
-    Iq_Bias = 0.0f;
     Excite_Phase = 0.0f;
     Phase_Samples = 0U;
     We_Obs_F = 0.0f;
@@ -497,16 +486,9 @@ void JB_Control(void)
 
     if (State == JB_HANDOVER_CURRENT)
     {
-        Speed_Control_Run();
-        return;
-    }
-
-    if (State == JB_SETTLE)
-    {
-        Speed_Control_Run();
-        if (++Settle_Cnt >= JB_SETTLE_CNT)
+        Speed_Control_Run(We_Target);
+        if ((Obs_Id_Ref == 0.0f) && (++Settle_Cnt >= JB_SETTLE_CNT))
         {
-            Iq_Bias = Obs_Iq_Ref;
             Excite_Phase = 0.0f;
             Phase_Samples = 0U;
             State = JB_EXCITE;
@@ -661,6 +643,7 @@ Motor_Fast_Mode_e JB_Fast_Run(float Ia_A,
                                  Obs_Iq_Ref,
                                  -I_Max,
                                  I_Max);
+                Settle_Cnt = 0U;
                 Obs_Control = true;
                 State = JB_HANDOVER_CURRENT;
             }
@@ -674,11 +657,6 @@ Motor_Fast_Mode_e JB_Fast_Run(float Ia_A,
         Obs_Id_Ref = Handover_Ramp_Zero(Obs_Id_Ref, JB_HANDOVER_ID_STEP);
         *Id_Ref = Obs_Id_Ref;
         *Iq_Ref = Obs_Iq_Ref;
-        if (Obs_Id_Ref == 0.0f)
-        {
-            Settle_Cnt = 0U;
-            State = JB_SETTLE;
-        }
         return FAST_CURRENT;
     }
 
@@ -721,8 +699,7 @@ Motor_Fast_Mode_e JB_Fast_Run(float Ia_A,
         return FAST_CURRENT;
     }
 
-    if (Obs_Control && ((State == JB_SETTLE) ||
-                        (State == JB_EXCITE) ||
+    if (Obs_Control && ((State == JB_EXCITE) ||
                         (State == JB_MEASURE)))
     {
         *Theta_e = Theta_Obs;
