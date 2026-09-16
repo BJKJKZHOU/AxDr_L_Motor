@@ -57,7 +57,7 @@ typedef enum
 {
     JB_IDLE = 0,
     JB_ALIGN,
-    JB_IF,
+    JB_IF_RUN,
     JB_OBS_WAIT,
     JB_HANDOVER_BLEND,
     JB_HANDOVER_CURRENT,
@@ -489,7 +489,7 @@ void JB_Control(void)
         return;
     }
 
-    if ((State == JB_IF) || (State == JB_OBS_WAIT) ||
+    if ((State == JB_IF_RUN) || (State == JB_OBS_WAIT) ||
         (State == JB_HANDOVER_BLEND))
     {
         if (!Slow_Snapshot_Read(&Snapshot, &State_Local))
@@ -581,7 +581,7 @@ Motor_Fast_Mode_e JB_Fast_Run(float Ia_A,
             We_Obs_F = 0.0f;
             Model_U_Valid = false;
             PLL_Active = false;
-            State = JB_IF;
+            State = JB_IF_RUN;
         }
         return FAST_CURRENT;
     }
@@ -589,7 +589,7 @@ Motor_Fast_Mode_e JB_Fast_Run(float Ia_A,
     Theta_Obs = Ident_PLL.State.Theta;
     Observer_Runtime_Run(Ialpha, Ibeta, &Theta_Obs);
 
-    if ((State == JB_IF) || (State == JB_OBS_WAIT) ||
+    if ((State == JB_IF_RUN) || (State == JB_OBS_WAIT) ||
         (State == JB_HANDOVER_BLEND))
     {
         Theta_Open = JB_IF.State.Theta_e;
@@ -599,7 +599,7 @@ Motor_Fast_Mode_e JB_Fast_Run(float Ia_A,
         Ud_Open = Motor_Run.Ualpha * Cos + Motor_Run.Ubeta * Sin;
         Uq_Open = -Motor_Run.Ualpha * Sin + Motor_Run.Ubeta * Cos;
 
-        if (State == JB_IF)
+        if (State == JB_IF_RUN)
         {
             JB_IF.Para.Acc = Abs_Value(We_Startup) / JB_OPEN_ACCEL_S *
                              ((Abs_Value(JB_IF.State.We) < 0.50f * Start_Para.We_Base) ?
@@ -624,14 +624,14 @@ Motor_Fast_Mode_e JB_Fast_Run(float Ia_A,
         Model_U_Valid = true;
         Slow_Snapshot_Publish(Theta_Open);
 
-        if ((State == JB_IF) && (JB_IF.State.Mode == IF_HOLD))
+        if ((State == JB_IF_RUN) && (JB_IF.State.Mode == IF_HOLD))
         {
             Handover_Ready_Cnt = 0U;
             Handover_Compare_Reset(&Handover);
             State = JB_OBS_WAIT;
         }
 
-        if ((State == JB_IF) || (State == JB_OBS_WAIT))
+        if ((State == JB_IF_RUN) || (State == JB_OBS_WAIT))
         {
             *Theta_e = Theta_Open;
             *Id_Ref = Id_Open;
