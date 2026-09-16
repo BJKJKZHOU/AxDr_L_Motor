@@ -43,6 +43,7 @@
 #define JB_HANDOVER_PLL_RMS    0.08f
 #define JB_HANDOVER_THETA_RMS  0.20f
 
+#define JB_WORK_RATIO          0.30f
 #define JB_SETTLE_CNT          ((uint32_t)(0.50f / SPD_TS + 0.5f))
 #define JB_EXCITE_HZ           5.0f
 #define JB_EXCITE_CYCLES       3U
@@ -370,10 +371,10 @@ static void Excitation_Run(bool Measure)
 bool JB_Start(float Wm_Target)
 {
     const Ident_Envelope_T *Envelope;
-    float Wm_Max;
-    float Wm_Abs;
-    float We_Abs;
-    float Sign;
+    float We_Max;
+    float We_Work_Max;
+
+    (void)Wm_Target;
 
     Result = (JB_Result_T){ 0 };
     Start_Para = (Motor_IF_Para_T){ 0 };
@@ -382,29 +383,44 @@ bool JB_Start(float Wm_Target)
     DFT_Reset();
 
     Envelope = Identification_Envelope_Get();
-    Wm_Max = Motor_Wm_Limit_Effective_Get();
-    Wm_Abs = Abs_Value(Wm_Target);
-    We_Target = (float)Motor_Para.Pp * Wm_Target;
-    We_Abs = Abs_Value(We_Target);
-    Wm_Bias = Wm_Target;
-    Wm_Amp = JB_WM_EXCITE_RATIO * Wm_Abs;
+    We_Max = (float)Motor_Para.Pp * Motor_Wm_Limit_Effective_Get();
 
     if ((Motor_Para.Pp == 0U) ||
         !__builtin_isfinite(Motor_Para.Rs) || (Motor_Para.Rs <= 0.0f) ||
         !__builtin_isfinite(Motor_Para.Ld) || (Motor_Para.Ld <= 0.0f) ||
         !__builtin_isfinite(Motor_Para.Flux) || (Motor_Para.Flux <= 0.0f) ||
-        !__builtin_isfinite(Wm_Target) || (Wm_Abs <= 0.0f) ||
-        !__builtin_isfinite(Wm_Max) || (Wm_Abs + Wm_Amp > Wm_Max) ||
-        !__builtin_isfinite(We_Target) ||
-        !Motor_IF_Para_Build(ADC.Vbus_V, Envelope->I_Max, &Start_Para) ||
-        (We_Abs < Start_Para.We_Base))
+        !__builtin_isfinite(We_Max) || (We_Max <= 0.0f) ||
+        !__builtin_isfinite(Envelope->U_Available) || (Envelope->U_Available <= 0.0f) ||
+        !Motor_IF_Para_Build(ADC.Vbus_V, Envelope->I_Max, &Start_Para))
     {
         State = JB_FAILED;
         return false;
     }
 
-    Sign = (We_Target < 0.0f) ? -1.0f : 1.0f;
-    We_Startup = Sign * Start_Para.We_Base;
+    /* Reuse the validated Flux observer work point. J/B does not take a Host
+     * speed target: the bias speed is derived from the known flux and current
+     * available phase voltage. Leave headroom for the sinusoidal speed swing. */
+    We_Target = JB_WORK_RATIO * Envelope->U_Available / Motor_Para.Flux;
+    We_Work_Max = We_Max / (1.0f + JB_WM_EXCITE_RATIO);
+    if (We_Target < Start_Para.We_Base)
+    {
+        We_Target = Start_Para.We_Base;
+    }
+    if (We_Target > We_Work_Max)
+    {
+        We_Target = We_Work_Max;
+    }
+    if (!__builtin_isfinite(We_Target) ||
+        (We_Target < Start_Para.We_Base) ||
+        (We_Target <= 0.0f))
+    {
+        State = JB_FAILED;
+        return false;
+    }
+
+    We_Startup = Start_Para.We_Base;
+    Wm_Bias = We_Target / (float)Motor_Para.Pp;
+    Wm_Amp = JB_WM_EXCITE_RATIO * Wm_Bias;
 
     JB_IF.Para.Iq_Min_A = Start_Para.Iq_Start_A;
     JB_IF.Para.Iq_Max_A = Start_Para.Iq_Max_A;
