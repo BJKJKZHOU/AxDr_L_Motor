@@ -139,7 +139,7 @@ typedef enum
     /* Motor_Cmd.Te_Target: Torque模式的用户机械转矩目标。 */
     PARAM_TARGET_TORQUE = 0x0702U,
 
-    /* Motor_Cmd.Wm_Target: Speed、Open-loop、Sensorless、Flux及J/B辨识流程使用的用户机械速度目标。 */
+    /* Motor_Cmd.Wm_Target: Speed、Open-loop、Sensorless及Flux辨识流程使用的用户机械速度目标。 */
     PARAM_TARGET_SPEED = 0x0703U,
 
     /* Motor_Cmd.Position_Target: Position模式的用户机械位置目标；wire格式固定为little-endian int32 Turn + float32 Theta，一次写入。 */
@@ -189,6 +189,12 @@ typedef enum
 
     /* Identification_B_Get(): 最近一次J/B辨识得到的粘性阻尼B。 */
     PARAM_IDENT_B_RESULT = 0x0922U,
+
+    /* Ident_JB_Excite_Ratio: J/B辨识正弦机械速度激励幅值相对自动工作点速度的比例；默认0.10。 */
+    PARAM_IDENT_JB_EXCITE_RATIO = 0x0923U,
+
+    /* Ident_JB_Excite_Hz: J/B辨识正弦机械速度激励频率；默认5 Hz。 */
+    PARAM_IDENT_JB_EXCITE_HZ = 0x0924U,
 
     /* MOTOR_CMD_ENABLE: 使能电机功率级。 */
     ACTION_MOTOR_ENABLE = 0x1001U,
