@@ -64,6 +64,11 @@ extern PLL_T Ident_PLL;
  * safety limit. Flux_Start validates it against the effective I_Max. */
 extern volatile float Ident_IF_Current_A;
 
+/* Host-configured J/B experiment settings. The work-point speed remains an
+ * internal automatic policy derived from the validated Flux 0.30 ratio. */
+extern volatile float Ident_JB_Excite_Ratio;
+extern volatile float Ident_JB_Excite_Hz;
+
 bool Identification_Start(Ident_Mode_e Mode, float Wm_Target);
 void Identification_Abort(void);
 void Identification_Control(void);
