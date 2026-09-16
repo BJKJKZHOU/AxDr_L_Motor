@@ -628,6 +628,8 @@ Motor_Fast_Mode_e JB_Fast_Run(float Ia_A,
 
         if ((State == JB_IF_RUN) && (JB_IF.State.Mode == IF_HOLD))
         {
+            JB_IF.Para.Acc = Abs_Value(We_Target) / JB_OPEN_ACCEL_S;
+            IF_Target_Set(&JB_IF, We_Target);
             Handover_Ready_Cnt = 0U;
             Handover_Compare_Reset(&Handover);
             State = JB_OBS_WAIT;
