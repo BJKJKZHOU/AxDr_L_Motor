@@ -30,26 +30,39 @@ static void (*Drv_Config)(void) = 0;
 static void (*Drv_Start)(void) = 0;
 static void (*Drv_IRQHandler)(void) = 0;
 
-static bool Driver_Bind(Encoder_Type_e Type)
+static bool SPI_Driver_Bind(Encoder_SPI_Type_e Type)
 {
     switch (Type)
     {
-        case ENC_MT6816:
+        case ENC_SPI_MT6816:
             Drv_Config = MT6816_Config;
             Drv_Start = MT6816_Start;
             Drv_IRQHandler = MT6816_IRQHandler;
             return true;
 
-        case ENC_MT6835:
+        case ENC_SPI_MT6835:
             Drv_Config = MT6835_Config;
             Drv_Start = MT6835_Start;
             Drv_IRQHandler = MT6835_IRQHandler;
             return true;
 
         default:
-            Drv_Config = 0;
-            Drv_Start = 0;
-            Drv_IRQHandler = 0;
+            return false;
+    }
+}
+
+static bool Driver_Bind(void)
+{
+    Drv_Config = 0;
+    Drv_Start = 0;
+    Drv_IRQHandler = 0;
+
+    switch ((Encoder_Protocol_e)Encoder_Config.Protocol)
+    {
+        case ENC_PROTOCOL_SPI:
+            return SPI_Driver_Bind((Encoder_SPI_Type_e)Encoder_Config.SPI_Type);
+
+        default:
             return false;
     }
 }
@@ -111,7 +124,15 @@ void Encoder_DMA_Config(void)
 {
     Feedback_Reset();
 
-    if (!Driver_Bind((Encoder_Type_e)Encoder_Config.Type))
+    if ((Encoder_Protocol_e)Encoder_Config.Protocol == ENC_PROTOCOL_NONE)
+    {
+        Drv_Config = 0;
+        Drv_Start = 0;
+        Drv_IRQHandler = 0;
+        return;
+    }
+
+    if (!Driver_Bind())
     {
         Encoder.Fault = 1U;
         return;

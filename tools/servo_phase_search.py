@@ -2,9 +2,9 @@
 """Run servo phase search for an encoder motor over USB CDC.
 
 The current firmware exposes servo phase search through the Parameter/Action
-interface. Configure encoder/pole-pairs/search current while DISABLED, then use
-MOTOR_ENABLE + MOTOR_RUN in PHASE_SEARCH mode. MOTOR_RUN completes
-asynchronously when the phase search finishes.
+interface. Configure encoder protocol/SPI type/pole-pairs/search current while
+DISABLED, then use MOTOR_ENABLE + MOTOR_RUN in PHASE_SEARCH mode. MOTOR_RUN
+completes asynchronously when the phase search finishes.
 
 Servo phase search establishes a self-consistent encoder/FOC coordinate:
 encoder native direction -> Enc_Dir, aligned encoder zero -> Theta_Off, and
@@ -38,7 +38,8 @@ MOTOR_DISABLED = 0
 PARAM_I8 = 1
 base.PARAM_FORMAT[PARAM_I8] = "<b"
 
-ENCODER_TYPES = {
+ENC_PROTOCOL_SPI = 1
+ENCODER_SPI_TYPES = {
     "mt6816": 1,
     "mt6835": 2,
 }
@@ -76,8 +77,17 @@ class PhaseSearch(base.IdentificationClient):
                 )
 
     def configure(self):
-        encoder_type = ENCODER_TYPES[self.args.encoder]
-        self.parameter_write(base.PARAM_ENCODER_TYPE, base.PARAM_U8, encoder_type)
+        encoder_spi_type = ENCODER_SPI_TYPES[self.args.encoder]
+        self.parameter_write(
+            base.PARAM_ENCODER_PROTOCOL,
+            base.PARAM_U8,
+            ENC_PROTOCOL_SPI,
+        )
+        self.parameter_write(
+            base.PARAM_ENCODER_SPI_TYPE,
+            base.PARAM_U8,
+            encoder_spi_type,
+        )
         self.parameter_write(base.PARAM_MOTOR_PP, base.PARAM_U8, self.args.pole_pairs)
         self.parameter_write(base.PARAM_MOTOR_MODE, base.PARAM_U8, MODE_PHASE_SEARCH)
 
@@ -95,20 +105,32 @@ class PhaseSearch(base.IdentificationClient):
                 self.args.phase_current,
             )
 
-        encoder_readback = self.parameter_read(base.PARAM_ENCODER_TYPE, base.PARAM_U8)
+        protocol_readback = self.parameter_read(
+            base.PARAM_ENCODER_PROTOCOL,
+            base.PARAM_U8,
+        )
+        encoder_readback = self.parameter_read(
+            base.PARAM_ENCODER_SPI_TYPE,
+            base.PARAM_U8,
+        )
         pp_readback = self.parameter_read(base.PARAM_MOTOR_PP, base.PARAM_U8)
         phase_current = self.parameter_read(base.PARAM_PHASE_I_SEARCH, base.PARAM_FLOAT)
 
-        if encoder_readback != encoder_type:
+        if protocol_readback != ENC_PROTOCOL_SPI:
             raise RuntimeError(
-                f"encoder type readback {encoder_readback} != {encoder_type}"
+                f"encoder protocol readback {protocol_readback} != {ENC_PROTOCOL_SPI}"
+            )
+        if encoder_readback != encoder_spi_type:
+            raise RuntimeError(
+                f"encoder SPI type readback {encoder_readback} != {encoder_spi_type}"
             )
         if pp_readback != self.args.pole_pairs:
             raise RuntimeError(
                 f"pole-pairs readback {pp_readback} != {self.args.pole_pairs}"
             )
 
-        print(f"Encoder={self.args.encoder} ({encoder_readback})")
+        print(f"Encoder protocol=spi ({protocol_readback})")
+        print(f"SPI encoder={self.args.encoder} ({encoder_readback})")
         print(f"Pole pairs={pp_readback}")
         if self.args.current_limit is not None:
             print(f"User current limit={self.args.current_limit:.3f} A")
@@ -203,7 +225,7 @@ def parse_args():
         description="Run encoder servo phase search through Parameter/Action"
     )
     parser.add_argument("--port", required=True, help="STM32 USB CDC port")
-    parser.add_argument("--encoder", required=True, choices=tuple(ENCODER_TYPES))
+    parser.add_argument("--encoder", required=True, choices=tuple(ENCODER_SPI_TYPES))
     parser.add_argument("--pole-pairs", required=True, type=int)
     parser.add_argument(
         "--phase-current",

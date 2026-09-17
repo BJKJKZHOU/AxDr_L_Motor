@@ -36,11 +36,13 @@
 
 #define MOTOR_ENC_DIR_DEFAULT   1
 #define MOTOR_THETA_OFF_DEFAULT 0.0f
-#define ENCODER_TYPE_DEFAULT    ENC_MT6816
+#define ENCODER_PROTOCOL_DEFAULT ENC_PROTOCOL_SPI
+#define ENCODER_SPI_TYPE_DEFAULT ENC_SPI_MT6816
 
 #define ENCODER_CONFIG_DEFAULT                                                                                         \
     {                                                                                                                  \
-        .Type = ENCODER_TYPE_DEFAULT,                                                                                  \
+        .Protocol = ENCODER_PROTOCOL_DEFAULT,                                                                          \
+        .SPI_Type = ENCODER_SPI_TYPE_DEFAULT,                                                                          \
     }
 
 #define MOTOR_CAL_DEFAULT                                                                                              \
