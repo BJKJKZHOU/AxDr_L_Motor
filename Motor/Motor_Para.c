@@ -9,6 +9,7 @@
 
 #include "Current_Loop.h"
 #include "Math.h"
+#include "Mechanical_ESO.h"
 #include "Motion_Loop.h"
 #include "Motor_Cal.h"
 #include "control_params.h"
@@ -22,6 +23,8 @@
 #define MOTOR_IF_RAMP_TIME_S     6.0f
 
 Motor_Para_T Motor_Para = MOTOR_PARA_DEFAULT;
+float Control_Current_Bw_Hz = CUR_BW_HZ_DEFAULT;
+float Control_Speed_Bw_Hz = SPD_BW_HZ_DEFAULT;
 
 static float IF_We_RL_Base = MOTOR_IF_WE_RL_RATIO * MOTOR_RS_DEFAULT / MOTOR_LQ_DEFAULT;
 
@@ -43,13 +46,18 @@ static float IF_We_RL_Base = MOTOR_IF_WE_RL_RATIO * MOTOR_RS_DEFAULT / MOTOR_LQ_
  */
 void Motor_Para_Update(void)
 {
+    float Current_Wc;
+    float Speed_Wc;
     float Kt;
     float Den;
 
-    Id_Ctrl.Para.Kp = Motor_Para.Ld * CUR_WC_DEFAULT;
-    Id_Ctrl.Para.Ki = Motor_Para.Rs * CUR_WC_DEFAULT;
-    Iq_Ctrl.Para.Kp = Motor_Para.Lq * CUR_WC_DEFAULT;
-    Iq_Ctrl.Para.Ki = Motor_Para.Rs * CUR_WC_DEFAULT;
+    Current_Wc = TWO_PI_F * Control_Current_Bw_Hz;
+    Speed_Wc = TWO_PI_F * Control_Speed_Bw_Hz;
+
+    Id_Ctrl.Para.Kp = Motor_Para.Ld * Current_Wc;
+    Id_Ctrl.Para.Ki = Motor_Para.Rs * Current_Wc;
+    Iq_Ctrl.Para.Kp = Motor_Para.Lq * Current_Wc;
+    Iq_Ctrl.Para.Ki = Motor_Para.Rs * Current_Wc;
 
     IF_We_RL_Base = (Motor_Para.Lq > 0.0f) ?
                         MOTOR_IF_WE_RL_RATIO * Motor_Para.Rs / Motor_Para.Lq :
@@ -60,14 +68,19 @@ void Motor_Para_Update(void)
 
     if (Den > 0.0f)
     {
-        Speed_Ctrl.Para.Kp = Motor_Para.J * SPD_WC_DEFAULT / Den;
-        Speed_Ctrl.Para.Ki = Motor_Para.B * SPD_WC_DEFAULT / Den;
+        Speed_Ctrl.Para.Kp = Motor_Para.J * Speed_Wc / Den;
+        Speed_Ctrl.Para.Ki = Motor_Para.B * Speed_Wc / Den;
     }
     else
     {
         Speed_Ctrl.Para.Kp = 0.0f;
         Speed_Ctrl.Para.Ki = 0.0f;
     }
+
+    (void)Mechanical_ESO_Config(Motor_Para.J,
+                                Motor_Para.B,
+                                Kt,
+                                TWO_PI_F * Mechanical_ESO_Bw_Hz);
 }
 
 void Motor_Pp_Changed(void)

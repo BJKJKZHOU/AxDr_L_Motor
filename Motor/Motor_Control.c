@@ -9,6 +9,7 @@
 #include "Current_Loop.h"
 #include "Encoder.h"
 #include "Flux.h"
+#include "Mechanical_ESO.h"
 #include "Motor_ADC.h"
 #include "Motor_Cal.h"
 #include "Motor_Config.h"
@@ -112,7 +113,7 @@ static void Iq_Limit_Calc(float *Iq_Min, float *Iq_Max)
 
 static void Motion_State_Reset(void)
 {
-    Speed_Loop_State_Reset((float)Motor_Para.Pp * Motor_Run.Wm);
+    Speed_Loop_State_Reset((float)Motor_Para.Pp * Mechanical_ESO_Wm_Get());
     Wm_Ref = 0.0f;
     We_Ref = 0.0f;
     Trapezoid_Reset(&Motion_Ref, Motor_Run.Turn, Motor_Run.Theta_m, 0.0f);
@@ -238,7 +239,7 @@ void Motor_Control(void)
         Iq_Max = 0.0f;
     }
 
-    We_Fbk = (float)Motor_Para.Pp * Motor_Run.Wm;
+    We_Fbk = (float)Motor_Para.Pp * Mechanical_ESO_Wm_Get();
 
     switch (Motor_Mode)
     {
@@ -424,8 +425,19 @@ bool Motor_Encoder_Required(void)
     return Servo_Mode() || (Motor_Mode == PHASE_SEARCH);
 }
 
+bool Motor_Mechanical_ESO_Required(void)
+{
+    return Servo_Mode() &&
+           (Motor_State != DISABLED) &&
+           (Motor_Cal.Valid != 0U) &&
+           (Encoder.Ready != 0U) &&
+           (Encoder.Fault == 0U);
+}
+
 void Motor_Enable(void)
 {
+    float Kt;
+
     if (Motor_State != DISABLED)
     {
         return;
@@ -446,6 +458,16 @@ void Motor_Enable(void)
 
     if (Servo_Mode())
     {
+        Kt = 1.5f * (float)Motor_Para.Pp * Motor_Para.Flux;
+        if (!Mechanical_ESO_Config(Motor_Para.J,
+                                   Motor_Para.B,
+                                   Kt,
+                                   TWO_PI_F * Mechanical_ESO_Bw_Hz))
+        {
+            return;
+        }
+
+        Mechanical_ESO_Reset(Encoder_Position_Get(), Motor_Run.Wm);
         Motion_State_Reset();
         Current_Loop_State_Reset();
     }
@@ -622,6 +644,17 @@ bool Motor_Ident_Apply(void)
 
 float Motor_Wm_Get(void)
 {
+    /* The ESO stops updating while disabled; do not publish its held speed. */
+    if (Motor_State == DISABLED)
+    {
+        return 0.0f;
+    }
+
+    if (Servo_Mode() && (Mechanical_ESO.Para.Valid != 0U))
+    {
+        return Motor_Internal_To_User(Mechanical_ESO_Wm_Get());
+    }
+
     return Motor_Internal_To_User(Motor_Run.Wm);
 }
 

@@ -43,6 +43,18 @@ typedef enum
     /* Flux_PLL.State.We: 磁链观测器PLL估算的电角速度。 */
     PARAM_OBS_WE = 0x0021U,
 
+    /* Mechanical_ESO.State.Theta: Mechanical ESO估算的连续机械角度，仅用于诊断与波形对比。 */
+    PARAM_MECH_ESO_THETA = 0x0022U,
+
+    /* Mechanical_ESO.State.Wm: Mechanical ESO估算的机械角速度。 */
+    PARAM_MECH_ESO_WM = 0x0023U,
+
+    /* Mechanical_ESO.State.Td: Mechanical ESO估算的负载/扰动转矩，仅用于诊断。 */
+    PARAM_MECH_ESO_TD = 0x0024U,
+
+    /* Mechanical_ESO.State.Error: Mechanical ESO的位置观测误差Theta_meas-Theta_hat。 */
+    PARAM_MECH_ESO_ERROR = 0x0025U,
+
     /* Motor_Para.Pp: 电机极对数。 */
     PARAM_MOTOR_PP = 0x0101U,
 
@@ -117,6 +129,9 @@ typedef enum
 
     /* Motor_Wm_Get(): 当前用户机械坐标下的机械角速度反馈。 */
     PARAM_RUN_WM = 0x0502U,
+
+    /* Motor_Run.Wm: 编码器角度差分与低通得到的机械速度，仅用于诊断对比。 */
+    PARAM_ENCODER_WM = 0x0503U,
 
     /* Motor_Iq_Ref_Get(): 最近一次快环实际使用的q轴电流参考。 */
     PARAM_REF_IQ = 0x0510U,
@@ -198,6 +213,36 @@ typedef enum
 
     /* Ident_JB_Excite_Hz: J/B辨识正弦机械速度激励频率；默认3 Hz。 */
     PARAM_IDENT_JB_EXCITE_HZ = 0x0924U,
+
+    /* Control_Current_Bw_Hz: 电流环设计带宽；写入后由当前Rs/Ld/Lq重新计算Id/Iq PI增益。 */
+    PARAM_CTRL_CURRENT_BW_HZ = 0x0A01U,
+
+    /* Id_Ctrl.Para.Kp: 当前Id电流环实际使用的Kp。 */
+    PARAM_CTRL_ID_KP = 0x0A02U,
+
+    /* Id_Ctrl.Para.Ki: 当前Id电流环实际使用的Ki。 */
+    PARAM_CTRL_ID_KI = 0x0A03U,
+
+    /* Iq_Ctrl.Para.Kp: 当前Iq电流环实际使用的Kp。 */
+    PARAM_CTRL_IQ_KP = 0x0A04U,
+
+    /* Iq_Ctrl.Para.Ki: 当前Iq电流环实际使用的Ki。 */
+    PARAM_CTRL_IQ_KI = 0x0A05U,
+
+    /* Control_Speed_Bw_Hz: 速度环设计带宽；写入后由当前J/B/Flux/Pp重新计算速度PI增益。 */
+    PARAM_CTRL_SPEED_BW_HZ = 0x0A10U,
+
+    /* Speed_Ctrl.Para.Kp: 当前速度环实际使用的Kp。 */
+    PARAM_CTRL_SPEED_KP = 0x0A11U,
+
+    /* Speed_Ctrl.Para.Ki: 当前速度环实际使用的Ki。 */
+    PARAM_CTRL_SPEED_KI = 0x0A12U,
+
+    /* Pos_Ctrl.Para.Kp: 位置环P增益，单位为(rad/s)/rad。 */
+    PARAM_CTRL_POSITION_KP = 0x0A20U,
+
+    /* Mechanical_ESO_Bw_Hz: 20 kHz机械ESO设计带宽；写入后按当前J/B/Kt刷新Observer增益。 */
+    PARAM_CTRL_MECH_ESO_BW_HZ = 0x0A30U,
 
     /* MOTOR_CMD_ENABLE: 使能电机功率级。 */
     ACTION_MOTOR_ENABLE = 0x1001U,

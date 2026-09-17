@@ -9,10 +9,13 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#include "Current_Loop.h"
 #include "Encoder.h"
 #include "Flux.h"
 #include "Identification.h"
 #include "Math.h"
+#include "Mechanical_ESO.h"
+#include "Motion_Loop.h"
 #include "Motion_Type.h"
 #include "Motor_ADC.h"
 #include "Motor_Config.h"
@@ -23,8 +26,9 @@
 #include "Sensorless.h"
 #include "Servo_Phase.h"
 
-#define PARAM_FLAG_HOST_WRITE    (1U << 0)
-#define PARAM_FLAG_DISABLED_ONLY (1U << 1)
+#define PARAM_FLAG_HOST_WRITE       (1U << 0)
+#define PARAM_FLAG_DISABLED_ONLY    (1U << 1)
+#define PARAM_FLAG_NOT_RUNNING      (1U << 2)
 
 typedef struct
 {
@@ -213,6 +217,7 @@ static Parameter_Status_e Parameter_Write_Common(uint16_t Id,
 {
     const Parameter_Entry_T *Entry;
     Parameter_Status_e Status;
+    Motor_State_e State;
 
     Entry = Parameter_Find(Id);
     if (Entry == NULL)
@@ -230,8 +235,16 @@ static Parameter_Status_e Parameter_Write_Common(uint16_t Id,
         return PARAM_ERR_READ_ONLY;
     }
 
+    State = Motor_State_Get();
+
     if (((Entry->Flags & PARAM_FLAG_DISABLED_ONLY) != 0U) &&
-        (Motor_State_Get() != DISABLED))
+        (State != DISABLED))
+    {
+        return PARAM_ERR_STATE;
+    }
+
+    if (((Entry->Flags & PARAM_FLAG_NOT_RUNNING) != 0U) &&
+        (State == RUN))
     {
         return PARAM_ERR_STATE;
     }
