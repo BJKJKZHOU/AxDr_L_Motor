@@ -459,7 +459,10 @@ void Motor_Enable(void)
     if (Servo_Mode())
     {
         Kt = 1.5f * (float)Motor_Para.Pp * Motor_Para.Flux;
-        if (!Mechanical_ESO_Config(Motor_Para.J, Motor_Para.B, Kt, MECH_ESO_WO_DEFAULT))
+        if (!Mechanical_ESO_Config(Motor_Para.J,
+                                   Motor_Para.B,
+                                   Kt,
+                                   TWO_PI_F * Mechanical_ESO_Bw_Hz))
         {
             return;
         }

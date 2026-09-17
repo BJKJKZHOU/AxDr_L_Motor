@@ -8,6 +8,7 @@
 #include "control_params.h"
 
 Mechanical_ESO_T Mechanical_ESO = { 0 };
+float Mechanical_ESO_Bw_Hz = MECH_ESO_BW_HZ_DEFAULT;
 
 bool Mechanical_ESO_Config(float J, float B, float Kt, float Wo)
 {

@@ -199,6 +199,36 @@ typedef enum
     /* Ident_JB_Excite_Hz: J/B辨识正弦机械速度激励频率；默认3 Hz。 */
     PARAM_IDENT_JB_EXCITE_HZ = 0x0924U,
 
+    /* Control_Current_Bw_Hz: 电流环设计带宽；写入后由当前Rs/Ld/Lq重新计算Id/Iq PI增益。 */
+    PARAM_CTRL_CURRENT_BW_HZ = 0x0A01U,
+
+    /* Id_Ctrl.Para.Kp: 当前Id电流环实际使用的Kp。 */
+    PARAM_CTRL_ID_KP = 0x0A02U,
+
+    /* Id_Ctrl.Para.Ki: 当前Id电流环实际使用的Ki。 */
+    PARAM_CTRL_ID_KI = 0x0A03U,
+
+    /* Iq_Ctrl.Para.Kp: 当前Iq电流环实际使用的Kp。 */
+    PARAM_CTRL_IQ_KP = 0x0A04U,
+
+    /* Iq_Ctrl.Para.Ki: 当前Iq电流环实际使用的Ki。 */
+    PARAM_CTRL_IQ_KI = 0x0A05U,
+
+    /* Control_Speed_Bw_Hz: 速度环设计带宽；写入后由当前J/B/Flux/Pp重新计算速度PI增益。 */
+    PARAM_CTRL_SPEED_BW_HZ = 0x0A10U,
+
+    /* Speed_Ctrl.Para.Kp: 当前速度环实际使用的Kp。 */
+    PARAM_CTRL_SPEED_KP = 0x0A11U,
+
+    /* Speed_Ctrl.Para.Ki: 当前速度环实际使用的Ki。 */
+    PARAM_CTRL_SPEED_KI = 0x0A12U,
+
+    /* Pos_Ctrl.Para.Kp: 位置环P增益，单位为(rad/s)/rad。 */
+    PARAM_CTRL_POSITION_KP = 0x0A20U,
+
+    /* Mechanical_ESO_Bw_Hz: 20 kHz机械ESO设计带宽；写入后按当前J/B/Kt刷新Observer增益。 */
+    PARAM_CTRL_MECH_ESO_BW_HZ = 0x0A30U,
+
     /* MOTOR_CMD_ENABLE: 使能电机功率级。 */
     ACTION_MOTOR_ENABLE = 0x1001U,
 

@@ -34,6 +34,7 @@ CAST_C = {"u8": "uint8_t", "i8": "int8_t", "f32": "float", "i32": "int32_t", "u3
 ON_CHANGE_C = {
     "MOTOR_PARA": "Motor_Para_Update();",
     "MOTOR_PP": "Motor_Pp_Changed();",
+    "CONTROL_TUNING": "Motor_Para_Update();",
     "ENCODER_CONFIG": "Encoder_Config_Changed();",
 }
 
@@ -50,9 +51,11 @@ def load_objects():
     for name, obj in objects.items():
         if not isinstance(obj, dict):
             raise ValueError(f"{name}: object must be a mapping")
-        for field in ("id", "type", "access", "description"):
+        for field in ("id", "type", "access", "label", "description"):
             if field not in obj:
                 raise ValueError(f"{name}: missing {field}")
+        if not isinstance(obj["label"], str) or not obj["label"].strip():
+            raise ValueError(f"{name}: label must be a non-empty string")
         object_id = obj["id"]
         if not isinstance(object_id, int) or not 0 <= object_id <= 0xFFFF:
             raise ValueError(f"{name}: id must fit uint16")
@@ -77,6 +80,9 @@ def load_objects():
             raise ValueError(f"{name}: exactly one of binding/getter is required")
         if "getter" in obj and obj["access"] != "ro":
             raise ValueError(f"{name}: getter-backed object must be read-only")
+        write_state = obj.get("write_state")
+        if write_state is not None and write_state not in ("disabled", "not_running"):
+            raise ValueError(f"{name}: unsupported write_state {write_state}")
         on_change = obj.get("on_change")
         if on_change is not None and on_change not in ON_CHANGE_C:
             raise ValueError(f"{name}: unsupported on_change {on_change}")
@@ -124,6 +130,8 @@ def flags_expr(obj):
         flags.append("PARAM_FLAG_HOST_WRITE")
     if obj.get("write_state") == "disabled":
         flags.append("PARAM_FLAG_DISABLED_ONLY")
+    elif obj.get("write_state") == "not_running":
+        flags.append("PARAM_FLAG_NOT_RUNNING")
     return " | ".join(flags) if flags else "0U"
 
 

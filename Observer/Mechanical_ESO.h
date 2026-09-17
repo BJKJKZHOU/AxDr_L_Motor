@@ -38,6 +38,7 @@ typedef struct
 } Mechanical_ESO_T;
 
 extern Mechanical_ESO_T Mechanical_ESO;
+extern float Mechanical_ESO_Bw_Hz;
 
 bool Mechanical_ESO_Config(float J, float B, float Kt, float Wo);
 void Mechanical_ESO_Reset(float Theta, float Wm);

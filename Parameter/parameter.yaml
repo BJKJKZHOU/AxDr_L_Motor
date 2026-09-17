@@ -6,6 +6,9 @@
 # Value types: u8, i8, f32, i32, u32, position.
 # Actions use type: action, access: wo. Every valid WRITE is one trigger;
 # actions do not store a value and do not depend on value changes.
+#
+# label is the short human-facing engineering name exported to Host/UI.
+# PARAM_* symbols, numeric IDs and C bindings remain machine-facing names.
 
 schema: 1
 
@@ -15,6 +18,7 @@ objects:
     type: f32
     access: ro
     binding: ADC.Ia_A
+    label: Ia
     unit: A
     description: "ADC采样得到的A相电流反馈。"
     plot_scale: 0.001
@@ -24,6 +28,7 @@ objects:
     type: f32
     access: ro
     binding: ADC.Ib_A
+    label: Ib
     unit: A
     description: "ADC采样得到的B相电流反馈。"
     plot_scale: 0.001
@@ -33,6 +38,7 @@ objects:
     type: f32
     access: ro
     binding: ADC.Ic_A
+    label: Ic
     unit: A
     description: "由相电流采样链得到的C相电流反馈。"
     plot_scale: 0.001
@@ -42,6 +48,7 @@ objects:
     type: f32
     access: ro
     binding: ADC.Vbus_V
+    label: Vbus
     unit: V
     description: "直流母线电压采样值。"
     plot_scale: 0.0
@@ -51,6 +58,7 @@ objects:
     type: f32
     access: ro
     binding: Motor_Run.Id
+    label: Id
     unit: A
     description: "FOC Park变换后的d轴实际电流反馈。"
     plot_scale: 0.001
@@ -60,6 +68,7 @@ objects:
     type: f32
     access: ro
     binding: Motor_Run.Iq
+    label: Iq
     unit: A
     description: "FOC Park变换后的q轴实际电流反馈。"
     plot_scale: 0.001
@@ -69,6 +78,7 @@ objects:
     type: f32
     access: ro
     binding: Motor_Run.Ud
+    label: Ud
     unit: V
     description: "FOC电流环输出的d轴电压。"
     plot_scale: 0.001
@@ -78,6 +88,7 @@ objects:
     type: f32
     access: ro
     binding: Motor_Run.Uq
+    label: Uq
     unit: V
     description: "FOC电流环输出的q轴电压。"
     plot_scale: 0.001
@@ -87,6 +98,7 @@ objects:
     type: f32
     access: ro
     binding: Motor_Run.Theta_e
+    label: θe
     unit: rad
     description: "当前FOC实际使用的电角度。"
     plot_scale: 0.0002
@@ -96,6 +108,7 @@ objects:
     type: f32
     access: ro
     binding: Motor_Run.Ualpha
+    label: Uα
     unit: V
     description: "上一快环实际送入SVPWM的alpha轴电压命令。"
     plot_scale: 0.001
@@ -105,6 +118,7 @@ objects:
     type: f32
     access: ro
     binding: Motor_Run.Ubeta
+    label: Uβ
     unit: V
     description: "上一快环实际送入SVPWM的beta轴电压命令。"
     plot_scale: 0.001
@@ -114,6 +128,7 @@ objects:
     type: f32
     access: ro
     binding: Flux_PLL.State.Theta
+    label: θe Obs
     unit: rad
     description: "磁链观测器PLL估算的电角度。"
     plot_scale: 0.0002
@@ -123,6 +138,7 @@ objects:
     type: f32
     access: ro
     binding: Flux_PLL.State.We
+    label: ωe Obs
     unit: rad/s
     description: "磁链观测器PLL估算的电角速度。"
     plot_scale: 0.1
@@ -132,6 +148,7 @@ objects:
     type: u8
     access: rw
     binding: Motor_Para.Pp
+    label: Pole Pairs
     description: "电机极对数。"
     write_state: disabled
     range:
@@ -144,6 +161,7 @@ objects:
     type: f32
     access: rw
     binding: Motor_Para.Rs
+    label: Rs
     unit: ohm
     description: "电机相电阻Rs，供电机模型、电流控制及无感相关算法使用。"
     write_state: disabled
@@ -155,6 +173,7 @@ objects:
     type: f32
     access: rw
     binding: Motor_Para.Ld
+    label: Ld
     unit: H
     description: "电机d轴电感Ld。"
     write_state: disabled
@@ -166,6 +185,7 @@ objects:
     type: f32
     access: rw
     binding: Motor_Para.Lq
+    label: Lq
     unit: H
     description: "电机q轴电感Lq。"
     write_state: disabled
@@ -177,6 +197,7 @@ objects:
     type: f32
     access: rw
     binding: Motor_Para.Flux
+    label: λm
     unit: Wb
     description: "电机永磁磁链参数。"
     write_state: disabled
@@ -188,6 +209,7 @@ objects:
     type: f32
     access: rw
     binding: Motor_Para.J
+    label: J
     unit: kg*m^2
     description: "电机及等效负载转动惯量参数J。"
     write_state: disabled
@@ -199,6 +221,7 @@ objects:
     type: f32
     access: rw
     binding: Motor_Para.B
+    label: B
     description: "电机粘性阻尼/摩擦模型参数B。"
     write_state: disabled
     range: { min: 0.0 }
@@ -209,6 +232,7 @@ objects:
     type: i8
     access: rw
     binding: Motor_Config.Dir
+    label: Motor Direction
     description: "用户机械正方向与内部控制方向之间的符号映射，只允许-1或+1。"
     write_state: disabled
     allowed: [-1, 1]
@@ -218,6 +242,7 @@ objects:
     type: f32
     access: rw
     binding: User_Lim.I_Max
+    label: Imax
     unit: A
     description: "用户配置的最大相电流限制，实际限制不会超过硬件/固件Motor_Lim.I_Max。"
     write_state: disabled
@@ -228,6 +253,7 @@ objects:
     type: f32
     access: rw
     binding: User_Lim.Wm_Max
+    label: ωm Max
     unit: rad/s
     description: "用户配置的最大机械角速度限制，实际限制不会超过Motor_Lim.Wm_Max。"
     write_state: disabled
@@ -238,6 +264,7 @@ objects:
     type: f32
     access: ro
     getter: Motor_I_Limit_Effective_Get
+    label: Imax Active
     unit: A
     description: "当前控制实际使用的相电流上限。"
 
@@ -246,6 +273,7 @@ objects:
     type: f32
     access: ro
     getter: Motor_Wm_Limit_Effective_Get
+    label: ωm Max Active
     unit: rad/s
     description: "当前控制实际使用的机械速度上限，包含Motor、User与Motion限制。"
 
@@ -254,6 +282,7 @@ objects:
     type: u8
     access: rw
     binding: Encoder_Config.Protocol
+    label: Encoder Protocol
     description: "运行前选择的编码器通信协议。"
     write_state: disabled
     allowed_symbols: [ENC_PROTOCOL_NONE, ENC_PROTOCOL_SPI]
@@ -264,6 +293,7 @@ objects:
     type: u8
     access: ro
     binding: Encoder.Ready
+    label: Encoder Ready
     description: "编码器驱动是否已经完成初始化并可供控制使用。"
     range: { min: 0, max: 1 }
 
@@ -272,6 +302,7 @@ objects:
     type: u8
     access: ro
     binding: Encoder.Valid
+    label: Encoder Valid
     description: "当前编码器反馈数据是否有效。"
     range: { min: 0, max: 1 }
 
@@ -280,6 +311,7 @@ objects:
     type: u8
     access: ro
     binding: Encoder.Fault
+    label: Encoder Fault
     description: "当前编码器故障标志。"
     range: { min: 0, max: 1 }
 
@@ -288,6 +320,7 @@ objects:
     type: u8
     access: rw
     binding: Encoder_Config.SPI_Type
+    label: SPI Encoder
     description: "SPI协议下选择的编码器芯片协议。"
     write_state: disabled
     allowed_symbols: [ENC_SPI_MT6816, ENC_SPI_MT6835]
@@ -298,6 +331,7 @@ objects:
     type: f32
     access: rw
     binding: Servo_Phase_Config.I_Search_A
+    label: Phase Search Current
     unit: A
     description: "伺服寻相过程使用的持续寻相电流。"
     write_state: disabled
@@ -308,6 +342,7 @@ objects:
     type: u8
     access: ro
     binding: Motor_Cal.Valid
+    label: Calibration Valid
     description: "当前伺服相位/编码器校准结果是否有效。"
     range: { min: 0, max: 1 }
 
@@ -316,6 +351,7 @@ objects:
     type: i8
     access: ro
     binding: Motor_Cal.Enc_Dir
+    label: Encoder Direction
     description: "寻相得到的编码器方向符号，按工程约定用于机械方向对齐。"
     range: { min: -1, max: 1 }
 
@@ -324,6 +360,7 @@ objects:
     type: f32
     access: ro
     binding: Motor_Cal.Theta_Off
+    label: θe Offset
     unit: rad
     description: "寻相/校准得到的编码器到电角度的零位偏置。"
 
@@ -332,6 +369,7 @@ objects:
     type: f32
     access: ro
     getter: Servo_Phase_Theta_Off_Error_Get
+    label: Phase Offset Error
     unit: rad
     description: "最近一次伺服寻相正反扫描得到的电角零偏一致性误差。"
 
@@ -340,6 +378,7 @@ objects:
     type: f32
     access: ro
     getter: Servo_Phase_Verify_Move_Get
+    label: Phase Verify Move
     unit: rad
     description: "最近一次伺服寻相最终正Iq方向验证得到的机械位移。"
 
@@ -348,6 +387,7 @@ objects:
     type: position
     access: ro
     getter: Parameter_Run_Position_Get
+    label: Position
     unit: turn+rad
     description: "当前用户机械坐标下的位置反馈。"
 
@@ -356,6 +396,7 @@ objects:
     type: f32
     access: ro
     getter: Motor_Wm_Get
+    label: ωm
     unit: rad/s
     description: "当前用户机械坐标下的机械角速度反馈。"
 
@@ -364,6 +405,7 @@ objects:
     type: f32
     access: ro
     getter: Motor_Iq_Ref_Get
+    label: Iq Ref
     unit: A
     description: "最近一次快环实际使用的q轴电流参考。"
 
@@ -372,6 +414,7 @@ objects:
     type: f32
     access: ro
     getter: Motor_Wm_Ref_Get
+    label: ωm Ref
     unit: rad/s
     description: "当前速度控制实际使用的用户机械速度参考。"
 
@@ -380,6 +423,7 @@ objects:
     type: position
     access: ro
     getter: Motor_Position_Ref_Get
+    label: Position Ref
     unit: turn+rad
     description: "当前位置轨迹实际使用的用户机械位置参考。"
 
@@ -388,6 +432,7 @@ objects:
     type: f32
     access: rw
     binding: Motion_Config.Wm_Max
+    label: Max Speed
     unit: rad/s
     description: "运动规划器允许使用的最大机械角速度。"
     range: { min: 0.0, max_bindings: [User_Lim.Wm_Max, Motor_Lim.Wm_Max] }
@@ -397,6 +442,7 @@ objects:
     type: f32
     access: rw
     binding: Motion_Config.Wm_Acc
+    label: Acceleration
     unit: rad/s^2
     description: "运动规划器机械加速度限制，可在运行期间修改。"
     range: { min: 0.0, exclusive_min: true }
@@ -406,6 +452,7 @@ objects:
     type: f32
     access: rw
     binding: Motion_Config.Wm_Dec
+    label: Deceleration
     unit: rad/s^2
     description: "运动规划器机械减速度限制，可在运行期间修改。"
     range: { min: 0.0, exclusive_min: true }
@@ -415,6 +462,7 @@ objects:
     type: u8
     access: rw
     binding: Motor_Mode
+    label: Mode
     description: "当前选择的电机控制模式；与TORQUE/SPEED/POSITION/OPEN_LOOP/IDENT/SENSORLESS_SPEED/PHASE_SEARCH对应。"
     write_state: disabled
     allowed_symbols: [TORQUE, SPEED, POSITION, OPEN_LOOP, IDENT, SENSORLESS_SPEED, PHASE_SEARCH]
@@ -424,6 +472,7 @@ objects:
     type: f32
     access: rw
     binding: Motor_Cmd.Te_Target
+    label: Torque Target
     unit: N*m
     description: "Torque模式的用户机械转矩目标。"
 
@@ -432,6 +481,7 @@ objects:
     type: f32
     access: rw
     binding: Motor_Cmd.Wm_Target
+    label: Speed Target
     unit: rad/s
     description: "Speed、Open-loop、Sensorless及Flux辨识流程使用的用户机械速度目标。"
 
@@ -440,6 +490,7 @@ objects:
     type: position
     access: rw
     binding: Motor_Cmd.Position_Target
+    label: Position Target
     unit: turn+rad
     description: "Position模式的用户机械位置目标；wire格式固定为little-endian int32 Turn + float32 Theta，一次写入。"
 
@@ -448,6 +499,7 @@ objects:
     type: u8
     access: ro
     getter: Motor_State_Get
+    label: Motor State
     description: "电机顶级生命周期状态，只读：DISABLED、ENABLED或RUN。状态迁移通过Action完成。"
     allowed_symbols: [DISABLED, ENABLED, RUN]
 
@@ -456,6 +508,7 @@ objects:
     type: u32
     access: ro
     binding: Protection.Report
+    label: Report
     description: "当前提示/报告级事件位图。"
 
   PARAM_EVENT_WARNING:
@@ -463,6 +516,7 @@ objects:
     type: u32
     access: ro
     binding: Protection.Warning
+    label: Warning
     description: "当前警告级事件位图；警告不自动关闭电机。"
 
   PARAM_EVENT_ERROR:
@@ -470,6 +524,7 @@ objects:
     type: u32
     access: ro
     binding: Protection.Stop
+    label: Error
     description: "当前错误级事件位图；非零时软件自动Disable并禁止重新Enable。"
 
   PARAM_EVENT_TRIP:
@@ -477,6 +532,7 @@ objects:
     type: u32
     access: ro
     binding: Protection.Trip
+    label: Trip
     description: "当前硬件快速关断级事件位图。"
 
   PARAM_IDENT_RS_LS_VALID:
@@ -484,6 +540,7 @@ objects:
     type: u8
     access: ro
     getter: Identification_Rs_Ls_Valid_Get
+    label: Rs/Ls Valid
     description: "最近一次Rs/Ls辨识结果是否有效。"
     range: { min: 0, max: 1 }
 
@@ -492,6 +549,7 @@ objects:
     type: f32
     access: ro
     getter: Identification_Rs_Get
+    label: Rs Result
     unit: ohm
     description: "最近一次Rs/Ls辨识得到的相电阻结果。"
 
@@ -500,6 +558,7 @@ objects:
     type: f32
     access: ro
     getter: Identification_Ls_Get
+    label: Ls Result
     unit: H
     description: "最近一次Rs/Ls辨识得到的等效相电感结果。"
 
@@ -508,6 +567,7 @@ objects:
     type: u8
     access: ro
     getter: Identification_Flux_Valid_Get
+    label: Flux Valid
     description: "最近一次Flux辨识结果是否有效。"
     range: { min: 0, max: 1 }
 
@@ -516,6 +576,7 @@ objects:
     type: f32
     access: ro
     getter: Identification_Flux_Get
+    label: λm Result
     unit: Wb
     description: "最近一次Flux辨识得到的永磁磁链结果。"
 
@@ -524,6 +585,7 @@ objects:
     type: u8
     access: ro
     getter: Identification_Fail_Reason_Get
+    label: Identification Failure
     description: "最近一次辨识失败原因；0表示无失败，非零仅用于最终诊断。"
     range: { min: 0, max: 4 }
 
@@ -532,6 +594,7 @@ objects:
     type: f32
     access: rw
     binding: Ident_IF_Current_A
+    label: I/F Current
     unit: A
     description: "Flux辨识标准I/F开环启动使用的q轴电流，由Host按被测电机显式给定；与Imax安全上限独立。"
     write_state: disabled
@@ -542,6 +605,7 @@ objects:
     type: u8
     access: ro
     getter: Identification_JB_Valid_Get
+    label: J/B Valid
     description: "最近一次J/B辨识结果是否有效。"
     range: { min: 0, max: 1 }
 
@@ -550,6 +614,7 @@ objects:
     type: f32
     access: ro
     getter: Identification_J_Get
+    label: J Result
     unit: kg*m^2
     description: "最近一次J/B辨识得到的转动惯量J。"
 
@@ -558,6 +623,7 @@ objects:
     type: f32
     access: ro
     getter: Identification_B_Get
+    label: B Result
     unit: N*m*s/rad
     description: "最近一次J/B辨识得到的粘性阻尼B。"
 
@@ -566,6 +632,7 @@ objects:
     type: f32
     access: rw
     binding: Ident_JB_Excite_Ratio
+    label: J/B Excitation
     description: "J/B辨识正弦机械速度激励幅值相对自动工作点速度的比例；默认0.20。"
     write_state: disabled
     range: { min: 0.0, exclusive_min: true, max: 1.0, exclusive_max: true }
@@ -575,16 +642,112 @@ objects:
     type: f32
     access: rw
     binding: Ident_JB_Excite_Hz
+    label: J/B Frequency
     unit: Hz
     description: "J/B辨识正弦机械速度激励频率；默认3 Hz。"
     write_state: disabled
     range: { min: 0.0, exclusive_min: true }
+
+  PARAM_CTRL_CURRENT_BW_HZ:
+    id: 0x0A01
+    type: f32
+    access: rw
+    binding: Control_Current_Bw_Hz
+    label: Current Bandwidth
+    unit: Hz
+    description: "电流环设计带宽；写入后由当前Rs/Ld/Lq重新计算Id/Iq PI增益。"
+    write_state: not_running
+    range: { min: 0.0, exclusive_min: true, max: 5000.0 }
+    on_change: CONTROL_TUNING
+
+  PARAM_CTRL_ID_KP:
+    id: 0x0A02
+    type: f32
+    access: ro
+    binding: Id_Ctrl.Para.Kp
+    label: Id Kp
+    description: "当前Id电流环实际使用的Kp。"
+
+  PARAM_CTRL_ID_KI:
+    id: 0x0A03
+    type: f32
+    access: ro
+    binding: Id_Ctrl.Para.Ki
+    label: Id Ki
+    description: "当前Id电流环实际使用的Ki。"
+
+  PARAM_CTRL_IQ_KP:
+    id: 0x0A04
+    type: f32
+    access: ro
+    binding: Iq_Ctrl.Para.Kp
+    label: Iq Kp
+    description: "当前Iq电流环实际使用的Kp。"
+
+  PARAM_CTRL_IQ_KI:
+    id: 0x0A05
+    type: f32
+    access: ro
+    binding: Iq_Ctrl.Para.Ki
+    label: Iq Ki
+    description: "当前Iq电流环实际使用的Ki。"
+
+  PARAM_CTRL_SPEED_BW_HZ:
+    id: 0x0A10
+    type: f32
+    access: rw
+    binding: Control_Speed_Bw_Hz
+    label: Speed Bandwidth
+    unit: Hz
+    description: "速度环设计带宽；写入后由当前J/B/Flux/Pp重新计算速度PI增益。"
+    write_state: not_running
+    range: { min: 0.0, exclusive_min: true, max: 500.0 }
+    on_change: CONTROL_TUNING
+
+  PARAM_CTRL_SPEED_KP:
+    id: 0x0A11
+    type: f32
+    access: ro
+    binding: Speed_Ctrl.Para.Kp
+    label: Speed Kp
+    description: "当前速度环实际使用的Kp。"
+
+  PARAM_CTRL_SPEED_KI:
+    id: 0x0A12
+    type: f32
+    access: ro
+    binding: Speed_Ctrl.Para.Ki
+    label: Speed Ki
+    description: "当前速度环实际使用的Ki。"
+
+  PARAM_CTRL_POSITION_KP:
+    id: 0x0A20
+    type: f32
+    access: rw
+    binding: Pos_Ctrl.Para.Kp
+    label: Position Kp
+    description: "位置环P增益，单位为(rad/s)/rad。"
+    write_state: not_running
+    range: { min: 0.0 }
+
+  PARAM_CTRL_MECH_ESO_BW_HZ:
+    id: 0x0A30
+    type: f32
+    access: rw
+    binding: Mechanical_ESO_Bw_Hz
+    label: ESO Bandwidth
+    unit: Hz
+    description: "20 kHz机械ESO设计带宽；写入后按当前J/B/Kt刷新Observer增益。"
+    write_state: not_running
+    range: { min: 0.0, exclusive_min: true, max: 2000.0 }
+    on_change: CONTROL_TUNING
 
   ACTION_MOTOR_ENABLE:
     id: 0x1001
     type: action
     access: wo
     command: MOTOR_CMD_ENABLE
+    label: Enable
     description: "使能电机功率级。"
 
   ACTION_MOTOR_RUN:
@@ -592,6 +755,7 @@ objects:
     type: action
     access: wo
     command: MOTOR_CMD_RUN
+    label: Run
     description: "按当前Motor Mode启动运行；PHASE_SEARCH模式下作为异步寻相启动动作。"
 
   ACTION_MOTOR_STOP:
@@ -599,6 +763,7 @@ objects:
     type: action
     access: wo
     command: MOTOR_CMD_STOP
+    label: Stop
     description: "停止当前运行并回到ENABLED。"
 
   ACTION_MOTOR_DISABLE:
@@ -606,6 +771,7 @@ objects:
     type: action
     access: wo
     command: MOTOR_CMD_DISABLE
+    label: Disable
     description: "立即关闭PWM并进入DISABLED。"
 
   ACTION_IDENT_RS_LS_START:
@@ -614,6 +780,7 @@ objects:
     access: wo
     command: MOTOR_CMD_IDENT_START
     arg: IDENT_RS_LS
+    label: Rs/Ls
     description: "启动Rs/Ls辨识。"
 
   ACTION_IDENT_FLUX_START:
@@ -622,6 +789,7 @@ objects:
     access: wo
     command: MOTOR_CMD_IDENT_START
     arg: IDENT_FLUX
+    label: Flux
     description: "启动Flux辨识。"
 
   ACTION_IDENT_ABORT:
@@ -629,6 +797,7 @@ objects:
     type: action
     access: wo
     command: MOTOR_CMD_IDENT_ABORT
+    label: Abort
     description: "中止当前辨识。"
 
   ACTION_IDENT_APPLY:
@@ -636,6 +805,7 @@ objects:
     type: action
     access: wo
     command: MOTOR_CMD_IDENT_APPLY
+    label: Apply
     description: "将最近一次有效辨识结果应用到Motor参数。"
 
   ACTION_IDENT_JB_START:
@@ -644,6 +814,7 @@ objects:
     access: wo
     command: MOTOR_CMD_IDENT_START
     arg: IDENT_JB
+    label: J/B
     description: "启动J/B辨识。"
 
   ACTION_PROTECTION_CLEAR:
@@ -651,4 +822,5 @@ objects:
     type: action
     access: wo
     command: MOTOR_CMD_PROTECTION_CLEAR
+    label: Clear Fault
     description: "在DISABLED状态清除可清除的保护状态。"

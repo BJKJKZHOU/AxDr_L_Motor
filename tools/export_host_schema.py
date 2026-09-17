@@ -30,6 +30,7 @@ MOTOR_DEFAULT_MACROS = {
 }
 
 HOST_VALUE_FIELDS = (
+    "label",
     "unit",
     "description",
     "write_state",
@@ -38,7 +39,7 @@ HOST_VALUE_FIELDS = (
     "allowed_symbols",
     "plot_scale",
 )
-HOST_ACTION_FIELDS = ("description",)
+HOST_ACTION_FIELDS = ("label", "description")
 
 
 def toml_string(value: str) -> str:
@@ -132,8 +133,6 @@ def render_host_schema(objects) -> str:
             f"type = {toml_string(obj['type'])}",
             f"access = {toml_string(obj['access'])}",
         ]
-        if "host_name" in obj:
-            lines.append(f"name = {toml_string(obj['host_name'])}")
         if symbol in defaults:
             lines.append(f"default = {toml_scalar(defaults[symbol])}")
         for field in HOST_VALUE_FIELDS:
@@ -154,8 +153,6 @@ def render_host_schema(objects) -> str:
             f"symbol = {toml_string(symbol)}",
             f"id = {obj['id']}",
         ]
-        if "host_name" in obj:
-            lines.append(f"name = {toml_string(obj['host_name'])}")
         for field in HOST_ACTION_FIELDS:
             if field in obj:
                 lines.append(f"{field} = {toml_scalar(obj[field])}")
