@@ -7,6 +7,7 @@
 
 #include "Encoder.h"
 #include "Math.h"
+#include "Motor_Cal.h"
 #include "control_params.h"
 #include "motor_params.h"
 
@@ -175,26 +176,29 @@ bool Servo_Phase_Active(void)
     return (Phase.State >= PHASE_ALIGN) && (Phase.State <= PHASE_VERIFY);
 }
 
-bool Servo_Phase_Result_Get(int8_t *Enc_Dir, float *Theta_Off)
+bool Servo_Phase_Apply(void)
 {
-    if (Last_Result.State != SERVO_PHASE_RESULT_PASS)
+    if ((Phase.State != PHASE_DONE) ||
+        (Last_Result.State != SERVO_PHASE_RESULT_PASS))
     {
+        Phase.State = PHASE_IDLE;
         return false;
     }
 
-    *Enc_Dir = Last_Result.Enc_Dir;
-    *Theta_Off = Last_Result.Theta_Off;
+    if (!Motor_Cal_Set(Last_Result.Enc_Dir, Last_Result.Theta_Off))
+    {
+        Fail(SERVO_PHASE_FAIL_APPLY);
+        Phase.State = PHASE_IDLE;
+        return false;
+    }
+
+    Phase.State = PHASE_IDLE;
     return true;
 }
 
 const Servo_Phase_Result_T *Servo_Phase_Last_Result_Get(void)
 {
     return &Last_Result;
-}
-
-void Servo_Phase_Clear(void)
-{
-    Phase = (Servo_Phase_T){ 0 };
 }
 
 Motor_Fast_Mode_e Servo_Phase_Fast_Run(float *Theta_e,

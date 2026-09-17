@@ -142,9 +142,7 @@ static void Disable_Apply(void)
 void Motor_Control(void)
 {
     int32_t Pos_Turn_Target;
-    int8_t Phase_Enc_Dir;
     float Pos_Theta_Target;
-    float Phase_Theta_Off;
     float Kt;
     float Te_Max;
     float Te_Ref;
@@ -154,7 +152,6 @@ void Motor_Control(void)
     float Iq_Max;
     float Wm_Corr;
     Motor_Limit_T Lim;
-    bool Phase_Valid;
 
     if (Motor_State == DISABLED)
     {
@@ -165,14 +162,8 @@ void Motor_Control(void)
     {
         if ((Motor_State == RUN) && !Servo_Phase_Active())
         {
-            Phase_Valid = Servo_Phase_Result_Get(&Phase_Enc_Dir, &Phase_Theta_Off);
-            Servo_Phase_Clear();
             Disable_Apply();
-
-            if (Phase_Valid)
-            {
-                (void)Motor_Cal_Set(Phase_Enc_Dir, Phase_Theta_Off);
-            }
+            (void)Servo_Phase_Apply();
         }
 
         return;

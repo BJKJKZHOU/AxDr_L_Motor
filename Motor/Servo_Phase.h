@@ -30,6 +30,7 @@ typedef enum
     SERVO_PHASE_FAIL_NO_NEG_MOVE,
     SERVO_PHASE_FAIL_VERIFY_DIR,
     SERVO_PHASE_FAIL_ABORTED,
+    SERVO_PHASE_FAIL_APPLY,
 
 } Servo_Phase_Fail_e;
 
@@ -60,9 +61,8 @@ extern Servo_Phase_Config_T Servo_Phase_Config;
 bool Servo_Phase_Start(void);
 void Servo_Phase_Abort(void);
 bool Servo_Phase_Active(void);
-bool Servo_Phase_Result_Get(int8_t *Enc_Dir, float *Theta_Off);
+bool Servo_Phase_Apply(void);
 const Servo_Phase_Result_T *Servo_Phase_Last_Result_Get(void);
-void Servo_Phase_Clear(void);
 
 static inline bool Servo_Phase_Result_Valid(void)
 {
