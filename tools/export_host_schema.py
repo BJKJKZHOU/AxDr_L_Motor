@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """Export the host-visible Parameter contract as deterministic TOML.
 
-Parameter/parameter.yaml remains the only hand-maintained source of truth.
-This exporter deliberately projects only Host-facing fields and never leaks
-firmware implementation details such as binding/getter/command/on_change.
+Parameter/parameter.yaml remains the hand-maintained Host contract. Compile-time
+motor defaults are resolved from User/motor_params.h so the Host can present the
+same immutable defaults without duplicating their numeric values.
 """
 
 from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import re
 import subprocess
 import sys
 
@@ -17,6 +18,16 @@ from gen_parameters import ROOT, SOURCE, actions, load_objects, values
 
 DEFAULT_OUTPUT = ROOT / "build" / "host" / "axdr-host-schema.toml"
 SCHEMA_VERSION = 1
+MOTOR_DEFAULT_HEADER = ROOT / "User" / "motor_params.h"
+MOTOR_DEFAULT_MACROS = {
+    "PARAM_MOTOR_PP": "MOTOR_PP_DEFAULT",
+    "PARAM_MOTOR_RS": "MOTOR_RS_DEFAULT",
+    "PARAM_MOTOR_LD": "MOTOR_LD_DEFAULT",
+    "PARAM_MOTOR_LQ": "MOTOR_LQ_DEFAULT",
+    "PARAM_MOTOR_FLUX": "MOTOR_FLUX_DEFAULT",
+    "PARAM_MOTOR_J": "MOTOR_J_DEFAULT",
+    "PARAM_MOTOR_B": "MOTOR_B_DEFAULT",
+}
 
 HOST_VALUE_FIELDS = (
     "unit",
@@ -57,6 +68,29 @@ def git_sha() -> str:
         return "unknown"
 
 
+def motor_default_values() -> dict[str, int | float]:
+    text = MOTOR_DEFAULT_HEADER.read_text(encoding="utf-8")
+    result: dict[str, int | float] = {}
+
+    for parameter, macro in MOTOR_DEFAULT_MACROS.items():
+        match = re.search(rf"^\s*#define\s+{re.escape(macro)}\s+([^\s/]+)", text, re.MULTILINE)
+        if match is None:
+            raise ValueError(f"missing motor default macro {macro}")
+
+        token = match.group(1).rstrip("fFuUlL")
+        try:
+            value: int | float
+            if any(marker in token.lower() for marker in (".", "e")):
+                value = float(token)
+            else:
+                value = int(token, 0)
+        except ValueError as exc:
+            raise ValueError(f"unsupported motor default {macro}={match.group(1)}") from exc
+        result[parameter] = value
+
+    return result
+
+
 def render_range(lines: list[str], prefix: str, rng: dict):
     lines.append(f"[{prefix}.range]")
     for key in ("min", "max", "exclusive_min", "exclusive_max"):
@@ -74,9 +108,10 @@ def render_range(lines: list[str], prefix: str, rng: dict):
 
 
 def render_host_schema(objects) -> str:
+    defaults = motor_default_values()
     lines = [
         "# AUTO-GENERATED FILE. DO NOT EDIT.",
-        "# Source: Parameter/parameter.yaml",
+        "# Source: Parameter/parameter.yaml + User/motor_params.h defaults",
         "# Regenerate with: python3 tools/export_host_schema.py",
         "",
         f"schema_version = {SCHEMA_VERSION}",
@@ -99,6 +134,8 @@ def render_host_schema(objects) -> str:
         ]
         if "host_name" in obj:
             lines.append(f"name = {toml_string(obj['host_name'])}")
+        if symbol in defaults:
+            lines.append(f"default = {toml_scalar(defaults[symbol])}")
         for field in HOST_VALUE_FIELDS:
             if field not in obj or field == "range":
                 continue

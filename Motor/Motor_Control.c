@@ -587,7 +587,7 @@ bool Motor_Ident_Start(Ident_Mode_e Mode)
 {
     if ((Motor_State != ENABLED) ||
         (Motor_Mode != IDENT) ||
-        ((Mode != IDENT_RS_LS) && (Mode != IDENT_FLUX)))
+        ((Mode != IDENT_RS_LS) && (Mode != IDENT_FLUX) && (Mode != IDENT_JB)))
     {
         return false;
     }
