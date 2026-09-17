@@ -143,6 +143,46 @@ objects:
     description: "磁链观测器PLL估算的电角速度。"
     plot_scale: 0.1
 
+  PARAM_MECH_ESO_THETA:
+    id: 0x0022
+    type: f32
+    access: ro
+    binding: Mechanical_ESO.State.Theta
+    label: θm ESO
+    unit: rad
+    description: "Mechanical ESO估算的连续机械角度，仅用于诊断与波形对比。"
+    plot_scale: 0.0002
+
+  PARAM_MECH_ESO_WM:
+    id: 0x0023
+    type: f32
+    access: ro
+    binding: Mechanical_ESO.State.Wm
+    label: ωm ESO
+    unit: rad/s
+    description: "Mechanical ESO估算的机械角速度。"
+    plot_scale: 0.1
+
+  PARAM_MECH_ESO_TD:
+    id: 0x0024
+    type: f32
+    access: ro
+    binding: Mechanical_ESO.State.Td
+    label: Td
+    unit: N*m
+    description: "Mechanical ESO估算的负载/扰动转矩，仅用于诊断。"
+    plot_scale: 0.001
+
+  PARAM_MECH_ESO_ERROR:
+    id: 0x0025
+    type: f32
+    access: ro
+    binding: Mechanical_ESO.State.Error
+    label: ESO Error
+    unit: rad
+    description: "Mechanical ESO的位置观测误差Theta_meas-Theta_hat。"
+    plot_scale: 0.0002
+
   PARAM_MOTOR_PP:
     id: 0x0101
     type: u8
@@ -399,6 +439,16 @@ objects:
     label: ωm
     unit: rad/s
     description: "当前用户机械坐标下的机械角速度反馈。"
+
+  PARAM_ENCODER_WM:
+    id: 0x0503
+    type: f32
+    access: ro
+    binding: Motor_Run.Wm
+    label: ωm Encoder
+    unit: rad/s
+    description: "编码器角度差分与低通得到的机械速度，仅用于诊断对比。"
+    plot_scale: 0.1
 
   PARAM_REF_IQ:
     id: 0x0510

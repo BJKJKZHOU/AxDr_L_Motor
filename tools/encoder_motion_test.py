@@ -52,9 +52,10 @@ class EncoderMotionTest(base.IdentificationClient):
             struct.pack("<H", param_id),
             context=f"read {name} (0x{param_id:04X})",
         )
-        if len(data) != 11:
+        data = base.canfd_payload(data, 11)
+        if data is None:
             raise RuntimeError(
-                f"invalid position read response length: {len(data)}"
+                "invalid position read response length/padding"
             )
         response_id, response_type = struct.unpack_from("<HB", data, 0)
         if response_id != param_id or response_type != PARAM_POSITION:

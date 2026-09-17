@@ -8,6 +8,7 @@
 #include <string.h>
 
 #include "Identification.h"
+#include "Mechanical_ESO.h"
 #include "Motor_ADC.h"
 #include "Motor_Type.h"
 #include "Parameter.h"

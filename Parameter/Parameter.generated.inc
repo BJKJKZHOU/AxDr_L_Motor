@@ -14,6 +14,10 @@
 { PARAM_RUN_UBETA, PARAM_FLOAT, &Motor_Run.Ubeta, -INFINITY, INFINITY, 0U },
 { PARAM_OBS_THETA, PARAM_FLOAT, &Flux_PLL.State.Theta, -INFINITY, INFINITY, 0U },
 { PARAM_OBS_WE, PARAM_FLOAT, &Flux_PLL.State.We, -INFINITY, INFINITY, 0U },
+{ PARAM_MECH_ESO_THETA, PARAM_FLOAT, &Mechanical_ESO.State.Theta, -INFINITY, INFINITY, 0U },
+{ PARAM_MECH_ESO_WM, PARAM_FLOAT, &Mechanical_ESO.State.Wm, -INFINITY, INFINITY, 0U },
+{ PARAM_MECH_ESO_TD, PARAM_FLOAT, &Mechanical_ESO.State.Td, -INFINITY, INFINITY, 0U },
+{ PARAM_MECH_ESO_ERROR, PARAM_FLOAT, &Mechanical_ESO.State.Error, -INFINITY, INFINITY, 0U },
 { PARAM_MOTOR_PP, PARAM_U8, &Motor_Para.Pp, 1.0f, 255.0f, PARAM_FLAG_HOST_WRITE | PARAM_FLAG_DISABLED_ONLY },
 { PARAM_MOTOR_RS, PARAM_FLOAT, &Motor_Para.Rs, 0.0f, INFINITY, PARAM_FLAG_HOST_WRITE | PARAM_FLAG_DISABLED_ONLY },
 { PARAM_MOTOR_LD, PARAM_FLOAT, &Motor_Para.Ld, 0.0f, INFINITY, PARAM_FLAG_HOST_WRITE | PARAM_FLAG_DISABLED_ONLY },
@@ -39,6 +43,7 @@
 { PARAM_PHASE_VERIFY_MOVE, PARAM_FLOAT, NULL, -INFINITY, INFINITY, 0U },
 { PARAM_RUN_POSITION, PARAM_POSITION, NULL, -INFINITY, INFINITY, 0U },
 { PARAM_RUN_WM, PARAM_FLOAT, NULL, -INFINITY, INFINITY, 0U },
+{ PARAM_ENCODER_WM, PARAM_FLOAT, &Motor_Run.Wm, -INFINITY, INFINITY, 0U },
 { PARAM_REF_IQ, PARAM_FLOAT, NULL, -INFINITY, INFINITY, 0U },
 { PARAM_REF_WM, PARAM_FLOAT, NULL, -INFINITY, INFINITY, 0U },
 { PARAM_REF_POSITION, PARAM_POSITION, NULL, -INFINITY, INFINITY, 0U },
@@ -217,7 +222,19 @@ case PARAM_IDENT_JB_EXCITE_HZ:
     break;
 
 case PARAM_CTRL_CURRENT_BW_HZ:
+    if ((Number <= 0.0f))
+    {
+        return PARAM_ERR_VALUE;
+    }
+    break;
+
 case PARAM_CTRL_SPEED_BW_HZ:
+    if ((Number <= 0.0f))
+    {
+        return PARAM_ERR_VALUE;
+    }
+    break;
+
 case PARAM_CTRL_MECH_ESO_BW_HZ:
     if ((Number <= 0.0f))
     {
@@ -239,15 +256,15 @@ case PARAM_MOTOR_B:
     Motor_Para_Update();
     break;
 
+case PARAM_ENCODER_PROTOCOL:
+case PARAM_ENCODER_SPI_TYPE:
+    Encoder_Config_Changed();
+    break;
+
 case PARAM_CTRL_CURRENT_BW_HZ:
 case PARAM_CTRL_SPEED_BW_HZ:
 case PARAM_CTRL_MECH_ESO_BW_HZ:
     Motor_Para_Update();
-    break;
-
-case PARAM_ENCODER_PROTOCOL:
-case PARAM_ENCODER_SPI_TYPE:
-    Encoder_Config_Changed();
     break;
 
 #elif defined(PARAM_GENERATE_READ)
@@ -430,6 +447,26 @@ case PARAM_OBS_THETA:
 case PARAM_OBS_WE:
     *Scale = 0.1f;
     return &Flux_PLL.State.We;
+
+case PARAM_MECH_ESO_THETA:
+    *Scale = 0.0002f;
+    return &Mechanical_ESO.State.Theta;
+
+case PARAM_MECH_ESO_WM:
+    *Scale = 0.1f;
+    return &Mechanical_ESO.State.Wm;
+
+case PARAM_MECH_ESO_TD:
+    *Scale = 0.001f;
+    return &Mechanical_ESO.State.Td;
+
+case PARAM_MECH_ESO_ERROR:
+    *Scale = 0.0002f;
+    return &Mechanical_ESO.State.Error;
+
+case PARAM_ENCODER_WM:
+    *Scale = 0.1f;
+    return &Motor_Run.Wm;
 
 #else
 #error "Parameter.generated.inc section not selected"

@@ -644,6 +644,12 @@ bool Motor_Ident_Apply(void)
 
 float Motor_Wm_Get(void)
 {
+    /* The ESO stops updating while disabled; do not publish its held speed. */
+    if (Motor_State == DISABLED)
+    {
+        return 0.0f;
+    }
+
     if (Servo_Mode() && (Mechanical_ESO.Para.Valid != 0U))
     {
         return Motor_Internal_To_User(Mechanical_ESO_Wm_Get());
