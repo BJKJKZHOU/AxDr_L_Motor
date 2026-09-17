@@ -26,10 +26,11 @@
 { PARAM_LIMIT_WM_MAX, PARAM_FLOAT, &User_Lim.Wm_Max, 0.0f, INFINITY, PARAM_FLAG_HOST_WRITE | PARAM_FLAG_DISABLED_ONLY },
 { PARAM_LIMIT_I_EFFECTIVE, PARAM_FLOAT, NULL, -INFINITY, INFINITY, 0U },
 { PARAM_LIMIT_WM_EFFECTIVE, PARAM_FLOAT, NULL, -INFINITY, INFINITY, 0U },
-{ PARAM_ENCODER_TYPE, PARAM_U8, &Encoder_Config.Type, (float)ENC_MT6816, (float)ENC_MT6835, PARAM_FLAG_HOST_WRITE | PARAM_FLAG_DISABLED_ONLY },
+{ PARAM_ENCODER_PROTOCOL, PARAM_U8, &Encoder_Config.Protocol, (float)ENC_PROTOCOL_NONE, (float)ENC_PROTOCOL_SPI, PARAM_FLAG_HOST_WRITE | PARAM_FLAG_DISABLED_ONLY },
 { PARAM_ENCODER_READY, PARAM_U8, &Encoder.Ready, 0.0f, 1.0f, 0U },
 { PARAM_ENCODER_VALID, PARAM_U8, &Encoder.Valid, 0.0f, 1.0f, 0U },
 { PARAM_ENCODER_FAULT, PARAM_U8, &Encoder.Fault, 0.0f, 1.0f, 0U },
+{ PARAM_ENCODER_SPI_TYPE, PARAM_U8, &Encoder_Config.SPI_Type, (float)ENC_SPI_MT6816, (float)ENC_SPI_MT6835, PARAM_FLAG_HOST_WRITE | PARAM_FLAG_DISABLED_ONLY },
 { PARAM_PHASE_I_SEARCH, PARAM_FLOAT, &Servo_Phase_Config.I_Search_A, 0.0f, (float)SERVO_PHASE_I_MAX_A, PARAM_FLAG_HOST_WRITE | PARAM_FLAG_DISABLED_ONLY },
 { PARAM_CAL_VALID, PARAM_U8, &Motor_Cal.Valid, 0.0f, 1.0f, 0U },
 { PARAM_CAL_ENC_DIR, PARAM_I8, &Motor_Cal.Enc_Dir, -1.0f, 1.0f, 0U },
@@ -125,8 +126,15 @@ case PARAM_LIMIT_WM_MAX:
     }
     break;
 
-case PARAM_ENCODER_TYPE:
-    if ((Value.U8 != (uint8_t)ENC_MT6816) && (Value.U8 != (uint8_t)ENC_MT6835))
+case PARAM_ENCODER_PROTOCOL:
+    if ((Value.U8 != (uint8_t)ENC_PROTOCOL_NONE) && (Value.U8 != (uint8_t)ENC_PROTOCOL_SPI))
+    {
+        return PARAM_ERR_VALUE;
+    }
+    break;
+
+case PARAM_ENCODER_SPI_TYPE:
+    if ((Value.U8 != (uint8_t)ENC_SPI_MT6816) && (Value.U8 != (uint8_t)ENC_SPI_MT6835))
     {
         return PARAM_ERR_VALUE;
     }
@@ -212,7 +220,8 @@ case PARAM_MOTOR_B:
     Motor_Para_Update();
     break;
 
-case PARAM_ENCODER_TYPE:
+case PARAM_ENCODER_PROTOCOL:
+case PARAM_ENCODER_SPI_TYPE:
     Encoder_Config_Changed();
     break;
 

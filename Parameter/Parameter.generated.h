@@ -79,8 +79,8 @@ typedef enum
     /* Motor_Wm_Limit_Effective_Get(): 当前控制实际使用的机械速度上限，包含Motor、User与Motion限制。 */
     PARAM_LIMIT_WM_EFFECTIVE = 0x0204U,
 
-    /* Encoder_Config.Type: 运行前选择的编码器类型。 */
-    PARAM_ENCODER_TYPE = 0x0301U,
+    /* Encoder_Config.Protocol: 运行前选择的编码器通信协议。 */
+    PARAM_ENCODER_PROTOCOL = 0x0301U,
 
     /* Encoder.Ready: 编码器驱动是否已经完成初始化并可供控制使用。 */
     PARAM_ENCODER_READY = 0x0302U,
@@ -90,6 +90,9 @@ typedef enum
 
     /* Encoder.Fault: 当前编码器故障标志。 */
     PARAM_ENCODER_FAULT = 0x0304U,
+
+    /* Encoder_Config.SPI_Type: SPI协议下选择的编码器芯片协议。 */
+    PARAM_ENCODER_SPI_TYPE = 0x0310U,
 
     /* Servo_Phase_Config.I_Search_A: 伺服寻相过程使用的持续寻相电流。 */
     PARAM_PHASE_I_SEARCH = 0x0401U,

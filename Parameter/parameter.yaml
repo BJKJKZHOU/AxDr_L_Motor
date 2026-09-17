@@ -249,14 +249,14 @@ objects:
     unit: rad/s
     description: "当前控制实际使用的机械速度上限，包含Motor、User与Motion限制。"
 
-  PARAM_ENCODER_TYPE:
+  PARAM_ENCODER_PROTOCOL:
     id: 0x0301
     type: u8
     access: rw
-    binding: Encoder_Config.Type
-    description: "运行前选择的编码器类型。"
+    binding: Encoder_Config.Protocol
+    description: "运行前选择的编码器通信协议。"
     write_state: disabled
-    allowed_symbols: [ENC_MT6816, ENC_MT6835]
+    allowed_symbols: [ENC_PROTOCOL_NONE, ENC_PROTOCOL_SPI]
     on_change: ENCODER_CONFIG
 
   PARAM_ENCODER_READY:
@@ -282,6 +282,16 @@ objects:
     binding: Encoder.Fault
     description: "当前编码器故障标志。"
     range: { min: 0, max: 1 }
+
+  PARAM_ENCODER_SPI_TYPE:
+    id: 0x0310
+    type: u8
+    access: rw
+    binding: Encoder_Config.SPI_Type
+    description: "SPI协议下选择的编码器芯片协议。"
+    write_state: disabled
+    allowed_symbols: [ENC_SPI_MT6816, ENC_SPI_MT6835]
+    on_change: ENCODER_CONFIG
 
   PARAM_PHASE_I_SEARCH:
     id: 0x0401

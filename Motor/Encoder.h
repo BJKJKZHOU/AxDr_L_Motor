@@ -11,15 +11,23 @@
 
 typedef enum
 {
-    ENC_NONE = 0,
-    ENC_MT6816,
-    ENC_MT6835,
+    ENC_PROTOCOL_NONE = 0,
+    ENC_PROTOCOL_SPI,
 
-} Encoder_Type_e;
+} Encoder_Protocol_e;
+
+typedef enum
+{
+    ENC_SPI_NONE = 0,
+    ENC_SPI_MT6816,
+    ENC_SPI_MT6835,
+
+} Encoder_SPI_Type_e;
 
 typedef struct
 {
-    uint8_t Type; /* Encoder_Type_e; fixed-width configuration storage. */
+    uint8_t Protocol; /* Encoder_Protocol_e; fixed-width configuration storage. */
+    uint8_t SPI_Type; /* Encoder_SPI_Type_e; used when Protocol == ENC_PROTOCOL_SPI. */
 
 } Encoder_Config_T;
 
