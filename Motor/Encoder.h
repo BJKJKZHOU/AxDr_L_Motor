@@ -42,6 +42,9 @@ typedef struct
     /* Theta_m is already mapped by Motor_Cal.Enc_Dir into the internal mechanical coordinate. */
     float Theta_m;
 
+    /* Direction-corrected continuous mechanical position, published as one atomic float snapshot. */
+    float Position;
+
     uint32_t Err_Cnt;
     uint32_t Miss_Cnt;
     uint16_t Startup_Cnt;
@@ -60,6 +63,7 @@ void Encoder_DMA_IRQHandler(void);
 void Encoder_Start(void);
 
 void Encoder_Config_Changed(void);
+float Encoder_Position_Get(void);
 
 /* Drivers publish native [0, 2pi) angle here; generic Encoder.c owns direction mapping, turns and speed. */
 void Encoder_Sample_Update(uint32_t Raw, float Theta);

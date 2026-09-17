@@ -108,6 +108,15 @@
 #define MOTION_DEC_RAD_S2 100.0f
 
 /*
+ * Mechanical ESO.
+ * Runs at the 20 kHz fast-loop rate. The observer keeps a continuous
+ * mechanical angle state, estimates Wm for the speed loop, and estimates
+ * disturbance/load torque for diagnostics only.
+ */
+#define MECH_ESO_BW_HZ_DEFAULT 100.0f
+#define MECH_ESO_WO_DEFAULT    (TWO_PI_F * MECH_ESO_BW_HZ_DEFAULT)
+
+/*
  * Speed-loop PI design.
  * Controller input is electrical speed We. User/communication speed remains
  * mechanical speed Wm and is converted with We = Pp * Wm before this loop.

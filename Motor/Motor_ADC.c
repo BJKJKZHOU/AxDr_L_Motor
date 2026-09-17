@@ -7,6 +7,8 @@
 
 #include "Plot.h"
 #include "Current_Loop.h"
+#include "Encoder.h"
+#include "Mechanical_ESO.h"
 #include "Motor_Control.h"
 #include "Motor_PWM.h"
 #include "Voltage_Mod.h"
@@ -150,6 +152,13 @@ void Fast_Loop(void)
     {
         Motor_Run.Theta_e = Theta_e;
         Current_Loop(Id_Ref, Iq_Ref, &Ualpha, &Ubeta);
+
+        if (Motor_Mechanical_ESO_Required())
+        {
+            Mechanical_ESO_Run(Encoder_Position_Get(),
+                               Encoder.Valid != 0U,
+                               Motor_Run.Iq);
+        }
     }
 
     Motor_Run.Ualpha = Ualpha;

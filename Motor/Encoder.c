@@ -78,6 +78,7 @@ static void Feedback_Reset(void)
     Encoder.Raw = 0U;
     Encoder.Theta_Native = 0.0f;
     Encoder.Theta_m = 0.0f;
+    Encoder.Position = 0.0f;
     Encoder.Err_Cnt = 0U;
     Encoder.Miss_Cnt = 0U;
     Encoder.Startup_Cnt = 0U;
@@ -145,6 +146,11 @@ void Encoder_Config_Changed(void)
 {
     Motor_Cal_Invalidate();
     Encoder_DMA_Config();
+}
+
+float Encoder_Position_Get(void)
+{
+    return Encoder.Position;
 }
 
 void Encoder_Start(void)
@@ -231,6 +237,7 @@ void Encoder_Sample_Update(uint32_t Raw, float Theta)
 
     Theta_Pre = Theta;
     Encoder.Theta_m = Theta;
+    Encoder.Position = (float)Motor_Run.Turn * TWO_PI_F + Theta;
     Encoder.Lost_Cnt = 0U;
     Encoder.Valid = 1U;
     Motor_Run.Theta_m = Theta;

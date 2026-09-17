@@ -23,6 +23,7 @@ float Motor_Wm_Limit_Effective_Get(void);
 float Motor_Wm_Ref_Get(void);
 Motor_Position_T Motor_Position_Ref_Get(void);
 bool Motor_Encoder_Required(void);
+bool Motor_Mechanical_ESO_Required(void);
 
 void Motor_Enable(void);
 void Motor_Start(void);
