@@ -104,6 +104,11 @@ static bool Freq_Refined;
 static float Rs_Save;
 static float Ld_Save;
 static float Lq_Save;
+static float Id_Kp_Save;
+static float Id_Ki_Save;
+static float Iq_Kp_Save;
+static float Iq_Ki_Save;
+static uint8_t Current_Tune_Source_Save;
 
 static float Abs_Value(float Value)
 {
@@ -214,13 +219,18 @@ static void Rough_RL_Apply(float Rs, float Ls)
         Rs_Save = Motor_Para.Rs;
         Ld_Save = Motor_Para.Ld;
         Lq_Save = Motor_Para.Lq;
+        Id_Kp_Save = Id_Ctrl.Para.Kp;
+        Id_Ki_Save = Id_Ctrl.Para.Ki;
+        Iq_Kp_Save = Iq_Ctrl.Para.Kp;
+        Iq_Ki_Save = Iq_Ctrl.Para.Ki;
+        Current_Tune_Source_Save = Control_Current_Tune_Source;
         RL_Temporary = true;
     }
 
     Motor_Para.Rs = Rs;
     Motor_Para.Ld = Ls;
     Motor_Para.Lq = Ls;
-    Motor_Para_Update();
+    Current_Tuning_Update();
     Current_Loop_State_Reset();
 }
 
@@ -234,6 +244,16 @@ static void Rough_RL_Restore(void)
     Motor_Para.Rs = Rs_Save;
     Motor_Para.Ld = Ld_Save;
     Motor_Para.Lq = Lq_Save;
+    Control_Current_Tune_Source = Current_Tune_Source_Save;
+
+    if (Control_Current_Tune_Source == CTRL_TUNE_MANUAL)
+    {
+        Id_Ctrl.Para.Kp = Id_Kp_Save;
+        Id_Ctrl.Para.Ki = Id_Ki_Save;
+        Iq_Ctrl.Para.Kp = Iq_Kp_Save;
+        Iq_Ctrl.Para.Ki = Iq_Ki_Save;
+    }
+
     Motor_Para_Update();
     Current_Loop_State_Reset();
     RL_Temporary = false;

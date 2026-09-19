@@ -724,7 +724,7 @@ objects:
     binding: Control_Current_Bw_Hz
     label: Current Bandwidth
     unit: Hz
-    description: "电流环设计带宽；写入后由当前Rs/Ld/Lq重新计算Id/Iq PI增益。"
+    description: "电流环设计带宽；写入后切换为Bandwidth并由当前Rs/Ld/Lq重新计算Id/Iq PI增益。"
     write_state: not_running
     range: { min: 0.0, exclusive_min: true, max: 5000.0 }
     on_change: CURRENT_TUNING
@@ -732,34 +732,62 @@ objects:
   PARAM_CTRL_ID_KP:
     id: 0x0A02
     type: f32
-    access: ro
+    access: rw
+    persistent: true
     binding: Id_Ctrl.Para.Kp
     label: Id Kp
-    description: "当前Id电流环实际使用的Kp。"
+    description: "Id电流环实际Kp；直接写入后切换为Manual调参。"
+    write_state: not_running
+    range: { min: 0.0 }
+    on_change: CURRENT_GAIN
 
   PARAM_CTRL_ID_KI:
     id: 0x0A03
     type: f32
-    access: ro
+    access: rw
+    persistent: true
     binding: Id_Ctrl.Para.Ki
     label: Id Ki
-    description: "当前Id电流环实际使用的Ki。"
+    description: "Id电流环实际Ki；直接写入后切换为Manual调参。"
+    write_state: not_running
+    range: { min: 0.0 }
+    on_change: CURRENT_GAIN
 
   PARAM_CTRL_IQ_KP:
     id: 0x0A04
     type: f32
-    access: ro
+    access: rw
+    persistent: true
     binding: Iq_Ctrl.Para.Kp
     label: Iq Kp
-    description: "当前Iq电流环实际使用的Kp。"
+    description: "Iq电流环实际Kp；直接写入后切换为Manual调参。"
+    write_state: not_running
+    range: { min: 0.0 }
+    on_change: CURRENT_GAIN
 
   PARAM_CTRL_IQ_KI:
     id: 0x0A05
     type: f32
-    access: ro
+    access: rw
+    persistent: true
     binding: Iq_Ctrl.Para.Ki
     label: Iq Ki
-    description: "当前Iq电流环实际使用的Ki。"
+    description: "Iq电流环实际Ki；直接写入后切换为Manual调参。"
+    write_state: not_running
+    range: { min: 0.0 }
+    on_change: CURRENT_GAIN
+
+  PARAM_CTRL_CURRENT_SOURCE:
+    id: 0x0A06
+    type: u8
+    access: rw
+    persistent: true
+    binding: Control_Current_Tune_Source
+    label: Current Tuning Source
+    description: "当前电流环增益来源；切到Bandwidth时按当前模型重新计算PI，Manual保留直接增益。"
+    write_state: not_running
+    allowed_symbols: [CTRL_TUNE_BANDWIDTH, CTRL_TUNE_MANUAL]
+    on_change: CURRENT_SOURCE
 
   PARAM_CTRL_SPEED_BW_HZ:
     id: 0x0A10
@@ -769,7 +797,7 @@ objects:
     binding: Control_Speed_Bw_Hz
     label: Speed Bandwidth
     unit: Hz
-    description: "速度环设计带宽；写入后由当前J/B/Flux/Pp重新计算速度PI增益。"
+    description: "速度环设计带宽；写入后切换为Bandwidth并由当前J/B/Flux/Pp重新计算速度PI增益。"
     write_state: not_running
     range: { min: 0.0, exclusive_min: true, max: 500.0 }
     on_change: SPEED_TUNING
@@ -777,18 +805,38 @@ objects:
   PARAM_CTRL_SPEED_KP:
     id: 0x0A11
     type: f32
-    access: ro
+    access: rw
+    persistent: true
     binding: Speed_Ctrl.Para.Kp
     label: Speed Kp
-    description: "当前速度环实际使用的Kp。"
+    description: "速度环实际Kp；直接写入后切换为Manual调参。"
+    write_state: not_running
+    range: { min: 0.0 }
+    on_change: SPEED_GAIN
 
   PARAM_CTRL_SPEED_KI:
     id: 0x0A12
     type: f32
-    access: ro
+    access: rw
+    persistent: true
     binding: Speed_Ctrl.Para.Ki
     label: Speed Ki
-    description: "当前速度环实际使用的Ki。"
+    description: "速度环实际Ki；直接写入后切换为Manual调参。"
+    write_state: not_running
+    range: { min: 0.0 }
+    on_change: SPEED_GAIN
+
+  PARAM_CTRL_SPEED_SOURCE:
+    id: 0x0A13
+    type: u8
+    access: rw
+    persistent: true
+    binding: Control_Speed_Tune_Source
+    label: Speed Tuning Source
+    description: "当前速度环增益来源；切到Bandwidth时按当前模型重新计算PI，Manual保留直接增益。"
+    write_state: not_running
+    allowed_symbols: [CTRL_TUNE_BANDWIDTH, CTRL_TUNE_MANUAL]
+    on_change: SPEED_SOURCE
 
   PARAM_CTRL_POSITION_KP:
     id: 0x0A20

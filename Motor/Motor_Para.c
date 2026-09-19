@@ -25,6 +25,8 @@
 Motor_Para_T Motor_Para = MOTOR_PARA_DEFAULT;
 float Control_Current_Bw_Hz = CUR_BW_HZ_DEFAULT;
 float Control_Speed_Bw_Hz = SPD_BW_HZ_DEFAULT;
+uint8_t Control_Current_Tune_Source = CTRL_TUNE_BANDWIDTH;
+uint8_t Control_Speed_Tune_Source = CTRL_TUNE_BANDWIDTH;
 
 static float IF_We_RL_Base = MOTOR_IF_WE_RL_RATIO * MOTOR_RS_DEFAULT / MOTOR_LQ_DEFAULT;
 
@@ -62,6 +64,22 @@ void Speed_Tuning_Update(void)
     }
 }
 
+void Current_Tuning_Source_Changed(void)
+{
+    if (Control_Current_Tune_Source == CTRL_TUNE_BANDWIDTH)
+    {
+        Current_Tuning_Update();
+    }
+}
+
+void Speed_Tuning_Source_Changed(void)
+{
+    if (Control_Speed_Tune_Source == CTRL_TUNE_BANDWIDTH)
+    {
+        Speed_Tuning_Update();
+    }
+}
+
 void Mechanical_ESO_Tuning_Update(void)
 {
     float Kt;
@@ -80,9 +98,8 @@ void Mechanical_ESO_Tuning_Update(void)
  * on-change hooks; after the complete record set is restored, storage calls
  * this once so runtime state is built from one coherent configuration.
  *
- * Current and speed gains are still bandwidth-derived at this stage. Manual
- * gain ownership will be added separately; this function must not become the
- * persistence ordering mechanism for those gains.
+ * Current and speed gains follow their persisted tuning source. Bandwidth
+ * mode tracks Motor_Para changes; Manual mode keeps the user-written gains.
  */
 void Motor_Para_Update(void)
 {
@@ -90,8 +107,16 @@ void Motor_Para_Update(void)
                         MOTOR_IF_WE_RL_RATIO * Motor_Para.Rs / Motor_Para.Lq :
                         0.0f;
 
-    Current_Tuning_Update();
-    Speed_Tuning_Update();
+    if (Control_Current_Tune_Source == CTRL_TUNE_BANDWIDTH)
+    {
+        Current_Tuning_Update();
+    }
+
+    if (Control_Speed_Tune_Source == CTRL_TUNE_BANDWIDTH)
+    {
+        Speed_Tuning_Update();
+    }
+
     Mechanical_ESO_Tuning_Update();
 }
 

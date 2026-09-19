@@ -214,29 +214,35 @@ typedef enum
     /* Ident_JB_Excite_Hz: J/B辨识正弦机械速度激励频率；默认3 Hz。 */
     PARAM_IDENT_JB_EXCITE_HZ = 0x0924U,
 
-    /* Control_Current_Bw_Hz: 电流环设计带宽；写入后由当前Rs/Ld/Lq重新计算Id/Iq PI增益。 */
+    /* Control_Current_Bw_Hz: 电流环设计带宽；写入后切换为Bandwidth并由当前Rs/Ld/Lq重新计算Id/Iq PI增益。 */
     PARAM_CTRL_CURRENT_BW_HZ = 0x0A01U,
 
-    /* Id_Ctrl.Para.Kp: 当前Id电流环实际使用的Kp。 */
+    /* Id_Ctrl.Para.Kp: Id电流环实际Kp；直接写入后切换为Manual调参。 */
     PARAM_CTRL_ID_KP = 0x0A02U,
 
-    /* Id_Ctrl.Para.Ki: 当前Id电流环实际使用的Ki。 */
+    /* Id_Ctrl.Para.Ki: Id电流环实际Ki；直接写入后切换为Manual调参。 */
     PARAM_CTRL_ID_KI = 0x0A03U,
 
-    /* Iq_Ctrl.Para.Kp: 当前Iq电流环实际使用的Kp。 */
+    /* Iq_Ctrl.Para.Kp: Iq电流环实际Kp；直接写入后切换为Manual调参。 */
     PARAM_CTRL_IQ_KP = 0x0A04U,
 
-    /* Iq_Ctrl.Para.Ki: 当前Iq电流环实际使用的Ki。 */
+    /* Iq_Ctrl.Para.Ki: Iq电流环实际Ki；直接写入后切换为Manual调参。 */
     PARAM_CTRL_IQ_KI = 0x0A05U,
 
-    /* Control_Speed_Bw_Hz: 速度环设计带宽；写入后由当前J/B/Flux/Pp重新计算速度PI增益。 */
+    /* Control_Current_Tune_Source: 当前电流环增益来源；切到Bandwidth时按当前模型重新计算PI，Manual保留直接增益。 */
+    PARAM_CTRL_CURRENT_SOURCE = 0x0A06U,
+
+    /* Control_Speed_Bw_Hz: 速度环设计带宽；写入后切换为Bandwidth并由当前J/B/Flux/Pp重新计算速度PI增益。 */
     PARAM_CTRL_SPEED_BW_HZ = 0x0A10U,
 
-    /* Speed_Ctrl.Para.Kp: 当前速度环实际使用的Kp。 */
+    /* Speed_Ctrl.Para.Kp: 速度环实际Kp；直接写入后切换为Manual调参。 */
     PARAM_CTRL_SPEED_KP = 0x0A11U,
 
-    /* Speed_Ctrl.Para.Ki: 当前速度环实际使用的Ki。 */
+    /* Speed_Ctrl.Para.Ki: 速度环实际Ki；直接写入后切换为Manual调参。 */
     PARAM_CTRL_SPEED_KI = 0x0A12U,
+
+    /* Control_Speed_Tune_Source: 当前速度环增益来源；切到Bandwidth时按当前模型重新计算PI，Manual保留直接增益。 */
+    PARAM_CTRL_SPEED_SOURCE = 0x0A13U,
 
     /* Pos_Ctrl.Para.Kp: 位置环P增益，单位为(rad/s)/rad。 */
     PARAM_CTRL_POSITION_KP = 0x0A20U,
