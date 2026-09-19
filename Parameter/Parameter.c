@@ -417,6 +417,7 @@ Parameter_Status_e Parameter_Restore(uint16_t Id,
                                      Parameter_Value_T Value)
 {
     const Parameter_Entry_T *Entry;
+    Parameter_Status_e Status;
 
     Entry = Parameter_Find(Id);
     if (Entry == NULL)
@@ -424,12 +425,20 @@ Parameter_Status_e Parameter_Restore(uint16_t Id,
         return PARAM_ERR_ID;
     }
 
-    if ((Entry->Flags & PARAM_FLAG_PERSISTENT) == 0U)
+    if (((Entry->Flags & PARAM_FLAG_PERSISTENT) == 0U) ||
+        (Entry->Data == NULL))
     {
         return PARAM_ERR_READ_ONLY;
     }
 
-    return Parameter_Apply(Entry, Type, Value);
+    Status = Parameter_Value_Check(Entry, Type, Value);
+    if (Status != PARAM_OK)
+    {
+        return Status;
+    }
+
+    Parameter_Value_Write(Entry, Value);
+    return PARAM_OK;
 }
 
 uint8_t Parameter_Value_Size(Parameter_Type_e Type)

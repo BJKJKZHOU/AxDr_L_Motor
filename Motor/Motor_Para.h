@@ -22,11 +22,14 @@ typedef struct
 
 } Motor_IF_Para_T;
 
-/* Host tuning uses physical design bandwidths; active gains are derived from Motor_Para. */
 extern float Control_Current_Bw_Hz;
 extern float Control_Speed_Bw_Hz;
 
-/* Rebuild all control/model values derived from the current Motor_Para and tuning inputs. */
+void Current_Tuning_Update(void);
+void Speed_Tuning_Update(void);
+void Mechanical_ESO_Tuning_Update(void);
+
+/* Refresh runtime values that depend on the active motor model. */
 void Motor_Para_Update(void);
 
 /* Pp also changes the mechanical-to-electrical coordinate mapping. */

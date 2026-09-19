@@ -8,6 +8,8 @@
 #include "Encoder.h"
 #include "Math.h"
 #include "Motor_Cal.h"
+#include "NVS_Storage.h"
+#include "Parameter.h"
 #include "control_params.h"
 #include "motor_params.h"
 
@@ -114,6 +116,30 @@ static void Fail(Servo_Phase_Fail_e Reason)
     Result_Snapshot(SERVO_PHASE_RESULT_FAIL, Reason);
 }
 
+static bool Calibration_Save(void)
+{
+    Motor_Cal.Valid = 0U;
+    if (NVS_Storage_Save(PARAM_CAL_VALID) != 0)
+    {
+        Motor_Cal.Valid = 1U;
+        return false;
+    }
+
+    Motor_Cal.Valid = 1U;
+
+    if ((NVS_Storage_Save(PARAM_MOTOR_PP) != 0) ||
+        (NVS_Storage_Save(PARAM_ENCODER_PROTOCOL) != 0) ||
+        (NVS_Storage_Save(PARAM_ENCODER_SPI_TYPE) != 0) ||
+        (NVS_Storage_Save(PARAM_CAL_ENC_DIR) != 0) ||
+        (NVS_Storage_Save(PARAM_CAL_THETA_OFF) != 0) ||
+        (NVS_Storage_Save(PARAM_CAL_VALID) != 0))
+    {
+        return false;
+    }
+
+    return true;
+}
+
 bool Servo_Phase_Start(void)
 {
     float I_Search;
@@ -186,6 +212,13 @@ bool Servo_Phase_Apply(void)
     }
 
     if (!Motor_Cal_Set(Last_Result.Enc_Dir, Last_Result.Theta_Off))
+    {
+        Fail(SERVO_PHASE_FAIL_APPLY);
+        Phase.State = PHASE_IDLE;
+        return false;
+    }
+
+    if (!Calibration_Save())
     {
         Fail(SERVO_PHASE_FAIL_APPLY);
         Phase.State = PHASE_IDLE;

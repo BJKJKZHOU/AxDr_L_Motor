@@ -274,6 +274,9 @@ typedef enum
     /* MOTOR_CMD_PROTECTION_CLEAR: 在DISABLED状态清除可清除的保护状态。 */
     ACTION_PROTECTION_CLEAR = 0x1201U,
 
+    /* MOTOR_CMD_PARAMETER_SAVE: 将当前持久化参数显式保存到NVS；仅DISABLED状态允许执行。 */
+    ACTION_PARAMETER_SAVE = 0x1202U,
+
 } Parameter_Id_e;
 
 #endif /* PARAMETER_GENERATED_H */

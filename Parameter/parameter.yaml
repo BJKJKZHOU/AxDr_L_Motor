@@ -187,6 +187,7 @@ objects:
     id: 0x0101
     type: u8
     access: rw
+    persistent: true
     binding: Motor_Para.Pp
     label: Pole Pairs
     description: "电机极对数。"
@@ -200,6 +201,7 @@ objects:
     id: 0x0110
     type: f32
     access: rw
+    persistent: true
     binding: Motor_Para.Rs
     label: Rs
     unit: ohm
@@ -212,6 +214,7 @@ objects:
     id: 0x0111
     type: f32
     access: rw
+    persistent: true
     binding: Motor_Para.Ld
     label: Ld
     unit: H
@@ -224,6 +227,7 @@ objects:
     id: 0x0112
     type: f32
     access: rw
+    persistent: true
     binding: Motor_Para.Lq
     label: Lq
     unit: H
@@ -236,6 +240,7 @@ objects:
     id: 0x0113
     type: f32
     access: rw
+    persistent: true
     binding: Motor_Para.Flux
     label: λm
     unit: Wb
@@ -248,6 +253,7 @@ objects:
     id: 0x0114
     type: f32
     access: rw
+    persistent: true
     binding: Motor_Para.J
     label: J
     unit: kg*m^2
@@ -260,6 +266,7 @@ objects:
     id: 0x0115
     type: f32
     access: rw
+    persistent: true
     binding: Motor_Para.B
     label: B
     description: "电机粘性阻尼/摩擦模型参数B。"
@@ -271,6 +278,7 @@ objects:
     id: 0x0116
     type: i8
     access: rw
+    persistent: true
     binding: Motor_Config.Dir
     label: Motor Direction
     description: "用户机械正方向与内部控制方向之间的符号映射，只允许-1或+1。"
@@ -281,6 +289,7 @@ objects:
     id: 0x0201
     type: f32
     access: rw
+    persistent: true
     binding: User_Lim.I_Max
     label: Imax
     unit: A
@@ -292,6 +301,7 @@ objects:
     id: 0x0202
     type: f32
     access: rw
+    persistent: true
     binding: User_Lim.Wm_Max
     label: ωm Max
     unit: rad/s
@@ -321,6 +331,7 @@ objects:
     id: 0x0301
     type: u8
     access: rw
+    persistent: true
     binding: Encoder_Config.Protocol
     label: Encoder Protocol
     description: "运行前选择的编码器通信协议。"
@@ -359,6 +370,7 @@ objects:
     id: 0x0310
     type: u8
     access: rw
+    persistent: true
     binding: Encoder_Config.SPI_Type
     label: SPI Encoder
     description: "SPI协议下选择的编码器芯片协议。"
@@ -381,6 +393,7 @@ objects:
     id: 0x0402
     type: u8
     access: ro
+    persistent: true
     binding: Motor_Cal.Valid
     label: Calibration Valid
     description: "当前伺服相位/编码器校准结果是否有效。"
@@ -390,15 +403,17 @@ objects:
     id: 0x0403
     type: i8
     access: ro
+    persistent: true
     binding: Motor_Cal.Enc_Dir
     label: Encoder Direction
     description: "寻相得到的编码器方向符号，按工程约定用于机械方向对齐。"
-    range: { min: -1, max: 1 }
+    allowed: [-1, 1]
 
   PARAM_CAL_THETA_OFF:
     id: 0x0404
     type: f32
     access: ro
+    persistent: true
     binding: Motor_Cal.Theta_Off
     label: θe Offset
     unit: rad
@@ -481,6 +496,7 @@ objects:
     id: 0x0601
     type: f32
     access: rw
+    persistent: true
     binding: Motion_Config.Wm_Max
     label: Max Speed
     unit: rad/s
@@ -491,6 +507,7 @@ objects:
     id: 0x0602
     type: f32
     access: rw
+    persistent: true
     binding: Motion_Config.Wm_Acc
     label: Acceleration
     unit: rad/s^2
@@ -501,6 +518,7 @@ objects:
     id: 0x0603
     type: f32
     access: rw
+    persistent: true
     binding: Motion_Config.Wm_Dec
     label: Deceleration
     unit: rad/s^2
@@ -702,13 +720,14 @@ objects:
     id: 0x0A01
     type: f32
     access: rw
+    persistent: true
     binding: Control_Current_Bw_Hz
     label: Current Bandwidth
     unit: Hz
     description: "电流环设计带宽；写入后由当前Rs/Ld/Lq重新计算Id/Iq PI增益。"
     write_state: not_running
     range: { min: 0.0, exclusive_min: true, max: 5000.0 }
-    on_change: CONTROL_TUNING
+    on_change: CURRENT_TUNING
 
   PARAM_CTRL_ID_KP:
     id: 0x0A02
@@ -746,13 +765,14 @@ objects:
     id: 0x0A10
     type: f32
     access: rw
+    persistent: true
     binding: Control_Speed_Bw_Hz
     label: Speed Bandwidth
     unit: Hz
     description: "速度环设计带宽；写入后由当前J/B/Flux/Pp重新计算速度PI增益。"
     write_state: not_running
     range: { min: 0.0, exclusive_min: true, max: 500.0 }
-    on_change: CONTROL_TUNING
+    on_change: SPEED_TUNING
 
   PARAM_CTRL_SPEED_KP:
     id: 0x0A11
@@ -774,6 +794,7 @@ objects:
     id: 0x0A20
     type: f32
     access: rw
+    persistent: true
     binding: Pos_Ctrl.Para.Kp
     label: Position Kp
     description: "位置环P增益，单位为(rad/s)/rad。"
@@ -784,13 +805,14 @@ objects:
     id: 0x0A30
     type: f32
     access: rw
+    persistent: true
     binding: Mechanical_ESO_Bw_Hz
     label: ESO Bandwidth
     unit: Hz
     description: "20 kHz机械ESO设计带宽；写入后按当前J/B/Kt刷新Observer增益。"
     write_state: not_running
     range: { min: 0.0, exclusive_min: true, max: 2000.0 }
-    on_change: CONTROL_TUNING
+    on_change: ESO_TUNING
 
   ACTION_MOTOR_ENABLE:
     id: 0x1001
@@ -874,3 +896,11 @@ objects:
     command: MOTOR_CMD_PROTECTION_CLEAR
     label: Clear Fault
     description: "在DISABLED状态清除可清除的保护状态。"
+
+  ACTION_PARAMETER_SAVE:
+    id: 0x1202
+    type: action
+    access: wo
+    command: MOTOR_CMD_PARAMETER_SAVE
+    label: Save Parameters
+    description: "将当前持久化参数显式保存到NVS；仅DISABLED状态允许执行。"

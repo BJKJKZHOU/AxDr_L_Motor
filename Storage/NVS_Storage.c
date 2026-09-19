@@ -9,7 +9,10 @@
 #include <stdbool.h>
 #include <string.h>
 
+#include "Encoder.h"
 #include "Flash_Storage.h"
+#include "Motor_Para.h"
+#include "Motor_Type.h"
 #include "Parameter.h"
 #include <zephyr/kvss/nvs.h>
 
@@ -49,6 +52,46 @@ int NVS_Storage_Init(void)
     return Status;
 }
 
+static bool Calibration_Load(void)
+{
+    Parameter_Value_T Enc_Dir = { 0 };
+    Parameter_Value_T Theta_Off = { 0 };
+    Parameter_Value_T Valid = { 0 };
+    ssize_t Rc;
+
+    Motor_Cal.Valid = 0U;
+
+    Rc = nvs_read(&Storage_NVS, PARAM_CAL_ENC_DIR, &Enc_Dir.I8, sizeof(Enc_Dir.I8));
+    if ((Rc != (ssize_t)sizeof(Enc_Dir.I8)) ||
+        ((Enc_Dir.I8 != -1) && (Enc_Dir.I8 != 1)))
+    {
+        return false;
+    }
+
+    Rc = nvs_read(&Storage_NVS, PARAM_CAL_THETA_OFF, &Theta_Off.F32, sizeof(Theta_Off.F32));
+    if ((Rc != (ssize_t)sizeof(Theta_Off.F32)) ||
+        !__builtin_isfinite(Theta_Off.F32))
+    {
+        return false;
+    }
+
+    Rc = nvs_read(&Storage_NVS, PARAM_CAL_VALID, &Valid.U8, sizeof(Valid.U8));
+    if ((Rc != (ssize_t)sizeof(Valid.U8)) || (Valid.U8 != 1U))
+    {
+        return false;
+    }
+
+    if ((Parameter_Restore(PARAM_CAL_ENC_DIR, PARAM_I8, Enc_Dir) != PARAM_OK) ||
+        (Parameter_Restore(PARAM_CAL_THETA_OFF, PARAM_FLOAT, Theta_Off) != PARAM_OK) ||
+        (Parameter_Restore(PARAM_CAL_VALID, PARAM_U8, Valid) != PARAM_OK))
+    {
+        Motor_Cal.Valid = 0U;
+        return false;
+    }
+
+    return true;
+}
+
 int NVS_Storage_Load_All(void)
 {
     Parameter_Value_T Value;
@@ -68,6 +111,13 @@ int NVS_Storage_Load_All(void)
 
     while (Parameter_Persistent_Next(&Index, &Id, &Type, &Value))
     {
+        if ((Id == PARAM_CAL_VALID) ||
+            (Id == PARAM_CAL_ENC_DIR) ||
+            (Id == PARAM_CAL_THETA_OFF))
+        {
+            continue;
+        }
+
         Size = Parameter_Value_Size(Type);
         if (Size == 0U)
         {
@@ -76,13 +126,9 @@ int NVS_Storage_Load_All(void)
 
         memset(&Value, 0, sizeof(Value));
         Rc = nvs_read(&Storage_NVS, Id, &Value, Size);
-        if (Rc == -ENOENT)
-        {
-            continue;
-        }
         if (Rc < 0)
         {
-            return (int)Rc;
+            continue;
         }
         if (Rc != (ssize_t)Size)
         {
@@ -90,12 +136,19 @@ int NVS_Storage_Load_All(void)
         }
 
         Param_Status = Parameter_Restore(Id, Type, Value);
-        if ((Param_Status != PARAM_OK) && (Param_Status != PARAM_ERR_VALUE))
+        if (Param_Status != PARAM_OK)
         {
-            return -EINVAL;
+            continue;
         }
     }
 
+    /* Persistent values are restored as one configuration snapshot. Rebuild
+     * runtime dependencies only after all ordinary records are in place so
+     * results do not depend on Parameter table order. */
+    Motor_Para_Update();
+    Encoder_Config_Changed();
+
+    (void)Calibration_Load();
     return 0;
 }
 
@@ -130,7 +183,8 @@ int NVS_Storage_Save(uint16_t Id)
         return (int)Rc;
     }
 
-    return (Rc == (ssize_t)Size) ? 0 : -EIO;
+    /* NVS returns zero when the value is already stored. */
+    return ((Rc == 0) || (Rc == (ssize_t)Size)) ? 0 : -EIO;
 }
 
 int NVS_Storage_Save_All(void)
@@ -162,7 +216,7 @@ int NVS_Storage_Save_All(void)
         {
             return (int)Rc;
         }
-        if (Rc != (ssize_t)Size)
+        if ((Rc != 0) && (Rc != (ssize_t)Size))
         {
             return -EIO;
         }
