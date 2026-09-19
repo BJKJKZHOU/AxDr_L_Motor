@@ -83,6 +83,8 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Motor/Motor_PWM.c
     Motor/Motor_Control.c
     Parameter/Parameter.c
+    Storage/Flash_Storage.c
+    Storage/NVS_Storage.c
     BSP/RGB.c
     Comm/Protocol.c
     Comm/Plot.c
@@ -117,6 +119,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     Motor
     Motor/Encoder_Drv
     Parameter
+    Storage
     ThirdParty/Zephyr_Port/include
     ThirdParty/Zephyr/subsys/kvss/nvs
     User
@@ -124,7 +127,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
 
 # Add project symbols (macros)
 target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
-    # Add user defined symbols
+    CONFIG_NVS_DATA_CRC=1
 )
 
 # Remove wrong libob.a library dependency when using cpp files
