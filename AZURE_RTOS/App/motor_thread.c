@@ -187,11 +187,11 @@ static void Motor_Cmd_Run(void)
                 }
                 else
                 {
+                    /*
+                     * Stop is accepted here but motion modes may remain RUN
+                     * until their configured deceleration reaches zero.
+                     */
                     Motor_Stop();
-                    if (Motor_State_Get() != ENABLED)
-                    {
-                        Action_Status = AXDR_ERR_CONFIG;
-                    }
                 }
                 Motor_Action_Response(&Msg, Action_Status);
                 break;

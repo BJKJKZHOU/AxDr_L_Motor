@@ -256,7 +256,7 @@ typedef enum
     /* MOTOR_CMD_RUN: 按当前Motor Mode启动运行；PHASE_SEARCH模式下作为异步寻相启动动作。 */
     ACTION_MOTOR_RUN = 0x1002U,
 
-    /* MOTOR_CMD_STOP: 停止当前运行并回到ENABLED。 */
+    /* MOTOR_CMD_STOP: 请求停止当前运行；运动模式按当前减速度受控停稳后回到ENABLED，Disable仍用于立即关闭驱动。 */
     ACTION_MOTOR_STOP = 0x1003U,
 
     /* MOTOR_CMD_DISABLE: 立即关闭PWM并进入DISABLED。 */

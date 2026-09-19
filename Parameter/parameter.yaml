@@ -884,7 +884,7 @@ objects:
     access: wo
     command: MOTOR_CMD_STOP
     label: Stop
-    description: "停止当前运行并回到ENABLED。"
+    description: "请求停止当前运行；运动模式按当前减速度受控停稳后回到ENABLED，Disable仍用于立即关闭驱动。"
 
   ACTION_MOTOR_DISABLE:
     id: 0x1004

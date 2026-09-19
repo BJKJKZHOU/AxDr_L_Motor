@@ -6,6 +6,7 @@
 #ifndef TRAPEZOID_H
 #define TRAPEZOID_H
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "Motion_Type.h"
@@ -18,5 +19,6 @@ void Trapezoid_Run(Motion_Ref_T *Ref,
                    float Acc,
                    float Dec,
                    float Ts);
+bool Trapezoid_Stop(Motion_Ref_T *Ref, float Dec, float Ts);
 
 #endif /* TRAPEZOID_H */
