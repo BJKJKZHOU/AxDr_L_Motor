@@ -9,6 +9,9 @@
 #include <stdint.h>
 
 int NVS_Storage_Init(void);
+int NVS_Storage_Load_All(void);
+int NVS_Storage_Save(uint16_t Id);
+int NVS_Storage_Save_All(void);
 int NVS_Storage_Smoke_Test(void);
 
 extern volatile int NVS_Storage_Smoke_Result;

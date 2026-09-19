@@ -68,6 +68,8 @@ def load_objects():
                 raise ValueError(f"{name}: action name must start with ACTION_")
             if obj["access"] != "wo" or "command" not in obj:
                 raise ValueError(f"{name}: action requires access=wo and command")
+            if "persistent" in obj:
+                raise ValueError(f"{name}: action cannot be persistent")
             continue
 
         if not name.startswith("PARAM_"):
@@ -80,6 +82,11 @@ def load_objects():
             raise ValueError(f"{name}: exactly one of binding/getter is required")
         if "getter" in obj and obj["access"] != "ro":
             raise ValueError(f"{name}: getter-backed object must be read-only")
+        persistent = obj.get("persistent", False)
+        if not isinstance(persistent, bool):
+            raise ValueError(f"{name}: persistent must be boolean")
+        if persistent and "binding" not in obj:
+            raise ValueError(f"{name}: persistent value requires direct binding")
         write_state = obj.get("write_state")
         if write_state is not None and write_state not in ("disabled", "not_running"):
             raise ValueError(f"{name}: unsupported write_state {write_state}")
@@ -132,6 +139,8 @@ def flags_expr(obj):
         flags.append("PARAM_FLAG_DISABLED_ONLY")
     elif obj.get("write_state") == "not_running":
         flags.append("PARAM_FLAG_NOT_RUNNING")
+    if obj.get("persistent", False):
+        flags.append("PARAM_FLAG_PERSISTENT")
     return " | ".join(flags) if flags else "0U"
 
 
