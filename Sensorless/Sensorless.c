@@ -54,6 +54,7 @@ typedef enum
 static volatile Sensorless_State_e State = SL_IDLE;
 static volatile To_Obs_State_e To_Obs_State = TO_OBS_WAIT;
 static bool Initial_IF = true;
+static bool Stop_Requested = false;
 
 static Flux_Observer_T Sensorless_Observer = { 0 };
 PLL_T Sensorless_PLL = { 0 };
@@ -121,7 +122,7 @@ static float IF_Target(float We_Ref)
 {
     float Target;
 
-    if (!Initial_IF)
+    if (!Initial_IF || Stop_Requested)
     {
         return We_Ref;
     }
@@ -140,6 +141,7 @@ bool Sensorless_Begin(void)
     State = SL_IDLE;
     To_Obs_State = TO_OBS_WAIT;
     Initial_IF = true;
+    Stop_Requested = false;
     Flux_Obs_U_Valid = false;
     Obs_Wait_Cnt = 0U;
     Blend_Cnt = 0U;
@@ -180,8 +182,14 @@ bool Sensorless_Begin(void)
     return true;
 }
 
+void Sensorless_Stop_Request(void)
+{
+    Stop_Requested = true;
+}
+
 void Sensorless_Stop(void)
 {
+    Stop_Requested = false;
     State = SL_IDLE;
 }
 

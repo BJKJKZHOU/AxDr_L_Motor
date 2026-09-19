@@ -458,7 +458,8 @@ void TIM1_CC_IRQHandler(void)
   {
     TIM1->SR = ~TIM_SR_CC4IF;
 
-    if ((TIM1->CR1 & TIM_CR1_DIR) == 0U)
+    if (((TIM1->CR1 & TIM_CR1_DIR) == 0U) &&
+        (Motor_Ready != 0U))
     {
       Encoder_Start();
     }

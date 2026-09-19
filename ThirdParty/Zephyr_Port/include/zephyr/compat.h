@@ -8,8 +8,13 @@
 #define ARRAY_SIZE(array) (sizeof(array) / sizeof((array)[0]))
 #define KB(x) ((x) * 1024UL)
 
+#ifndef __packed
 #define __packed __attribute__((packed))
+#endif
+
+#ifndef __weak
 #define __weak __attribute__((weak))
+#endif
 
 #define BUILD_ASSERT(condition, message) _Static_assert((condition), message)
 #define ZTESTABLE_STATIC static

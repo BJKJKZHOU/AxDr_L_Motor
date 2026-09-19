@@ -6,6 +6,7 @@
 #ifndef PARAMETER_H
 #define PARAMETER_H
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "Motor_Type.h"
@@ -54,6 +55,21 @@ Parameter_Status_e Parameter_Read(uint16_t Id,
 Parameter_Status_e Parameter_Write(uint16_t Id,
                                    Parameter_Type_e Type,
                                    Parameter_Value_T Value);
+
+/* Internal persistence path. Persistent metadata still belongs to the
+ * Parameter Core; storage only consumes these APIs and never owns a second
+ * parameter dictionary. */
+bool Parameter_Persistent_Read(uint16_t Id,
+                               Parameter_Type_e *Type,
+                               Parameter_Value_T *Value);
+bool Parameter_Persistent_Next(uint32_t *Index,
+                               uint16_t *Id,
+                               Parameter_Type_e *Type,
+                               Parameter_Value_T *Value);
+Parameter_Status_e Parameter_Restore(uint16_t Id,
+                                     Parameter_Type_e Type,
+                                     Parameter_Value_T Value);
+
 uint8_t Parameter_Value_Size(Parameter_Type_e Type);
 
 #endif /* PARAMETER_H */

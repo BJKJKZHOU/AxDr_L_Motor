@@ -38,6 +38,11 @@ const Motor_Limit_T Motor_Lim = MOTOR_LIM_DEFAULT;
 Motor_Limit_T User_Lim = USER_LIM_DEFAULT;
 Motor_Run_T Motor_Run = { 0 };
 
+volatile float Motor_Plot_Wm = 0.0f;
+volatile float Motor_Plot_Wm_Ref = 0.0f;
+volatile float Motor_Plot_Position = 0.0f;
+volatile float Motor_Plot_Position_Ref = 0.0f;
+
 static volatile Motor_State_e Motor_State = DISABLED;
 
 static Current_Ref_T Current_Ref = { 0 };
@@ -45,6 +50,7 @@ static Motion_Ref_T Motion_Ref = { 0 };
 static float Wm_Ref = 0.0f;
 static float We_Ref = 0.0f;
 static uint32_t Pos_Div = 0U;
+static bool Stop_Pending = false;
 
 static void Motor_Limit_Get(Motor_Limit_T *Lim)
 {
@@ -132,6 +138,13 @@ static float Encoder_Theta_e(void)
 
 static void Disable_Apply(void)
 {
+    Stop_Pending = false;
+
+    if (Motor_Mode == SENSORLESS_SPEED)
+    {
+        Sensorless_Stop();
+    }
+
     PWM_Disable();
     Current_Ref.Id = 0.0f;
     Current_Ref.Iq = 0.0f;
@@ -192,11 +205,34 @@ void Motor_Control(void)
 
     if ((Motor_Mode == SPEED) || (Motor_Mode == OPEN_LOOP) || (Motor_Mode == SENSORLESS_SPEED))
     {
-        Wm_Target = (Motor_State == RUN) ? Motor_User_To_Internal(Motor_Cmd.Wm_Target) : 0.0f;
-        Limit_Value(&Wm_Target, -Lim.Wm_Max, Lim.Wm_Max);
+        if (Stop_Pending)
+        {
+            Wm_Target = 0.0f;
+        }
+        else
+        {
+            Wm_Target = (Motor_State == RUN) ? Motor_User_To_Internal(Motor_Cmd.Wm_Target) : 0.0f;
+            Limit_Value(&Wm_Target, -Lim.Wm_Max, Lim.Wm_Max);
+        }
+
         Ramp_Run(&Motion_Ref, Wm_Target, Motion_Config.Wm_Acc, Motion_Config.Wm_Dec, SPD_TS);
         Wm_Ref = Motion_Ref.Wm;
         We_Ref = (float)Motor_Para.Pp * Wm_Ref;
+
+        if (Stop_Pending && (Motion_Ref.Wm == 0.0f))
+        {
+            Stop_Pending = false;
+
+            if (Motor_Mode == SENSORLESS_SPEED)
+            {
+                Sensorless_Stop();
+                Current_Ref.Id = 0.0f;
+                Current_Ref.Iq = 0.0f;
+                PWM_Disable();
+            }
+
+            Motor_State = ENABLED;
+        }
     }
 
     if (Motor_Mode == OPEN_LOOP)
@@ -272,7 +308,15 @@ void Motor_Control(void)
         case POSITION:
             if (Pos_Div == 0U)
             {
-                if (Motor_State == RUN)
+                if (Stop_Pending)
+                {
+                    if (Trapezoid_Stop(&Motion_Ref, Motion_Config.Wm_Dec, POS_TS))
+                    {
+                        Stop_Pending = false;
+                        Motor_State = ENABLED;
+                    }
+                }
+                else if (Motor_State == RUN)
                 {
                     Motor_Position_User_To_Internal(Motor_Cmd.Position_Target.Turn,
                                                     Motor_Cmd.Position_Target.Theta,
@@ -438,6 +482,8 @@ void Motor_Enable(void)
 {
     float Kt;
 
+    Stop_Pending = false;
+
     if (Motor_State != DISABLED)
     {
         return;
@@ -525,6 +571,7 @@ void Motor_Start(void)
         PWM_Enable();
     }
 
+    Stop_Pending = false;
     Motor_State = RUN;
 }
 
@@ -532,6 +579,17 @@ void Motor_Stop(void)
 {
     if (Motor_State != RUN)
     {
+        return;
+    }
+
+    if ((Motor_Mode == SPEED) || (Motor_Mode == POSITION) || (Motor_Mode == SENSORLESS_SPEED))
+    {
+        if (Motor_Mode == SENSORLESS_SPEED)
+        {
+            Sensorless_Stop_Request();
+        }
+
+        Stop_Pending = true;
         return;
     }
 
@@ -552,18 +610,9 @@ void Motor_Stop(void)
         }
         return;
     }
-    else if (Motor_Mode == SENSORLESS_SPEED)
-    {
-        Sensorless_Stop();
-    }
     else if (Motor_Mode == PHASE_SEARCH)
     {
         Servo_Phase_Abort();
-    }
-    else if (Motor_Mode == POSITION)
-    {
-        Trapezoid_Reset(&Motion_Ref, Motor_Run.Turn, Motor_Run.Theta_m, 0.0f);
-        Pos_Div = 0U;
     }
 
     Current_Ref.Id = 0.0f;
@@ -661,4 +710,20 @@ float Motor_Wm_Get(void)
 void Motor_Position_Get(int32_t *Turn, float *Theta)
 {
     Motor_Position_Internal_To_User(Motor_Run.Turn, Motor_Run.Theta_m, Turn, Theta);
+}
+
+void Motor_Plot_Normal_Update(void)
+{
+    Motor_Position_T Ref;
+    int32_t Turn;
+    float Theta;
+
+    Motor_Plot_Wm = Motor_Wm_Get();
+    Motor_Plot_Wm_Ref = Motor_Wm_Ref_Get();
+
+    Motor_Position_Get(&Turn, &Theta);
+    Motor_Plot_Position = (float)Turn + Theta / TWO_PI_F;
+
+    Ref = Motor_Position_Ref_Get();
+    Motor_Plot_Position_Ref = (float)Ref.Turn + Ref.Theta / TWO_PI_F;
 }

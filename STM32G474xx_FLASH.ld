@@ -57,7 +57,7 @@ MEMORY
 {
 RAM (xrw)      : ORIGIN = 0x20000000, LENGTH = 128K
 CCMSRAM (xrw)  : ORIGIN = 0x10000000, LENGTH = 32K
-FLASH (rx)      : ORIGIN = 0x8000000, LENGTH = 512K
+FLASH (rx)      : ORIGIN = 0x8000000, LENGTH = 496K
 }
 
 /* Highest address of the user mode stack */
@@ -182,7 +182,7 @@ SECTIONS
   {
     *(.tdata .tdata.* .gnu.linkonce.td.*)
     . = ALIGN(4);
-    _edata = .;        /* define a global symbol at data end */
+    _edata = .;        /* define a global symbols at data end */
     PROVIDE(__data_end = .);
     PROVIDE(__tdata_end = .);
   } >RAM AT> FLASH

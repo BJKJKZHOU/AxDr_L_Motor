@@ -25,62 +25,99 @@
 Motor_Para_T Motor_Para = MOTOR_PARA_DEFAULT;
 float Control_Current_Bw_Hz = CUR_BW_HZ_DEFAULT;
 float Control_Speed_Bw_Hz = SPD_BW_HZ_DEFAULT;
+uint8_t Control_Current_Tune_Source = CTRL_TUNE_BANDWIDTH;
+uint8_t Control_Speed_Tune_Source = CTRL_TUNE_BANDWIDTH;
 
 static float IF_We_RL_Base = MOTOR_IF_WE_RL_RATIO * MOTOR_RS_DEFAULT / MOTOR_LQ_DEFAULT;
 
-/*
- * Build controller fallback values from the currently active motor model.
- *
- * Persistence is not implemented yet. When persistent parameters are added,
- * startup should keep this ordering:
- *   1. load valid persisted Motor_Para over the compiled defaults;
- *   2. call Motor_Para_Update() to build usable controller defaults from that
- *      motor model;
- *   3. load valid persisted controller tuning over these generated defaults.
- *
- * Therefore the controller values generated here are initialization/fallback
- * values, not an authority that should overwrite valid user tuning loaded from
- * persistent storage. Identification-local temporary tuning must likewise be
- * restored to the pre-identification controller values rather than regenerated
- * through this function.
- */
-void Motor_Para_Update(void)
+void Current_Tuning_Update(void)
 {
-    float Current_Wc;
-    float Speed_Wc;
+    float Wc;
+
+    Wc = TWO_PI_F * Control_Current_Bw_Hz;
+
+    Id_Ctrl.Para.Kp = Motor_Para.Ld * Wc;
+    Id_Ctrl.Para.Ki = Motor_Para.Rs * Wc;
+    Iq_Ctrl.Para.Kp = Motor_Para.Lq * Wc;
+    Iq_Ctrl.Para.Ki = Motor_Para.Rs * Wc;
+}
+
+void Speed_Tuning_Update(void)
+{
+    float Wc;
     float Kt;
     float Den;
 
-    Current_Wc = TWO_PI_F * Control_Current_Bw_Hz;
-    Speed_Wc = TWO_PI_F * Control_Speed_Bw_Hz;
-
-    Id_Ctrl.Para.Kp = Motor_Para.Ld * Current_Wc;
-    Id_Ctrl.Para.Ki = Motor_Para.Rs * Current_Wc;
-    Iq_Ctrl.Para.Kp = Motor_Para.Lq * Current_Wc;
-    Iq_Ctrl.Para.Ki = Motor_Para.Rs * Current_Wc;
-
-    IF_We_RL_Base = (Motor_Para.Lq > 0.0f) ?
-                        MOTOR_IF_WE_RL_RATIO * Motor_Para.Rs / Motor_Para.Lq :
-                        0.0f;
-
+    Wc = TWO_PI_F * Control_Speed_Bw_Hz;
     Kt = 1.5f * (float)Motor_Para.Pp * Motor_Para.Flux;
     Den = (float)Motor_Para.Pp * Kt;
 
     if (Den > 0.0f)
     {
-        Speed_Ctrl.Para.Kp = Motor_Para.J * Speed_Wc / Den;
-        Speed_Ctrl.Para.Ki = Motor_Para.B * Speed_Wc / Den;
+        Speed_Ctrl.Para.Kp = Motor_Para.J * Wc / Den;
+        Speed_Ctrl.Para.Ki = Motor_Para.B * Wc / Den;
     }
     else
     {
         Speed_Ctrl.Para.Kp = 0.0f;
         Speed_Ctrl.Para.Ki = 0.0f;
     }
+}
 
+void Current_Tuning_Source_Changed(void)
+{
+    if (Control_Current_Tune_Source == CTRL_TUNE_BANDWIDTH)
+    {
+        Current_Tuning_Update();
+    }
+}
+
+void Speed_Tuning_Source_Changed(void)
+{
+    if (Control_Speed_Tune_Source == CTRL_TUNE_BANDWIDTH)
+    {
+        Speed_Tuning_Update();
+    }
+}
+
+void Mechanical_ESO_Tuning_Update(void)
+{
+    float Kt;
+
+    Kt = 1.5f * (float)Motor_Para.Pp * Motor_Para.Flux;
     (void)Mechanical_ESO_Config(Motor_Para.J,
                                 Motor_Para.B,
                                 Kt,
                                 TWO_PI_F * Mechanical_ESO_Bw_Hz);
+}
+
+/*
+ * Refresh runtime values derived from the active motor model.
+ *
+ * NVS restores persistent Parameter values without firing per-Parameter
+ * on-change hooks; after the complete record set is restored, storage calls
+ * this once so runtime state is built from one coherent configuration.
+ *
+ * Current and speed gains follow their persisted tuning source. Bandwidth
+ * mode tracks Motor_Para changes; Manual mode keeps the user-written gains.
+ */
+void Motor_Para_Update(void)
+{
+    IF_We_RL_Base = (Motor_Para.Lq > 0.0f) ?
+                        MOTOR_IF_WE_RL_RATIO * Motor_Para.Rs / Motor_Para.Lq :
+                        0.0f;
+
+    if (Control_Current_Tune_Source == CTRL_TUNE_BANDWIDTH)
+    {
+        Current_Tuning_Update();
+    }
+
+    if (Control_Speed_Tune_Source == CTRL_TUNE_BANDWIDTH)
+    {
+        Speed_Tuning_Update();
+    }
+
+    Mechanical_ESO_Tuning_Update();
 }
 
 void Motor_Pp_Changed(void)

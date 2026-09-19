@@ -9,6 +9,7 @@
 #include <string.h>
 
 #include "Motor_Control.h"
+#include "NVS_Storage.h"
 #include "Parameter.h"
 #include "Plot.h"
 #include "Protocol.h"
@@ -186,11 +187,11 @@ static void Motor_Cmd_Run(void)
                 }
                 else
                 {
+                    /*
+                     * Stop is accepted here but motion modes may remain RUN
+                     * until their configured deceleration reaches zero.
+                     */
                     Motor_Stop();
-                    if (Motor_State_Get() != ENABLED)
-                    {
-                        Action_Status = AXDR_ERR_CONFIG;
-                    }
                 }
                 Motor_Action_Response(&Msg, Action_Status);
                 break;
@@ -306,6 +307,19 @@ static void Motor_Cmd_Run(void)
                 Motor_Action_Response(&Msg, Action_Status);
                 break;
 
+            case MOTOR_CMD_PARAMETER_SAVE:
+                Action_Status = AXDR_OK;
+                if (Motor_State_Get() != DISABLED)
+                {
+                    Action_Status = AXDR_ERR_STATE;
+                }
+                else if (NVS_Storage_Save_All() != 0)
+                {
+                    Action_Status = AXDR_ERR_CONFIG;
+                }
+                Motor_Action_Response(&Msg, Action_Status);
+                break;
+
             default:
                 break;
         }
@@ -321,6 +335,10 @@ UINT Motor_Thread_Init(VOID *memory_ptr)
     CHAR *pointer;
 
     byte_pool = (TX_BYTE_POOL *)memory_ptr;
+
+    /* Restore persisted configuration before the Motor thread starts running.
+     * Missing or invalid records leave the compiled defaults in place. */
+    (void)NVS_Storage_Load_All();
 
     if (tx_semaphore_create(&Motor_Sem, "Motor Semaphore", 0U) != TX_SUCCESS)
     {
@@ -424,6 +442,7 @@ static void Motor_Entry(ULONG thread_input)
             T0 = DWT->CYCCNT;
             if (Normal_Div == 0U)
             {
+                Motor_Plot_Normal_Update();
                 Plot_Normal_Sample();
             }
             Cyc = DWT->CYCCNT - T0;

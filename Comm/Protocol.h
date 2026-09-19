@@ -31,6 +31,7 @@
 #define AXDR_PLOT_CONFIG 0x01U
 #define AXDR_PLOT_START  0x02U
 #define AXDR_PLOT_STOP   0x03U
+#define AXDR_PLOT_CAPS   0x04U
 
 #define AXDR_PLOT_FAST   0U
 #define AXDR_PLOT_NORMAL 1U

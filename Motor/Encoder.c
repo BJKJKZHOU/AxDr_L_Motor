@@ -11,6 +11,7 @@
 #include "Motor_Cal.h"
 #include "Motor_Type.h"
 #include "control_params.h"
+#include "main.h"
 #include "motor_params.h"
 
 #define ENC_READY_VALID_CNT      16U
@@ -29,6 +30,25 @@ static uint8_t Ready_Cnt = 0U;
 static void (*Drv_Config)(void) = 0;
 static void (*Drv_Start)(void) = 0;
 static void (*Drv_IRQHandler)(void) = 0;
+
+static void None_Config(void)
+{
+    CLEAR_BIT(SPI1->CR2, SPI_CR2_RXDMAEN);
+    CLEAR_BIT(DMA1_Channel5->CCR, DMA_CCR_EN);
+    CLEAR_BIT(DMA1_Channel5->CCR,
+              DMA_CCR_TCIE | DMA_CCR_HTIE | DMA_CCR_TEIE);
+    DMA1->IFCR = DMA_IFCR_CGIF5;
+    SPI1_CSN_GPIO_Port->BSRR = SPI1_CSN_Pin;
+}
+
+static void None_Start(void)
+{
+}
+
+static void None_IRQHandler(void)
+{
+    DMA1->IFCR = DMA_IFCR_CGIF5;
+}
 
 static bool SPI_Driver_Bind(Encoder_SPI_Type_e Type)
 {
@@ -53,16 +73,21 @@ static bool SPI_Driver_Bind(Encoder_SPI_Type_e Type)
 
 static bool Driver_Bind(void)
 {
-    Drv_Config = 0;
-    Drv_Start = 0;
-    Drv_IRQHandler = 0;
-
     switch ((Encoder_Protocol_e)Encoder_Config.Protocol)
     {
+        case ENC_PROTOCOL_NONE:
+            Drv_IRQHandler = None_IRQHandler;
+            Drv_Start = None_Start;
+            Drv_Config = None_Config;
+            return true;
+
         case ENC_PROTOCOL_SPI:
             return SPI_Driver_Bind((Encoder_SPI_Type_e)Encoder_Config.SPI_Type);
 
         default:
+            Drv_Config = 0;
+            Drv_Start = 0;
+            Drv_IRQHandler = 0;
             return false;
     }
 }
@@ -124,14 +149,6 @@ static void Startup_Invalid(void)
 void Encoder_DMA_Config(void)
 {
     Feedback_Reset();
-
-    if ((Encoder_Protocol_e)Encoder_Config.Protocol == ENC_PROTOCOL_NONE)
-    {
-        Drv_Config = 0;
-        Drv_Start = 0;
-        Drv_IRQHandler = 0;
-        return;
-    }
 
     if (!Driver_Bind())
     {

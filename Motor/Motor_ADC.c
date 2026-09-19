@@ -32,7 +32,7 @@
 
 volatile ADC_T ADC = { 0 };
 
-static volatile float Iq_Ref_Last = 0.0f;
+volatile float Motor_Plot_Iq_Ref = 0.0f;
 
 static void Iab_Calib(void);
 
@@ -132,7 +132,7 @@ void Fast_Loop(void)
     ADC.Vbus_V = (float)ADC.Vbus_Raw * VBUS_RAW_TO_V;
 
     Fast_Mode = Motor_Fast_Run(&Theta_e, &Id_Ref, &Iq_Ref, &Ualpha, &Ubeta);
-    Iq_Ref_Last = Iq_Ref;
+    Motor_Plot_Iq_Ref = Iq_Ref;
 
     if (Fast_Mode == FAST_OFF)
     {
@@ -180,5 +180,5 @@ finish:
 
 float Motor_Iq_Ref_Get(void)
 {
-    return Iq_Ref_Last;
+    return Motor_Plot_Iq_Ref;
 }

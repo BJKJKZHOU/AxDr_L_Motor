@@ -35,6 +35,7 @@ extern PLL_T Sensorless_PLL;
 #define Flux_PLL Sensorless_PLL
 
 bool Sensorless_Begin(void);
+void Sensorless_Stop_Request(void);
 void Sensorless_Stop(void);
 bool Sensorless_Active(void);
 

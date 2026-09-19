@@ -103,3 +103,22 @@ void Trapezoid_Run(Motion_Ref_T *Ref,
     Delta = 0.5f * (Wm_Old + Ref->Wm) * Ts;
     Position_Add(Ref, Delta);
 }
+
+bool Trapezoid_Stop(Motion_Ref_T *Ref, float Dec, float Ts)
+{
+    float Wm_Old;
+    float Delta;
+
+    if ((Dec <= 0.0f) || (Ts <= 0.0f))
+    {
+        Ref->Am = 0.0f;
+        return false;
+    }
+
+    Wm_Old = Ref->Wm;
+    Ramp_Run(Ref, 0.0f, Dec, Dec, Ts);
+    Delta = 0.5f * (Wm_Old + Ref->Wm) * Ts;
+    Position_Add(Ref, Delta);
+
+    return (Ref->Wm == 0.0f);
+}

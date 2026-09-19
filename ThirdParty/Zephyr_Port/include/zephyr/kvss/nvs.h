@@ -18,13 +18,25 @@ struct flash_parameters;
 
 struct k_mutex {
     TX_MUTEX mutex;
+    uint8_t initialized;
 };
 
 #define K_FOREVER TX_WAIT_FOREVER
 
 static inline int k_mutex_init(struct k_mutex *mutex)
 {
-    return (tx_mutex_create(&mutex->mutex, (CHAR *)"nvs", TX_NO_INHERIT) == TX_SUCCESS) ? 0 : -1;
+    if (mutex->initialized != 0U)
+    {
+        return 0;
+    }
+
+    if (tx_mutex_create(&mutex->mutex, (CHAR *)"nvs", TX_NO_INHERIT) != TX_SUCCESS)
+    {
+        return -1;
+    }
+
+    mutex->initialized = 1U;
+    return 0;
 }
 
 static inline int k_mutex_lock(struct k_mutex *mutex, ULONG timeout)

@@ -18,6 +18,7 @@ SOURCE = ROOT / "Parameter" / "parameter.yaml"
 OUTPUTS = {
     ROOT / "Parameter" / "Parameter.generated.h": "c_header",
     ROOT / "Parameter" / "Parameter.generated.inc": "c_inc",
+    ROOT / "Parameter" / "Plot.generated.inc": "plot_inc",
     ROOT / "tools" / "parameter_ids_generated.py": "py_ids",
 }
 
@@ -31,10 +32,18 @@ TYPE_C = {
 }
 VALUE_MEMBER_C = {"u8": "U8", "i8": "I8", "f32": "F32", "i32": "I32", "u32": "U32"}
 CAST_C = {"u8": "uint8_t", "i8": "int8_t", "f32": "float", "i32": "int32_t", "u32": "uint32_t"}
+PLOT_MODES = {"fast", "normal"}
+
 ON_CHANGE_C = {
     "MOTOR_PARA": "Motor_Para_Update();",
     "MOTOR_PP": "Motor_Pp_Changed();",
-    "CONTROL_TUNING": "Motor_Para_Update();",
+    "CURRENT_TUNING": "Control_Current_Tune_Source = CTRL_TUNE_BANDWIDTH; Current_Tuning_Update();",
+    "CURRENT_GAIN": "Control_Current_Tune_Source = CTRL_TUNE_MANUAL;",
+    "CURRENT_SOURCE": "Current_Tuning_Source_Changed();",
+    "SPEED_TUNING": "Control_Speed_Tune_Source = CTRL_TUNE_BANDWIDTH; Speed_Tuning_Update();",
+    "SPEED_GAIN": "Control_Speed_Tune_Source = CTRL_TUNE_MANUAL;",
+    "SPEED_SOURCE": "Speed_Tuning_Source_Changed();",
+    "ESO_TUNING": "Mechanical_ESO_Tuning_Update();",
     "ENCODER_CONFIG": "Encoder_Config_Changed();",
 }
 
@@ -68,6 +77,8 @@ def load_objects():
                 raise ValueError(f"{name}: action name must start with ACTION_")
             if obj["access"] != "wo" or "command" not in obj:
                 raise ValueError(f"{name}: action requires access=wo and command")
+            if "persistent" in obj:
+                raise ValueError(f"{name}: action cannot be persistent")
             continue
 
         if not name.startswith("PARAM_"):
@@ -80,12 +91,35 @@ def load_objects():
             raise ValueError(f"{name}: exactly one of binding/getter is required")
         if "getter" in obj and obj["access"] != "ro":
             raise ValueError(f"{name}: getter-backed object must be read-only")
+        persistent = obj.get("persistent", False)
+        if not isinstance(persistent, bool):
+            raise ValueError(f"{name}: persistent must be boolean")
+        if persistent and "binding" not in obj:
+            raise ValueError(f"{name}: persistent value requires direct binding")
         write_state = obj.get("write_state")
         if write_state is not None and write_state not in ("disabled", "not_running"):
             raise ValueError(f"{name}: unsupported write_state {write_state}")
         on_change = obj.get("on_change")
         if on_change is not None and on_change not in ON_CHANGE_C:
             raise ValueError(f"{name}: unsupported on_change {on_change}")
+
+        plot = obj.get("plot")
+        if plot is not None:
+            if not isinstance(plot, dict):
+                raise ValueError(f"{name}: plot must be a mapping")
+            modes = plot.get("modes")
+            if not isinstance(modes, list) or not modes:
+                raise ValueError(f"{name}: plot.modes must be a non-empty list")
+            if len(set(modes)) != len(modes) or any(mode not in PLOT_MODES for mode in modes):
+                raise ValueError(f"{name}: plot.modes supports only fast/normal without duplicates")
+            if "binding" not in obj or obj["type"] != "f32":
+                raise ValueError(f"{name}: Plot requires direct f32 binding")
+            if "fast" in modes:
+                scale = plot.get("fast_scale")
+                if not isinstance(scale, (int, float)) or scale <= 0.0:
+                    raise ValueError(f"{name}: fast Plot requires fast_scale > 0")
+            elif "fast_scale" in plot:
+                raise ValueError(f"{name}: fast_scale requires fast mode")
     return objects
 
 
@@ -132,6 +166,8 @@ def flags_expr(obj):
         flags.append("PARAM_FLAG_DISABLED_ONLY")
     elif obj.get("write_state") == "not_running":
         flags.append("PARAM_FLAG_NOT_RUNNING")
+    if obj.get("persistent", False):
+        flags.append("PARAM_FLAG_PERSISTENT")
     return " | ".join(flags) if flags else "0U"
 
 
@@ -162,6 +198,15 @@ def validate_conditions(obj):
         conditions.append(f"(Number > (float){binding})")
 
     return conditions
+
+
+def plot_modes_expr(plot):
+    modes = []
+    if "fast" in plot["modes"]:
+        modes.append("AXDR_PLOT_CAP_FAST")
+    if "normal" in plot["modes"]:
+        modes.append("AXDR_PLOT_CAP_NORMAL")
+    return " | ".join(modes)
 
 
 def render_header(objects):
@@ -222,13 +267,29 @@ def render_inc(objects):
 
     lines += ["#elif defined(PARAM_GENERATE_PLOT)"]
     for name, obj in values(objects):
-        if "plot_scale" not in obj:
+        plot = obj.get("plot")
+        if plot is None:
             continue
-        if "binding" not in obj or obj["type"] != "f32":
-            raise ValueError(f"{name}: Plot requires direct f32 binding")
-        lines += [f"case {name}:", f"    *Scale = {c_number(obj['plot_scale'])};", f"    return &{obj['binding']};", ""]
+        scale = c_number(plot["fast_scale"]) if "fast" in plot["modes"] else "0.0f"
+        lines += [f"case {name}:", f"    *Scale = {scale};", f"    return &{obj['binding']};", ""]
 
     lines += ["#else", '#error "Parameter.generated.inc section not selected"', "#endif", ""]
+    return "\n".join(lines)
+
+
+def render_plot_inc(objects):
+    lines = ["/* Generated from Parameter/parameter.yaml. DO NOT EDIT. */"]
+    for name, obj in values(objects):
+        plot = obj.get("plot")
+        if plot is None:
+            continue
+        scale = c_number(plot["fast_scale"]) if "fast" in plot["modes"] else "0.0f"
+        lines.append(
+            "{ "
+            + f"{name}, {plot_modes_expr(plot)}, {scale}, &{obj['binding']} "
+            + "},"
+        )
+    lines.append("")
     return "\n".join(lines)
 
 
@@ -240,7 +301,7 @@ def render_py_ids(objects):
 
 
 def generate(objects):
-    renderers = {"c_header": render_header, "c_inc": render_inc, "py_ids": render_py_ids}
+    renderers = {"c_header": render_header, "c_inc": render_inc, "plot_inc": render_plot_inc, "py_ids": render_py_ids}
     return {path: renderers[kind](objects) for path, kind in OUTPUTS.items()}
 
 
