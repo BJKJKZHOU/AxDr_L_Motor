@@ -134,6 +134,12 @@ static float Encoder_Theta_e(void)
 static void Disable_Apply(void)
 {
     Stop_Pending = false;
+
+    if (Motor_Mode == SENSORLESS_SPEED)
+    {
+        Sensorless_Stop();
+    }
+
     PWM_Disable();
     Current_Ref.Id = 0.0f;
     Current_Ref.Iq = 0.0f;
