@@ -10,13 +10,16 @@
 #include "Identification.h"
 #include "Mechanical_ESO.h"
 #include "Motor_ADC.h"
+#include "Motor_Control.h"
 #include "Motor_Type.h"
 #include "Parameter.h"
 #include "Sensorless.h"
 #include "USB_Thread.h"
+#include "control_params.h"
 
 #define PLOT_BUF_NONE 0xFFU
 #define PLOT_DEBUG_IDENT_THETA_ID 0xF001U
+#define PLOT_TUNING_CAP_COUNT     5U
 
 typedef struct
 {
@@ -53,6 +56,10 @@ typedef struct
     uint8_t Count;
 } Plot_Buffer_Meta_T;
 
+static const Plot_Cap_T Plot_Capability[] = {
+#include "Plot.generated.inc"
+};
+
 static Plot_Group_T Plot_Group[2] = { 0 };
 
 static Fast_Config_T Fast_Config[2] = { 0 };
@@ -79,22 +86,6 @@ static uint16_t Normal_Seq = 0U;
 
 volatile uint32_t Plot_Fast_Drop = 0U;
 volatile uint32_t Plot_Normal_Drop = 0U;
-
-static const volatile float *Plot_Data_Get(uint16_t Var_ID, float *Scale)
-{
-    switch (Var_ID)
-    {
-        case PLOT_DEBUG_IDENT_THETA_ID:
-            *Scale = 0.0002f;
-            return &Ident_PLL.State.Theta;
-#define PARAM_GENERATE_PLOT
-#include "Parameter.generated.inc"
-#undef PARAM_GENERATE_PLOT
-        default:
-            *Scale = 0.0f;
-            return 0;
-    }
-}
 
 static int16_t Plot_Fast_Quant(float Value, float Scale)
 {
@@ -190,15 +181,147 @@ static void Plot_Normal_Apply_Pending(void)
     Plot_Normal_Group_Sync();
 }
 
+static uint8_t Plot_Generated_Capability_Count(void)
+{
+    return (uint8_t)(sizeof(Plot_Capability) / sizeof(Plot_Capability[0]));
+}
+
+static bool Plot_Tuning_Capability_Get(uint8_t Index, Plot_Cap_T *Cap)
+{
+    if (Cap == 0)
+    {
+        return false;
+    }
+
+    switch (Index)
+    {
+        case 0U:
+            Cap->Id = PARAM_REF_IQ;
+            Cap->Modes = AXDR_PLOT_CAP_FAST | AXDR_PLOT_CAP_NORMAL;
+            Cap->Fast_Scale = 0.001f;
+            Cap->Data = &Motor_Plot_Iq_Ref;
+            return true;
+
+        case 1U:
+            Cap->Id = PARAM_RUN_WM;
+            Cap->Modes = AXDR_PLOT_CAP_NORMAL;
+            Cap->Fast_Scale = 0.0f;
+            Cap->Data = &Motor_Plot_Wm;
+            return true;
+
+        case 2U:
+            Cap->Id = PARAM_REF_WM;
+            Cap->Modes = AXDR_PLOT_CAP_NORMAL;
+            Cap->Fast_Scale = 0.0f;
+            Cap->Data = &Motor_Plot_Wm_Ref;
+            return true;
+
+        case 3U:
+            Cap->Id = PARAM_RUN_POSITION;
+            Cap->Modes = AXDR_PLOT_CAP_NORMAL;
+            Cap->Fast_Scale = 0.0f;
+            Cap->Data = &Motor_Plot_Position;
+            return true;
+
+        case 4U:
+            Cap->Id = PARAM_REF_POSITION;
+            Cap->Modes = AXDR_PLOT_CAP_NORMAL;
+            Cap->Fast_Scale = 0.0f;
+            Cap->Data = &Motor_Plot_Position_Ref;
+            return true;
+
+        default:
+            return false;
+    }
+}
+
+uint8_t Plot_Capability_Count(void)
+{
+    return (uint8_t)(Plot_Generated_Capability_Count() + PLOT_TUNING_CAP_COUNT);
+}
+
+bool Plot_Capability_Get(uint8_t Index, Plot_Cap_T *Cap)
+{
+    uint8_t Generated_Count;
+
+    if ((Cap == 0) || (Index >= Plot_Capability_Count()))
+    {
+        return false;
+    }
+
+    Generated_Count = Plot_Generated_Capability_Count();
+    if (Index < Generated_Count)
+    {
+        *Cap = Plot_Capability[Index];
+        return true;
+    }
+
+    return Plot_Tuning_Capability_Get((uint8_t)(Index - Generated_Count), Cap);
+}
+
+bool Plot_Capability_Find(uint16_t Id, Plot_Cap_T *Cap)
+{
+    uint8_t Count;
+    Plot_Cap_T Candidate;
+
+    if (Cap == 0)
+    {
+        return false;
+    }
+
+    Count = Plot_Capability_Count();
+    for (uint8_t n = 0U; n < Count; n++)
+    {
+        if (Plot_Capability_Get(n, &Candidate) && (Candidate.Id == Id))
+        {
+            *Cap = Candidate;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static bool Plot_Capability_Resolve(uint16_t Id, Plot_Cap_T *Cap)
+{
+    if (Id == PLOT_DEBUG_IDENT_THETA_ID)
+    {
+        if (Cap == 0)
+        {
+            return false;
+        }
+
+        Cap->Id = PLOT_DEBUG_IDENT_THETA_ID;
+        Cap->Modes = AXDR_PLOT_CAP_FAST | AXDR_PLOT_CAP_NORMAL;
+        Cap->Fast_Scale = 0.0002f;
+        Cap->Data = &Ident_PLL.State.Theta;
+        return true;
+    }
+
+    return Plot_Capability_Find(Id, Cap);
+}
+
+uint32_t Plot_Fast_Rate_Hz(void)
+{
+    return (uint32_t)(CUR_FREQ_HZ_DEFAULT + 0.5f);
+}
+
+uint32_t Plot_Normal_Rate_Hz(void)
+{
+    return (uint32_t)(SPD_FREQ_HZ_DEFAULT * 0.5f + 0.5f);
+}
+
 AxDr_Status_e Plot_Config(uint8_t Group, uint8_t Config_ID, const uint16_t *Var, uint8_t Count)
 {
-    float Scale;
-    const volatile float *Data;
+    Plot_Cap_T Cap;
+    uint8_t Mode;
 
     if (Group > AXDR_PLOT_NORMAL)
     {
         return AXDR_ERR_CONFIG;
     }
+
+    Mode = (Group == AXDR_PLOT_FAST) ? AXDR_PLOT_CAP_FAST : AXDR_PLOT_CAP_NORMAL;
 
     if (Group == AXDR_PLOT_FAST)
     {
@@ -223,16 +346,16 @@ AxDr_Status_e Plot_Config(uint8_t Group, uint8_t Config_ID, const uint16_t *Var,
 
         for (uint8_t n = 0U; n < Count; n++)
         {
-            Data = Plot_Data_Get(Var[n], &Scale);
-
-            if ((Data == 0) || (Scale <= 0.0f))
+            if (!Plot_Capability_Resolve(Var[n], &Cap) ||
+                ((Cap.Modes & Mode) == 0U) ||
+                (Cap.Fast_Scale <= 0.0f))
             {
                 return AXDR_ERR_VAR_ID;
             }
 
             Config->Var[n] = Var[n];
-            Config->Data[n].Data = Data;
-            Config->Data[n].Scale = Scale;
+            Config->Data[n].Data = Cap.Data;
+            Config->Data[n].Scale = Cap.Fast_Scale;
         }
 
         Config->Valid = 1U;
@@ -273,15 +396,13 @@ AxDr_Status_e Plot_Config(uint8_t Group, uint8_t Config_ID, const uint16_t *Var,
 
         for (uint8_t n = 0U; n < Count; n++)
         {
-            Data = Plot_Data_Get(Var[n], &Scale);
-
-            if (Data == 0)
+            if (!Plot_Capability_Resolve(Var[n], &Cap) || ((Cap.Modes & Mode) == 0U))
             {
                 return AXDR_ERR_VAR_ID;
             }
 
             Config->Var[n] = Var[n];
-            Config->Data[n].Data = Data;
+            Config->Data[n].Data = Cap.Data;
         }
 
         Config->Valid = 1U;

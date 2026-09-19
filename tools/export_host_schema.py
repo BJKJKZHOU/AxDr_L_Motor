@@ -37,7 +37,6 @@ HOST_VALUE_FIELDS = (
     "range",
     "allowed",
     "allowed_symbols",
-    "plot_scale",
 )
 HOST_ACTION_FIELDS = ("label", "description")
 
@@ -143,6 +142,13 @@ def render_host_schema(objects) -> str:
                 lines.append(f"{field} = {toml_array(value)}")
             else:
                 lines.append(f"{field} = {toml_scalar(value)}")
+
+        # Runtime PLOT_CAPS is authoritative. Keep exporting FAST scale for
+        # current HostSchema consumers that still expose this metadata.
+        plot = obj.get("plot")
+        if isinstance(plot, dict) and "fast" in plot.get("modes", []):
+            lines.append(f"plot_scale = {toml_scalar(plot['fast_scale'])}")
+
         lines.append("")
         if "range" in obj:
             render_range(lines, "parameters", obj["range"])

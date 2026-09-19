@@ -21,8 +21,7 @@ objects:
     label: Ia
     unit: A
     description: "ADC采样得到的A相电流反馈。"
-    plot_scale: 0.001
-
+    plot: { modes: [fast, normal], fast_scale: 0.001 }
   PARAM_ADC_IB:
     id: 0x0002
     type: f32
@@ -31,8 +30,7 @@ objects:
     label: Ib
     unit: A
     description: "ADC采样得到的B相电流反馈。"
-    plot_scale: 0.001
-
+    plot: { modes: [fast, normal], fast_scale: 0.001 }
   PARAM_ADC_IC:
     id: 0x0003
     type: f32
@@ -41,8 +39,7 @@ objects:
     label: Ic
     unit: A
     description: "由相电流采样链得到的C相电流反馈。"
-    plot_scale: 0.001
-
+    plot: { modes: [fast, normal], fast_scale: 0.001 }
   PARAM_ADC_VBUS:
     id: 0x0004
     type: f32
@@ -51,8 +48,7 @@ objects:
     label: Vbus
     unit: V
     description: "直流母线电压采样值。"
-    plot_scale: 0.0
-
+    plot: { modes: [normal] }
   PARAM_RUN_ID:
     id: 0x0010
     type: f32
@@ -61,8 +57,7 @@ objects:
     label: Id
     unit: A
     description: "FOC Park变换后的d轴实际电流反馈。"
-    plot_scale: 0.001
-
+    plot: { modes: [fast, normal], fast_scale: 0.001 }
   PARAM_RUN_IQ:
     id: 0x0011
     type: f32
@@ -71,8 +66,7 @@ objects:
     label: Iq
     unit: A
     description: "FOC Park变换后的q轴实际电流反馈。"
-    plot_scale: 0.001
-
+    plot: { modes: [fast, normal], fast_scale: 0.001 }
   PARAM_RUN_UD:
     id: 0x0012
     type: f32
@@ -81,8 +75,7 @@ objects:
     label: Ud
     unit: V
     description: "FOC电流环输出的d轴电压。"
-    plot_scale: 0.001
-
+    plot: { modes: [fast, normal], fast_scale: 0.001 }
   PARAM_RUN_UQ:
     id: 0x0013
     type: f32
@@ -91,8 +84,7 @@ objects:
     label: Uq
     unit: V
     description: "FOC电流环输出的q轴电压。"
-    plot_scale: 0.001
-
+    plot: { modes: [fast, normal], fast_scale: 0.001 }
   PARAM_RUN_THETA_E:
     id: 0x0014
     type: f32
@@ -101,8 +93,7 @@ objects:
     label: θe
     unit: rad
     description: "当前FOC实际使用的电角度。"
-    plot_scale: 0.0002
-
+    plot: { modes: [fast, normal], fast_scale: 0.0002 }
   PARAM_RUN_UALPHA:
     id: 0x0015
     type: f32
@@ -111,8 +102,7 @@ objects:
     label: Uα
     unit: V
     description: "上一快环实际送入SVPWM的alpha轴电压命令。"
-    plot_scale: 0.001
-
+    plot: { modes: [fast, normal], fast_scale: 0.001 }
   PARAM_RUN_UBETA:
     id: 0x0016
     type: f32
@@ -121,8 +111,7 @@ objects:
     label: Uβ
     unit: V
     description: "上一快环实际送入SVPWM的beta轴电压命令。"
-    plot_scale: 0.001
-
+    plot: { modes: [fast, normal], fast_scale: 0.001 }
   PARAM_OBS_THETA:
     id: 0x0020
     type: f32
@@ -131,8 +120,7 @@ objects:
     label: θe Obs
     unit: rad
     description: "磁链观测器PLL估算的电角度。"
-    plot_scale: 0.0002
-
+    plot: { modes: [fast, normal], fast_scale: 0.0002 }
   PARAM_OBS_WE:
     id: 0x0021
     type: f32
@@ -141,8 +129,7 @@ objects:
     label: ωe Obs
     unit: rad/s
     description: "磁链观测器PLL估算的电角速度。"
-    plot_scale: 0.1
-
+    plot: { modes: [fast, normal], fast_scale: 0.1 }
   PARAM_MECH_ESO_THETA:
     id: 0x0022
     type: f32
@@ -151,8 +138,7 @@ objects:
     label: θm ESO
     unit: rad
     description: "Mechanical ESO估算的连续机械角度，仅用于诊断与波形对比。"
-    plot_scale: 0.0002
-
+    plot: { modes: [fast, normal], fast_scale: 0.0002 }
   PARAM_MECH_ESO_WM:
     id: 0x0023
     type: f32
@@ -161,8 +147,7 @@ objects:
     label: ωm ESO
     unit: rad/s
     description: "Mechanical ESO估算的机械角速度。"
-    plot_scale: 0.1
-
+    plot: { modes: [fast, normal], fast_scale: 0.1 }
   PARAM_MECH_ESO_TD:
     id: 0x0024
     type: f32
@@ -171,8 +156,7 @@ objects:
     label: Td
     unit: N*m
     description: "Mechanical ESO估算的负载/扰动转矩，仅用于诊断。"
-    plot_scale: 0.001
-
+    plot: { modes: [fast, normal], fast_scale: 0.001 }
   PARAM_MECH_ESO_ERROR:
     id: 0x0025
     type: f32
@@ -181,8 +165,7 @@ objects:
     label: ESO Error
     unit: rad
     description: "Mechanical ESO的位置观测误差Theta_meas-Theta_hat。"
-    plot_scale: 0.0002
-
+    plot: { modes: [fast, normal], fast_scale: 0.0002 }
   PARAM_MOTOR_PP:
     id: 0x0101
     type: u8
@@ -463,8 +446,7 @@ objects:
     label: ωm Encoder
     unit: rad/s
     description: "编码器角度差分与低通得到的机械速度，仅用于诊断对比。"
-    plot_scale: 0.1
-
+    plot: { modes: [fast, normal], fast_scale: 0.1 }
   PARAM_REF_IQ:
     id: 0x0510
     type: f32

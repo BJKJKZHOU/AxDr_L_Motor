@@ -38,6 +38,11 @@ const Motor_Limit_T Motor_Lim = MOTOR_LIM_DEFAULT;
 Motor_Limit_T User_Lim = USER_LIM_DEFAULT;
 Motor_Run_T Motor_Run = { 0 };
 
+volatile float Motor_Plot_Wm = 0.0f;
+volatile float Motor_Plot_Wm_Ref = 0.0f;
+volatile float Motor_Plot_Position = 0.0f;
+volatile float Motor_Plot_Position_Ref = 0.0f;
+
 static volatile Motor_State_e Motor_State = DISABLED;
 
 static Current_Ref_T Current_Ref = { 0 };
@@ -705,4 +710,20 @@ float Motor_Wm_Get(void)
 void Motor_Position_Get(int32_t *Turn, float *Theta)
 {
     Motor_Position_Internal_To_User(Motor_Run.Turn, Motor_Run.Theta_m, Turn, Theta);
+}
+
+void Motor_Plot_Normal_Update(void)
+{
+    Motor_Position_T Ref;
+    int32_t Turn;
+    float Theta;
+
+    Motor_Plot_Wm = Motor_Wm_Get();
+    Motor_Plot_Wm_Ref = Motor_Wm_Ref_Get();
+
+    Motor_Position_Get(&Turn, &Theta);
+    Motor_Plot_Position = (float)Turn + Theta / TWO_PI_F;
+
+    Ref = Motor_Position_Ref_Get();
+    Motor_Plot_Position_Ref = (float)Ref.Turn + Ref.Theta / TWO_PI_F;
 }

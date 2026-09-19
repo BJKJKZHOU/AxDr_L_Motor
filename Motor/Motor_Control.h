@@ -38,4 +38,11 @@ bool Motor_Ident_Apply(void);
 float Motor_Wm_Get(void);
 void Motor_Position_Get(int32_t *Turn, float *Theta);
 
+/* NORMAL Plot shadows in user mechanical coordinates. */
+extern volatile float Motor_Plot_Wm;
+extern volatile float Motor_Plot_Wm_Ref;
+extern volatile float Motor_Plot_Position;
+extern volatile float Motor_Plot_Position_Ref;
+void Motor_Plot_Normal_Update(void);
+
 #endif /* MOTOR_CONTROL_H */

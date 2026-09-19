@@ -28,6 +28,7 @@ typedef struct
 } ADC_T;
 
 extern volatile ADC_T ADC;
+extern volatile float Motor_Plot_Iq_Ref;
 
 void ADC_Calib(void);
 void Fast_Loop(void);

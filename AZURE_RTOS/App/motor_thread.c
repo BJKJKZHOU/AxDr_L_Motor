@@ -442,6 +442,7 @@ static void Motor_Entry(ULONG thread_input)
             T0 = DWT->CYCCNT;
             if (Normal_Div == 0U)
             {
+                Motor_Plot_Normal_Update();
                 Plot_Normal_Sample();
             }
             Cyc = DWT->CYCCNT - T0;

@@ -16,6 +16,9 @@
 
 #define AXDR_RESP_NUM 8U
 #define AXDR_CANFD_INVALID_LEN 0xFFU
+#define AXDR_PLOT_CAP_PAGE_MAX 6U
+#define AXDR_PLOT_CAP_HEADER_LEN 14U
+#define AXDR_PLOT_CAP_ENTRY_LEN 7U
 
 static AxDr_Msg_T Resp_Buf[AXDR_RESP_NUM];
 static volatile uint8_t Resp_Wr = 0U;
@@ -430,6 +433,93 @@ static void Plot_Rx(const uint8_t *Data, uint8_t Len)
         else
         {
             Status = Plot_Stop(Data[2]);
+        }
+    }
+    else if (Op == AXDR_PLOT_CAPS)
+    {
+        uint8_t Start;
+        uint8_t Total;
+        uint8_t Count;
+        uint8_t Next;
+        uint8_t Dst;
+        uint32_t Fast_Rate;
+        uint32_t Normal_Rate;
+        Plot_Cap_T Cap;
+        union
+        {
+            float F;
+            uint32_t U;
+        } Scale;
+        uint8_t Resp[AXDR_PLOT_CAP_HEADER_LEN + AXDR_PLOT_CAP_PAGE_MAX * AXDR_PLOT_CAP_ENTRY_LEN];
+
+        Required = 3U;
+        if (!AxDr_CANFD_Padding_Zero(Data, Required, Len))
+        {
+            Status = AXDR_ERR_LENGTH;
+        }
+        else
+        {
+            Start = Data[2];
+            Total = Plot_Capability_Count();
+
+            if (Start >= Total)
+            {
+                Status = AXDR_ERR_CONFIG;
+            }
+            else
+            {
+                Count = (uint8_t)(Total - Start);
+                if (Count > AXDR_PLOT_CAP_PAGE_MAX)
+                {
+                    Count = AXDR_PLOT_CAP_PAGE_MAX;
+                }
+
+                Next = ((uint8_t)(Start + Count) < Total) ?
+                           (uint8_t)(Start + Count) : AXDR_PLOT_CAP_END;
+
+                Resp[0] = Start;
+                Resp[1] = Next;
+                Resp[2] = Count;
+                Resp[3] = AXDR_FAST_MAX_CH;
+                Resp[4] = AXDR_NORMAL_MAX_CH;
+                Resp[5] = AXDR_FAST_BLOCK_SAMPLE;
+
+                Fast_Rate = Plot_Fast_Rate_Hz();
+                Normal_Rate = Plot_Normal_Rate_Hz();
+                Resp[6] = (uint8_t)Fast_Rate;
+                Resp[7] = (uint8_t)(Fast_Rate >> 8);
+                Resp[8] = (uint8_t)(Fast_Rate >> 16);
+                Resp[9] = (uint8_t)(Fast_Rate >> 24);
+                Resp[10] = (uint8_t)Normal_Rate;
+                Resp[11] = (uint8_t)(Normal_Rate >> 8);
+                Resp[12] = (uint8_t)(Normal_Rate >> 16);
+                Resp[13] = (uint8_t)(Normal_Rate >> 24);
+
+                Dst = AXDR_PLOT_CAP_HEADER_LEN;
+                for (uint8_t n = 0U; n < Count; n++)
+                {
+                    if (!Plot_Capability_Get((uint8_t)(Start + n), &Cap))
+                    {
+                        Status = AXDR_ERR_CONFIG;
+                        break;
+                    }
+
+                    Resp[Dst++] = (uint8_t)Cap.Id;
+                    Resp[Dst++] = (uint8_t)(Cap.Id >> 8);
+                    Resp[Dst++] = Cap.Modes;
+                    Scale.F = Cap.Fast_Scale;
+                    Resp[Dst++] = (uint8_t)Scale.U;
+                    Resp[Dst++] = (uint8_t)(Scale.U >> 8);
+                    Resp[Dst++] = (uint8_t)(Scale.U >> 16);
+                    Resp[Dst++] = (uint8_t)(Scale.U >> 24);
+                }
+
+                if (Status == AXDR_OK)
+                {
+                    Response(Txn, AXDR_MSG_PLOT, Op, Status, Resp, Dst);
+                    return;
+                }
+            }
         }
     }
     else
