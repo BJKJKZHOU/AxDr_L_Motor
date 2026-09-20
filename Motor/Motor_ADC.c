@@ -155,7 +155,7 @@ void Fast_Loop(void)
 
         if (Motor_Mechanical_ESO_Required())
         {
-            Mechanical_ESO_Run(Encoder_Position_Get(),
+            Mechanical_ESO_Run(Motor_Run.Theta_m,
                                Encoder.Valid != 0U,
                                Motor_Run.Iq);
         }

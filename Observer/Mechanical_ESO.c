@@ -5,6 +5,7 @@
 
 #include "Mechanical_ESO.h"
 
+#include "Math.h"
 #include "control_params.h"
 
 Mechanical_ESO_T Mechanical_ESO = { 0 };
@@ -63,7 +64,7 @@ bool Mechanical_ESO_Config(float J, float B, float Kt, float Wo)
 
 void Mechanical_ESO_Reset(float Theta, float Wm)
 {
-    Mechanical_ESO.State.Theta = __builtin_isfinite(Theta) ? Theta : 0.0f;
+    Mechanical_ESO.State.Theta = __builtin_isfinite(Theta) ? Angle_Wrap(Theta) : 0.0f;
     Mechanical_ESO.State.Wm = __builtin_isfinite(Wm) ? Wm : 0.0f;
     Mechanical_ESO.State.Td = 0.0f;
     Mechanical_ESO.State.Error = 0.0f;
@@ -89,6 +90,15 @@ void Mechanical_ESO_Run(float Theta_Meas, bool Position_Valid, float Iq)
     if (Position_Valid && __builtin_isfinite(Theta_Meas))
     {
         Error = Theta_Meas - Mechanical_ESO.State.Theta;
+
+        if (Error > PI_F)
+        {
+            Error -= TWO_PI_F;
+        }
+        else if (Error < -PI_F)
+        {
+            Error += TWO_PI_F;
+        }
     }
 
     Mechanical_ESO.State.Error = Error;
@@ -100,7 +110,7 @@ void Mechanical_ESO_Run(float Theta_Meas, bool Position_Valid, float Iq)
              Mechanical_ESO.Para.L2 * Error;
     Td_Dot = Mechanical_ESO.Para.L3 * Error;
 
-    Mechanical_ESO.State.Theta += Theta_Dot * CUR_TS;
+    Mechanical_ESO.State.Theta = Angle_Wrap(Mechanical_ESO.State.Theta + Theta_Dot * CUR_TS);
     Mechanical_ESO.State.Wm += Wm_Dot * CUR_TS;
     Mechanical_ESO.State.Td += Td_Dot * CUR_TS;
 }

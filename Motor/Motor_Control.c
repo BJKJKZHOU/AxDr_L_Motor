@@ -513,7 +513,7 @@ void Motor_Enable(void)
             return;
         }
 
-        Mechanical_ESO_Reset(Encoder_Position_Get(), Motor_Run.Wm);
+        Mechanical_ESO_Reset(Motor_Run.Theta_m, Motor_Run.Wm);
         Motion_State_Reset();
         Current_Loop_State_Reset();
     }
