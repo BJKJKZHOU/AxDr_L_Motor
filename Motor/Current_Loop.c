@@ -37,7 +37,7 @@ void Current_Loop_State_Reset(void)
     Iq_Ctrl.Sig.Out = 0.0f;
 }
 
-void Current_Loop(float Id_Ref, float Iq_Ref, float *Ualpha, float *Ubeta)
+void Current_Loop(float We, float Id_Ref, float Iq_Ref, float *Ualpha, float *Ubeta)
 {
     float Ialpha;
     float Ibeta;
@@ -45,6 +45,8 @@ void Current_Loop(float Id_Ref, float Iq_Ref, float *Ualpha, float *Ubeta)
     float Cos;
     float Ud;
     float Uq;
+    float Ud_Ff;
+    float Uq_Ff;
     float U_Lim;
 
     SinCos(Motor_Run.Theta_e, &Sin, &Cos);
@@ -73,8 +75,18 @@ void Current_Loop(float Id_Ref, float Iq_Ref, float *Ualpha, float *Ubeta)
     PID_Run(&Id_Ctrl, CUR_TS);
     PID_Run(&Iq_Ctrl, CUR_TS);
 
-    Ud = Id_Ctrl.Sig.Out;
-    Uq = Iq_Ctrl.Sig.Out;
+    /*
+     * PMSM dq feedforward using measured currents and electrical speed:
+     *   Ud_ff = -We * Lq * Iq
+     *   Uq_ff =  We * (Ld * Id + Flux)
+     * The PI controllers therefore regulate the decoupled RL dynamics while
+     * cross-coupling and permanent-magnet back-EMF are supplied explicitly.
+     */
+    Ud_Ff = -We * Motor_Para.Lq * Motor_Run.Iq;
+    Uq_Ff = We * (Motor_Para.Ld * Motor_Run.Id + Motor_Para.Flux);
+
+    Ud = Id_Ctrl.Sig.Out + Ud_Ff;
+    Uq = Iq_Ctrl.Sig.Out + Uq_Ff;
 
     Vector2_Limit(&Ud, &Uq, U_Lim);
 

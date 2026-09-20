@@ -104,6 +104,7 @@ void Fast_Loop(void)
 {
     Motor_Fast_Mode_e Fast_Mode;
     float Theta_e;
+    float We;
     float Id_Ref;
     float Iq_Ref;
     float Ualpha;
@@ -131,7 +132,7 @@ void Fast_Loop(void)
     ADC.Ic_A = -(ADC.Ia_A + ADC.Ib_A);
     ADC.Vbus_V = (float)ADC.Vbus_Raw * VBUS_RAW_TO_V;
 
-    Fast_Mode = Motor_Fast_Run(&Theta_e, &Id_Ref, &Iq_Ref, &Ualpha, &Ubeta);
+    Fast_Mode = Motor_Fast_Run(&Theta_e, &We, &Id_Ref, &Iq_Ref, &Ualpha, &Ubeta);
     Motor_Plot_Iq_Ref = Iq_Ref;
 
     if (Fast_Mode == FAST_OFF)
@@ -151,7 +152,7 @@ void Fast_Loop(void)
     if (Fast_Mode == FAST_CURRENT)
     {
         Motor_Run.Theta_e = Theta_e;
-        Current_Loop(Id_Ref, Iq_Ref, &Ualpha, &Ubeta);
+        Current_Loop(We, Id_Ref, Iq_Ref, &Ualpha, &Ubeta);
 
         if (Motor_Mechanical_ESO_Required())
         {

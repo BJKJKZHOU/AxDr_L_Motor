@@ -350,12 +350,14 @@ void Motor_Control(void)
 }
 
 Motor_Fast_Mode_e Motor_Fast_Run(float *Theta_e,
+                                 float *We,
                                  float *Id_Ref,
                                  float *Iq_Ref,
                                  float *Ualpha,
                                  float *Ubeta)
 {
     *Theta_e = 0.0f;
+    *We = 0.0f;
     *Id_Ref = 0.0f;
     *Iq_Ref = 0.0f;
     *Ualpha = 0.0f;
@@ -372,6 +374,7 @@ Motor_Fast_Mode_e Motor_Fast_Run(float *Theta_e,
         case SPEED:
         case POSITION:
             *Theta_e = Encoder_Theta_e();
+            *We = (float)Motor_Para.Pp * Mechanical_ESO_Wm_Get();
             *Id_Ref = Current_Ref.Id;
             *Iq_Ref = Current_Ref.Iq;
             return FAST_CURRENT;

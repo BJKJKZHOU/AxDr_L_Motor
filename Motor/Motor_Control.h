@@ -11,6 +11,7 @@
 
 void Motor_Control(void);
 Motor_Fast_Mode_e Motor_Fast_Run(float *Theta_e,
+                                 float *We,
                                  float *Id_Ref,
                                  float *Iq_Ref,
                                  float *Ualpha,
