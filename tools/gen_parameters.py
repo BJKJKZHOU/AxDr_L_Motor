@@ -120,7 +120,68 @@ def load_objects():
                     raise ValueError(f"{name}: fast Plot requires fast_scale > 0")
             elif "fast_scale" in plot:
                 raise ValueError(f"{name}: fast_scale requires fast mode")
+    validate_host_metadata(objects)
     return objects
+
+
+def validate_host_metadata(objects):
+    readable = {
+        name for name, obj in objects.items()
+        if obj["type"] != "action" and "r" in obj["access"]
+    }
+    for name, obj in objects.items():
+        host = obj.get("host")
+        if host is None:
+            continue
+        if obj["type"] == "action":
+            raise ValueError(f"{name}: host metadata is only valid for value Parameters")
+        if obj["access"] != "rw":
+            raise ValueError(f"{name}: host readback metadata requires a writable Parameter")
+        if not isinstance(host, dict):
+            raise ValueError(f"{name}: host must be a mapping")
+        unknown = set(host) - {"readback", "readback_prefixes"}
+        if unknown:
+            raise ValueError(f"{name}: unsupported host field(s): {', '.join(sorted(unknown))}")
+
+        readback = host.get("readback", [])
+        prefixes = host.get("readback_prefixes", [])
+        for field, entries in (("readback", readback), ("readback_prefixes", prefixes)):
+            if not isinstance(entries, list) or any(not isinstance(item, str) or not item for item in entries):
+                raise ValueError(f"{name}: host.{field} must be a list of non-empty strings")
+            if len(entries) != len(set(entries)):
+                raise ValueError(f"{name}: host.{field} contains duplicates")
+
+        for target in readback:
+            if target not in readable:
+                raise ValueError(f"{name}: host.readback target {target} is not a readable value Parameter")
+        for prefix in prefixes:
+            if not prefix.startswith("PARAM_"):
+                raise ValueError(f"{name}: host.readback_prefixes entry must start with PARAM_: {prefix}")
+            if not any(target != name and target.startswith(prefix) for target in readable):
+                raise ValueError(f"{name}: host.readback_prefixes entry matches no readable Parameter: {prefix}")
+
+
+def host_readback_symbols(objects, name):
+    obj = objects[name]
+    host = obj.get("host") or {}
+    result = []
+    seen = {name}
+
+    def add(symbol):
+        if symbol not in seen:
+            seen.add(symbol)
+            result.append(symbol)
+
+    for symbol in host.get("readback", []):
+        add(symbol)
+    prefixes = host.get("readback_prefixes", [])
+    if prefixes:
+        for symbol, target in objects.items():
+            if target["type"] == "action" or "r" not in target["access"]:
+                continue
+            if any(symbol.startswith(prefix) for prefix in prefixes):
+                add(symbol)
+    return result
 
 
 def values(objects):

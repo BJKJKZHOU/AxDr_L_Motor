@@ -23,6 +23,7 @@ jobs:
         run: |
           python3 -m pip install PyYAML
           python3 tools/gen_parameters.py --check
+          python3 tools/test_host_metadata.py
 
       - name: Configure
         run: cmake --preset gcc-release

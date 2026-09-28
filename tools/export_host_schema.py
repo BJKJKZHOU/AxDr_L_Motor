@@ -14,7 +14,7 @@ import re
 import subprocess
 import sys
 
-from gen_parameters import ROOT, SOURCE, actions, load_objects, values
+from gen_parameters import ROOT, SOURCE, actions, host_readback_symbols, load_objects, values
 
 DEFAULT_OUTPUT = ROOT / "build" / "host" / "axdr-host-schema.toml"
 SCHEMA_VERSION = 1
@@ -142,6 +142,10 @@ def render_host_schema(objects) -> str:
                 lines.append(f"{field} = {toml_array(value)}")
             else:
                 lines.append(f"{field} = {toml_scalar(value)}")
+
+        readback = host_readback_symbols(objects, symbol)
+        if readback:
+            lines.append(f"readback = {toml_array(readback)}")
 
         # Runtime PLOT_CAPS is authoritative. Keep exporting FAST scale for
         # current HostSchema consumers that still expose this metadata.
