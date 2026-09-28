@@ -72,6 +72,17 @@ def main() -> int:
 
     schema = tomllib.loads(render_host_schema(objects))
     exported = {item["symbol"]: item.get("readback", []) for item in schema["parameters"]}
+    exported_parameters = {item["symbol"]: item for item in schema["parameters"]}
+    for symbol, obj in objects.items():
+        if obj["type"] == "action":
+            continue
+        expected_persistent = bool(obj.get("persistent", False))
+        actual_persistent = bool(exported_parameters[symbol].get("persistent", False))
+        if actual_persistent != expected_persistent:
+            raise AssertionError(
+                f"{symbol}: exported persistent={actual_persistent} "
+                f"does not match YAML persistent={expected_persistent}"
+            )
     for written, obj in objects.items():
         if obj["type"] == "action" or obj["access"] != "rw":
             continue

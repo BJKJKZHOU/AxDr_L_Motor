@@ -33,6 +33,7 @@ HOST_VALUE_FIELDS = (
     "label",
     "unit",
     "description",
+    "persistent",
     "write_state",
     "range",
     "allowed",
