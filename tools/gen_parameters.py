@@ -164,23 +164,17 @@ def validate_host_metadata(objects):
 def host_readback_symbols(objects, name):
     obj = objects[name]
     host = obj.get("host") or {}
-    result = []
-    seen = {name}
-
-    def add(symbol):
-        if symbol not in seen:
-            seen.add(symbol)
-            result.append(symbol)
-
-    for symbol in host.get("readback", []):
-        add(symbol)
+    exact = set(host.get("readback", []))
     prefixes = host.get("readback_prefixes", [])
-    if prefixes:
-        for symbol, target in objects.items():
-            if target["type"] == "action" or "r" not in target["access"]:
-                continue
-            if any(symbol.startswith(prefix) for prefix in prefixes):
-                add(symbol)
+    result = []
+
+    # Preserve the old Host readback order: after the written Parameter, scan
+    # readable Parameters in schema/YAML order and select the declared targets.
+    for symbol, target in objects.items():
+        if symbol == name or target["type"] == "action" or "r" not in target["access"]:
+            continue
+        if symbol in exact or any(symbol.startswith(prefix) for prefix in prefixes):
+            result.append(symbol)
     return result
 
 

@@ -57,16 +57,17 @@ def main() -> int:
     for written, obj in objects.items():
         if obj["type"] == "action" or obj["access"] != "rw":
             continue
-        expected = {
-            candidate for candidate in readable
-            if candidate != written and legacy_related_parameter(written, candidate)
-        }
-        actual = set(host_readback_symbols(objects, written))
+        expected = [
+            candidate for candidate, target in objects.items()
+            if target["type"] != "action" and candidate in readable
+            and candidate != written and legacy_related_parameter(written, candidate)
+        ]
+        actual = host_readback_symbols(objects, written)
         if actual != expected:
             raise AssertionError(
-                f"{written}: Host readback mismatch\n"
-                f"  missing: {sorted(expected - actual)}\n"
-                f"  extra:   {sorted(actual - expected)}"
+                f"{written}: ordered Host readback mismatch\n"
+                f"  expected: {expected}\n"
+                f"  actual:   {actual}"
             )
 
     schema = tomllib.loads(render_host_schema(objects))
