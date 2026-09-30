@@ -172,7 +172,7 @@ typedef enum
     /* Protection.Warning: 当前警告级事件位图；警告不自动关闭电机。 */
     PARAM_EVENT_WARNING = 0x0802U,
 
-    /* Protection.Stop: 当前错误级事件位图；非零时软件自动Disable并禁止重新Enable。 */
+    /* Protection.Fault: 当前错误级事件位图；非零时软件自动Disable并禁止重新Enable。 */
     PARAM_EVENT_ERROR = 0x0803U,
 
     /* Protection.Trip: 当前硬件快速关断级事件位图。 */

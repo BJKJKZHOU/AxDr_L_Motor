@@ -30,13 +30,13 @@ typedef struct
 {
     uint32_t Report;
     uint32_t Warning;
-    uint32_t Stop;
+    uint32_t Fault;
 
     /*
      * TRIP is reserved for hardware-fast shutdown sources such as
      * comparator/driver fault -> TIM1 Break. The current AxDr_L development
      * board has no such hardware trip path, so normal software protection on
-     * this board must use STOP rather than assuming a hardware TRIP exists.
+     * this board must use FAULT rather than assuming a hardware TRIP exists.
      */
     uint32_t Trip;
 
@@ -52,7 +52,7 @@ void Protection_Report_Set(uint32_t Event);
 void Protection_Report_Clear(uint32_t Event);
 void Protection_Warning_Set(uint32_t Event);
 void Protection_Warning_Clear(uint32_t Event);
-void Protection_Stop_Set(uint32_t Event);
+void Protection_Fault_Set(uint32_t Event);
 void Protection_Trip_Set(uint32_t Event);
 
 #endif /* PROTECTION_H */

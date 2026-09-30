@@ -31,9 +31,9 @@ void Protection_Warning_Clear(uint32_t Event)
     Protection.Warning &= ~Event;
 }
 
-void Protection_Stop_Set(uint32_t Event)
+void Protection_Fault_Set(uint32_t Event)
 {
-    Protection.Stop |= Event;
+    Protection.Fault |= Event;
 }
 
 /*
@@ -41,7 +41,7 @@ void Protection_Stop_Set(uint32_t Event)
  * there is currently no comparator/driver-fault -> TIM1 BKIN hardware path.
  * This entry is reserved for a future board or other hardware that can assert
  * a real fast trip source. Software-detected faults on the current board must
- * normally be raised through Protection_Stop_Set().
+ * normally be raised through Protection_Fault_Set().
  */
 void Protection_Trip_Set(uint32_t Event)
 {
@@ -51,7 +51,7 @@ void Protection_Trip_Set(uint32_t Event)
 
 bool Protection_Enable_Allowed(void)
 {
-    return (Protection.Stop == 0U) && (Protection.Trip == 0U);
+    return (Protection.Fault == 0U) && (Protection.Trip == 0U);
 }
 
 bool Protection_Clear(void)
@@ -63,7 +63,7 @@ bool Protection_Clear(void)
 
     Protection.Report = 0U;
     Protection.Warning = 0U;
-    Protection.Stop = 0U;
+    Protection.Fault = 0U;
     Protection.Trip = 0U;
 
     return true;
@@ -73,10 +73,10 @@ void Protection_Control(void)
 {
     if (Motor_Encoder_Required() && (Encoder.Fault != 0U))
     {
-        Protection_Stop_Set(PROT_ENCODER);
+        Protection_Fault_Set(PROT_ENCODER);
     }
 
-    if ((Protection.Stop != 0U) || (Protection.Trip != 0U))
+    if ((Protection.Fault != 0U) || (Protection.Trip != 0U))
     {
         if (Motor_State_Get() != DISABLED)
         {

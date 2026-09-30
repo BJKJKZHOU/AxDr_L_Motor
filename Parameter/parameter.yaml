@@ -573,7 +573,7 @@ objects:
     id: 0x0803
     type: u32
     access: ro
-    binding: Protection.Stop
+    binding: Protection.Fault
     label: Error
     description: "当前错误级事件位图；非零时软件自动Disable并禁止重新Enable。"
 

@@ -568,7 +568,7 @@ void Protocol_Event_Poll(void)
 
     Report = Protection.Report;
     Warning = Protection.Warning;
-    Error = Protection.Stop;
+    Error = Protection.Fault;
     Trip = Protection.Trip;
 
     if ((Report == Event_Last_Report) &&
