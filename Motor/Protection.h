@@ -48,6 +48,9 @@ void Protection_Control(void);
 bool Protection_Enable_Allowed(void);
 bool Protection_Clear(void);
 
+float Protection_Vbus_Min_Get(void);
+float Protection_Vbus_Max_Get(void);
+
 void Protection_Report_Set(uint32_t Event);
 void Protection_Report_Clear(uint32_t Event);
 void Protection_Warning_Set(uint32_t Event);
