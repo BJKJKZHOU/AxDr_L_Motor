@@ -34,6 +34,25 @@
 #define USER_I_MAX_DEFAULT  5.0f
 #define USER_WM_MAX_DEFAULT 314.159265f /* 3000 rpm */
 
+/*
+ * AxDr_L V1.3 fixed board-level DC-bus protection limits.
+ * These safety thresholds are not user-configurable.
+ */
+#define VBUS_UV_FAULT_V          5.0f
+#define VBUS_OV_FAULT_V         52.0f
+#define VBUS_UV_DEBOUNCE_TICKS  20U /* 10 ms at the 2 kHz Motor thread */
+#define VBUS_OV_DEBOUNCE_TICKS   1U /* 0.5 ms at the 2 kHz Motor thread */
+
+/*
+ * Fixed AxDr_L V1.3 software overcurrent policy.
+ * MOTOR_I_MAX_DEFAULT remains the normal command ceiling; these thresholds
+ * protect actual measured current and are not Host-configurable.
+ */
+#define PROT_CURRENT_OVERLOAD_A       15.0f
+#define PROT_CURRENT_OVERLOAD_CYCLES  5000U /* 250 ms at 20 kHz */
+#define PROT_CURRENT_FAST_A           25.0f
+#define PROT_CURRENT_FAST_CYCLES         5U /* 250 us at 20 kHz */
+
 #define MOTOR_ENC_DIR_DEFAULT   1
 #define MOTOR_THETA_OFF_DEFAULT 0.0f
 #define ENCODER_PROTOCOL_DEFAULT ENC_PROTOCOL_SPI

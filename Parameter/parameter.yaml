@@ -310,6 +310,24 @@ objects:
     unit: rad/s
     description: "当前控制实际使用的机械速度上限，包含Motor、User与Motion限制。"
 
+  PARAM_LIMIT_VBUS_MIN:
+    id: 0x0205
+    type: f32
+    access: ro
+    getter: Protection_Vbus_Min_Get
+    label: Vbus Min
+    unit: V
+    description: "AxDr_L板级固定欠压保护阈值，只读。"
+
+  PARAM_LIMIT_VBUS_MAX:
+    id: 0x0206
+    type: f32
+    access: ro
+    getter: Protection_Vbus_Max_Get
+    label: Vbus Max
+    unit: V
+    description: "AxDr_L板级固定过压保护阈值，只读。"
+
   PARAM_ENCODER_PROTOCOL:
     id: 0x0301
     type: u8
@@ -573,7 +591,7 @@ objects:
     id: 0x0803
     type: u32
     access: ro
-    binding: Protection.Stop
+    binding: Protection.Fault
     label: Error
     description: "当前错误级事件位图；非零时软件自动Disable并禁止重新Enable。"
 

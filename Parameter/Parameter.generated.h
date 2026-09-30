@@ -91,6 +91,12 @@ typedef enum
     /* Motor_Wm_Limit_Effective_Get(): 当前控制实际使用的机械速度上限，包含Motor、User与Motion限制。 */
     PARAM_LIMIT_WM_EFFECTIVE = 0x0204U,
 
+    /* Protection_Vbus_Min_Get(): AxDr_L板级固定欠压保护阈值，只读。 */
+    PARAM_LIMIT_VBUS_MIN = 0x0205U,
+
+    /* Protection_Vbus_Max_Get(): AxDr_L板级固定过压保护阈值，只读。 */
+    PARAM_LIMIT_VBUS_MAX = 0x0206U,
+
     /* Encoder_Config.Protocol: 运行前选择的编码器通信协议。 */
     PARAM_ENCODER_PROTOCOL = 0x0301U,
 
@@ -172,7 +178,7 @@ typedef enum
     /* Protection.Warning: 当前警告级事件位图；警告不自动关闭电机。 */
     PARAM_EVENT_WARNING = 0x0802U,
 
-    /* Protection.Stop: 当前错误级事件位图；非零时软件自动Disable并禁止重新Enable。 */
+    /* Protection.Fault: 当前错误级事件位图；非零时软件自动Disable并禁止重新Enable。 */
     PARAM_EVENT_ERROR = 0x0803U,
 
     /* Protection.Trip: 当前硬件快速关断级事件位图。 */
