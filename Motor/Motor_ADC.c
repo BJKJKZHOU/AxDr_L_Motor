@@ -11,6 +11,7 @@
 #include "Mechanical_ESO.h"
 #include "Motor_Control.h"
 #include "Motor_PWM.h"
+#include "Protection.h"
 #include "Voltage_Mod.h"
 #include "adc.h"
 #include "control_params.h"
@@ -130,6 +131,14 @@ void Fast_Loop(void)
     ADC.Ib_A = ((float)ADC.Ib_Off - (float)ADC.Ib_Raw) * CUR_RAW_TO_A;
     ADC.Ic_A = -(ADC.Ia_A + ADC.Ib_A);
     ADC.Vbus_V = (float)ADC.Vbus_Raw * VBUS_RAW_TO_V;
+
+    if (!Protection_Current_Fast(ADC.Ia_A, ADC.Ib_A, ADC.Ic_A))
+    {
+        Motor_Run.Ualpha = 0.0f;
+        Motor_Run.Ubeta = 0.0f;
+        Plot_Fast_Sample();
+        goto finish;
+    }
 
     Fast_Mode = Motor_Fast_Run(&Theta_e, &Id_Ref, &Iq_Ref, &Ualpha, &Ubeta);
     Motor_Plot_Iq_Ref = Iq_Ref;
