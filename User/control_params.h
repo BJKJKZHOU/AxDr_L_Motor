@@ -53,7 +53,7 @@
  *
  * Id uses Ld and Iq uses Lq.
  */
-#define CUR_BW_HZ_DEFAULT 1000.0f
+#define CUR_BW_HZ_DEFAULT 2000.0f
 #define CUR_WC_DEFAULT    (TWO_PI_F * CUR_BW_HZ_DEFAULT)
 
 #define ID_KP_DEFAULT (MOTOR_LD_DEFAULT * CUR_WC_DEFAULT)
@@ -88,15 +88,16 @@
 #define OPEN_ALIGN_CNT    ((uint32_t)(OPEN_ALIGN_TIME_S / CUR_TS + 0.5f))
 #define OPEN_IQ_A         0.2f
 
-/* Sensorless I/F startup and low-speed operation. */
-#define IF_ALIGN_ID_A      1.0f
-#define IF_ALIGN_TIME_S    1.0f
-#define IF_ALIGN_CNT       ((uint32_t)(IF_ALIGN_TIME_S / CUR_TS + 0.5f))
-#define IF_IQ_START_A      1.0f
-#define IF_IQ_TARGET_A     1.6f
-#define IF_IQ_SLEW_A_S     20.0f
-#define IF_WE_TARGET_RAD_S 120.0f
-#define IF_ACC_RAD_S2      15.0f
+/* Standard Align / I/F timing. Motor-specific currents live in Motor_Config. */
+#define IF_ALIGN_TIME_S 1.0f
+#define IF_ALIGN_CNT    ((uint32_t)(IF_ALIGN_TIME_S / CUR_TS + 0.5f))
+#define IF_IQ_SLEW_A_S  20.0f
+
+/* Identification working currents in A, independent of the protection limit.
+ * Preserve the validated excitation previously obtained with a 2 A limit. */
+#define IDENT_RL_ID_A  0.455f
+#define IDENT_RL_IAC_A 0.175f
+#define IDENT_IQ_MAX_A 0.7f
 
 /*
  * Mechanical-speed reference profile.
@@ -144,9 +145,8 @@
  */
 #define SPD_FREQ_HZ_DEFAULT   2000.0f
 #define SPD_TS                (1.0f / SPD_FREQ_HZ_DEFAULT)
-#define SPD_FBK_ALPHA_DEFAULT 0.38586955f /* 200 Hz LPF at 2 kHz */
 
-#define SPD_BW_HZ_DEFAULT 50.0f
+#define SPD_BW_HZ_DEFAULT 30.0f
 #define SPD_WC_DEFAULT    (TWO_PI_F * SPD_BW_HZ_DEFAULT)
 
 #define SPD_KP_DEFAULT (MOTOR_J_DEFAULT * SPD_WC_DEFAULT / ((float)MOTOR_PP_DEFAULT * MOTOR_KT_DEFAULT))

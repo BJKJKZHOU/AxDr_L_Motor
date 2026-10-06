@@ -16,6 +16,8 @@
 #ifndef PID_H
 #define PID_H
 
+#include "Fast_Memory.h"
+
 #ifdef __cplusplus
 extern "C"
 {
@@ -52,7 +54,7 @@ extern "C"
 
     } PID_T;
 
-    void PID_Run(PID_T *Pid, float Ts);
+    FAST_CODE void PID_Run(PID_T *Pid, float Ts);
 
 #ifdef __cplusplus
 }

@@ -6,6 +6,8 @@
 #ifndef PROTECTION_H
 #define PROTECTION_H
 
+#include "Fast_Memory.h"
+
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -47,7 +49,7 @@ extern volatile Protection_T Protection;
 void Protection_Control(void);
 bool Protection_Enable_Allowed(void);
 bool Protection_Clear(void);
-bool Protection_Current_Fast(float Ia_A, float Ib_A, float Ic_A);
+FAST_CODE bool Protection_Current_Fast(float Ia_A, float Ib_A, float Ic_A);
 
 float Protection_Vbus_Min_Get(void);
 float Protection_Vbus_Max_Get(void);

@@ -6,6 +6,8 @@
 #ifndef MT6816_H
 #define MT6816_H
 
+#include "Fast_Memory.h"
+
 #include <stdint.h>
 
 typedef struct
@@ -19,7 +21,7 @@ typedef struct
 extern volatile MT6816_State_T MT6816_State;
 
 void MT6816_Config(void);
-void MT6816_Start(void);
-void MT6816_IRQHandler(void);
+FAST_CODE void MT6816_Start(void);
+FAST_CODE void MT6816_IRQHandler(void);
 
 #endif /* MT6816_H */

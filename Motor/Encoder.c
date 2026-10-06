@@ -8,6 +8,7 @@
 #include "MT6816.h"
 #include "MT6835.h"
 #include "Math.h"
+#include "Mechanical_ESO.h"
 #include "Motor_Cal.h"
 #include "Motor_Type.h"
 #include "control_params.h"
@@ -22,8 +23,6 @@ Encoder_Config_T Encoder_Config = ENCODER_CONFIG_DEFAULT;
 volatile Encoder_T Encoder = { 0 };
 
 static float Theta_Pre = 0.0f;
-static float Delta_Sum = 0.0f;
-static uint32_t Speed_Div_Cnt = 0U;
 static uint8_t Pos_Valid = 0U;
 static uint8_t Ready_Cnt = 0U;
 
@@ -95,8 +94,6 @@ static bool Driver_Bind(void)
 static void Feedback_Reset(void)
 {
     Theta_Pre = 0.0f;
-    Delta_Sum = 0.0f;
-    Speed_Div_Cnt = 0U;
     Pos_Valid = 0U;
     Ready_Cnt = 0U;
 
@@ -114,7 +111,7 @@ static void Feedback_Reset(void)
 
     Motor_Run.Turn = 0;
     Motor_Run.Theta_m = 0.0f;
-    Motor_Run.Wm = 0.0f;
+    Mechanical_ESO.State = (Mechanical_ESO_State_T){ 0 };
 }
 
 static void Startup_Count(void)
@@ -148,15 +145,39 @@ static void Startup_Invalid(void)
 
 void Encoder_DMA_Config(void)
 {
+    uint32_t Primask;
+    uint32_t CR1;
+    uint32_t CR2;
+
+    /* Rebinding must not race a PWM trigger or an old DMA completion.
+     * MT6835 owns TX channel 3 as well as the shared RX channel 5. */
+    Primask = __get_PRIMASK();
+    __disable_irq();
+    CR1 = SPI1->CR1;
+    CR2 = SPI1->CR2 & ~(SPI_CR2_RXDMAEN | SPI_CR2_TXDMAEN);
+    SPI1->CR2 = CR2;
+    CLEAR_BIT(DMA1_Channel3->CCR, DMA_CCR_EN);
+    CLEAR_BIT(DMA1_Channel5->CCR,
+              DMA_CCR_EN | DMA_CCR_TCIE | DMA_CCR_HTIE | DMA_CCR_TEIE);
+    DMA1->IFCR = DMA_IFCR_CGIF3 | DMA_IFCR_CGIF5;
+    SPI1_CSN_GPIO_Port->BSRR = SPI1_CSN_Pin;
+    /* Discard any queued SPI words when switching to another driver or None. */
+    SET_BIT(RCC->APB2RSTR, RCC_APB2RSTR_SPI1RST);
+    CLEAR_BIT(RCC->APB2RSTR, RCC_APB2RSTR_SPI1RST);
+    SPI1->CR2 = CR2;
+    SPI1->CR1 = CR1;
+
     Feedback_Reset();
 
     if (!Driver_Bind())
     {
         Encoder.Fault = 1U;
+        __set_PRIMASK(Primask);
         return;
     }
 
     Drv_Config();
+    __set_PRIMASK(Primask);
 }
 
 void Encoder_Config_Changed(void)
@@ -212,7 +233,6 @@ void Encoder_Sample_Reject(void)
 void Encoder_Sample_Update(uint32_t Raw, float Theta)
 {
     float Delta;
-    float Wm_Raw;
 
     Encoder.Raw = Raw;
     Encoder.Theta_Native = Theta;
@@ -229,22 +249,10 @@ void Encoder_Sample_Update(uint32_t Raw, float Theta)
         if (Delta < -PI_F)
         {
             Motor_Run.Turn++;
-            Delta += TWO_PI_F;
         }
         else if (Delta > PI_F)
         {
             Motor_Run.Turn--;
-            Delta -= TWO_PI_F;
-        }
-
-        Delta_Sum += Delta;
-
-        if (++Speed_Div_Cnt >= (uint32_t)(CUR_FREQ_HZ_DEFAULT / SPD_FREQ_HZ_DEFAULT))
-        {
-            Speed_Div_Cnt = 0U;
-            Wm_Raw = Delta_Sum / SPD_TS;
-            Delta_Sum = 0.0f;
-            Motor_Run.Wm += SPD_FBK_ALPHA_DEFAULT * (Wm_Raw - Motor_Run.Wm);
         }
     }
     else
@@ -270,6 +278,9 @@ void Encoder_Sample_Update(uint32_t Raw, float Theta)
 
         if (Ready_Cnt >= ENC_READY_VALID_CNT)
         {
+            /* Establish the observer angle when the feedback first becomes
+             * usable, not each time the power stage is enabled. */
+            Mechanical_ESO.State.Theta = Theta;
             Encoder.Ready = 1U;
         }
     }

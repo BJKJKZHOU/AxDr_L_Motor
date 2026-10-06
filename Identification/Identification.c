@@ -19,7 +19,6 @@
 
 Flux_Observer_T Ident_Observer = { 0 };
 PLL_T Ident_PLL = { 0 };
-volatile float Ident_IF_Current_A = 1.0f;
 volatile float Ident_JB_Excite_Ratio = 0.20f;
 volatile float Ident_JB_Excite_Hz = 3.0f;
 
@@ -119,6 +118,12 @@ bool Identification_Start(Ident_Mode_e Mode, float Wm_Target)
 
     if (Mode == IDENT_RS_LS)
     {
+        if ((IDENT_RL_ID_A + IDENT_RL_IAC_A) > Ident_Envelope.I_Max)
+        {
+            Ident_Fail_Reason = IDENT_FAIL_START_CONFIG;
+            return false;
+        }
+
         Rs_Ls_Start();
     }
     else if (Mode == IDENT_FLUX)

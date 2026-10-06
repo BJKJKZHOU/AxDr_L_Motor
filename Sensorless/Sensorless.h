@@ -6,6 +6,8 @@
 #ifndef SENSORLESS_H
 #define SENSORLESS_H
 
+#include "Fast_Memory.h"
+
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -37,10 +39,12 @@ extern PLL_T Sensorless_PLL;
 bool Sensorless_Begin(void);
 void Sensorless_Stop_Request(void);
 void Sensorless_Stop(void);
-bool Sensorless_Active(void);
+FAST_CODE bool Sensorless_Active(void);
+bool Sensorless_Speed_Control_Active(void);
+float Sensorless_Wm_Get(void);
 
 void Sensorless_Control(float We_Ref, float Iq_Min, float Iq_Max);
-void Sensorless_Run(float Ia_A, float Ib_A, float We_Ref, float *Theta_e, float *Id_Ref, float *Iq_Ref);
+FAST_CODE void Sensorless_Run(float Ia_A, float Ib_A, float We_Target, float *Theta_e, float *Id_Ref, float *Iq_Ref);
 Sensorless_State_e Sensorless_State_Get(void);
 
 #endif /* SENSORLESS_H */

@@ -26,10 +26,9 @@
 #define RS_LS_MEASURE_CYCLE       10U
 
 /* Rs/Ls working point is defined in the current domain. */
-#define RS_LS_I_PEAK_RATIO        0.35f
 #define RS_LS_I_DC_SHARE          0.65f
 #define RS_LS_I_AC_SHARE          0.25f
-#define RS_LS_I_MIN_RATIO         0.02f
+#define RS_LS_I_MIN_A             0.04f
 #define RS_LS_SNR_POWER_MIN       100.0f
 #define RS_LS_COH_SQ_MIN          0.95f
 
@@ -460,7 +459,6 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
     float Freq_Target;
     float Freq;
     float I_Min;
-    float I_Peak_Target;
     float I_DC_Target;
     float I_AC_Target;
     float U_AC_Max;
@@ -489,10 +487,9 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
         return FAST_OFF;
     }
 
-    I_Min = RS_LS_I_MIN_RATIO * Envelope->I_Max;
-    I_Peak_Target = RS_LS_I_PEAK_RATIO * Envelope->I_Max;
-    I_DC_Target = RS_LS_I_DC_SHARE * I_Peak_Target;
-    I_AC_Target = RS_LS_I_AC_SHARE * I_Peak_Target;
+    I_Min = RS_LS_I_MIN_A;
+    I_DC_Target = IDENT_RL_ID_A;
+    I_AC_Target = IDENT_RL_IAC_A;
 
     if ((I_DC_Target <= 0.0f) || (I_AC_Target < I_Min))
     {

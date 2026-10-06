@@ -20,7 +20,7 @@
  * validity guard.
  */
 
-static float Sign_F(float X)
+static FAST_CODE float Sign_F(float X)
 {
     return (X < 0.0f) ? -1.0f : 1.0f;
 }

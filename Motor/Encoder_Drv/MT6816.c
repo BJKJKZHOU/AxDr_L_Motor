@@ -31,7 +31,7 @@ static volatile uint16_t Rx[2];
 static uint8_t Step = 0U;
 static uint8_t Busy = 0U;
 
-static uint8_t Parity_Check(uint16_t Data)
+static FAST_CODE uint8_t Parity_Check(uint16_t Data)
 {
     Data ^= Data >> 8;
     Data ^= Data >> 4;
@@ -41,7 +41,7 @@ static uint8_t Parity_Check(uint16_t Data)
     return (uint8_t)((~Data) & 1U);
 }
 
-static void DMA_Rearm(void)
+static FAST_CODE void DMA_Rearm(void)
 {
     volatile uint32_t Dummy;
 
@@ -59,12 +59,14 @@ static void DMA_Rearm(void)
     DMA1_Channel5->CPAR = (uint32_t)&SPI1->DR;
     DMA1_Channel5->CMAR = (uint32_t)&Rx[0];
     DMA1_Channel5->CNDTR = 2U;
-    SET_BIT(DMA1_Channel5->CCR, DMA_CCR_HTIE | DMA_CCR_TCIE | DMA_CCR_TEIE);
+    /* MT6835 uses normal DMA; restore this driver's two-word circular frame. */
+    SET_BIT(DMA1_Channel5->CCR,
+            DMA_CCR_CIRC | DMA_CCR_HTIE | DMA_CCR_TCIE | DMA_CCR_TEIE);
     SET_BIT(DMA1_Channel5->CCR, DMA_CCR_EN);
     SET_BIT(SPI1->CR2, SPI_CR2_RXDMAEN);
 }
 
-static void Transfer_Abort(void)
+static FAST_CODE void Transfer_Abort(void)
 {
     SPI1_CSN_GPIO_Port->BSRR = SPI1_CSN_Pin;
     Step = 0U;

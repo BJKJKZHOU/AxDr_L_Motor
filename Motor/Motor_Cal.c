@@ -37,7 +37,7 @@ bool Motor_Cal_Set(int8_t Enc_Dir, float Theta_Off)
     /*
      * Enc_Dir changes the encoder raw-angle mapping into the mechanical
      * coordinate system. Reset feedback history before accepting another
-     * sample so Theta_Pre, Turn and Wm are never mixed across directions.
+     * sample so turn counting and the ESO never mix coordinate directions.
      * Encoder_DMA_Config() also restarts the Ready validation sequence.
      */
     if (Dir_Changed != 0)

@@ -17,6 +17,7 @@
 #include "Math.h"
 #include "Motion_Loop.h"
 #include "Motor_ADC.h"
+#include "Motor_Config.h"
 #include "Motor_Control.h"
 #include "Motor_Para.h"
 #include "Motor_Type.h"
@@ -49,7 +50,6 @@
 #define JB_EXCITE_CYCLES       3U
 #define JB_MEASURE_CYCLES      10U
 #define JB_WM_EXCITE_RATIO     (Ident_JB_Excite_Ratio)
-#define JB_IQ_CONTROL_RATIO    0.35f
 #define JB_FINISH_IQ_SLEW_A_S  20.0f
 #define JB_FINISH_CNT          ((uint32_t)(0.10f / CUR_TS + 0.5f))
 
@@ -306,7 +306,7 @@ static void Speed_Control_Run(float We_Ref)
 {
     float I_Max;
 
-    I_Max = JB_IQ_CONTROL_RATIO * Start_Para.Iq_Max_A;
+    I_Max = IDENT_IQ_MAX_A;
     if (I_Max <= 0.0f)
     {
         return;
@@ -376,6 +376,7 @@ static void Excitation_Run(bool Measure)
 bool JB_Start(float Wm_Target)
 {
     const Ident_Envelope_T *Envelope;
+    float I_Work_Max;
     float We_Max;
     float We_Work_Max;
 
@@ -389,6 +390,8 @@ bool JB_Start(float Wm_Target)
 
     Envelope = Identification_Envelope_Get();
     We_Max = (float)Motor_Para.Pp * Motor_Wm_Limit_Effective_Get();
+    I_Work_Max = (Motor_Config.IF_Current_A > IDENT_IQ_MAX_A) ?
+                    Motor_Config.IF_Current_A : IDENT_IQ_MAX_A;
 
     if ((Motor_Para.Pp == 0U) ||
         !__builtin_isfinite(Motor_Para.Rs) || (Motor_Para.Rs <= 0.0f) ||
@@ -398,7 +401,14 @@ bool JB_Start(float Wm_Target)
         !__builtin_isfinite(Ident_JB_Excite_Hz) || (Ident_JB_Excite_Hz <= 0.0f) ||
         !__builtin_isfinite(We_Max) || (We_Max <= 0.0f) ||
         !__builtin_isfinite(Envelope->U_Available) || (Envelope->U_Available <= 0.0f) ||
-        !Motor_IF_Para_Build(ADC.Vbus_V, Envelope->I_Max, &Start_Para))
+        (IDENT_IQ_MAX_A <= 0.0f) || (I_Work_Max > Envelope->I_Max) ||
+        !Motor_IF_Para_Build(ADC.Vbus_V, I_Work_Max, &Start_Para) ||
+        !__builtin_isfinite(Motor_Config.Align_Current_A) ||
+        (Motor_Config.Align_Current_A <= 0.0f) ||
+        (Motor_Config.Align_Current_A > Envelope->I_Max) ||
+        !__builtin_isfinite(Motor_Config.IF_Current_A) ||
+        (Motor_Config.IF_Current_A <= 0.0f) ||
+        (Motor_Config.IF_Current_A > Envelope->I_Max))
     {
         State = JB_FAILED;
         return false;
@@ -429,7 +439,7 @@ bool JB_Start(float Wm_Target)
     Wm_Bias = We_Target / (float)Motor_Para.Pp;
     Wm_Amp = JB_WM_EXCITE_RATIO * Wm_Bias;
 
-    JB_IF.Para.Iq_Min_A = Start_Para.Iq_Start_A;
+    JB_IF.Para.Iq_Min_A = Motor_Config.IF_Current_A;
     JB_IF.Para.Iq_Max_A = Start_Para.Iq_Max_A;
     JB_IF.Para.We_Base = Start_Para.We_Base;
     JB_IF.Para.Acc = Abs_Value(We_Startup) / JB_OPEN_ACCEL_S;
@@ -571,11 +581,11 @@ Motor_Fast_Mode_e JB_Fast_Run(float Ia_A,
 
     if (State == JB_ALIGN)
     {
-        if (Align_Current(Start_Para.Iq_Start_A, IF_ALIGN_CNT, Id_Ref, Iq_Ref))
+        if (Align_Current(Motor_Config.Align_Current_A, IF_ALIGN_CNT, Id_Ref, Iq_Ref))
         {
             Current_Loop_State_Reset();
             IF_Init(&JB_IF, -0.5f * PI_F * (float)Dir, 0.0f);
-            JB_IF.State.Iq = (float)Dir * Start_Para.Iq_Start_A;
+            JB_IF.State.Iq = (float)Dir * Motor_Config.IF_Current_A;
             IF_Target_Set(&JB_IF, We_Startup);
             if (JB_IF.State.Mode == IF_FAILED)
             {
@@ -662,7 +672,7 @@ Motor_Fast_Mode_e JB_Fast_Run(float Ia_A,
             {
                 Obs_Id_Ref = *Id_Ref;
                 Obs_Iq_Ref = *Iq_Ref;
-                I_Max = JB_IQ_CONTROL_RATIO * Start_Para.Iq_Max_A;
+                I_Max = IDENT_IQ_MAX_A;
                 Speed_Loop_Track(We_Target,
                                  Ident_PLL.State.We,
                                  Obs_Iq_Ref,

@@ -16,7 +16,7 @@ PID_T Iq_Ctrl = IQ_CTRL_DEFAULT;
 
 extern Motor_Run_T Motor_Run;
 
-static void Current_Loop_Limits_Update(float U_Lim)
+static FAST_CODE void Current_Loop_Limits_Update(float U_Lim)
 {
     Id_Ctrl.Para.Out_Max = U_Lim;
     Id_Ctrl.Para.Out_Min = -U_Lim;

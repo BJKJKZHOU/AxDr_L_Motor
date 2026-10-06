@@ -137,7 +137,7 @@ objects:
     binding: Mechanical_ESO.State.Theta
     label: θm ESO
     unit: rad
-    description: "Mechanical ESO估算的连续机械角度，仅用于诊断与波形对比。"
+    description: "Mechanical ESO估算的单圈机械角度，范围[0,2π)，仅用于诊断与波形对比。"
     plot: { modes: [fast, normal], fast_scale: 0.0002 }
   PARAM_MECH_ESO_WM:
     id: 0x0023
@@ -164,7 +164,7 @@ objects:
     binding: Mechanical_ESO.State.Error
     label: ESO Error
     unit: rad
-    description: "Mechanical ESO的位置观测误差Theta_meas-Theta_hat。"
+    description: "Mechanical ESO的单圈角度观测误差，Theta_meas-Theta_hat回绕到[-π,π)。"
     plot: { modes: [fast, normal], fast_scale: 0.0002 }
   PARAM_MOTOR_PP:
     id: 0x0101
@@ -268,6 +268,30 @@ objects:
     write_state: disabled
     allowed: [-1, 1]
 
+  PARAM_MOTOR_ALIGN_CURRENT:
+    id: 0x0117
+    type: f32
+    access: rw
+    persistent: true
+    binding: Motor_Config.Align_Current_A
+    label: Align Current
+    unit: A
+    description: "该电机进行标准Align预定位时使用的d轴电流，供Flux/JB辨识与正常无感启动共用。"
+    write_state: disabled
+    range: { min: 0.0, exclusive_min: true, max_binding: Motor_Lim.I_Max }
+
+  PARAM_MOTOR_IF_CURRENT:
+    id: 0x0118
+    type: f32
+    access: rw
+    persistent: true
+    binding: Motor_Config.IF_Current_A
+    label: I/F Current
+    unit: A
+    description: "该电机标准I/F开环拖动使用的q轴电流，供Flux/JB辨识与正常无感运行共用。"
+    write_state: disabled
+    range: { min: 0.0, exclusive_min: true, max_binding: Motor_Lim.I_Max }
+
   PARAM_LIMIT_I_MAX:
     id: 0x0201
     type: f32
@@ -308,7 +332,7 @@ objects:
     getter: Motor_Wm_Limit_Effective_Get
     label: ωm Max Active
     unit: rad/s
-    description: "当前控制实际使用的机械速度上限，包含Motor、User与Motion限制。"
+    description: "当前控制使用的机械速度上限，为Motor与User速度限值的较小值，与目标转速无关。"
 
   PARAM_LIMIT_VBUS_MIN:
     id: 0x0205
@@ -456,15 +480,7 @@ objects:
     unit: rad/s
     description: "当前用户机械坐标下的机械角速度反馈。"
 
-  PARAM_ENCODER_WM:
-    id: 0x0503
-    type: f32
-    access: ro
-    binding: Motor_Run.Wm
-    label: ωm Encoder
-    unit: rad/s
-    description: "编码器角度差分与低通得到的机械速度，仅用于诊断对比。"
-    plot: { modes: [fast, normal], fast_scale: 0.1 }
+  # 0x0503 retired with encoder differential speed. Use PARAM_MECH_ESO_WM.
   PARAM_REF_IQ:
     id: 0x0510
     type: f32
@@ -492,17 +508,8 @@ objects:
     unit: turn+rad
     description: "当前位置轨迹实际使用的用户机械位置参考。"
 
-  PARAM_MOTION_WM_MAX:
-    id: 0x0601
-    type: f32
-    access: rw
-    persistent: true
-    binding: Motion_Config.Wm_Max
-    label: Max Speed
-    unit: rad/s
-    description: "运动规划器允许使用的最大机械角速度。"
-    range: { min: 0.0, max_bindings: [User_Lim.Wm_Max, Motor_Lim.Wm_Max] }
-
+  # 0x0601 retired: position motion uses PARAM_TARGET_SPEED. Do not reuse this
+  # ID: older NVS snapshots may still contain its persistent speed value.
   PARAM_MOTION_WM_ACC:
     id: 0x0602
     type: f32
@@ -551,7 +558,7 @@ objects:
     binding: Motor_Cmd.Wm_Target
     label: Speed Target
     unit: rad/s
-    description: "Speed、Open-loop、Sensorless及Flux辨识流程使用的用户机械速度目标。"
+    description: "共用用户机械速度指令。Speed、Open-loop、Sensorless及Flux辨识使用有符号转速；Position使用绝对值规划运动，方向由目标位置决定，0使轨迹减速停止并保持位置。指令执行时受Motor与User速度限值约束，不覆盖原指令；不保存到Flash，上电为0。"
 
   PARAM_TARGET_POSITION:
     id: 0x0704
@@ -656,17 +663,6 @@ objects:
     label: Identification Failure
     description: "最近一次辨识失败原因；0表示无失败，非零仅用于最终诊断。"
     range: { min: 0, max: 4 }
-
-  PARAM_IDENT_IF_CURRENT:
-    id: 0x0913
-    type: f32
-    access: rw
-    binding: Ident_IF_Current_A
-    label: I/F Current
-    unit: A
-    description: "Flux辨识标准I/F开环启动使用的q轴电流，由Host按被测电机显式给定；与Imax安全上限独立。"
-    write_state: disabled
-    range: { min: 0.0, exclusive_min: true, max_binding: User_Lim.I_Max }
 
   PARAM_IDENT_JB_VALID:
     id: 0x0920

@@ -10,7 +10,6 @@
 
 typedef struct
 {
-    float Wm_Max; /* rad/s, positive magnitude */
     float Wm_Acc; /* rad/s^2, positive magnitude */
     float Wm_Dec; /* rad/s^2, positive magnitude */
 

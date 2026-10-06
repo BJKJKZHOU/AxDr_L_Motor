@@ -43,7 +43,7 @@ typedef enum
     /* Flux_PLL.State.We: 磁链观测器PLL估算的电角速度。 */
     PARAM_OBS_WE = 0x0021U,
 
-    /* Mechanical_ESO.State.Theta: Mechanical ESO估算的连续机械角度，仅用于诊断与波形对比。 */
+    /* Mechanical_ESO.State.Theta: Mechanical ESO估算的单圈机械角度，范围[0,2π)，仅用于诊断与波形对比。 */
     PARAM_MECH_ESO_THETA = 0x0022U,
 
     /* Mechanical_ESO.State.Wm: Mechanical ESO估算的机械角速度。 */
@@ -52,7 +52,7 @@ typedef enum
     /* Mechanical_ESO.State.Td: Mechanical ESO估算的负载/扰动转矩，仅用于诊断。 */
     PARAM_MECH_ESO_TD = 0x0024U,
 
-    /* Mechanical_ESO.State.Error: Mechanical ESO的位置观测误差Theta_meas-Theta_hat。 */
+    /* Mechanical_ESO.State.Error: Mechanical ESO的单圈角度观测误差，Theta_meas-Theta_hat回绕到[-π,π)。 */
     PARAM_MECH_ESO_ERROR = 0x0025U,
 
     /* Motor_Para.Pp: 电机极对数。 */
@@ -79,6 +79,12 @@ typedef enum
     /* Motor_Config.Dir: 用户机械正方向与内部控制方向之间的符号映射，只允许-1或+1。 */
     PARAM_MOTOR_DIR = 0x0116U,
 
+    /* Motor_Config.Align_Current_A: 该电机进行标准Align预定位时使用的d轴电流，供Flux/JB辨识与正常无感启动共用。 */
+    PARAM_MOTOR_ALIGN_CURRENT = 0x0117U,
+
+    /* Motor_Config.IF_Current_A: 该电机标准I/F开环拖动使用的q轴电流，供Flux/JB辨识与正常无感运行共用。 */
+    PARAM_MOTOR_IF_CURRENT = 0x0118U,
+
     /* User_Lim.I_Max: 用户配置的最大相电流限制，实际限制不会超过硬件/固件Motor_Lim.I_Max。 */
     PARAM_LIMIT_I_MAX = 0x0201U,
 
@@ -88,7 +94,7 @@ typedef enum
     /* Motor_I_Limit_Effective_Get(): 当前控制实际使用的相电流上限。 */
     PARAM_LIMIT_I_EFFECTIVE = 0x0203U,
 
-    /* Motor_Wm_Limit_Effective_Get(): 当前控制实际使用的机械速度上限，包含Motor、User与Motion限制。 */
+    /* Motor_Wm_Limit_Effective_Get(): 当前控制使用的机械速度上限，为Motor与User速度限值的较小值，与目标转速无关。 */
     PARAM_LIMIT_WM_EFFECTIVE = 0x0204U,
 
     /* Protection_Vbus_Min_Get(): AxDr_L板级固定欠压保护阈值，只读。 */
@@ -136,9 +142,6 @@ typedef enum
     /* Motor_Wm_Get(): 当前用户机械坐标下的机械角速度反馈。 */
     PARAM_RUN_WM = 0x0502U,
 
-    /* Motor_Run.Wm: 编码器角度差分与低通得到的机械速度，仅用于诊断对比。 */
-    PARAM_ENCODER_WM = 0x0503U,
-
     /* Motor_Iq_Ref_Get(): 最近一次快环实际使用的q轴电流参考。 */
     PARAM_REF_IQ = 0x0510U,
 
@@ -147,9 +150,6 @@ typedef enum
 
     /* Motor_Position_Ref_Get(): 当前位置轨迹实际使用的用户机械位置参考。 */
     PARAM_REF_POSITION = 0x0512U,
-
-    /* Motion_Config.Wm_Max: 运动规划器允许使用的最大机械角速度。 */
-    PARAM_MOTION_WM_MAX = 0x0601U,
 
     /* Motion_Config.Wm_Acc: 运动规划器机械加速度限制，可在运行期间修改。 */
     PARAM_MOTION_WM_ACC = 0x0602U,
@@ -163,7 +163,7 @@ typedef enum
     /* Motor_Cmd.Te_Target: Torque模式的用户机械转矩目标。 */
     PARAM_TARGET_TORQUE = 0x0702U,
 
-    /* Motor_Cmd.Wm_Target: Speed、Open-loop、Sensorless及Flux辨识流程使用的用户机械速度目标。 */
+    /* Motor_Cmd.Wm_Target: 共用用户机械速度指令。Speed、Open-loop、Sensorless及Flux辨识使用有符号转速；Position使用绝对值规划运动，方向由目标位置决定，0使轨迹减速停止并保持位置。指令执行时受Motor与User速度限值约束，不覆盖原指令；不保存到Flash，上电为0。 */
     PARAM_TARGET_SPEED = 0x0703U,
 
     /* Motor_Cmd.Position_Target: Position模式的用户机械位置目标；wire格式固定为little-endian int32 Turn + float32 Theta，一次写入。 */
@@ -201,9 +201,6 @@ typedef enum
 
     /* Identification_Fail_Reason_Get(): 最近一次辨识失败原因；0表示无失败，非零仅用于最终诊断。 */
     PARAM_IDENT_FAIL_REASON = 0x0912U,
-
-    /* Ident_IF_Current_A: Flux辨识标准I/F开环启动使用的q轴电流，由Host按被测电机显式给定；与Imax安全上限独立。 */
-    PARAM_IDENT_IF_CURRENT = 0x0913U,
 
     /* Identification_JB_Valid_Get(): 最近一次J/B辨识结果是否有效。 */
     PARAM_IDENT_JB_VALID = 0x0920U,

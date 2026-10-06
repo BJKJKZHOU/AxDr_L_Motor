@@ -6,6 +6,8 @@
 #ifndef PLOT_H
 #define PLOT_H
 
+#include "Fast_Memory.h"
+
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -50,7 +52,7 @@ bool Plot_Capability_Find(uint16_t Id, Plot_Cap_T *Cap);
 uint32_t Plot_Fast_Rate_Hz(void);
 uint32_t Plot_Normal_Rate_Hz(void);
 
-void Plot_Fast_Sample(void);
+FAST_CODE void Plot_Fast_Sample(void);
 void Plot_Normal_Sample(void);
 bool Plot_Fast_Pop(AxDr_Msg_T *Msg);
 bool Plot_Normal_Pop(AxDr_Msg_T *Msg);

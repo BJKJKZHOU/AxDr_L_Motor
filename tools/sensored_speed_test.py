@@ -132,7 +132,6 @@ class SensoredSpeedTest(base.IdentificationClient):
             "wm_ref": self.parameter_read(base.PARAM_REF_WM, base.PARAM_FLOAT),
             "wm_active": self.parameter_read(base.PARAM_RUN_WM, base.PARAM_FLOAT),
             "wm_eso": self.parameter_read(base.PARAM_MECH_ESO_WM, base.PARAM_FLOAT),
-            "wm_encoder": self.parameter_read(base.PARAM_ENCODER_WM, base.PARAM_FLOAT),
             "iq_ref": self.parameter_read(base.PARAM_REF_IQ, base.PARAM_FLOAT),
             "iq": self.parameter_read(base.PARAM_RUN_IQ, base.PARAM_FLOAT),
             "eso_error": self.parameter_read(base.PARAM_MECH_ESO_ERROR, base.PARAM_FLOAT),
@@ -175,13 +174,11 @@ class SensoredSpeedTest(base.IdentificationClient):
             if not phase_rows:
                 continue
             wm_eso = [row["wm_eso"] for row in phase_rows]
-            wm_enc = [row["wm_encoder"] for row in phase_rows]
             iq_ref = [row["iq_ref"] for row in phase_rows]
             print(
                 f"{phase:<7} "
                 f"ESO={statistics.fmean(wm_eso) * RAD_S_TO_RPM:+.2f} RPM "
                 f"std={statistics.pstdev(wm_eso) * RAD_S_TO_RPM:.2f} RPM; "
-                f"Encoder std={statistics.pstdev(wm_enc) * RAD_S_TO_RPM:.2f} RPM; "
                 f"IqRef std={statistics.pstdev(iq_ref):.4f} A"
             )
 
@@ -261,7 +258,7 @@ def main():
         with args.output.open("w", newline="", encoding="utf-8") as handle:
             writer = csv.DictWriter(handle, fieldnames=rows[0].keys() if rows else [
                 "time_s", "phase", "wm_ref", "wm_active", "wm_eso",
-                "wm_encoder", "iq_ref", "iq", "eso_error", "td",
+                "iq_ref", "iq", "eso_error", "td",
             ])
             writer.writeheader()
             writer.writerows(rows)

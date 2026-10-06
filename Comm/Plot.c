@@ -87,7 +87,7 @@ static uint16_t Normal_Seq = 0U;
 volatile uint32_t Plot_Fast_Drop = 0U;
 volatile uint32_t Plot_Normal_Drop = 0U;
 
-static int16_t Plot_Fast_Quant(float Value, float Scale)
+static FAST_CODE int16_t Plot_Fast_Quant(float Value, float Scale)
 {
     float Raw;
 
@@ -129,7 +129,7 @@ static void Plot_Normal_Flush(void)
     Normal_Ready = PLOT_BUF_NONE;
 }
 
-static void Plot_Fast_Group_Sync(void)
+static FAST_CODE void Plot_Fast_Group_Sync(void)
 {
     const Fast_Config_T *Config = &Fast_Config[Fast_Active];
 
@@ -157,7 +157,7 @@ static void Plot_Normal_Group_Sync(void)
     }
 }
 
-static void Plot_Fast_Apply_Pending(void)
+static FAST_CODE void Plot_Fast_Apply_Pending(void)
 {
     if (Fast_Pending == 0U)
     {
