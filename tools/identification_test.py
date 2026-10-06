@@ -120,7 +120,8 @@ OBJECT_NAME = {
     PARAM_IDENT_JB_EXCITE_RATIO: "PARAM_IDENT_JB_EXCITE_RATIO",
     PARAM_IDENT_JB_EXCITE_HZ: "PARAM_IDENT_JB_EXCITE_HZ",
     PARAM_IDENT_FAIL_REASON: "PARAM_IDENT_FAIL_REASON",
-    PARAM_IDENT_IF_CURRENT: "PARAM_IDENT_IF_CURRENT",
+    PARAM_MOTOR_ALIGN_CURRENT: "PARAM_MOTOR_ALIGN_CURRENT",
+    PARAM_MOTOR_IF_CURRENT: "PARAM_MOTOR_IF_CURRENT",
     ACTION_MOTOR_ENABLE: "ACTION_MOTOR_ENABLE",
     ACTION_MOTOR_DISABLE: "ACTION_MOTOR_DISABLE",
     ACTION_IDENT_RS_LS_START: "ACTION_IDENT_RS_LS_START",
@@ -630,11 +631,11 @@ class IdentificationClient:
 
     def if_current_set(self):
         self.parameter_write(
-            PARAM_IDENT_IF_CURRENT,
+            PARAM_MOTOR_IF_CURRENT,
             PARAM_FLOAT,
             self.args.if_current,
         )
-        value = self.parameter_read(PARAM_IDENT_IF_CURRENT, PARAM_FLOAT)
+        value = self.parameter_read(PARAM_MOTOR_IF_CURRENT, PARAM_FLOAT)
         if not math.isclose(value, self.args.if_current, rel_tol=0.0, abs_tol=1.0e-6):
             raise RuntimeError(
                 f"I/F current readback {value:.6g} != {self.args.if_current:.6g}"

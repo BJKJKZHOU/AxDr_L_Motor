@@ -98,6 +98,12 @@
 #define IF_WE_TARGET_RAD_S 120.0f
 #define IF_ACC_RAD_S2      15.0f
 
+/* Identification working currents in A, independent of the protection limit.
+ * Preserve the validated excitation previously obtained with a 2 A limit. */
+#define IDENT_RL_ID_A  0.455f
+#define IDENT_RL_IAC_A 0.175f
+#define IDENT_IQ_MAX_A 0.7f
+
 /*
  * Mechanical-speed reference profile.
  * Acc/Dec are positive magnitudes in mechanical rad/s^2. Reversal always

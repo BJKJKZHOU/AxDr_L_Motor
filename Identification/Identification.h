@@ -59,11 +59,6 @@ typedef struct
 extern Flux_Observer_T Ident_Observer;
 extern PLL_T Ident_PLL;
 
-/* Host-configured open-loop I/F current used by Flux identification only.
- * This is a commissioning input, separate from the identification current
- * safety limit. Flux_Start validates it against the effective I_Max. */
-extern volatile float Ident_IF_Current_A;
-
 /* Host-configured J/B experiment settings. The work-point speed remains an
  * internal automatic policy derived from the validated Flux 0.30 ratio. */
 extern volatile float Ident_JB_Excite_Ratio;

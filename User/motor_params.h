@@ -20,6 +20,9 @@
 #define MOTOR_J_DEFAULT    9.08865259e-05f
 #define MOTOR_B_DEFAULT    0.000188353f
 
+#define MOTOR_ALIGN_CURRENT_DEFAULT 1.0f
+#define MOTOR_IF_CURRENT_DEFAULT    1.0f
+
 /* Default motor torque constant is only used to initialize compile-time controller tuning. */
 #define MOTOR_KT_DEFAULT (1.5f * (float)MOTOR_PP_DEFAULT * MOTOR_FLUX_DEFAULT)
 

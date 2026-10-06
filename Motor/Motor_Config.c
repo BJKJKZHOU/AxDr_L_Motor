@@ -6,10 +6,13 @@
 #include "Motor_Config.h"
 
 #include "Math.h"
+#include "motor_params.h"
 
 Motor_Config_T Motor_Config =
 {
     .Dir = 1,
+    .Align_Current_A = MOTOR_ALIGN_CURRENT_DEFAULT,
+    .IF_Current_A = MOTOR_IF_CURRENT_DEFAULT,
 };
 
 static void Position_Reverse(int32_t Turn,

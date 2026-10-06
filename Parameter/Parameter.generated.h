@@ -79,6 +79,12 @@ typedef enum
     /* Motor_Config.Dir: 用户机械正方向与内部控制方向之间的符号映射，只允许-1或+1。 */
     PARAM_MOTOR_DIR = 0x0116U,
 
+    /* Motor_Config.Align_Current_A: 该电机进行标准Align预定位时使用的d轴电流，供Flux/JB辨识与正常无感启动共用。 */
+    PARAM_MOTOR_ALIGN_CURRENT = 0x0117U,
+
+    /* Motor_Config.IF_Current_A: 该电机标准I/F开环拖动使用的q轴电流，供Flux/JB辨识与正常无感运行共用。 */
+    PARAM_MOTOR_IF_CURRENT = 0x0118U,
+
     /* User_Lim.I_Max: 用户配置的最大相电流限制，实际限制不会超过硬件/固件Motor_Lim.I_Max。 */
     PARAM_LIMIT_I_MAX = 0x0201U,
 
@@ -201,9 +207,6 @@ typedef enum
 
     /* Identification_Fail_Reason_Get(): 最近一次辨识失败原因；0表示无失败，非零仅用于最终诊断。 */
     PARAM_IDENT_FAIL_REASON = 0x0912U,
-
-    /* Ident_IF_Current_A: Flux辨识标准I/F开环启动使用的q轴电流，由Host按被测电机显式给定；与Imax安全上限独立。 */
-    PARAM_IDENT_IF_CURRENT = 0x0913U,
 
     /* Identification_JB_Valid_Get(): 最近一次J/B辨识结果是否有效。 */
     PARAM_IDENT_JB_VALID = 0x0920U,

@@ -18,6 +18,7 @@
 #include "Math.h"
 #include "Motor_ADC.h"
 #include "Motor_Control.h"
+#include "Motor_Config.h"
 #include "Motion_Loop.h"
 #include "Motor_Para.h"
 #include "Motor_Type.h"
@@ -666,7 +667,7 @@ static void Flux_Observer_Runtime_Run(Flux_Fast_Context_T *Context)
 
 static Motor_Fast_Mode_e Flux_Align_Run(int8_t Dir, float *Id_Ref, float *Iq_Ref)
 {
-    if (Align_Current(Start_Para.Iq_Start_A, IF_ALIGN_CNT, Id_Ref, Iq_Ref))
+    if (Align_Current(Motor_Config.Align_Current_A, IF_ALIGN_CNT, Id_Ref, Iq_Ref))
     {
         Current_Loop_State_Reset();
         IF_Init(&Flux_IF, -0.5f * PI_F * (float)Dir, 0.0f);
@@ -845,7 +846,7 @@ static Motor_Fast_Mode_e Flux_Handover_Blend_Run(Flux_Fast_Context_T *Context,
     {
         Obs_Id_Ref = *Id_Ref;
         Obs_Iq_Ref = *Iq_Ref;
-        I_Max = 0.35f * Start_Para.Iq_Max_A;
+        I_Max = IDENT_IQ_MAX_A;
         Speed_Loop_Track(We_Target, Ident_PLL.State.We, Obs_Iq_Ref, -I_Max, I_Max);
         Obs_Control = true;
         State = FLUX_HANDOVER_CURRENT;
@@ -898,8 +899,8 @@ static void Flux_Speed_Control_Run(void)
 
     Obs_Iq_Ref = Speed_Loop(We_Target,
                             Ident_PLL.State.We,
-                            -0.35f * Start_Para.Iq_Max_A,
-                            0.35f * Start_Para.Iq_Max_A);
+                            -IDENT_IQ_MAX_A,
+                            IDENT_IQ_MAX_A);
 }
 
 static bool Flux_Coarse_Control_Run(const Flux_Slow_Snapshot_T *Snapshot, bool Search)
@@ -1172,6 +1173,7 @@ static void Flux_Refine_Measure_Control_Run(Flux_State_e State_Local, const Flux
 bool Flux_Start(float Wm_Target)
 {
     const Ident_Envelope_T *Envelope;
+    float I_Work_Max;
     float Sign;
     float We_Max;
 
@@ -1209,22 +1211,27 @@ bool Flux_Start(float Wm_Target)
 
     Envelope = Identification_Envelope_Get();
     We_Max = (float)Motor_Para.Pp * Motor_Wm_Limit_Effective_Get();
+    I_Work_Max = (Motor_Config.IF_Current_A > IDENT_IQ_MAX_A) ?
+                    Motor_Config.IF_Current_A : IDENT_IQ_MAX_A;
     if ((Envelope->I_Max <= 0.0f) || (Envelope->U_Max <= 0.0f) ||
+        (IDENT_IQ_MAX_A <= 0.0f) || (I_Work_Max > Envelope->I_Max) ||
         !__builtin_isfinite(We_Max) || (We_Max <= 0.0f) ||
-        !Motor_IF_Para_Build(ADC.Vbus_V, Envelope->I_Max, &Start_Para) ||
-        !__builtin_isfinite(Ident_IF_Current_A) ||
-        (Ident_IF_Current_A <= 0.0f) ||
-        (Ident_IF_Current_A > Envelope->I_Max))
+        !Motor_IF_Para_Build(ADC.Vbus_V, I_Work_Max, &Start_Para) ||
+        !__builtin_isfinite(Motor_Config.Align_Current_A) ||
+        (Motor_Config.Align_Current_A <= 0.0f) ||
+        (Motor_Config.Align_Current_A > Envelope->I_Max) ||
+        !__builtin_isfinite(Motor_Config.IF_Current_A) ||
+        (Motor_Config.IF_Current_A <= 0.0f) ||
+        (Motor_Config.IF_Current_A > Envelope->I_Max))
     {
         State = FLUX_FAILED;
         return false;
     }
 
-    Start_Para.Iq_Start_A = 0.15f * Envelope->I_Max;
     Sign = (Wm_Target < 0.0f) ? -1.0f : 1.0f;
     We_Target = Sign * ((Start_Para.We_Base < We_Max) ? Start_Para.We_Base : We_Max);
 
-    Flux_IF.Para.Iq_Min_A = Ident_IF_Current_A;
+    Flux_IF.Para.Iq_Min_A = Motor_Config.IF_Current_A;
     Flux_IF.Para.Iq_Max_A = Start_Para.Iq_Max_A;
     Flux_IF.Para.We_Base = Start_Para.We_Base;
     Flux_IF.Para.Acc = Abs_Value(We_Target) / Flux_Config.Workflow.Open_Accel_S;

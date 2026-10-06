@@ -268,6 +268,30 @@ objects:
     write_state: disabled
     allowed: [-1, 1]
 
+  PARAM_MOTOR_ALIGN_CURRENT:
+    id: 0x0117
+    type: f32
+    access: rw
+    persistent: true
+    binding: Motor_Config.Align_Current_A
+    label: Align Current
+    unit: A
+    description: "该电机进行标准Align预定位时使用的d轴电流，供Flux/JB辨识与正常无感启动共用。"
+    write_state: disabled
+    range: { min: 0.0, exclusive_min: true, max_binding: Motor_Lim.I_Max }
+
+  PARAM_MOTOR_IF_CURRENT:
+    id: 0x0118
+    type: f32
+    access: rw
+    persistent: true
+    binding: Motor_Config.IF_Current_A
+    label: I/F Current
+    unit: A
+    description: "该电机标准I/F开环拖动使用的q轴电流，供Flux/JB辨识与正常无感运行共用。"
+    write_state: disabled
+    range: { min: 0.0, exclusive_min: true, max_binding: Motor_Lim.I_Max }
+
   PARAM_LIMIT_I_MAX:
     id: 0x0201
     type: f32
@@ -656,17 +680,6 @@ objects:
     label: Identification Failure
     description: "最近一次辨识失败原因；0表示无失败，非零仅用于最终诊断。"
     range: { min: 0, max: 4 }
-
-  PARAM_IDENT_IF_CURRENT:
-    id: 0x0913
-    type: f32
-    access: rw
-    binding: Ident_IF_Current_A
-    label: I/F Current
-    unit: A
-    description: "Flux辨识标准I/F开环启动使用的q轴电流，由Host按被测电机显式给定；与Imax安全上限独立。"
-    write_state: disabled
-    range: { min: 0.0, exclusive_min: true, max_binding: User_Lim.I_Max }
 
   PARAM_IDENT_JB_VALID:
     id: 0x0920
