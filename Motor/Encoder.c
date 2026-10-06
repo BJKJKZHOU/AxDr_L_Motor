@@ -8,6 +8,7 @@
 #include "MT6816.h"
 #include "MT6835.h"
 #include "Math.h"
+#include "Mechanical_ESO.h"
 #include "Motor_Cal.h"
 #include "Motor_Type.h"
 #include "control_params.h"
@@ -22,8 +23,6 @@ Encoder_Config_T Encoder_Config = ENCODER_CONFIG_DEFAULT;
 volatile Encoder_T Encoder = { 0 };
 
 static float Theta_Pre = 0.0f;
-static float Delta_Sum = 0.0f;
-static uint32_t Speed_Div_Cnt = 0U;
 static uint8_t Pos_Valid = 0U;
 static uint8_t Ready_Cnt = 0U;
 
@@ -95,8 +94,6 @@ static bool Driver_Bind(void)
 static void Feedback_Reset(void)
 {
     Theta_Pre = 0.0f;
-    Delta_Sum = 0.0f;
-    Speed_Div_Cnt = 0U;
     Pos_Valid = 0U;
     Ready_Cnt = 0U;
 
@@ -114,7 +111,7 @@ static void Feedback_Reset(void)
 
     Motor_Run.Turn = 0;
     Motor_Run.Theta_m = 0.0f;
-    Motor_Run.Wm = 0.0f;
+    Mechanical_ESO.State = (Mechanical_ESO_State_T){ 0 };
 }
 
 static void Startup_Count(void)
@@ -236,7 +233,6 @@ void Encoder_Sample_Reject(void)
 void Encoder_Sample_Update(uint32_t Raw, float Theta)
 {
     float Delta;
-    float Wm_Raw;
 
     Encoder.Raw = Raw;
     Encoder.Theta_Native = Theta;
@@ -253,22 +249,10 @@ void Encoder_Sample_Update(uint32_t Raw, float Theta)
         if (Delta < -PI_F)
         {
             Motor_Run.Turn++;
-            Delta += TWO_PI_F;
         }
         else if (Delta > PI_F)
         {
             Motor_Run.Turn--;
-            Delta -= TWO_PI_F;
-        }
-
-        Delta_Sum += Delta;
-
-        if (++Speed_Div_Cnt >= (uint32_t)(CUR_FREQ_HZ_DEFAULT / SPD_FREQ_HZ_DEFAULT))
-        {
-            Speed_Div_Cnt = 0U;
-            Wm_Raw = Delta_Sum / SPD_TS;
-            Delta_Sum = 0.0f;
-            Motor_Run.Wm += SPD_FBK_ALPHA_DEFAULT * (Wm_Raw - Motor_Run.Wm);
         }
     }
     else
@@ -294,6 +278,9 @@ void Encoder_Sample_Update(uint32_t Raw, float Theta)
 
         if (Ready_Cnt >= ENC_READY_VALID_CNT)
         {
+            /* Establish the observer angle when the feedback first becomes
+             * usable, not each time the power stage is enabled. */
+            Mechanical_ESO.State.Theta = Theta;
             Encoder.Ready = 1U;
         }
     }

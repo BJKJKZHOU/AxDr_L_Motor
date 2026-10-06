@@ -91,7 +91,7 @@ static void Iq_Limit_Calc(float *Iq_Min, float *Iq_Max)
     float D;
     float Sqrt_D;
 
-    We = (float)Motor_Para.Pp * Motor_Run.Wm;
+    We = (float)Motor_Para.Pp * Mechanical_ESO_Wm_Get();
     U_Lim = ADC.Vbus_V * INV_SQRT3_F * VOLT_MOD_MAX;
 
     Wlq = We * Motor_Para.Lq;
@@ -550,19 +550,8 @@ bool Motor_Encoder_Required(void)
     return Servo_Mode() || (Motor_Mode == PHASE_SEARCH);
 }
 
-bool Motor_Mechanical_ESO_Required(void)
-{
-    return Servo_Mode() &&
-           (Motor_State != DISABLED) &&
-           (Motor_Cal.Valid != 0U) &&
-           (Encoder.Ready != 0U) &&
-           (Encoder.Fault == 0U);
-}
-
 void Motor_Enable(void)
 {
-    float Kt;
-
     Stop_Pending = false;
 
     if (Motor_State != DISABLED)
@@ -585,16 +574,11 @@ void Motor_Enable(void)
 
     if (Servo_Mode())
     {
-        Kt = 1.5f * (float)Motor_Para.Pp * Motor_Para.Flux;
-        if (!Mechanical_ESO_Config(Motor_Para.J,
-                                   Motor_Para.B,
-                                   Kt,
-                                   TWO_PI_F * Mechanical_ESO_Bw_Hz))
+        if (Mechanical_ESO.Para.Valid == 0U)
         {
             return;
         }
 
-        Mechanical_ESO_Reset(Encoder_Position_Get(), Motor_Run.Wm);
         Motion_State_Reset();
         Current_Loop_State_Reset();
     }
@@ -773,18 +757,18 @@ bool Motor_Ident_Apply(void)
 
 float Motor_Wm_Get(void)
 {
-    /* The ESO stops updating while disabled; do not publish its held speed. */
-    if (Motor_State == DISABLED)
+    if ((Motor_Mode == SENSORLESS_SPEED) && (Motor_State == RUN))
     {
-        return 0.0f;
+        return Motor_Internal_To_User(Sensorless_Wm_Get());
     }
 
-    if (Servo_Mode() && (Mechanical_ESO.Para.Valid != 0U))
+    if ((Encoder.Ready != 0U) && (Encoder.Fault == 0U) &&
+        (Mechanical_ESO.Para.Valid != 0U))
     {
         return Motor_Internal_To_User(Mechanical_ESO_Wm_Get());
     }
 
-    return Motor_Internal_To_User(Motor_Run.Wm);
+    return 0.0f;
 }
 
 void Motor_Position_Get(int32_t *Turn, float *Theta)

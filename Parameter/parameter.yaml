@@ -137,7 +137,7 @@ objects:
     binding: Mechanical_ESO.State.Theta
     label: θm ESO
     unit: rad
-    description: "Mechanical ESO估算的连续机械角度，仅用于诊断与波形对比。"
+    description: "Mechanical ESO估算的单圈机械角度，范围[0,2π)，仅用于诊断与波形对比。"
     plot: { modes: [fast, normal], fast_scale: 0.0002 }
   PARAM_MECH_ESO_WM:
     id: 0x0023
@@ -164,7 +164,7 @@ objects:
     binding: Mechanical_ESO.State.Error
     label: ESO Error
     unit: rad
-    description: "Mechanical ESO的位置观测误差Theta_meas-Theta_hat。"
+    description: "Mechanical ESO的单圈角度观测误差，Theta_meas-Theta_hat回绕到[-π,π)。"
     plot: { modes: [fast, normal], fast_scale: 0.0002 }
   PARAM_MOTOR_PP:
     id: 0x0101
@@ -480,15 +480,7 @@ objects:
     unit: rad/s
     description: "当前用户机械坐标下的机械角速度反馈。"
 
-  PARAM_ENCODER_WM:
-    id: 0x0503
-    type: f32
-    access: ro
-    binding: Motor_Run.Wm
-    label: ωm Encoder
-    unit: rad/s
-    description: "编码器角度差分与低通得到的机械速度，仅用于诊断对比。"
-    plot: { modes: [fast, normal], fast_scale: 0.1 }
+  # 0x0503 retired with encoder differential speed. Use PARAM_MECH_ESO_WM.
   PARAM_REF_IQ:
     id: 0x0510
     type: f32

@@ -53,7 +53,7 @@
  *
  * Id uses Ld and Iq uses Lq.
  */
-#define CUR_BW_HZ_DEFAULT 1000.0f
+#define CUR_BW_HZ_DEFAULT 2000.0f
 #define CUR_WC_DEFAULT    (TWO_PI_F * CUR_BW_HZ_DEFAULT)
 
 #define ID_KP_DEFAULT (MOTOR_LD_DEFAULT * CUR_WC_DEFAULT)
@@ -145,9 +145,8 @@
  */
 #define SPD_FREQ_HZ_DEFAULT   2000.0f
 #define SPD_TS                (1.0f / SPD_FREQ_HZ_DEFAULT)
-#define SPD_FBK_ALPHA_DEFAULT 0.38586955f /* 200 Hz LPF at 2 kHz */
 
-#define SPD_BW_HZ_DEFAULT 50.0f
+#define SPD_BW_HZ_DEFAULT 30.0f
 #define SPD_WC_DEFAULT    (TWO_PI_F * SPD_BW_HZ_DEFAULT)
 
 #define SPD_KP_DEFAULT (MOTOR_J_DEFAULT * SPD_WC_DEFAULT / ((float)MOTOR_PP_DEFAULT * MOTOR_KT_DEFAULT))

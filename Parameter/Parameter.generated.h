@@ -43,7 +43,7 @@ typedef enum
     /* Flux_PLL.State.We: 磁链观测器PLL估算的电角速度。 */
     PARAM_OBS_WE = 0x0021U,
 
-    /* Mechanical_ESO.State.Theta: Mechanical ESO估算的连续机械角度，仅用于诊断与波形对比。 */
+    /* Mechanical_ESO.State.Theta: Mechanical ESO估算的单圈机械角度，范围[0,2π)，仅用于诊断与波形对比。 */
     PARAM_MECH_ESO_THETA = 0x0022U,
 
     /* Mechanical_ESO.State.Wm: Mechanical ESO估算的机械角速度。 */
@@ -52,7 +52,7 @@ typedef enum
     /* Mechanical_ESO.State.Td: Mechanical ESO估算的负载/扰动转矩，仅用于诊断。 */
     PARAM_MECH_ESO_TD = 0x0024U,
 
-    /* Mechanical_ESO.State.Error: Mechanical ESO的位置观测误差Theta_meas-Theta_hat。 */
+    /* Mechanical_ESO.State.Error: Mechanical ESO的单圈角度观测误差，Theta_meas-Theta_hat回绕到[-π,π)。 */
     PARAM_MECH_ESO_ERROR = 0x0025U,
 
     /* Motor_Para.Pp: 电机极对数。 */
@@ -141,9 +141,6 @@ typedef enum
 
     /* Motor_Wm_Get(): 当前用户机械坐标下的机械角速度反馈。 */
     PARAM_RUN_WM = 0x0502U,
-
-    /* Motor_Run.Wm: 编码器角度差分与低通得到的机械速度，仅用于诊断对比。 */
-    PARAM_ENCODER_WM = 0x0503U,
 
     /* Motor_Iq_Ref_Get(): 最近一次快环实际使用的q轴电流参考。 */
     PARAM_REF_IQ = 0x0510U,

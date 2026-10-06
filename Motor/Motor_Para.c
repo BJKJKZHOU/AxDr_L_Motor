@@ -14,6 +14,7 @@
 #include "Motor_Cal.h"
 #include "control_params.h"
 #include "motor_params.h"
+#include "main.h"
 
 #define MOTOR_IF_U_BUDGET_RATIO  0.65f
 #define MOTOR_IF_I_START_A       1.0f
@@ -83,12 +84,17 @@ void Speed_Tuning_Source_Changed(void)
 void Mechanical_ESO_Tuning_Update(void)
 {
     float Kt;
+    uint32_t Primask;
 
     Kt = 1.5f * (float)Motor_Para.Pp * Motor_Para.Flux;
+    /* ESO also runs while disabled: publish a coherent coefficient set. */
+    Primask = __get_PRIMASK();
+    __disable_irq();
     (void)Mechanical_ESO_Config(Motor_Para.J,
                                 Motor_Para.B,
                                 Kt,
                                 TWO_PI_F * Mechanical_ESO_Bw_Hz);
+    __set_PRIMASK(Primask);
 }
 
 /*
