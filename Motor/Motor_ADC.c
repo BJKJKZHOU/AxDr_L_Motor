@@ -145,9 +145,11 @@ void Fast_Loop(void)
 
     if (Fast_Mode == FAST_OFF)
     {
+        Motor_Run.Ud = 0.0f;
+        Motor_Run.Uq = 0.0f;
         Motor_Run.Ualpha = 0.0f;
         Motor_Run.Ubeta = 0.0f;
-
+        /* End an active flow before the slow loop can leave a spinning motor shorted. */
         if (Motor_State_Get() == RUN)
         {
             PWM_Disable();

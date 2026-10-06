@@ -180,20 +180,13 @@ static void Motor_Cmd_Run(void)
                 break;
 
             case MOTOR_CMD_STOP:
-                Action_Status = AXDR_OK;
-                if (Motor_State_Get() != RUN)
-                {
-                    Action_Status = AXDR_ERR_STATE;
-                }
-                else
-                {
-                    /*
-                     * Stop is accepted here but motion modes may remain RUN
-                     * until their configured deceleration reaches zero.
-                     */
-                    Motor_Stop();
-                }
-                Motor_Action_Response(&Msg, Action_Status);
+                /*
+                 * Stop is idempotent at the Action boundary.
+                 * RUN starts the mode-specific stop flow; ENABLED/DISABLED
+                 * already satisfy the requested stopped state.
+                 */
+                Motor_Stop();
+                Motor_Action_Response(&Msg, AXDR_OK);
                 break;
 
             case MOTOR_CMD_DISABLE:
