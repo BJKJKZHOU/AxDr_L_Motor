@@ -143,7 +143,7 @@ class EncoderMotionTest(base.IdentificationClient):
             self.args.current_limit,
         )
         self.parameter_write(
-            base.PARAM_MOTION_WM_MAX,
+            base.PARAM_TARGET_SPEED,
             base.PARAM_FLOAT,
             self.args.speed,
         )
@@ -156,7 +156,7 @@ class EncoderMotionTest(base.IdentificationClient):
             f"origin=({origin[0]}, {origin[1]:.6f} rad)"
         )
         print(
-            f"Position speed limit={self.args.speed:.3f} rad/s; "
+            f"Position speed command={self.args.speed:.3f} rad/s; "
             f"current limit={self.args.current_limit:.3f} A"
         )
         return origin
@@ -250,7 +250,7 @@ def parse_args():
     )
     parser.add_argument("--port", required=True, help="STM32 USB CDC port")
     parser.add_argument("--turns", type=float, default=1.0)
-    parser.add_argument("--speed", type=float, default=5.0, help="position motion speed limit, rad/s")
+    parser.add_argument("--speed", type=float, default=5.0, help="position motion speed command magnitude, rad/s")
     parser.add_argument("--current-limit", type=float, default=2.0)
     parser.add_argument("--cycles", type=int, default=1)
     parser.add_argument("--position-tolerance", type=float, default=0.03, help="settled position error, rad")

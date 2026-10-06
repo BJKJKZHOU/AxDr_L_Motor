@@ -332,7 +332,7 @@ objects:
     getter: Motor_Wm_Limit_Effective_Get
     label: ωm Max Active
     unit: rad/s
-    description: "当前控制实际使用的机械速度上限，包含Motor、User与Motion限制。"
+    description: "当前控制使用的机械速度上限，为Motor与User速度限值的较小值，与目标转速无关。"
 
   PARAM_LIMIT_VBUS_MIN:
     id: 0x0205
@@ -508,17 +508,8 @@ objects:
     unit: turn+rad
     description: "当前位置轨迹实际使用的用户机械位置参考。"
 
-  PARAM_MOTION_WM_MAX:
-    id: 0x0601
-    type: f32
-    access: rw
-    persistent: true
-    binding: Motion_Config.Wm_Max
-    label: Max Speed
-    unit: rad/s
-    description: "运动规划器允许使用的最大机械角速度。"
-    range: { min: 0.0, max_bindings: [User_Lim.Wm_Max, Motor_Lim.Wm_Max] }
-
+  # 0x0601 retired: position motion uses PARAM_TARGET_SPEED. Do not reuse this
+  # ID: older NVS snapshots may still contain its persistent speed value.
   PARAM_MOTION_WM_ACC:
     id: 0x0602
     type: f32
@@ -567,7 +558,7 @@ objects:
     binding: Motor_Cmd.Wm_Target
     label: Speed Target
     unit: rad/s
-    description: "Speed、Open-loop、Sensorless及Flux辨识流程使用的用户机械速度目标。"
+    description: "共用用户机械速度指令。Speed、Open-loop、Sensorless及Flux辨识使用有符号转速；Position使用绝对值规划运动，方向由目标位置决定，0使轨迹减速停止并保持位置。指令执行时受Motor与User速度限值约束，不覆盖原指令；不保存到Flash，上电为0。"
 
   PARAM_TARGET_POSITION:
     id: 0x0704

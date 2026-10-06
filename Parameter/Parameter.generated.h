@@ -94,7 +94,7 @@ typedef enum
     /* Motor_I_Limit_Effective_Get(): 当前控制实际使用的相电流上限。 */
     PARAM_LIMIT_I_EFFECTIVE = 0x0203U,
 
-    /* Motor_Wm_Limit_Effective_Get(): 当前控制实际使用的机械速度上限，包含Motor、User与Motion限制。 */
+    /* Motor_Wm_Limit_Effective_Get(): 当前控制使用的机械速度上限，为Motor与User速度限值的较小值，与目标转速无关。 */
     PARAM_LIMIT_WM_EFFECTIVE = 0x0204U,
 
     /* Protection_Vbus_Min_Get(): AxDr_L板级固定欠压保护阈值，只读。 */
@@ -151,9 +151,6 @@ typedef enum
     /* Motor_Position_Ref_Get(): 当前位置轨迹实际使用的用户机械位置参考。 */
     PARAM_REF_POSITION = 0x0512U,
 
-    /* Motion_Config.Wm_Max: 运动规划器允许使用的最大机械角速度。 */
-    PARAM_MOTION_WM_MAX = 0x0601U,
-
     /* Motion_Config.Wm_Acc: 运动规划器机械加速度限制，可在运行期间修改。 */
     PARAM_MOTION_WM_ACC = 0x0602U,
 
@@ -166,7 +163,7 @@ typedef enum
     /* Motor_Cmd.Te_Target: Torque模式的用户机械转矩目标。 */
     PARAM_TARGET_TORQUE = 0x0702U,
 
-    /* Motor_Cmd.Wm_Target: Speed、Open-loop、Sensorless及Flux辨识流程使用的用户机械速度目标。 */
+    /* Motor_Cmd.Wm_Target: 共用用户机械速度指令。Speed、Open-loop、Sensorless及Flux辨识使用有符号转速；Position使用绝对值规划运动，方向由目标位置决定，0使轨迹减速停止并保持位置。指令执行时受Motor与User速度限值约束，不覆盖原指令；不保存到Flash，上电为0。 */
     PARAM_TARGET_SPEED = 0x0703U,
 
     /* Motor_Cmd.Position_Target: Position模式的用户机械位置目标；wire格式固定为little-endian int32 Turn + float32 Theta，一次写入。 */

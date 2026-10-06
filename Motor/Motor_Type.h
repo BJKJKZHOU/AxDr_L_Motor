@@ -65,7 +65,7 @@ typedef struct
 typedef struct
 {
     float Te_Target; /* N*m, user mechanical coordinate */
-    float Wm_Target; /* rad/s, user mechanical coordinate */
+    float Wm_Target; /* rad/s; signed in speed modes, magnitude in position mode */
     Motor_Position_T Position_Target;
 
 } Motor_Cmd_T;

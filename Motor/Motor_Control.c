@@ -63,11 +63,6 @@ static FAST_CODE void Motor_Limit_Get(Motor_Limit_T *Lim)
     Lim->I_Max = (Motor_Lim.I_Max < User_Lim.I_Max) ? Motor_Lim.I_Max : User_Lim.I_Max;
     Lim->Wm_Max = (Motor_Lim.Wm_Max < User_Lim.Wm_Max) ? Motor_Lim.Wm_Max : User_Lim.Wm_Max;
 
-    if (Motion_Config.Wm_Max < Lim->Wm_Max)
-    {
-        Lim->Wm_Max = Motion_Config.Wm_Max;
-    }
-
     if (Lim->I_Max < 0.0f)
     {
         Lim->I_Max = 0.0f;
@@ -403,10 +398,14 @@ void Motor_Control(void)
                                                     Motor_Cmd.Position_Target.Theta,
                                                     &Pos_Turn_Target,
                                                     &Pos_Theta_Target);
+                    /* Position determines direction; the shared speed command
+                     * supplies magnitude. Zero brakes the trajectory in place. */
+                    Wm_Target = __builtin_fabsf(Motor_Cmd.Wm_Target);
+                    Limit_Value(&Wm_Target, 0.0f, Lim.Wm_Max);
                     Trapezoid_Run(&Motion_Ref,
                                   Pos_Turn_Target,
                                   Pos_Theta_Target,
-                                  Lim.Wm_Max,
+                                  Wm_Target,
                                   Motion_Config.Wm_Acc,
                                   Motion_Config.Wm_Dec,
                                   POS_TS);
