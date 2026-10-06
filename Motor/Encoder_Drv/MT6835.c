@@ -26,75 +26,32 @@
 
 volatile MT6835_State_T MT6835_State = { 0 };
 
+static const uint16_t Tx[3] = { MT6835_BURST_CMD_ADDR, 0U, 0U };
 static volatile uint16_t Rx[3];
-static uint8_t Step = 0U;
 static uint8_t Busy = 0U;
-
-static uint8_t CRC8_Calc(uint32_t Raw, uint8_t Status)
-{
-    uint8_t Crc;
-    uint8_t Data;
-    uint8_t Bit;
-
-    Crc = 0U;
-
-    Data = (uint8_t)(Raw >> 13);
-    Crc ^= Data;
-    for (Bit = 0U; Bit < 8U; Bit++)
-    {
-        Crc = (Crc & 0x80U) ? (uint8_t)((Crc << 1) ^ 0x07U) : (uint8_t)(Crc << 1);
-    }
-
-    Data = (uint8_t)(Raw >> 5);
-    Crc ^= Data;
-    for (Bit = 0U; Bit < 8U; Bit++)
-    {
-        Crc = (Crc & 0x80U) ? (uint8_t)((Crc << 1) ^ 0x07U) : (uint8_t)(Crc << 1);
-    }
-
-    Data = (uint8_t)((Raw << 3) | (uint32_t)(Status & 0x07U));
-    Crc ^= Data;
-    for (Bit = 0U; Bit < 8U; Bit++)
-    {
-        Crc = (Crc & 0x80U) ? (uint8_t)((Crc << 1) ^ 0x07U) : (uint8_t)(Crc << 1);
-    }
-
-    return Crc;
-}
-
-static void DMA_Rearm(volatile uint16_t *Dst)
-{
-    volatile uint32_t Dummy;
-
-    CLEAR_BIT(SPI1->CR2, SPI_CR2_RXDMAEN);
-    CLEAR_BIT(DMA1_Channel5->CCR, DMA_CCR_EN);
-    DMA1->IFCR = DMA_IFCR_CGIF5;
-
-    if ((SPI1->SR & (SPI_SR_RXNE | SPI_SR_OVR)) != 0U)
-    {
-        Dummy = SPI1->DR;
-        Dummy = SPI1->SR;
-        (void)Dummy;
-    }
-
-    DMA1_Channel5->CPAR = (uint32_t)&SPI1->DR;
-    DMA1_Channel5->CMAR = (uint32_t)Dst;
-    DMA1_Channel5->CNDTR = 1U;
-    CLEAR_BIT(DMA1_Channel5->CCR, DMA_CCR_HTIE);
-    SET_BIT(DMA1_Channel5->CCR, DMA_CCR_TCIE | DMA_CCR_TEIE);
-    SET_BIT(DMA1_Channel5->CCR, DMA_CCR_EN);
-    SET_BIT(SPI1->CR2, SPI_CR2_RXDMAEN);
-}
 
 static FAST_CODE void Transfer_Abort(void)
 {
+    uint32_t CR1;
+    uint32_t CR2;
+
+    CLEAR_BIT(DMA1_Channel3->CCR, DMA_CCR_EN);
+    CLEAR_BIT(DMA1_Channel5->CCR, DMA_CCR_EN);
+    DMA1->IFCR = DMA_IFCR_CGIF3 | DMA_IFCR_CGIF5;
     SPI1_CSN_GPIO_Port->BSRR = SPI1_CSN_Pin;
-    Step = 0U;
+
+    /* Flush a partial frame and queued TX words before the next CSN edge. */
+    CR1 = SPI1->CR1;
+    CR2 = SPI1->CR2;
+    SET_BIT(RCC->APB2RSTR, RCC_APB2RSTR_SPI1RST);
+    CLEAR_BIT(RCC->APB2RSTR, RCC_APB2RSTR_SPI1RST);
+    SPI1->CR2 = CR2;
+    SPI1->CR1 = CR1;
+
     Busy = 0U;
     Encoder.Miss_Cnt++;
     Encoder_Sample_Invalid();
     Fast_Time.Enc_Miss++;
-    DMA_Rearm(&Rx[0]);
 }
 
 static FAST_CODE bool Frame_Finished(void)
@@ -115,7 +72,6 @@ void MT6835_Config(void)
     Rx[0] = 0U;
     Rx[1] = 0U;
     Rx[2] = 0U;
-    Step = 0U;
     Busy = 0U;
 
     MT6835_State.CRC_Err = 0U;
@@ -125,30 +81,45 @@ void MT6835_Config(void)
     MT6835_State.Weak_Field = 0U;
     MT6835_State.Under_Voltage = 0U;
 
-    CLEAR_BIT(SPI1->CR2, SPI_CR2_TXDMAEN);
+    /* Channel 3 supplies the complete burst; only RX channel 5 interrupts.
+     * Keep halfword transfers so MT6816 can share the same SPI data format. */
+    DMA1_Channel3->CCR = DMA_CCR_DIR | DMA_CCR_MINC |
+                        DMA_CCR_PSIZE_0 | DMA_CCR_MSIZE_0 | DMA_CCR_PL_0;
+    DMAMUX1_Channel2->CCR = DMA_REQUEST_SPI1_TX;
+    DMA1_Channel3->CPAR = (uint32_t)&SPI1->DR;
+    DMA1_Channel3->CMAR = (uint32_t)Tx;
+    DMA1_Channel3->CNDTR = 0U;
+
+    DMA1_Channel5->CCR = DMA_CCR_MINC | DMA_CCR_PSIZE_0 | DMA_CCR_MSIZE_0 |
+                        DMA_CCR_PL_1 | DMA_CCR_TCIE | DMA_CCR_TEIE;
+    DMA1_Channel5->CPAR = (uint32_t)&SPI1->DR;
+    DMA1_Channel5->CMAR = (uint32_t)Rx;
+    DMA1_Channel5->CNDTR = 0U;
+    DMA1->IFCR = DMA_IFCR_CGIF3 | DMA_IFCR_CGIF5;
+
+    SET_BIT(SPI1->CR2, SPI_CR2_RXDMAEN | SPI_CR2_TXDMAEN);
     SET_BIT(SPI1->CR1, SPI_CR1_SPE);
-    DMA_Rearm(&Rx[0]);
 }
 
 void MT6835_Start(void)
 {
     uint32_t Wait_T0;
 
-    if ((Busy != 0U) || (DMA1_Channel5->CNDTR != 1U))
+    if ((Busy != 0U) ||
+        ((DMA1->ISR & (DMA_ISR_TEIF3 | DMA_ISR_TEIF5)) != 0U) ||
+        ((SPI1->SR & (SPI_SR_BSY | SPI_SR_TXE | SPI_SR_FTLVL)) != SPI_SR_TXE))
     {
         Transfer_Abort();
-    }
-
-    if ((SPI1->SR & SPI_SR_TXE) == 0U)
-    {
-        Encoder.Miss_Cnt++;
-        Encoder_Sample_Invalid();
-        Fast_Time.Enc_Miss++;
         return;
     }
 
+    CLEAR_BIT(DMA1_Channel3->CCR, DMA_CCR_EN);
+    CLEAR_BIT(DMA1_Channel5->CCR, DMA_CCR_EN);
+    DMA1->IFCR = DMA_IFCR_CGIF3 | DMA_IFCR_CGIF5;
+    DMA1_Channel3->CNDTR = 3U;
+    DMA1_Channel5->CNDTR = 3U;
+    SET_BIT(DMA1_Channel5->CCR, DMA_CCR_EN);
     Busy = 1U;
-    Step = 0U;
 
     SPI1_CSN_GPIO_Port->BSRR = (uint32_t)SPI1_CSN_Pin << 16U;
     Wait_T0 = DWT->CYCCNT;
@@ -156,7 +127,7 @@ void MT6835_Start(void)
     {
     }
 
-    *(__IO uint16_t *)&SPI1->DR = MT6835_BURST_CMD_ADDR;
+    SET_BIT(DMA1_Channel3->CCR, DMA_CCR_EN);
 }
 
 void MT6835_IRQHandler(void)
@@ -166,6 +137,7 @@ void MT6835_IRQHandler(void)
     uint16_t Data_H;
     uint16_t Data_L;
     uint8_t Status;
+    uint8_t Crc;
     uint8_t Crc_Recv;
     uint32_t T0;
     uint32_t Flags;
@@ -194,33 +166,7 @@ void MT6835_IRQHandler(void)
         return;
     }
 
-    if (Step == 0U)
-    {
-        Step = 1U;
-        DMA_Rearm(&Rx[1]);
-        *(__IO uint16_t *)&SPI1->DR = 0U;
-        return;
-    }
-
-    if (Step == 1U)
-    {
-        Fast_Time.SPI_1_Cyc = T0 - Fast_Time.T0;
-        Fast_Time.SPI_1_Flag = Flags;
-        Fast_Time.SPI_1_CNDTR = DMA1_Channel5->CNDTR;
-
-        Step = 2U;
-        DMA_Rearm(&Rx[2]);
-        *(__IO uint16_t *)&SPI1->DR = 0U;
-        Fast_Time.SPI_1_ISR_Cyc = DWT->CYCCNT - T0;
-        return;
-    }
-
-    if (Step != 2U)
-    {
-        Transfer_Abort();
-        return;
-    }
-
+    /* SPI_2 fields remain the final-frame timing; SPI_RX_Cnt is now one. */
     Fast_Time.SPI_2_Cyc = T0 - Fast_Time.T0;
     Fast_Time.SPI_2_Flag = Flags;
     Fast_Time.SPI_2_CNDTR = DMA1_Channel5->CNDTR;
@@ -235,14 +181,17 @@ void MT6835_IRQHandler(void)
     Status = (uint8_t)((Data_L >> 8) & 0x07U);
     Crc_Recv = (uint8_t)(Data_L & 0x00FFU);
 
-    if (CRC8_Calc(Raw, Status) != Crc_Recv)
+    /* Registers 0x003..0x005, wire byte order; initial CRC and final XOR are zero. */
+    Crc = CRC8_07(0U, (uint8_t)(Data_H >> 8));
+    Crc = CRC8_07(Crc, (uint8_t)Data_H);
+    Crc = CRC8_07(Crc, (uint8_t)(Data_L >> 8));
+
+    if (Crc != Crc_Recv)
     {
         MT6835_State.CRC_Err++;
         Encoder.Err_Cnt++;
         Encoder_Sample_Invalid();
-        Step = 0U;
         Busy = 0U;
-        DMA_Rearm(&Rx[0]);
         Fast_Time.SPI_2_ISR_Cyc = DWT->CYCCNT - T0;
         return;
     }
@@ -266,9 +215,7 @@ void MT6835_IRQHandler(void)
             Encoder.Fault = 1U;
         }
 
-        Step = 0U;
         Busy = 0U;
-        DMA_Rearm(&Rx[0]);
         Fast_Time.SPI_2_ISR_Cyc = DWT->CYCCNT - T0;
         return;
     }
@@ -279,8 +226,6 @@ void MT6835_IRQHandler(void)
     Encoder_Sample_Update(Raw, Theta);
     Fast_Time.Enc_Cyc = DWT->CYCCNT - Fast_Time.T0;
 
-    Step = 0U;
     Busy = 0U;
-    DMA_Rearm(&Rx[0]);
     Fast_Time.SPI_2_ISR_Cyc = DWT->CYCCNT - T0;
 }

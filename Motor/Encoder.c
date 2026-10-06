@@ -148,15 +148,39 @@ static void Startup_Invalid(void)
 
 void Encoder_DMA_Config(void)
 {
+    uint32_t Primask;
+    uint32_t CR1;
+    uint32_t CR2;
+
+    /* Rebinding must not race a PWM trigger or an old DMA completion.
+     * MT6835 owns TX channel 3 as well as the shared RX channel 5. */
+    Primask = __get_PRIMASK();
+    __disable_irq();
+    CR1 = SPI1->CR1;
+    CR2 = SPI1->CR2 & ~(SPI_CR2_RXDMAEN | SPI_CR2_TXDMAEN);
+    SPI1->CR2 = CR2;
+    CLEAR_BIT(DMA1_Channel3->CCR, DMA_CCR_EN);
+    CLEAR_BIT(DMA1_Channel5->CCR,
+              DMA_CCR_EN | DMA_CCR_TCIE | DMA_CCR_HTIE | DMA_CCR_TEIE);
+    DMA1->IFCR = DMA_IFCR_CGIF3 | DMA_IFCR_CGIF5;
+    SPI1_CSN_GPIO_Port->BSRR = SPI1_CSN_Pin;
+    /* Discard any queued SPI words when switching to another driver or None. */
+    SET_BIT(RCC->APB2RSTR, RCC_APB2RSTR_SPI1RST);
+    CLEAR_BIT(RCC->APB2RSTR, RCC_APB2RSTR_SPI1RST);
+    SPI1->CR2 = CR2;
+    SPI1->CR1 = CR1;
+
     Feedback_Reset();
 
     if (!Driver_Bind())
     {
         Encoder.Fault = 1U;
+        __set_PRIMASK(Primask);
         return;
     }
 
     Drv_Config();
+    __set_PRIMASK(Primask);
 }
 
 void Encoder_Config_Changed(void)

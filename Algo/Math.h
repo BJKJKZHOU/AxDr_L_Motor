@@ -20,4 +20,13 @@ FAST_CODE int8_t Limit_Value(float *Value, float Min, float Max);
 FAST_CODE void Vector2_Limit(float *X, float *Y, float Lim);
 FAST_CODE float Angle_Wrap(float Theta);
 
+/* Polynomial 0x07, MSB first, no reflection or final XOR.
+ * Pass the initial CRC on the first byte, then the previous result. */
+extern const uint8_t CRC8_07_Table[256];
+
+static inline uint8_t CRC8_07(uint8_t Crc, uint8_t Data)
+{
+    return CRC8_07_Table[Crc ^ Data];
+}
+
 #endif

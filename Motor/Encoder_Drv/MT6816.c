@@ -59,7 +59,9 @@ static FAST_CODE void DMA_Rearm(void)
     DMA1_Channel5->CPAR = (uint32_t)&SPI1->DR;
     DMA1_Channel5->CMAR = (uint32_t)&Rx[0];
     DMA1_Channel5->CNDTR = 2U;
-    SET_BIT(DMA1_Channel5->CCR, DMA_CCR_HTIE | DMA_CCR_TCIE | DMA_CCR_TEIE);
+    /* MT6835 uses normal DMA; restore this driver's two-word circular frame. */
+    SET_BIT(DMA1_Channel5->CCR,
+            DMA_CCR_CIRC | DMA_CCR_HTIE | DMA_CCR_TCIE | DMA_CCR_TEIE);
     SET_BIT(DMA1_Channel5->CCR, DMA_CCR_EN);
     SET_BIT(SPI1->CR2, SPI_CR2_RXDMAEN);
 }
