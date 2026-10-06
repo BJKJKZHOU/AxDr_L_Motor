@@ -85,6 +85,9 @@ typedef enum
     /* Motor_Config.IF_Current_A: 该电机标准I/F开环拖动使用的q轴电流，供Flux/JB辨识与正常无感运行共用。 */
     PARAM_MOTOR_IF_CURRENT = 0x0118U,
 
+    /* Motor_Config.RL_I_Peak_A: RL辨识注入电流目标峰值，为直流偏置与交流幅值之和，按65%直流、35%交流分配，默认1 A；独立于保护限值。最小约0.114286 A对应交流幅值0.04 A，启动时需低于有效电流限值。 */
+    PARAM_MOTOR_RL_I_PEAK = 0x0119U,
+
     /* User_Lim.I_Max: 用户配置的最大相电流限制，实际限制不会超过硬件/固件Motor_Lim.I_Max。 */
     PARAM_LIMIT_I_MAX = 0x0201U,
 

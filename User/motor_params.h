@@ -22,6 +22,7 @@
 
 #define MOTOR_ALIGN_CURRENT_DEFAULT 1.0f
 #define MOTOR_IF_CURRENT_DEFAULT    1.0f
+#define MOTOR_RL_I_PEAK_DEFAULT     1.0f
 
 /* Default motor torque constant is only used to initialize compile-time controller tuning. */
 #define MOTOR_KT_DEFAULT (1.5f * (float)MOTOR_PP_DEFAULT * MOTOR_FLUX_DEFAULT)

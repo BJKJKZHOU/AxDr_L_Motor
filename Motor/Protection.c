@@ -115,7 +115,9 @@ bool Protection_Current_Fast(float Ia_A, float Ib_A, float Ic_A)
         Current_Fast_Count = 0U;
     }
 
-    if ((Current_Overload_Count >= PROT_CURRENT_OVERLOAD_CYCLES) ||
+    /* NaN bypasses threshold comparisons; invalid feedback must also stop PWM. */
+    if (!__builtin_isfinite(Current_Sq) ||
+        (Current_Overload_Count >= PROT_CURRENT_OVERLOAD_CYCLES) ||
         (Current_Fast_Count >= PROT_CURRENT_FAST_CYCLES))
     {
         Current_Fault_Latched = true;

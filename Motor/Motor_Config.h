@@ -13,6 +13,7 @@ typedef struct
     int8_t Dir; /* +1: user positive = internal positive, -1: reversed */
     float Align_Current_A; /* A, rotor alignment current used before I/F startup */
     float IF_Current_A; /* A, q-axis current used by standard I/F startup */
+    float RL_I_Peak_A; /* A, RL injection target: DC bias plus AC amplitude */
 
 } Motor_Config_T;
 

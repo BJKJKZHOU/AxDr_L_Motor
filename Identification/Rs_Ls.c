@@ -9,6 +9,7 @@
 #include "Current_Loop.h"
 #include "Identification.h"
 #include "Math.h"
+#include "Motor_Config.h"
 #include "Motor_Para.h"
 #include "Motor_Type.h"
 #include "Sin_LUT.h"
@@ -28,7 +29,6 @@
 /* Rs/Ls working point is defined in the current domain. */
 #define RS_LS_I_DC_SHARE          0.65f
 #define RS_LS_I_AC_SHARE          0.25f
-#define RS_LS_I_MIN_A             0.04f
 #define RS_LS_SNR_POWER_MIN       100.0f
 #define RS_LS_COH_SQ_MIN          0.95f
 
@@ -487,9 +487,9 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
         return FAST_OFF;
     }
 
-    I_Min = RS_LS_I_MIN_A;
-    I_DC_Target = IDENT_RL_ID_A;
-    I_AC_Target = IDENT_RL_IAC_A;
+    I_Min = IDENT_RL_IAC_MIN_A;
+    I_AC_Target = Motor_Config.RL_I_Peak_A * IDENT_RL_IAC_RATIO;
+    I_DC_Target = Motor_Config.RL_I_Peak_A - I_AC_Target;
 
     if ((I_DC_Target <= 0.0f) || (I_AC_Target < I_Min))
     {

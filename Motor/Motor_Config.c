@@ -13,6 +13,7 @@ Motor_Config_T Motor_Config =
     .Dir = 1,
     .Align_Current_A = MOTOR_ALIGN_CURRENT_DEFAULT,
     .IF_Current_A = MOTOR_IF_CURRENT_DEFAULT,
+    .RL_I_Peak_A = MOTOR_RL_I_PEAK_DEFAULT,
 };
 
 static void Position_Reverse(int32_t Turn,

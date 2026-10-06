@@ -35,7 +35,7 @@ typedef enum
 typedef enum
 {
     IDENT_FAIL_NONE = 0,
-    IDENT_FAIL_PHASE_CURRENT,
+    IDENT_FAIL_PHASE_CURRENT, /* Retired; retain the Host-visible reason values. */
     IDENT_FAIL_FLUX_INTERNAL,
     IDENT_FAIL_START_CONFIG,
     IDENT_FAIL_JB_INTERNAL,

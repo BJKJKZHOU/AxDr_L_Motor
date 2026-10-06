@@ -93,10 +93,12 @@
 #define IF_ALIGN_CNT    ((uint32_t)(IF_ALIGN_TIME_S / CUR_TS + 0.5f))
 #define IF_IQ_SLEW_A_S  20.0f
 
-/* Identification working currents in A, independent of the protection limit.
- * Preserve the validated excitation previously obtained with a 2 A limit. */
-#define IDENT_RL_ID_A  0.455f
-#define IDENT_RL_IAC_A 0.175f
+/* RL DC:AC = 65:35; the motor config supplies their summed target peak.
+ * Keep the existing minimum accepted AC amplitude independent of protection. */
+#define IDENT_RL_IAC_RATIO 0.35f
+#define IDENT_RL_IAC_MIN_A 0.04f
+
+/* Flux/JB working current in A, independent of the protection limit. */
 #define IDENT_IQ_MAX_A 0.7f
 
 /*

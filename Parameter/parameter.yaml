@@ -292,6 +292,18 @@ objects:
     write_state: disabled
     range: { min: 0.0, exclusive_min: true, max_binding: Motor_Lim.I_Max }
 
+  PARAM_MOTOR_RL_I_PEAK:
+    id: 0x0119
+    type: f32
+    access: rw
+    persistent: true
+    binding: Motor_Config.RL_I_Peak_A
+    label: RL Injection Peak
+    unit: A
+    description: "RL辨识注入电流目标峰值，为直流偏置与交流幅值之和，按65%直流、35%交流分配，默认1 A；独立于保护限值。最小约0.114286 A对应交流幅值0.04 A，启动时需低于有效电流限值。"
+    write_state: disabled
+    range: { min: 0.11428572, max_binding: Motor_Lim.I_Max }
+
   PARAM_LIMIT_I_MAX:
     id: 0x0201
     type: f32
