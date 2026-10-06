@@ -12,10 +12,9 @@ float Mechanical_ESO_Bw_Hz = MECH_ESO_BW_HZ_DEFAULT;
 
 bool Mechanical_ESO_Config(float J, float B, float Kt, float Wo)
 {
+    Mechanical_ESO_Para_T Para = { 0 };
     float B_Over_J;
     float Wo2;
-
-    Mechanical_ESO.Para = (Mechanical_ESO_Para_T){ 0 };
 
     if (!__builtin_isfinite(J) || (J <= 0.0f) ||
         !__builtin_isfinite(B) || (B < 0.0f) ||
@@ -25,11 +24,11 @@ bool Mechanical_ESO_Config(float J, float B, float Kt, float Wo)
         return false;
     }
 
-    Mechanical_ESO.Para.Inv_J = 1.0f / J;
-    Mechanical_ESO.Para.Kt_Over_J = Kt * Mechanical_ESO.Para.Inv_J;
-    Mechanical_ESO.Para.B_Over_J = B * Mechanical_ESO.Para.Inv_J;
+    Para.Inv_J = 1.0f / J;
+    Para.Kt_Over_J = Kt * Para.Inv_J;
+    Para.B_Over_J = B * Para.Inv_J;
 
-    B_Over_J = Mechanical_ESO.Para.B_Over_J;
+    B_Over_J = Para.B_Over_J;
     Wo2 = Wo * Wo;
 
     /*
@@ -43,21 +42,22 @@ bool Mechanical_ESO_Config(float J, float B, float Kt, float Wo)
      * With e = Theta_meas - Theta_hat, L3 is negative because Td enters the
      * mechanical acceleration equation through -Td/J.
      */
-    Mechanical_ESO.Para.L1 = 3.0f * Wo - B_Over_J;
-    Mechanical_ESO.Para.L2 = 3.0f * Wo2 - Mechanical_ESO.Para.L1 * B_Over_J;
-    Mechanical_ESO.Para.L3 = -J * Wo2 * Wo;
+    Para.L1 = 3.0f * Wo - B_Over_J;
+    Para.L2 = 3.0f * Wo2 - Para.L1 * B_Over_J;
+    Para.L3 = -J * Wo2 * Wo;
 
-    if (!__builtin_isfinite(Mechanical_ESO.Para.L1) ||
-        !__builtin_isfinite(Mechanical_ESO.Para.L2) ||
-        !__builtin_isfinite(Mechanical_ESO.Para.L3) ||
-        (Mechanical_ESO.Para.L1 <= 0.0f) ||
-        (Mechanical_ESO.Para.L2 <= 0.0f))
+    if (!__builtin_isfinite(Para.L1) ||
+        !__builtin_isfinite(Para.L2) ||
+        !__builtin_isfinite(Para.L3) ||
+        (Para.L1 <= 0.0f) ||
+        (Para.L2 <= 0.0f))
     {
-        Mechanical_ESO.Para = (Mechanical_ESO_Para_T){ 0 };
         return false;
     }
 
-    Mechanical_ESO.Para.Valid = 1U;
+    /* Keep the active coefficients if the requested model or tuning is invalid. */
+    Para.Valid = 1U;
+    Mechanical_ESO.Para = Para;
     return true;
 }
 

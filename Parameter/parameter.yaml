@@ -867,7 +867,7 @@ objects:
     unit: Hz
     description: "20 kHz机械ESO设计带宽；写入后按当前J/B/Kt刷新Observer增益。"
     write_state: not_running
-    range: { min: 0.0, exclusive_min: true, max: 2000.0 }
+    range: { min: 1.0, max: 2000.0 }
     on_change: ESO_TUNING
 
   ACTION_MOTOR_ENABLE:

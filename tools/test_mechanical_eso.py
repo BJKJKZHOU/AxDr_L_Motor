@@ -103,8 +103,47 @@ class MechanicalESOTest(unittest.TestCase):
     def test_retuning_preserves_observer_state(self):
         self.eso.State = State(1, 30, .002, .0001)
         before = bytes(self.eso.State)
-        self.assertTrue(self.lib.Mechanical_ESO_Config(J, B, KT, 2 * math.pi * 120))
-        self.assertEqual(bytes(self.eso.State), before)
+        for bandwidth in (1, 50, 100, 150, 200, 2000):
+            with self.subTest(bandwidth=bandwidth):
+                self.assertTrue(self.lib.Mechanical_ESO_Config(
+                    J, B, KT, 2 * math.pi * bandwidth))
+                self.assertEqual(self.eso.Para.Valid, 1)
+                self.assertEqual(bytes(self.eso.State), before)
+
+    def test_invalid_inputs_preserve_active_observer(self):
+        self.eso.State = State(1, 30, .002, .0001)
+        before = bytes(self.eso)
+        for index in range(4):
+            invalid = [-1.0, float("nan"), float("inf")]
+            if index != 1:  # Zero damping is a valid model.
+                invalid.append(0.0)
+            for value in invalid:
+                with self.subTest(index=index, value=value):
+                    args = [J, B, KT, 2 * math.pi * 100]
+                    args[index] = value
+                    self.assertFalse(self.lib.Mechanical_ESO_Config(*args))
+                    self.assertEqual(bytes(self.eso), before)
+
+    def test_invalid_coefficients_preserve_active_observer(self):
+        self.eso.State = State(1, 30, .002, .0001)
+        before = bytes(self.eso)
+        # Positive finite inputs can still produce L1 <= 0 or overflow.
+        for args in ((J, B, KT, 2 * math.pi * .001),
+                     (J, 1.0, KT, 2 * math.pi * 100),
+                     (J, B, KT, 1e20)):
+            with self.subTest(args=args):
+                self.assertFalse(self.lib.Mechanical_ESO_Config(*args))
+                self.assertEqual(bytes(self.eso), before)
+        self.lib.Mechanical_ESO_Run(1.0, True, B * 30 / KT)
+        self.assertNotEqual(self.eso.State.Theta, 1.0)
+        self.assertTrue(math.isfinite(self.eso.State.Wm))
+
+    def test_failed_initial_config_stays_invalid(self):
+        self.eso.Para = Para()
+        before = bytes(self.eso)
+        self.assertFalse(self.lib.Mechanical_ESO_Config(J, B, KT, 0))
+        self.assertEqual(bytes(self.eso), before)
+        self.assertEqual(self.eso.Para.Valid, 0)
 
 
 if __name__ == "__main__":

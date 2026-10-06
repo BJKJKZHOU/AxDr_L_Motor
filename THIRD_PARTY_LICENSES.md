@@ -34,7 +34,7 @@ The submodule is pinned to the Zephyr v4.4.2 release commit and does not track Z
 - Commit: `dccb09599635bdff17633fa7e9dab014b91dce90`
 - License: Apache License 2.0
 
-The contents of `ThirdParty/Zephyr/` are provided directly by the upstream submodule and retain the original SPDX identifiers, copyright notices, license files, and other notices from Zephyr. This firmware only builds the Zephyr source files explicitly selected by the project build configuration.
+The contents of `ThirdParty/Zephyr/` are provided directly by the upstream submodule and retain the original SPDX identifiers, copyright notices, license files, and other notices from Zephyr. This firmware builds the NVS and CRC sources explicitly selected by the project build configuration, with the adaptation headers in `ThirdParty/Zephyr_Port/`.
 
 ## STMicroelectronics USBX STM32 device controller adaptation
 

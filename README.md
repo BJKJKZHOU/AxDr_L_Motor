@@ -8,11 +8,13 @@
 
 ## 主要内容
 
-- **20 kHz FOC 快环**：三相电流采样、Clarke/Park、dq 电流环、SVPWM 与 PWM 更新
-- **Servo 控制**：Torque / Speed / Position 控制路径
-- **电机参数辨识**：Rs / Ls 与永磁体磁链辨识
+- **20 kHz FOC**：三相电流采样、Clarke/Park、dq 电流环、SVPWM 与 PWM 更新
+- **Servo 控制(有感)**：Torque / Speed / Position 控制路径
+- **运动轨迹**：速度斜坡与梯形位置轨迹
+- **编码器反馈**：MT6816 / MT6835 SPI 编码器与相位标定
+- **电机参数辨识**：Rs / Ls、永磁体磁链、转动惯量 J 与粘性阻尼 B 辨识
 - **无感控制**：`ALIGN → I/F → Observer` 启动与接管
-- **Observer**：磁链 Observer + PLL 电角度 / 电角速度估计
+- **Observer**：非线性磁链 Observer + PLL 电角度 / 电角速度估计，机械 ESO 速度与扰动转矩估计
 - **Open Loop**：用于 bring-up、测试和部分辨识流程
 - **上位机通信**：USB CDC 承载 AxDr CAN-FD 风格应用层消息
 - **Python 工具**：测试、数据采集、参数辨识和新电机 commissioning
@@ -48,7 +50,7 @@ git submodule update --init --recursive
 
 ### 2. GNU Arm GCC 构建
 
-需要 CMake、Ninja 和 `arm-none-eabi-gcc`：
+需要 CMake 3.22 或更新版本、Ninja 和 `arm-none-eabi-gcc`：
 
 ```bash
 cmake --preset gcc-release
@@ -94,16 +96,21 @@ VOFA+ 的 JustCANFD 协议支持和相关上位机代码维护在：
 ```text
 Algo/            基础数学、PID、Sin LUT、SVPWM
 Motor/           ADC、PWM、Encoder、电流环和运动控制
-Identification/  Rs/Ls 与磁链辨识
-Observer/        Flux Observer 与 PLL
+Motion/          速度斜坡与梯形位置轨迹
+Identification/  Rs/Ls、磁链与 J/B 辨识
+Observer/        Flux Observer、PLL 与机械 ESO
 Sensorless/      I/F 启动与无感控制集成
 Comm/            USB、Protocol 与 Plot
+Parameter/       参数定义、访问与生成文件
+Storage/         Flash 与 NVS 参数存储
 User/            电机和控制参数
 BSP/             板级外设
-ThirdParty/      ThreadX / USBX / STM32 USBX DCD 等外部依赖
-tools/           实机测试、数据采集和 commissioning 脚本
+ThirdParty/      ThreadX / USBX / Zephyr NVS / STM32 USBX DCD 等外部依赖
+tools/           算法测试、实机采集、commissioning 与参数生成脚本
 docs/            实机测试记录、设计记录和代码风格说明
 ```
+
+设计与实测记录见 `docs/`，可从[测试与问题记录索引](docs/测试与问题记录索引.md)进入；源码风格见 [CODE_STYLE.md](docs/CODE_STYLE.md)。
 
 ## 第三方依赖
 
@@ -111,10 +118,11 @@ docs/            实机测试记录、设计记录和代码风格说明
 
 - Eclipse ThreadX
 - Eclipse USBX
+- Zephyr NVS / CRC
 - STM32Cube HAL / CMSIS
 - STM32 USBX device-controller adaptation
 
-ThreadX 与 USBX portable code 使用 Git 子模块管理。各第三方组件继续遵循其原始许可证，不受本项目 Apache-2.0 许可证覆盖。
+ThreadX、USBX portable code 与 Zephyr 使用 Git 子模块管理，其中 Zephyr 仅编译 NVS / CRC 相关源码。各第三方组件继续遵循其原始许可证，不受本项目 Apache-2.0 许可证覆盖。
 
 详细说明见 [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md)。
 
@@ -128,4 +136,4 @@ ThreadX 与 USBX portable code 使用 Git 子模块管理。各第三方组件�
 
 项目自有源码和文档采用 [Apache License 2.0](LICENSE)。
 
-STM32Cube、Eclipse ThreadX、Eclipse USBX、STM32 USBX DCD 等第三方组件继续遵循各自的许可证和版权声明，详见 [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md)。
+STM32Cube、Eclipse ThreadX、Eclipse USBX、Zephyr、STM32 USBX DCD 等第三方组件继续遵循各自的许可证和版权声明，详见 [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md)。
