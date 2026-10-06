@@ -18,6 +18,7 @@
 #define USB_RX_READ_SIZE    64U
 #define USB_RX_STREAM_SIZE  160U
 #define USB_FRAME_HEAD_SIZE 7U
+#define USB_FRAME_MAX_SIZE  (USB_FRAME_HEAD_SIZE + AXDR_MAX_DATA_LEN)
 
 static TX_THREAD USB_Tx_Thread_Obj;
 static TX_EVENT_FLAGS_GROUP USB_Tx_Event;
@@ -29,7 +30,7 @@ static volatile ULONG USB_Tx_Pending = 0U;
 
 static VOID USB_Tx_Entry(ULONG thread_input);
 static void USB_Rx_Data(const uint8_t *Data, uint16_t Len);
-static UINT USB_Write(const AxDr_Msg_T *Msg);
+static uint16_t USB_Frame_Pack(uint8_t *Buf, const AxDr_Msg_T *Msg);
 
 void USB_Activate(void *Cdc)
 {
@@ -140,7 +141,11 @@ void USB_Tx_Poll(void)
 
 static VOID USB_Tx_Entry(ULONG thread_input)
 {
+    /* Owned only by this thread; keep the batch off its 1 KB call stack. */
+    static uint8_t Buf[UX_SLAVE_REQUEST_DATA_MAX_LENGTH];
     ULONG Flags;
+    ULONG Len;
+    ULONG Actual;
     AxDr_Msg_T Msg;
     UX_SLAVE_CLASS_CDC_ACM *Cdc;
 
@@ -154,53 +159,56 @@ static VOID USB_Tx_Entry(ULONG thread_input)
         }
 
         (void)Flags;
-        Cdc = Cdc_Acm;
-
-        if (Cdc == UX_NULL)
+        while (1)
         {
-            continue;
-        }
-
-        while (Protocol_Tx_Pop(&Msg))
-        {
-            if (USB_Write(&Msg) != UX_SUCCESS)
+            Cdc = Cdc_Acm;
+            if (Cdc == UX_NULL)
             {
                 break;
             }
-        }
 
-        while (Plot_Fast_Pop(&Msg))
-        {
-            if (USB_Write(&Msg) != UX_SUCCESS)
+            Len = 0U;
+
+            /* Service responses and NORMAL before continuous FAST traffic.
+             * Reserve room before Pop: it releases the source buffer. */
+            if (Protocol_Tx_Pop(&Msg))
+            {
+                Len += USB_Frame_Pack(&Buf[Len], &Msg);
+            }
+            if (Plot_Normal_Pop(&Msg))
+            {
+                Len += USB_Frame_Pack(&Buf[Len], &Msg);
+            }
+            while (((sizeof(Buf) - Len) >= USB_FRAME_MAX_SIZE) && Plot_Fast_Pop(&Msg))
+            {
+                Len += USB_Frame_Pack(&Buf[Len], &Msg);
+            }
+
+            if (Len == 0U)
             {
                 break;
             }
-        }
 
-        if (Plot_Normal_Pop(&Msg))
-        {
-            (void)USB_Write(&Msg);
+            /* Send the available batch now, without waiting to fill it.
+             * Drain remaining messages before waiting for another event. */
+            Actual = 0U;
+            if ((ux_device_class_cdc_acm_write(Cdc, Buf, Len, &Actual) != UX_SUCCESS) ||
+                (Actual != Len))
+            {
+                break;
+            }
         }
     }
 }
 
-static UINT USB_Write(const AxDr_Msg_T *Msg)
+static uint16_t USB_Frame_Pack(uint8_t *Buf, const AxDr_Msg_T *Msg)
 {
-    uint8_t Buf[USB_FRAME_HEAD_SIZE + AXDR_MAX_DATA_LEN];
-    ULONG Actual;
-    ULONG Len;
-    UX_SLAVE_CLASS_CDC_ACM *Cdc;
-
-    Cdc = Cdc_Acm;
-
-    if ((Cdc == UX_NULL) || !AxDr_CANFD_Length_Valid(Msg->Len))
+    if (!AxDr_CANFD_Length_Valid(Msg->Len))
     {
-        return UX_ERROR;
+        return 0U;
     }
 
-    /* USB is only a byte-stream envelope around one complete CAN FD frame.
-     * Id, Len and every data-field byte are preserved exactly.
-     */
+    /* Preserve each AXDR frame, including CAN FD padding, within the stream. */
     Buf[0] = 'A';
     Buf[1] = 'X';
     Buf[2] = 'D';
@@ -214,15 +222,7 @@ static UINT USB_Write(const AxDr_Msg_T *Msg)
         memcpy(&Buf[USB_FRAME_HEAD_SIZE], Msg->Data, Msg->Len);
     }
 
-    Len = USB_FRAME_HEAD_SIZE + Msg->Len;
-    Actual = 0U;
-
-    if (ux_device_class_cdc_acm_write(Cdc, Buf, Len, &Actual) != UX_SUCCESS)
-    {
-        return UX_ERROR;
-    }
-
-    return (Actual == Len) ? UX_SUCCESS : UX_ERROR;
+    return (uint16_t)(USB_FRAME_HEAD_SIZE + Msg->Len);
 }
 
 static void USB_Rx_Data(const uint8_t *Data, uint16_t Len)
