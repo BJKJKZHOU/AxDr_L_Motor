@@ -22,6 +22,7 @@
 #include "stm32g4xx_it.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "Fast_Memory.h"
 #include "Encoder.h"
 #include "Motor_ADC.h"
 #include "control_params.h"
@@ -224,7 +225,7 @@ void DMA1_Channel4_IRQHandler(void)
 /**
   * @brief This function handles DMA1 channel5 global interrupt.
   */
-void DMA1_Channel5_IRQHandler(void)
+FAST_CODE void DMA1_Channel5_IRQHandler(void)
 {
   /* USER CODE BEGIN DMA1_Channel5_IRQn 0 */
   Encoder_DMA_IRQHandler();
@@ -254,7 +255,7 @@ void DMA1_Channel6_IRQHandler(void)
 /**
   * @brief This function handles ADC1 and ADC2 global interrupt.
   */
-void ADC1_2_IRQHandler(void)
+FAST_CODE void ADC1_2_IRQHandler(void)
 {
   /* USER CODE BEGIN ADC1_2_IRQn 0 */
   uint32_t T0;
@@ -391,7 +392,7 @@ void FDCAN1_IT1_IRQHandler(void)
 /**
   * @brief This function handles TIM1 update interrupt and TIM16 global interrupt.
   */
-void TIM1_UP_TIM16_IRQHandler(void)
+FAST_CODE void TIM1_UP_TIM16_IRQHandler(void)
 {
   /* USER CODE BEGIN TIM1_UP_TIM16_IRQn 0 */
   uint32_t T0;
@@ -450,7 +451,7 @@ void TIM1_UP_TIM16_IRQHandler(void)
 /**
   * @brief This function handles TIM1 capture compare interrupt.
   */
-void TIM1_CC_IRQHandler(void)
+FAST_CODE void TIM1_CC_IRQHandler(void)
 {
   /* USER CODE BEGIN TIM1_CC_IRQn 0 */
   if (((TIM1->SR & TIM_SR_CC4IF) != 0U) &&

@@ -6,19 +6,21 @@
 #ifndef MOTOR_CONTROL_H
 #define MOTOR_CONTROL_H
 
+#include "Fast_Memory.h"
+
 #include "Motor_Type.h"
 #include "Identification.h"
 
 void Motor_Control(void);
-Motor_Fast_Mode_e Motor_Fast_Run(float *Theta_e,
+FAST_CODE Motor_Fast_Mode_e Motor_Fast_Run(float *Theta_e,
                                  float *Id_Ref,
                                  float *Iq_Ref,
                                  float *Ualpha,
                                  float *Ubeta);
 
-Motor_State_e Motor_State_Get(void);
+FAST_CODE Motor_State_e Motor_State_Get(void);
 Motor_Mode_e Motor_Mode_Get(void);
-float Motor_I_Limit_Effective_Get(void);
+FAST_CODE float Motor_I_Limit_Effective_Get(void);
 float Motor_Wm_Limit_Effective_Get(void);
 float Motor_Wm_Ref_Get(void);
 Motor_Position_T Motor_Position_Ref_Get(void);

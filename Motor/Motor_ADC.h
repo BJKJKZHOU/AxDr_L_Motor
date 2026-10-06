@@ -6,6 +6,8 @@
 #ifndef MOTOR_ADC_H
 #define MOTOR_ADC_H
 
+#include "Fast_Memory.h"
+
 #include <stdint.h>
 
 typedef struct
@@ -31,7 +33,7 @@ extern volatile ADC_T ADC;
 extern volatile float Motor_Plot_Iq_Ref;
 
 void ADC_Calib(void);
-void Fast_Loop(void);
+FAST_CODE void Fast_Loop(void);
 float Motor_Iq_Ref_Get(void);
 
 #endif /* MOTOR_ADC_H */

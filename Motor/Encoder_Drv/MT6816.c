@@ -31,7 +31,7 @@ static volatile uint16_t Rx[2];
 static uint8_t Step = 0U;
 static uint8_t Busy = 0U;
 
-static uint8_t Parity_Check(uint16_t Data)
+static FAST_CODE uint8_t Parity_Check(uint16_t Data)
 {
     Data ^= Data >> 8;
     Data ^= Data >> 4;
@@ -41,7 +41,7 @@ static uint8_t Parity_Check(uint16_t Data)
     return (uint8_t)((~Data) & 1U);
 }
 
-static void DMA_Rearm(void)
+static FAST_CODE void DMA_Rearm(void)
 {
     volatile uint32_t Dummy;
 
@@ -64,7 +64,7 @@ static void DMA_Rearm(void)
     SET_BIT(SPI1->CR2, SPI_CR2_RXDMAEN);
 }
 
-static void Transfer_Abort(void)
+static FAST_CODE void Transfer_Abort(void)
 {
     SPI1_CSN_GPIO_Port->BSRR = SPI1_CSN_Pin;
     Step = 0U;

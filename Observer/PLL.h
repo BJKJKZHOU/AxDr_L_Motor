@@ -6,6 +6,8 @@
 #ifndef PLL_H
 #define PLL_H
 
+#include "Fast_Memory.h"
+
 #include <stdbool.h>
 
 typedef struct
@@ -32,6 +34,6 @@ typedef struct
 
 void PLL_Reset(PLL_T *Pll, float Theta, float We);
 
-bool PLL_Run(PLL_T *Pll, float X, float Y, float Ts);
+FAST_CODE bool PLL_Run(PLL_T *Pll, float X, float Y, float Ts);
 
 #endif /* PLL_H */

@@ -70,12 +70,12 @@ static volatile float Obs_Iq_Ref = 0.0f;
 static float Theta_Use_Last = 0.0f;
 static float We_Obs_F = 0.0f;
 
-static float Abs_F(float X)
+static FAST_CODE float Abs_F(float X)
 {
     return (X >= 0.0f) ? X : -X;
 }
 
-static float Current_Limit_Get(void)
+static FAST_CODE float Current_Limit_Get(void)
 {
     float I_Max;
 
@@ -83,7 +83,7 @@ static float Current_Limit_Get(void)
     return (I_Max > 0.0f) ? I_Max : 0.0f;
 }
 
-static bool Obs_Stable(void)
+static FAST_CODE bool Obs_Stable(void)
 {
     float We_Err;
     float Flux2;
@@ -118,7 +118,7 @@ static bool Obs_Stable(void)
     return true;
 }
 
-static float IF_Target(float We_Ref)
+static FAST_CODE float IF_Target(float We_Ref)
 {
     float Target;
 

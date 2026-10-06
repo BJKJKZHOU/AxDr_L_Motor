@@ -86,7 +86,7 @@ static void DMA_Rearm(volatile uint16_t *Dst)
     SET_BIT(SPI1->CR2, SPI_CR2_RXDMAEN);
 }
 
-static void Transfer_Abort(void)
+static FAST_CODE void Transfer_Abort(void)
 {
     SPI1_CSN_GPIO_Port->BSRR = SPI1_CSN_Pin;
     Step = 0U;
@@ -97,7 +97,7 @@ static void Transfer_Abort(void)
     DMA_Rearm(&Rx[0]);
 }
 
-static bool Frame_Finished(void)
+static FAST_CODE bool Frame_Finished(void)
 {
     uint32_t Wait_T0;
 

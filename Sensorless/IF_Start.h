@@ -6,6 +6,8 @@
 #ifndef IF_START_H
 #define IF_START_H
 
+#include "Fast_Memory.h"
+
 #include <stdint.h>
 
 typedef enum
@@ -51,8 +53,8 @@ typedef struct
 } IF_T;
 
 void IF_Init(IF_T *IF, float Theta_Start, float We_Start);
-void IF_Target_Set(IF_T *IF, float We_Target);
-void IF_Run(IF_T *IF,
+FAST_CODE void IF_Target_Set(IF_T *IF, float We_Target);
+FAST_CODE void IF_Run(IF_T *IF,
             float Id_A,
             float Iq_A,
             float Ud_V,

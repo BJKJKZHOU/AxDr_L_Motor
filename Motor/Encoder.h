@@ -6,6 +6,8 @@
 #ifndef ENCODER_H
 #define ENCODER_H
 
+#include "Fast_Memory.h"
+
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -59,15 +61,15 @@ extern Encoder_Config_T Encoder_Config;
 extern volatile Encoder_T Encoder;
 
 void Encoder_DMA_Config(void);
-void Encoder_DMA_IRQHandler(void);
-void Encoder_Start(void);
+FAST_CODE void Encoder_DMA_IRQHandler(void);
+FAST_CODE void Encoder_Start(void);
 
 void Encoder_Config_Changed(void);
 float Encoder_Position_Get(void);
 
 /* Drivers publish native [0, 2pi) angle here; generic Encoder.c owns direction mapping, turns and speed. */
-void Encoder_Sample_Update(uint32_t Raw, float Theta);
-void Encoder_Sample_Invalid(void);
-void Encoder_Sample_Reject(void);
+FAST_CODE void Encoder_Sample_Update(uint32_t Raw, float Theta);
+FAST_CODE void Encoder_Sample_Invalid(void);
+FAST_CODE void Encoder_Sample_Reject(void);
 
 #endif /* ENCODER_H */

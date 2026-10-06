@@ -52,7 +52,7 @@ static float We_Ref = 0.0f;
 static uint32_t Pos_Div = 0U;
 static bool Stop_Pending = false;
 
-static void Motor_Limit_Get(Motor_Limit_T *Lim)
+static FAST_CODE void Motor_Limit_Get(Motor_Limit_T *Lim)
 {
     Lim->I_Max = (Motor_Lim.I_Max < User_Lim.I_Max) ? Motor_Lim.I_Max : User_Lim.I_Max;
     Lim->Wm_Max = (Motor_Lim.Wm_Max < User_Lim.Wm_Max) ? Motor_Lim.Wm_Max : User_Lim.Wm_Max;
@@ -126,12 +126,12 @@ static void Motion_State_Reset(void)
     Pos_Div = 0U;
 }
 
-static bool Servo_Mode(void)
+static FAST_CODE bool Servo_Mode(void)
 {
     return (Motor_Mode == TORQUE) || (Motor_Mode == SPEED) || (Motor_Mode == POSITION);
 }
 
-static float Encoder_Theta_e(void)
+static FAST_CODE float Encoder_Theta_e(void)
 {
     return Angle_Wrap((float)Motor_Para.Pp * Motor_Run.Theta_m + Motor_Cal.Theta_Off);
 }

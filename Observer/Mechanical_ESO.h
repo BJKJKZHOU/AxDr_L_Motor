@@ -6,6 +6,8 @@
 #ifndef MECHANICAL_ESO_H
 #define MECHANICAL_ESO_H
 
+#include "Fast_Memory.h"
+
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -42,7 +44,7 @@ extern float Mechanical_ESO_Bw_Hz;
 
 bool Mechanical_ESO_Config(float J, float B, float Kt, float Wo);
 void Mechanical_ESO_Reset(float Theta, float Wm);
-void Mechanical_ESO_Run(float Theta_Meas, bool Position_Valid, float Iq);
+FAST_CODE void Mechanical_ESO_Run(float Theta_Meas, bool Position_Valid, float Iq);
 float Mechanical_ESO_Wm_Get(void);
 
 #endif /* MECHANICAL_ESO_H */

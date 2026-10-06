@@ -8,7 +8,7 @@
 #include "Math.h"
 #include "Sin_LUT.h"
 
-static bool Flux_Observer_Calc_Update(Flux_Observer_T *Obs)
+static FAST_CODE bool Flux_Observer_Calc_Update(Flux_Observer_T *Obs)
 {
     float Flux2;
     float Gamma;
