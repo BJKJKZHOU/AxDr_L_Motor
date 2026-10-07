@@ -92,7 +92,7 @@ static bool Calibration_Load(void)
     return true;
 }
 
-int NVS_Storage_Load_All(void)
+int NVS_Storage_Load(uint16_t Load_Id)
 {
     Parameter_Value_T Value;
     Parameter_Type_e Type;
@@ -109,11 +109,20 @@ int NVS_Storage_Load_All(void)
         return Status;
     }
 
+    if ((Load_Id != NVS_ALL) && !Parameter_Persistent_Read(Load_Id, &Type, &Value))
+    {
+        return -EINVAL;
+    }
+
     while (Parameter_Persistent_Next(&Index, &Id, &Type, &Value))
     {
-        if ((Id == PARAM_CAL_VALID) ||
+        if ((Load_Id != NVS_ALL) && (Id != Load_Id))
+        {
+            continue;
+        }
+        if ((Load_Id == NVS_ALL) && ((Id == PARAM_CAL_VALID) ||
             (Id == PARAM_CAL_ENC_DIR) ||
-            (Id == PARAM_CAL_THETA_OFF))
+            (Id == PARAM_CAL_THETA_OFF)))
         {
             continue;
         }
@@ -126,16 +135,20 @@ int NVS_Storage_Load_All(void)
 
         memset(&Value, 0, sizeof(Value));
         Rc = nvs_read(&Storage_NVS, Id, &Value, Size);
-        if (Rc < 0)
-        {
-            continue;
-        }
         if (Rc != (ssize_t)Size)
         {
+            if (Load_Id != NVS_ALL)
+            {
+                return (Rc < 0) ? (int)Rc : -EINVAL;
+            }
             continue;
         }
 
         Param_Status = Parameter_Restore(Id, Type, Value);
+        if (Load_Id != NVS_ALL)
+        {
+            return (Param_Status == PARAM_OK) ? 0 : -EINVAL;
+        }
         if (Param_Status != PARAM_OK)
         {
             continue;
@@ -152,42 +165,7 @@ int NVS_Storage_Load_All(void)
     return 0;
 }
 
-int NVS_Storage_Save(uint16_t Id)
-{
-    Parameter_Value_T Value;
-    Parameter_Type_e Type;
-    uint8_t Size;
-    ssize_t Rc;
-    int Status;
-
-    Status = NVS_Storage_Init();
-    if (Status != 0)
-    {
-        return Status;
-    }
-
-    if (!Parameter_Persistent_Read(Id, &Type, &Value))
-    {
-        return -EINVAL;
-    }
-
-    Size = Parameter_Value_Size(Type);
-    if (Size == 0U)
-    {
-        return -EINVAL;
-    }
-
-    Rc = nvs_write(&Storage_NVS, Id, &Value, Size);
-    if (Rc < 0)
-    {
-        return (int)Rc;
-    }
-
-    /* NVS returns zero when the value is already stored. */
-    return ((Rc == 0) || (Rc == (ssize_t)Size)) ? 0 : -EIO;
-}
-
-int NVS_Storage_Save_All(void)
+int NVS_Storage_Save(const uint16_t *Ids, uint16_t Count, NVS_Select_e Select)
 {
     Parameter_Value_T Value;
     Parameter_Type_e Type;
@@ -197,25 +175,74 @@ int NVS_Storage_Save_All(void)
     ssize_t Rc;
     int Status;
 
+    if (((Count != 0U) && (Ids == NULL)) ||
+        ((Select != NVS_INCLUDE) && (Select != NVS_EXCLUDE)))
+    {
+        return -EINVAL;
+    }
+    /* Reject an invalid list before any records are written. */
+    for (uint16_t n = 0U; n < Count; n++)
+    {
+        if (!Parameter_Persistent_Read(Ids[n], &Type, &Value))
+        {
+            return -EINVAL;
+        }
+    }
+    if ((Select == NVS_INCLUDE) && (Count == 0U))
+    {
+        return 0;
+    }
+
     Status = NVS_Storage_Init();
     if (Status != 0)
     {
         return Status;
     }
 
-    while (Parameter_Persistent_Next(&Index, &Id, &Type, &Value))
+    for (;;)
     {
+        if (Select == NVS_INCLUDE)
+        {
+            if (Index == Count)
+            {
+                break;
+            }
+            /* Preserve caller order, notably calibration's Valid-last write. */
+            Id = Ids[Index++];
+            (void)Parameter_Persistent_Read(Id, &Type, &Value);
+        }
+        else
+        {
+            uint16_t n;
+
+            if (!Parameter_Persistent_Next(&Index, &Id, &Type, &Value))
+            {
+                break;
+            }
+            for (n = 0U; n < Count; n++)
+            {
+                if (Id == Ids[n])
+                {
+                    break;
+                }
+            }
+            if (n != Count)
+            {
+                continue;
+            }
+        }
+
         Size = Parameter_Value_Size(Type);
         if (Size == 0U)
         {
-            continue;
+            return -EINVAL;
         }
-
         Rc = nvs_write(&Storage_NVS, Id, &Value, Size);
         if (Rc < 0)
         {
             return (int)Rc;
         }
+        /* NVS returns zero when the value is already stored. */
         if ((Rc != 0) && (Rc != (ssize_t)Size))
         {
             return -EIO;

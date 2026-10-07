@@ -803,7 +803,7 @@ objects:
     persistent: true
     binding: Control_Current_Tune_Source
     label: Current Tuning Source
-    description: "当前电流环增益来源；切到Bandwidth时按当前模型重新计算PI，Manual保留直接增益。"
+    description: "当前电流环增益来源；切到Bandwidth时按模型计算PI，保存配置命令不覆盖手调增益；切回Manual恢复Flash中已保存的Id/Iq增益，全组未保存时沿用当前值。"
     write_state: not_running
     allowed_symbols: [CTRL_TUNE_BANDWIDTH, CTRL_TUNE_MANUAL]
     on_change: CURRENT_SOURCE
@@ -852,7 +852,7 @@ objects:
     persistent: true
     binding: Control_Speed_Tune_Source
     label: Speed Tuning Source
-    description: "当前速度环增益来源；切到Bandwidth时按当前模型重新计算PI，Manual保留直接增益。"
+    description: "当前速度环增益来源；切到Bandwidth时按模型计算PI，保存配置命令不覆盖手调增益；切回Manual恢复Flash中已保存的Kp/Ki，全组未保存时沿用当前值。"
     write_state: not_running
     allowed_symbols: [CTRL_TUNE_BANDWIDTH, CTRL_TUNE_MANUAL]
     on_change: SPEED_SOURCE

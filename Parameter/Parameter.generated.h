@@ -238,7 +238,7 @@ typedef enum
     /* Iq_Ctrl.Para.Ki: Iq电流环实际Ki；直接写入后切换为Manual调参。 */
     PARAM_CTRL_IQ_KI = 0x0A05U,
 
-    /* Control_Current_Tune_Source: 当前电流环增益来源；切到Bandwidth时按当前模型重新计算PI，Manual保留直接增益。 */
+    /* Control_Current_Tune_Source: 当前电流环增益来源；切到Bandwidth时按模型计算PI，保存配置命令不覆盖手调增益；切回Manual恢复Flash中已保存的Id/Iq增益，全组未保存时沿用当前值。 */
     PARAM_CTRL_CURRENT_SOURCE = 0x0A06U,
 
     /* Control_Speed_Bw_Hz: 速度环设计带宽；写入后切换为Bandwidth并由当前J/B/Flux/Pp重新计算速度PI增益。 */
@@ -250,7 +250,7 @@ typedef enum
     /* Speed_Ctrl.Para.Ki: 速度环实际Ki；直接写入后切换为Manual调参。 */
     PARAM_CTRL_SPEED_KI = 0x0A12U,
 
-    /* Control_Speed_Tune_Source: 当前速度环增益来源；切到Bandwidth时按当前模型重新计算PI，Manual保留直接增益。 */
+    /* Control_Speed_Tune_Source: 当前速度环增益来源；切到Bandwidth时按模型计算PI，保存配置命令不覆盖手调增益；切回Manual恢复Flash中已保存的Kp/Ki，全组未保存时沿用当前值。 */
     PARAM_CTRL_SPEED_SOURCE = 0x0A13U,
 
     /* Pos_Ctrl.Para.Kp: 位置环P增益，单位为(rad/s)/rad。 */

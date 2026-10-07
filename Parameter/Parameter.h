@@ -46,6 +46,7 @@ typedef enum
     PARAM_ERR_READ_ONLY,
     PARAM_ERR_VALUE,
     PARAM_ERR_STATE,
+    PARAM_ERR_STORAGE,
 
 } Parameter_Status_e;
 

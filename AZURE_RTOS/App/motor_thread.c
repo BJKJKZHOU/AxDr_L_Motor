@@ -9,6 +9,7 @@
 #include <string.h>
 
 #include "Motor_Control.h"
+#include "Motor_Para.h"
 #include "NVS_Storage.h"
 #include "Parameter.h"
 #include "Plot.h"
@@ -301,17 +302,38 @@ static void Motor_Cmd_Run(void)
                 break;
 
             case MOTOR_CMD_PARAMETER_SAVE:
+            {
+                uint16_t Skip[6];
+                uint16_t Count = 0U;
+
                 Action_Status = AXDR_OK;
                 if (Motor_State_Get() != DISABLED)
                 {
                     Action_Status = AXDR_ERR_STATE;
                 }
-                else if (NVS_Storage_Save_All() != 0)
+                else
                 {
-                    Action_Status = AXDR_ERR_CONFIG;
+                    /* Preserve the last saved manual gains of each loop. */
+                    if (Control_Current_Tune_Source == CTRL_TUNE_BANDWIDTH)
+                    {
+                        Skip[Count++] = PARAM_CTRL_ID_KP;
+                        Skip[Count++] = PARAM_CTRL_ID_KI;
+                        Skip[Count++] = PARAM_CTRL_IQ_KP;
+                        Skip[Count++] = PARAM_CTRL_IQ_KI;
+                    }
+                    if (Control_Speed_Tune_Source == CTRL_TUNE_BANDWIDTH)
+                    {
+                        Skip[Count++] = PARAM_CTRL_SPEED_KP;
+                        Skip[Count++] = PARAM_CTRL_SPEED_KI;
+                    }
+                    if (NVS_Storage_Save(Skip, Count, NVS_EXCLUDE) != 0)
+                    {
+                        Action_Status = AXDR_ERR_CONFIG;
+                    }
                 }
                 Motor_Action_Response(&Msg, Action_Status);
                 break;
+            }
 
             default:
                 break;
@@ -331,7 +353,7 @@ UINT Motor_Thread_Init(VOID *memory_ptr)
 
     /* Restore persisted configuration before the Motor thread starts running.
      * Missing or invalid records leave the compiled defaults in place. */
-    (void)NVS_Storage_Load_All();
+    (void)NVS_Storage_Load(NVS_ALL);
 
     if (tx_semaphore_create(&Motor_Sem, "Motor Semaphore", 0U) != TX_SUCCESS)
     {
