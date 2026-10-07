@@ -18,8 +18,12 @@ typedef enum
 } NVS_Select_e;
 
 int NVS_Storage_Init(void);
-/* Single ID: restore without callbacks; missing record returns -ENOENT.
- * NVS_ALL: keep RAM values for missing/invalid records, then refresh dependencies. */
+/* Ordinary single ID: restore without callbacks; missing record returns -ENOENT.
+ * Model/ESO fields are validated and published together, including single loads.
+ * NVS_ALL: keep RAM values for missing/invalid scalar records, then validate the
+ * complete model. A rejected model is not published and returns -EINVAL;
+ * other records still load, but encoder hardware is not rebound and stored
+ * calibration is not accepted. */
 int NVS_Storage_Load(uint16_t Id);
 /* INCLUDE writes in list order; EXCLUDE writes all persistent IDs not listed.
  * Empty INCLUDE does nothing; empty EXCLUDE saves all. No tuning-mode policy. */

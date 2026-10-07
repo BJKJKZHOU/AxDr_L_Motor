@@ -42,13 +42,25 @@ class MechanicalESOTest(unittest.TestCase):
             "-o", str(library),
         ], cwd=ROOT, check=True)
         cls.lib = ct.CDLL(str(library))
-        cls.lib.Mechanical_ESO_Config.argtypes = [ct.c_float] * 4
-        cls.lib.Mechanical_ESO_Config.restype = ct.c_bool
+        cls.lib.Mechanical_ESO_Para_Build.argtypes = [ct.POINTER(Para)] + [ct.c_float] * 4
+        cls.lib.Mechanical_ESO_Para_Build.restype = ct.c_bool
         cls.lib.Mechanical_ESO_Run.argtypes = [ct.c_float, ct.c_bool, ct.c_float]
         cls.eso = ESO.in_dll(cls.lib, "Mechanical_ESO")
 
+    def configure(self, *args):
+        candidate = Para.from_buffer_copy(self.eso.Para)
+        before = bytes(candidate)
+        active = bytes(self.eso)
+        success = self.lib.Mechanical_ESO_Para_Build(ct.byref(candidate), *args)
+        self.assertEqual(bytes(self.eso), active)
+        if success:
+            self.eso.Para = candidate
+        else:
+            self.assertEqual(bytes(candidate), before)
+        return success
+
     def setUp(self):
-        self.assertTrue(self.lib.Mechanical_ESO_Config(J, B, KT, 2 * math.pi * 100))
+        self.assertTrue(self.configure(J, B, KT, 2 * math.pi * 100))
 
     def test_constant_speed_across_turns(self):
         # The position chain may count any number of turns; ESO receives only phase.
@@ -105,7 +117,7 @@ class MechanicalESOTest(unittest.TestCase):
         before = bytes(self.eso.State)
         for bandwidth in (1, 50, 100, 150, 200, 2000):
             with self.subTest(bandwidth=bandwidth):
-                self.assertTrue(self.lib.Mechanical_ESO_Config(
+                self.assertTrue(self.configure(
                     J, B, KT, 2 * math.pi * bandwidth))
                 self.assertEqual(self.eso.Para.Valid, 1)
                 self.assertEqual(bytes(self.eso.State), before)
@@ -121,7 +133,7 @@ class MechanicalESOTest(unittest.TestCase):
                 with self.subTest(index=index, value=value):
                     args = [J, B, KT, 2 * math.pi * 100]
                     args[index] = value
-                    self.assertFalse(self.lib.Mechanical_ESO_Config(*args))
+                    self.assertFalse(self.configure(*args))
                     self.assertEqual(bytes(self.eso), before)
 
     def test_invalid_coefficients_preserve_active_observer(self):
@@ -130,9 +142,10 @@ class MechanicalESOTest(unittest.TestCase):
         # Positive finite inputs can still produce L1 <= 0 or overflow.
         for args in ((J, B, KT, 2 * math.pi * .001),
                      (J, 1.0, KT, 2 * math.pi * 100),
-                     (J, B, KT, 1e20)):
+                     (J, B, KT, 1e20),
+                     (1e-10, 0, 1e30, 628), (1e-40, 0, KT, 628)):
             with self.subTest(args=args):
-                self.assertFalse(self.lib.Mechanical_ESO_Config(*args))
+                self.assertFalse(self.configure(*args))
                 self.assertEqual(bytes(self.eso), before)
         self.lib.Mechanical_ESO_Run(1.0, True, B * 30 / KT)
         self.assertNotEqual(self.eso.State.Theta, 1.0)
@@ -141,7 +154,7 @@ class MechanicalESOTest(unittest.TestCase):
     def test_failed_initial_config_stays_invalid(self):
         self.eso.Para = Para()
         before = bytes(self.eso)
-        self.assertFalse(self.lib.Mechanical_ESO_Config(J, B, KT, 0))
+        self.assertFalse(self.configure(J, B, KT, 0))
         self.assertEqual(bytes(self.eso), before)
         self.assertEqual(self.eso.Para.Valid, 0)
 

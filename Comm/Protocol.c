@@ -156,8 +156,6 @@ static AxDr_Status_e Parameter_Status_Map(Parameter_Status_e Status)
             return AXDR_ERR_VALUE;
         case PARAM_ERR_STATE:
             return AXDR_ERR_STATE;
-        case PARAM_ERR_STORAGE:
-            return AXDR_ERR_CONFIG;
         default:
             return AXDR_ERR_CONFIG;
     }

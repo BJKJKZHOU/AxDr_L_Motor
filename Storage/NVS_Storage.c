@@ -11,6 +11,7 @@
 
 #include "Encoder.h"
 #include "Flash_Storage.h"
+#include "Mechanical_ESO.h"
 #include "Motor_Para.h"
 #include "Motor_Type.h"
 #include "Parameter.h"
@@ -94,6 +95,8 @@ static bool Calibration_Load(void)
 
 int NVS_Storage_Load(uint16_t Load_Id)
 {
+    Motor_Para_T Model = Motor_Para;
+    float Eso_Bw_Hz = Mechanical_ESO_Bw_Hz;
     Parameter_Value_T Value;
     Parameter_Type_e Type;
     Parameter_Status_e Param_Status;
@@ -144,6 +147,40 @@ int NVS_Storage_Load(uint16_t Load_Id)
             continue;
         }
 
+        /* Validate scalars now, but stage the complete model: testing ESO
+         * against a mixture of old/new records would depend on ID order. */
+        Param_Status = Parameter_Check(Id, Type, Value);
+        if (Param_Status != PARAM_OK)
+        {
+            if (Load_Id != NVS_ALL)
+            {
+                return -EINVAL;
+            }
+            continue;
+        }
+        bool Model_Field = true;
+
+        switch (Id)
+        {
+            case PARAM_MOTOR_PP: Model.Pp = Value.U8; break;
+            case PARAM_MOTOR_RS: Model.Rs = Value.F32; break;
+            case PARAM_MOTOR_LD: Model.Ld = Value.F32; break;
+            case PARAM_MOTOR_LQ: Model.Lq = Value.F32; break;
+            case PARAM_MOTOR_FLUX: Model.Flux = Value.F32; break;
+            case PARAM_MOTOR_J: Model.J = Value.F32; break;
+            case PARAM_MOTOR_B: Model.B = Value.F32; break;
+            case PARAM_CTRL_MECH_ESO_BW_HZ: Eso_Bw_Hz = Value.F32; break;
+            default: Model_Field = false; break;
+        }
+        if (Model_Field)
+        {
+            if (Load_Id != NVS_ALL)
+            {
+                return Motor_Para_Update(&Model, Eso_Bw_Hz) ? 0 : -EINVAL;
+            }
+            continue;
+        }
+
         Param_Status = Parameter_Restore(Id, Type, Value);
         if (Load_Id != NVS_ALL)
         {
@@ -158,11 +195,26 @@ int NVS_Storage_Load(uint16_t Load_Id)
     /* Persistent values are restored as one configuration snapshot. Rebuild
      * runtime dependencies only after all ordinary records are in place so
      * results do not depend on Parameter table order. */
-    Motor_Para_Update();
-    Encoder_Config_Changed();
-
-    (void)Calibration_Load();
-    return 0;
+    Status = Motor_Para_Update(&Model, Eso_Bw_Hz) ? 0 : -EINVAL;
+    if (Status != 0)
+    {
+        /* Other persistent configuration was restored independently. Publish
+         * its selected gains against the unchanged, previously active model. */
+        Current_Tuning_Update();
+        Speed_Tuning_Update();
+    }
+    if (Status == 0)
+    {
+        Encoder_Config_Changed();
+        (void)Calibration_Load();
+    }
+    else
+    {
+        /* Do not rebind encoder feedback (which clears ESO State) after a
+         * rejected model. Stored calibration may describe a different Pp. */
+        Motor_Cal.Valid = 0U;
+    }
+    return Status;
 }
 
 int NVS_Storage_Save(const uint16_t *Ids, uint16_t Count, NVS_Select_e Select)

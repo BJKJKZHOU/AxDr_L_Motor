@@ -229,31 +229,31 @@ typedef enum
     /* Control_Current_Bw_Hz: 电流环设计带宽；写入后切换为Bandwidth并由当前Rs/Ld/Lq重新计算Id/Iq PI增益。 */
     PARAM_CTRL_CURRENT_BW_HZ = 0x0A01U,
 
-    /* Id_Ctrl.Para.Kp: Id电流环实际Kp；直接写入后切换为Manual调参。 */
+    /* Current_Manual.Id_Kp: Id电流环Manual配置Kp；写入后切换为Manual并发布整组手调增益。 */
     PARAM_CTRL_ID_KP = 0x0A02U,
 
-    /* Id_Ctrl.Para.Ki: Id电流环实际Ki；直接写入后切换为Manual调参。 */
+    /* Current_Manual.Id_Ki: Id电流环Manual配置Ki；写入后切换为Manual并发布整组手调增益。 */
     PARAM_CTRL_ID_KI = 0x0A03U,
 
-    /* Iq_Ctrl.Para.Kp: Iq电流环实际Kp；直接写入后切换为Manual调参。 */
+    /* Current_Manual.Iq_Kp: Iq电流环Manual配置Kp；写入后切换为Manual并发布整组手调增益。 */
     PARAM_CTRL_IQ_KP = 0x0A04U,
 
-    /* Iq_Ctrl.Para.Ki: Iq电流环实际Ki；直接写入后切换为Manual调参。 */
+    /* Current_Manual.Iq_Ki: Iq电流环Manual配置Ki；写入后切换为Manual并发布整组手调增益。 */
     PARAM_CTRL_IQ_KI = 0x0A05U,
 
-    /* Control_Current_Tune_Source: 当前电流环增益来源；切到Bandwidth时按模型计算PI，保存配置命令不覆盖手调增益；切回Manual恢复Flash中已保存的Id/Iq增益，全组未保存时沿用当前值。 */
+    /* Control_Current_Tune_Source: 当前电流环增益来源；Bandwidth按模型和带宽生成实际PI，Manual发布RAM中的Id/Iq手调参数。切换不读Flash，Save保存当前Manual配置。 */
     PARAM_CTRL_CURRENT_SOURCE = 0x0A06U,
 
     /* Control_Speed_Bw_Hz: 速度环设计带宽；写入后切换为Bandwidth并由当前J/B/Flux/Pp重新计算速度PI增益。 */
     PARAM_CTRL_SPEED_BW_HZ = 0x0A10U,
 
-    /* Speed_Ctrl.Para.Kp: 速度环实际Kp；直接写入后切换为Manual调参。 */
+    /* Speed_Manual.Kp: 速度环Manual配置Kp；写入后切换为Manual并发布整组手调增益。 */
     PARAM_CTRL_SPEED_KP = 0x0A11U,
 
-    /* Speed_Ctrl.Para.Ki: 速度环实际Ki；直接写入后切换为Manual调参。 */
+    /* Speed_Manual.Ki: 速度环Manual配置Ki；写入后切换为Manual并发布整组手调增益。 */
     PARAM_CTRL_SPEED_KI = 0x0A12U,
 
-    /* Control_Speed_Tune_Source: 当前速度环增益来源；切到Bandwidth时按模型计算PI，保存配置命令不覆盖手调增益；切回Manual恢复Flash中已保存的Kp/Ki，全组未保存时沿用当前值。 */
+    /* Control_Speed_Tune_Source: 当前速度环增益来源；Bandwidth按模型和带宽生成实际PI，Manual发布RAM中的手调参数。切换不读Flash，Save保存当前Manual配置。 */
     PARAM_CTRL_SPEED_SOURCE = 0x0A13U,
 
     /* Pos_Ctrl.Para.Kp: 位置环P增益，单位为(rad/s)/rad。 */
@@ -294,6 +294,12 @@ typedef enum
 
     /* MOTOR_CMD_PARAMETER_SAVE: 将当前持久化参数显式保存到NVS；仅DISABLED状态允许执行。 */
     ACTION_PARAMETER_SAVE = 0x1202U,
+
+    /* Speed_Ctrl.Para.Kp: 速度控制器当前实际使用的Kp，由Source选择生成；不保存。 */
+    PARAM_CTRL_SPEED_KP_EFFECTIVE = 0x0A14U,
+
+    /* Speed_Ctrl.Para.Ki: 速度控制器当前实际使用的Ki，由Source选择生成；不保存。 */
+    PARAM_CTRL_SPEED_KI_EFFECTIVE = 0x0A15U,
 
 } Parameter_Id_e;
 

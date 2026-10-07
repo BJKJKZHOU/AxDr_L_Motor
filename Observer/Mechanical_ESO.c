@@ -10,7 +10,8 @@
 Mechanical_ESO_T Mechanical_ESO = { 0 };
 float Mechanical_ESO_Bw_Hz = MECH_ESO_BW_HZ_DEFAULT;
 
-bool Mechanical_ESO_Config(float J, float B, float Kt, float Wo)
+bool Mechanical_ESO_Para_Build(Mechanical_ESO_Para_T *Result,
+                                float J, float B, float Kt, float Wo)
 {
     Mechanical_ESO_Para_T Para = { 0 };
     float B_Over_J;
@@ -46,7 +47,10 @@ bool Mechanical_ESO_Config(float J, float B, float Kt, float Wo)
     Para.L2 = 3.0f * Wo2 - Para.L1 * B_Over_J;
     Para.L3 = -J * Wo2 * Wo;
 
-    if (!__builtin_isfinite(Para.L1) ||
+    if (!__builtin_isfinite(Para.Inv_J) ||
+        !__builtin_isfinite(Para.Kt_Over_J) ||
+        !__builtin_isfinite(Para.B_Over_J) ||
+        !__builtin_isfinite(Para.L1) ||
         !__builtin_isfinite(Para.L2) ||
         !__builtin_isfinite(Para.L3) ||
         (Para.L1 <= 0.0f) ||
@@ -55,9 +59,9 @@ bool Mechanical_ESO_Config(float J, float B, float Kt, float Wo)
         return false;
     }
 
-    /* Keep the active coefficients if the requested model or tuning is invalid. */
+    /* Leave the caller's candidate untouched on failure; publishing is its decision. */
     Para.Valid = 1U;
-    Mechanical_ESO.Para = Para;
+    *Result = Para;
     return true;
 }
 

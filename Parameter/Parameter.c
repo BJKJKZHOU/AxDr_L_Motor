@@ -5,7 +5,6 @@
 
 #include "Parameter.h"
 
-#include <errno.h>
 #include <math.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -23,7 +22,6 @@
 #include "Motor_Control.h"
 #include "Motor_Para.h"
 #include "Motor_Type.h"
-#include "NVS_Storage.h"
 #include "Protection.h"
 #include "Sensorless.h"
 #include "Servo_Phase.h"
@@ -264,66 +262,48 @@ static Parameter_Status_e Parameter_Apply(const Parameter_Entry_T *Entry,
         return Status;
     }
 
+    /* A gain/bandwidth write also selects its source, even if the value matches. */
     if (Parameter_Value_Equal(Entry, Value))
     {
+        switch (Entry->Id)
+        {
+            case PARAM_CTRL_ID_KP:
+            case PARAM_CTRL_ID_KI:
+            case PARAM_CTRL_IQ_KP:
+            case PARAM_CTRL_IQ_KI:
+            case PARAM_CTRL_SPEED_KP:
+            case PARAM_CTRL_SPEED_KI:
+            case PARAM_CTRL_CURRENT_BW_HZ:
+            case PARAM_CTRL_SPEED_BW_HZ:
+                Parameter_On_Change(Entry->Id);
+                break;
+            default:
+                break;
+        }
         return PARAM_OK;
     }
 
-    /* Only an explicit transition to Manual reloads saved gains. Direct gain
-     * writes remain edits of the current set; repeating Manual keeps edits. */
-    if (((Entry->Id == PARAM_CTRL_CURRENT_SOURCE) ||
-         (Entry->Id == PARAM_CTRL_SPEED_SOURCE)) &&
-        (Value.U8 == CTRL_TUNE_MANUAL))
+    /* Cross-parameter ESO validity belongs to the complete candidate model.
+     * Do not write a model field and then try to repair a failed observer update. */
+    Motor_Para_T Model = Motor_Para;
+    float Eso_Bw_Hz = Mechanical_ESO_Bw_Hz;
+
+    switch (Entry->Id)
     {
-        const uint16_t Ids[] = {
-            PARAM_CTRL_ID_KP, PARAM_CTRL_ID_KI, PARAM_CTRL_IQ_KP, PARAM_CTRL_IQ_KI,
-            PARAM_CTRL_SPEED_KP, PARAM_CTRL_SPEED_KI,
-        };
-        const uint16_t *Id = Ids;
-        Parameter_Value_T Previous[4];
-        Parameter_Type_e Gain_Type;
-        uint32_t Count = 4U;
-        uint32_t Missing = 0U;
-        int Rc = 0;
-
-        if (Entry->Id == PARAM_CTRL_SPEED_SOURCE)
-        {
-            Id = &Ids[4];
-            Count = 2U;
-        }
-        for (uint32_t n = 0U; n < Count; n++)
-        {
-            (void)Parameter_Read(Id[n], &Gain_Type, &Previous[n]);
-        }
-        for (uint32_t n = 0U; n < Count; n++)
-        {
-            Rc = NVS_Storage_Load(Id[n]);
-            if (Rc == -ENOENT)
-            {
-                Missing++;
-                Rc = 0;
-            }
-            else if (Rc != 0)
-            {
-                break;
-            }
-        }
-        /* Single-ID loads are not a transaction. Undo a failed/partial set;
-         * a wholly absent set keeps the current gains for first-time tuning. */
-        if ((Rc != 0) || ((Missing != 0U) && (Missing != Count)))
-        {
-            for (uint32_t n = 0U; n < Count; n++)
-            {
-                (void)Parameter_Restore(Id[n], PARAM_FLOAT, Previous[n]);
-            }
-            return PARAM_ERR_STORAGE;
-        }
+        case PARAM_MOTOR_PP: Model.Pp = Value.U8; break;
+        case PARAM_MOTOR_RS: Model.Rs = Value.F32; break;
+        case PARAM_MOTOR_LD: Model.Ld = Value.F32; break;
+        case PARAM_MOTOR_LQ: Model.Lq = Value.F32; break;
+        case PARAM_MOTOR_FLUX: Model.Flux = Value.F32; break;
+        case PARAM_MOTOR_J: Model.J = Value.F32; break;
+        case PARAM_MOTOR_B: Model.B = Value.F32; break;
+        case PARAM_CTRL_MECH_ESO_BW_HZ: Eso_Bw_Hz = Value.F32; break;
+        default:
+            Parameter_Value_Write(Entry, Value);
+            Parameter_On_Change(Entry->Id);
+            return PARAM_OK;
     }
-
-    Parameter_Value_Write(Entry, Value);
-    Parameter_On_Change(Entry->Id);
-
-    return PARAM_OK;
+    return Motor_Para_Update(&Model, Eso_Bw_Hz) ? PARAM_OK : PARAM_ERR_VALUE;
 }
 
 static Parameter_Status_e Parameter_Write_Common(uint16_t Id,
@@ -463,6 +443,18 @@ bool Parameter_Persistent_Next(uint32_t *Index,
     }
 
     return false;
+}
+
+Parameter_Status_e Parameter_Check(uint16_t Id, Parameter_Type_e Type,
+                                   Parameter_Value_T Value)
+{
+    const Parameter_Entry_T *Entry = Parameter_Find(Id);
+
+    if (Entry == NULL)
+    {
+        return PARAM_ERR_ID;
+    }
+    return Parameter_Value_Check(Entry, Type, Value);
 }
 
 Parameter_Status_e Parameter_Restore(uint16_t Id,

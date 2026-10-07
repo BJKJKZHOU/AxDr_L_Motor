@@ -178,7 +178,6 @@ objects:
     range:
       min: 1
       max: 255
-    on_change: MOTOR_PP
 
   PARAM_MOTOR_RS:
     id: 0x0110
@@ -191,7 +190,6 @@ objects:
     description: "电机相电阻Rs，供电机模型、电流控制及无感相关算法使用。"
     write_state: disabled
     range: { min: 0.0, exclusive_min: true }
-    on_change: MOTOR_PARA
 
   PARAM_MOTOR_LD:
     id: 0x0111
@@ -204,7 +202,6 @@ objects:
     description: "电机d轴电感Ld。"
     write_state: disabled
     range: { min: 0.0, exclusive_min: true }
-    on_change: MOTOR_PARA
 
   PARAM_MOTOR_LQ:
     id: 0x0112
@@ -217,7 +214,6 @@ objects:
     description: "电机q轴电感Lq。"
     write_state: disabled
     range: { min: 0.0, exclusive_min: true }
-    on_change: MOTOR_PARA
 
   PARAM_MOTOR_FLUX:
     id: 0x0113
@@ -230,7 +226,6 @@ objects:
     description: "电机永磁磁链参数。"
     write_state: disabled
     range: { min: 0.0, exclusive_min: true }
-    on_change: MOTOR_PARA
 
   PARAM_MOTOR_J:
     id: 0x0114
@@ -243,7 +238,6 @@ objects:
     description: "电机及等效负载转动惯量参数J。"
     write_state: disabled
     range: { min: 0.0, exclusive_min: true }
-    on_change: MOTOR_PARA
 
   PARAM_MOTOR_B:
     id: 0x0115
@@ -255,7 +249,6 @@ objects:
     description: "电机粘性阻尼/摩擦模型参数B。"
     write_state: disabled
     range: { min: 0.0 }
-    on_change: MOTOR_PARA
 
   PARAM_MOTOR_DIR:
     id: 0x0116
@@ -764,9 +757,9 @@ objects:
     type: f32
     access: rw
     persistent: true
-    binding: Id_Ctrl.Para.Kp
-    label: Id Kp
-    description: "Id电流环实际Kp；直接写入后切换为Manual调参。"
+    binding: Current_Manual.Id_Kp
+    label: Manual Id Kp
+    description: "Id电流环Manual配置Kp；写入后切换为Manual并发布整组手调增益。"
     write_state: not_running
     range: { min: 0.0 }
     on_change: CURRENT_GAIN
@@ -776,9 +769,9 @@ objects:
     type: f32
     access: rw
     persistent: true
-    binding: Id_Ctrl.Para.Ki
-    label: Id Ki
-    description: "Id电流环实际Ki；直接写入后切换为Manual调参。"
+    binding: Current_Manual.Id_Ki
+    label: Manual Id Ki
+    description: "Id电流环Manual配置Ki；写入后切换为Manual并发布整组手调增益。"
     write_state: not_running
     range: { min: 0.0 }
     on_change: CURRENT_GAIN
@@ -788,9 +781,9 @@ objects:
     type: f32
     access: rw
     persistent: true
-    binding: Iq_Ctrl.Para.Kp
-    label: Iq Kp
-    description: "Iq电流环实际Kp；直接写入后切换为Manual调参。"
+    binding: Current_Manual.Iq_Kp
+    label: Manual Iq Kp
+    description: "Iq电流环Manual配置Kp；写入后切换为Manual并发布整组手调增益。"
     write_state: not_running
     range: { min: 0.0 }
     on_change: CURRENT_GAIN
@@ -800,9 +793,9 @@ objects:
     type: f32
     access: rw
     persistent: true
-    binding: Iq_Ctrl.Para.Ki
-    label: Iq Ki
-    description: "Iq电流环实际Ki；直接写入后切换为Manual调参。"
+    binding: Current_Manual.Iq_Ki
+    label: Manual Iq Ki
+    description: "Iq电流环Manual配置Ki；写入后切换为Manual并发布整组手调增益。"
     write_state: not_running
     range: { min: 0.0 }
     on_change: CURRENT_GAIN
@@ -814,7 +807,7 @@ objects:
     persistent: true
     binding: Control_Current_Tune_Source
     label: Current Tuning Source
-    description: "当前电流环增益来源；切到Bandwidth时按模型计算PI，保存配置命令不覆盖手调增益；切回Manual恢复Flash中已保存的Id/Iq增益，全组未保存时沿用当前值。"
+    description: "当前电流环增益来源；Bandwidth按模型和带宽生成实际PI，Manual发布RAM中的Id/Iq手调参数。切换不读Flash，Save保存当前Manual配置。"
     write_state: not_running
     allowed_symbols: [CTRL_TUNE_BANDWIDTH, CTRL_TUNE_MANUAL]
     on_change: CURRENT_SOURCE
@@ -837,9 +830,9 @@ objects:
     type: f32
     access: rw
     persistent: true
-    binding: Speed_Ctrl.Para.Kp
-    label: Speed Kp
-    description: "速度环实际Kp；直接写入后切换为Manual调参。"
+    binding: Speed_Manual.Kp
+    label: Manual Speed Kp
+    description: "速度环Manual配置Kp；写入后切换为Manual并发布整组手调增益。"
     write_state: not_running
     range: { min: 0.0 }
     on_change: SPEED_GAIN
@@ -849,9 +842,9 @@ objects:
     type: f32
     access: rw
     persistent: true
-    binding: Speed_Ctrl.Para.Ki
-    label: Speed Ki
-    description: "速度环实际Ki；直接写入后切换为Manual调参。"
+    binding: Speed_Manual.Ki
+    label: Manual Speed Ki
+    description: "速度环Manual配置Ki；写入后切换为Manual并发布整组手调增益。"
     write_state: not_running
     range: { min: 0.0 }
     on_change: SPEED_GAIN
@@ -863,7 +856,7 @@ objects:
     persistent: true
     binding: Control_Speed_Tune_Source
     label: Speed Tuning Source
-    description: "当前速度环增益来源；切到Bandwidth时按模型计算PI，保存配置命令不覆盖手调增益；切回Manual恢复Flash中已保存的Kp/Ki，全组未保存时沿用当前值。"
+    description: "当前速度环增益来源；Bandwidth按模型和带宽生成实际PI，Manual发布RAM中的手调参数。切换不读Flash，Save保存当前Manual配置。"
     write_state: not_running
     allowed_symbols: [CTRL_TUNE_BANDWIDTH, CTRL_TUNE_MANUAL]
     on_change: SPEED_SOURCE
@@ -890,7 +883,6 @@ objects:
     description: "20 kHz机械ESO设计带宽；写入后按当前J/B/Kt刷新Observer增益。"
     write_state: not_running
     range: { min: 1.0, max: 2000.0 }
-    on_change: ESO_TUNING
 
   ACTION_MOTOR_ENABLE:
     id: 0x1001
@@ -982,3 +974,19 @@ objects:
     command: MOTOR_CMD_PARAMETER_SAVE
     label: Save Parameters
     description: "将当前持久化参数显式保存到NVS；仅DISABLED状态允许执行。"
+
+  PARAM_CTRL_SPEED_KP_EFFECTIVE:
+    id: 0x0A14
+    type: f32
+    access: ro
+    binding: Speed_Ctrl.Para.Kp
+    label: Speed Effective Kp
+    description: "速度控制器当前实际使用的Kp，由Source选择生成；不保存。"
+
+  PARAM_CTRL_SPEED_KI_EFFECTIVE:
+    id: 0x0A15
+    type: f32
+    access: ro
+    binding: Speed_Ctrl.Para.Ki
+    label: Speed Effective Ki
+    description: "速度控制器当前实际使用的Ki，由Source选择生成；不保存。"
