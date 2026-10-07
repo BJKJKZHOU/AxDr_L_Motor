@@ -13,4 +13,5 @@ Motion_Config_T Motion_Config =
 {
     .Wm_Acc = MOTION_ACC_RAD_S2,
     .Wm_Dec = MOTION_DEC_RAD_S2,
+    .Te_Rate = MOTION_TE_RATE_DEFAULT,
 };

@@ -160,6 +160,9 @@ typedef enum
     /* Motion_Config.Wm_Dec: 运动规划器机械减速度限制，可在运行期间修改。 */
     PARAM_MOTION_WM_DEC = 0x0603U,
 
+    /* Motion_Config.Te_Rate: 仅Torque模式的转矩指令变化率，运行及Stop降至零转矩共用；0关闭斜坡，默认0。可在运行期间修改，不影响Speed和Position模式。 */
+    PARAM_MOTION_TE_RATE = 0x0604U,
+
     /* Motor_Mode: 当前选择的电机控制模式；与TORQUE/SPEED/POSITION/OPEN_LOOP/IDENT/SENSORLESS_SPEED/PHASE_SEARCH对应。 */
     PARAM_MOTOR_MODE = 0x0701U,
 

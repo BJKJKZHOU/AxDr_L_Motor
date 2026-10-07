@@ -544,6 +544,17 @@ objects:
     description: "运动规划器机械减速度限制，可在运行期间修改。"
     range: { min: 0.0, exclusive_min: true }
 
+  PARAM_MOTION_TE_RATE:
+    id: 0x0604
+    type: f32
+    access: rw
+    persistent: true
+    binding: Motion_Config.Te_Rate
+    label: Torque Slew Rate
+    unit: N*m/s
+    description: "仅Torque模式的转矩指令变化率，运行及Stop降至零转矩共用；0关闭斜坡，默认0。可在运行期间修改，不影响Speed和Position模式。"
+    range: { min: 0.0 }
+
   PARAM_MOTOR_MODE:
     id: 0x0701
     type: u8

@@ -12,6 +12,7 @@ typedef struct
 {
     float Wm_Acc; /* rad/s^2, positive magnitude */
     float Wm_Dec; /* rad/s^2, positive magnitude */
+    float Te_Rate; /* N*m/s, TORQUE only; zero bypasses the ramp */
 
 } Motion_Config_T;
 

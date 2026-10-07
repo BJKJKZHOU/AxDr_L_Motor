@@ -110,6 +110,9 @@
 #define MOTION_ACC_RAD_S2 100.0f
 #define MOTION_DEC_RAD_S2 100.0f
 
+/* TORQUE command and normal-stop slew rate in N*m/s; zero keeps direct response. */
+#define MOTION_TE_RATE_DEFAULT 0.0f
+
 /*
  * Mechanical ESO.
  * Runs at the 20 kHz fast-loop rate. The observer keeps a continuous
