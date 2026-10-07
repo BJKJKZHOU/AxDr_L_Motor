@@ -163,6 +163,9 @@ typedef enum
     /* Motion_Config.Te_Rate: 仅Torque模式的转矩指令变化率，运行及Stop降至零转矩共用；0关闭斜坡，默认0。可在运行期间修改，不影响Speed和Position模式。 */
     PARAM_MOTION_TE_RATE = 0x0604U,
 
+    /* Motion_Config.Profile: 有感Speed/Position轨迹：0梯形；1五次速度S曲线、保持梯形加减速时间（峰值1.875倍）；2五次速度S曲线、保持峰值加减速度（时间1.875倍）。允许DISABLED/ENABLED修改，RUN禁止。 */
+    PARAM_MOTION_PROFILE = 0x0605U,
+
     /* Motor_Mode: 当前选择的电机控制模式；与TORQUE/SPEED/POSITION/OPEN_LOOP/IDENT/SENSORLESS_SPEED/PHASE_SEARCH对应。 */
     PARAM_MOTOR_MODE = 0x0701U,
 

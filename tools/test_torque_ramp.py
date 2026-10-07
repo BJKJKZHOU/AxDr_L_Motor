@@ -24,7 +24,8 @@ class Command(ct.Structure):
 
 
 class MotionConfig(ct.Structure):
-    _fields_ = [(name, ct.c_float) for name in ("Wm_Acc", "Wm_Dec", "Te_Rate")]
+    _fields_ = [(name, ct.c_float) for name in ("Wm_Acc", "Wm_Dec", "Te_Rate")] + [
+        ("Profile", ct.c_uint8)]
 
 
 class TorqueRampTest(unittest.TestCase):
@@ -130,7 +131,7 @@ void Test_Vbus(float Vbus) { ADC.Vbus_V = Vbus; }
             "-IMotor", "-IMotion", "-IAlgo", "-IUser", "-IObserver",
             "-IIdentification", "-ISensorless",
             "Motor/Motor_Control.c", "Motor/Motor_Config.c", "Motor/Motion_Loop.c",
-            "Motion/Motion.c", "Motion/Ramp.c", "Motion/Trapezoid.c",
+            "Motion/Motion.c", "Motion/Ramp.c", "Motion/Trapezoid.c", "Motion/SCurve.c",
             "Algo/Math.c", "Algo/PID.c", str(boundary), "-lm", "-o", str(library),
         ], cwd=ROOT, check=True)
         cls.lib = ct.CDLL(str(library))
@@ -303,6 +304,70 @@ void Test_Vbus(float Vbus) { ADC.Vbus_V = Vbus; }
                         self.assertEqual([x.value for x in outputs], [0] * 5)
                     finally:
                         mode.value = TORQUE
+
+    def test_scurve_position_stop_restart_and_enabled_profile_change(self):
+        for profile in (1, 2):
+            self.lib.Test_Setup(POSITION, .5, 1, 0)
+            self.config.Profile = profile
+            self.cmd.Wm_Target = 3
+            self.cmd.Position_Target = Position(0, 2)
+            self.lib.Motor_Start()
+            for _ in range(70):
+                self.step()
+            self.lib.Motor_Stop()
+            self.cmd.Position_Target = Position(-1, ct.c_float(2*3.141592653589793).value - .4)
+            for _ in range(1000):
+                self.lib.Motor_Stop()
+                self.step()
+                if self.lib.Motor_State_Get() == ENABLED:
+                    break
+            else:
+                self.fail('S-curve position Stop did not complete')
+            self.assertEqual(self.pwm.value, 1)
+            held = self.lib.Motor_Position_Ref_Get()
+            for selected in (0, 3-profile, profile):
+                self.config.Profile = selected
+                for _ in range(20):
+                    self.step()
+                    pos = self.lib.Motor_Position_Ref_Get()
+                    self.assertEqual((pos.Turn, pos.Theta), (held.Turn, held.Theta))
+            self.lib.Motor_Start()
+            for _ in range(2000):
+                self.step()
+            pos = self.lib.Motor_Position_Ref_Get()
+            self.assertEqual((pos.Turn, pos.Theta),
+                             (self.cmd.Position_Target.Turn, self.cmd.Position_Target.Theta))
+            self.assertEqual(self.lib.Motor_State_Get(), RUN)
+            self.lib.Motor_Disable()
+            self.assertEqual(self.pwm.value, 0)
+
+    def test_scurve_speed_stop_and_torque_independence(self):
+        for profile in (1, 2):
+            self.lib.Test_Setup(SPEED, .5, 1, 0)
+            self.config.Profile = profile
+            self.cmd.Wm_Target = 10
+            self.lib.Motor_Start()
+            for _ in range(60):
+                self.step()
+            self.lib.Motor_Stop()
+            self.cmd.Wm_Target = -5
+            for _ in range(2000):
+                self.lib.Motor_Stop()
+                self.step()
+                if self.lib.Motor_State_Get() == ENABLED:
+                    break
+            else:
+                self.fail('S-curve speed Stop did not complete')
+            self.assertEqual(self.lib.Motor_Wm_Ref_Get(), 0)
+            self.lib.Motor_Start()
+            for _ in range(1000):
+                self.step()
+            self.assertEqual(self.lib.Motor_Wm_Ref_Get(), -5)
+            self.lib.Test_Setup(TORQUE, .5, 1, 2)
+            self.config.Profile = profile
+            self.cmd.Te_Target = .1
+            self.lib.Motor_Start()
+            self.assertAlmostEqual(self.step(), .002, delta=1e-7)
 
 
 if __name__ == "__main__":

@@ -18,6 +18,7 @@
 #include "Motion_Loop.h"
 #include "Open_Loop.h"
 #include "Ramp.h"
+#include "SCurve.h"
 #include "Sensorless.h"
 #include "Servo_Phase.h"
 #include "Trapezoid.h"
@@ -50,6 +51,7 @@ static volatile Motor_State_e Motor_State = DISABLED;
 
 static Current_Ref_T Current_Ref = { 0 };
 static Motion_Ref_T Motion_Ref = { 0 };
+static SCurve_T SCurve = { 0 };
 static float Wm_Ref = 0.0f;
 static float We_Ref = 0.0f;
 static float Sensorless_We_Target = 0.0f;
@@ -124,6 +126,7 @@ static void Motion_State_Reset(void)
     Wm_Ref = 0.0f;
     We_Ref = 0.0f;
     Trapezoid_Reset(&Motion_Ref, Motor_Run.Turn, Motor_Run.Theta_m, 0.0f);
+    SCurve = (SCurve_T){ 0 };
     Pos_Div = 0U;
 }
 
@@ -368,11 +371,20 @@ void Motor_Control(void)
             Wm_Target = ((Motor_State == RUN) && !Stop_Pending) ?
                         Motor_User_To_Internal(Motor_Cmd.Wm_Target) : 0.0f;
             Limit_Value(&Wm_Target, -Lim.Wm_Max, Lim.Wm_Max);
-            Ramp_Run(&Motion_Ref, Wm_Target, Motion_Config.Wm_Acc, Motion_Config.Wm_Dec, SPD_TS);
+            if (Motion_Config.Profile == MOTION_TRAPEZOID)
+            {
+                Ramp_Run(&Motion_Ref, Wm_Target, Motion_Config.Wm_Acc, Motion_Config.Wm_Dec, SPD_TS);
+            }
+            else
+            {
+                SCurve_Speed(&SCurve, &Motion_Ref, Wm_Target,
+                             Motion_Config.Wm_Acc, Motion_Config.Wm_Dec, Motion_Config.Profile, SPD_TS);
+            }
             Wm_Ref = Motion_Ref.Wm;
             We_Ref = (float)Motor_Para.Pp * Wm_Ref;
 
-            if (Stop_Pending && (Motion_Ref.Wm == 0.0f))
+            if (Stop_Pending && (Motion_Ref.Wm == 0.0f) &&
+                ((Motion_Config.Profile == MOTION_TRAPEZOID) || (SCurve.Count == 0U)))
             {
                 Stop_Pending = false;
                 Motor_State = ENABLED;
@@ -386,7 +398,19 @@ void Motor_Control(void)
             {
                 if (Stop_Pending)
                 {
-                    if (Trapezoid_Stop(&Motion_Ref, Motion_Config.Wm_Dec, POS_TS))
+                    bool Stopped;
+
+                    if (Motion_Config.Profile == MOTION_TRAPEZOID)
+                    {
+                        Stopped = Trapezoid_Stop(&Motion_Ref, Motion_Config.Wm_Dec, POS_TS);
+                    }
+                    else
+                    {
+                        SCurve_Speed(&SCurve, &Motion_Ref, 0.0f,
+                                     Motion_Config.Wm_Acc, Motion_Config.Wm_Dec, Motion_Config.Profile, POS_TS);
+                        Stopped = (SCurve.Count == 0U) && (Motion_Ref.Wm == 0.0f);
+                    }
+                    if (Stopped)
                     {
                         Stop_Pending = false;
                         Motor_State = ENABLED;
@@ -402,13 +426,22 @@ void Motor_Control(void)
                      * supplies magnitude. Zero brakes the trajectory in place. */
                     Wm_Target = __builtin_fabsf(Motor_Cmd.Wm_Target);
                     Limit_Value(&Wm_Target, 0.0f, Lim.Wm_Max);
-                    Trapezoid_Run(&Motion_Ref,
-                                  Pos_Turn_Target,
-                                  Pos_Theta_Target,
-                                  Wm_Target,
-                                  Motion_Config.Wm_Acc,
-                                  Motion_Config.Wm_Dec,
-                                  POS_TS);
+                    if (Motion_Config.Profile == MOTION_TRAPEZOID)
+                    {
+                        Trapezoid_Run(&Motion_Ref,
+                                      Pos_Turn_Target,
+                                      Pos_Theta_Target,
+                                      Wm_Target,
+                                      Motion_Config.Wm_Acc,
+                                      Motion_Config.Wm_Dec,
+                                      POS_TS);
+                    }
+                    else
+                    {
+                        SCurve_Position(&SCurve, &Motion_Ref, Pos_Turn_Target, Pos_Theta_Target,
+                                        Wm_Target, Motion_Config.Wm_Acc, Motion_Config.Wm_Dec,
+                                        Motion_Config.Profile, POS_TS);
+                    }
                 }
 
                 Wm_Corr = Position_Loop(Motion_Ref.Turn, Motion_Ref.Theta, -Lim.Wm_Max, Lim.Wm_Max);

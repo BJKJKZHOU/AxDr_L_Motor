@@ -19,7 +19,8 @@
 #include "USB_Thread.h"
 #include "main.h"
 
-#define MOTOR_STACK_SIZE  512U
+/* S-curve replanning also needs room for the preempted FPU context. */
+#define MOTOR_STACK_SIZE  1024U
 #define MOTOR_THREAD_PRIO 5U
 #define MOTOR_CMD_Q_LEN   8U
 #define MOTOR_CMD_Q_WORDS 5U

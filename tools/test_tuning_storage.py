@@ -177,6 +177,7 @@ void Test_Ram_Defaults(void)
 {
     Test_State = DISABLED;
     Test_Primask = 0;
+    Motion_Config = (Motion_Config_T){ .Wm_Acc = 100, .Wm_Dec = 100 };
     Motor_Para = (Motor_Para_T)MOTOR_PARA_DEFAULT;
     Control_Current_Tune_Source = CTRL_TUNE_BANDWIDTH;
     Control_Speed_Tune_Source = CTRL_TUNE_BANDWIDTH;
@@ -267,6 +268,29 @@ bool Test_Calibration_Save(void)
 
     def count(self, name):
         return ct.c_int.in_dll(self.lib, name).value
+
+    def test_motion_profile_permissions_and_persistence(self):
+        profile = p.PARAM_MOTION_PROFILE
+        state = ct.c_int.in_dll(self.lib, "Test_State")
+        self.assertEqual(self.lib.Test_Read(profile), 0)
+        for allowed in (0, 1):
+            state.value = allowed
+            for value in (1, 2, 0):
+                self.write(profile, value)
+        state.value = 2
+        self.assertNotEqual(self.lib.Test_Write(profile, 1), 0)
+        self.assertEqual(self.lib.Test_Read(profile), 0)
+        state.value = 0
+        self.assertNotEqual(self.lib.Test_Write(profile, 3), 0)
+        self.write(profile, 2)
+        self.assertEqual(self.lib.Test_Save_Config(), 0)
+        self.lib.Test_Ram_Defaults()
+        self.assertEqual(self.lib.Test_Read(profile), 0)
+        self.assertEqual(self.lib.NVS_Storage_Load(0xFFFF), 0)
+        self.assertEqual(self.lib.Test_Read(profile), 2)
+        self.lib.Test_Setup()
+        self.assertEqual(self.lib.NVS_Storage_Load(0xFFFF), 0)
+        self.assertEqual(self.lib.Test_Read(profile), 0)
 
     def test_save_bandwidth_preserves_manual_for_each_loop(self):
         saved = [self.manual(group) for group in GROUPS]
