@@ -304,6 +304,32 @@ typedef enum
     /* Speed_Ctrl.Para.Ki: 速度控制器当前实际使用的Ki，由Source选择生成；不保存。 */
     PARAM_CTRL_SPEED_KI_EFFECTIVE = 0x0A15U,
 
+    /* Signal_Injection.Para.Freq_Hz: 有感d轴电流单频正弦激励频率；Start时锁存。 */
+    PARAM_SIGNAL_FREQ_HZ = 0x0B01U,
+
+    /* Signal_Injection.Para.Amp_A: 有感d轴电流正弦激励峰值；Start时核对有效电流限值并锁存。 */
+    PARAM_SIGNAL_AMP_A = 0x0B02U,
+
+    /* Signal_Injection.Para.Time_S: 单个激励频点的持续时间；到期自动结束，最大60秒。 */
+    PARAM_SIGNAL_TIME_S = 0x0B03U,
+
+    /* Signal_Injection.State.Active: 频率响应注入是否正在执行。 */
+    PARAM_SIGNAL_ACTIVE = 0x0B04U,
+
+    /* Signal_Injection.State.Out: 本次快环实际叠加的d轴激励；供FAST Plot同步定位激励时段。 */
+    PARAM_SIGNAL_OUT = 0x0B05U,
+
+    /* Id_Ctrl.Sig.Ref: 实际进入d轴电流PI的参考（含信号激励）。 */
+    PARAM_SIGNAL_ID_REF = 0x0B06U,
+
+    /* Id_Ctrl.Sig.Out: d轴PI电压输出，未叠加模型前馈、未经过最终dq二维限幅。 */
+    PARAM_SIGNAL_ID_PI_OUT = 0x0B07U,
+    /* MOTOR_CMD_SIGNAL_START: 仅在有感TORQUE/ENABLED运行有限时长的d轴正弦激励。 */
+    ACTION_SIGNAL_START = 0x1301U,
+
+    /* MOTOR_CMD_SIGNAL_ABORT: 立即取消激励，不改变正常Motor Stop/Disable状态。 */
+    ACTION_SIGNAL_ABORT = 0x1302U,
+
 } Parameter_Id_e;
 
 #endif /* PARAMETER_GENERATED_H */

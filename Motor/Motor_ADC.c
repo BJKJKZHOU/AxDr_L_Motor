@@ -17,6 +17,7 @@
 #include "Motor_PWM.h"
 #include "Protection.h"
 #include "Sin_LUT.h"
+#include "Signal_Injection.h"
 #include "Voltage_Mod.h"
 #include "adc.h"
 #include "control_params.h"
@@ -213,6 +214,19 @@ void Fast_Loop(void)
         }
         Motor_Run.Id = Ialpha * Cos + Ibeta * Sin;
         Motor_Run.Theta_e = Theta_e;
+
+        /* Only the sensored torque hold tests the d-axis current loop. */
+        if (Signal_Injection.State.Active != 0U)
+        {
+            if ((Motor_Mode == TORQUE) && (Motor_State_Get() == ENABLED))
+            {
+                Id_Ref += Signal_Injection_Run();
+            }
+            else
+            {
+                Signal_Injection_Stop();
+            }
+        }
 
         U_Lim = ADC.Vbus_V * INV_SQRT3_F * VOLT_MOD_MAX;
         Current_Loop(Id_Ref, Iq_Ref, U_Lim, &Ud, &Uq);
