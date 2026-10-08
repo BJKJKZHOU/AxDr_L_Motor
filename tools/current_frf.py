@@ -25,7 +25,8 @@ from parameter_ids_generated import (
     PARAM_MOTOR_MODE, PARAM_MOTOR_STATE,
     PARAM_RUN_ID, PARAM_SIGNAL_ID_REF, PARAM_SIGNAL_ID_PI_OUT,
     PARAM_SIGNAL_OUT, PARAM_SIGNAL_FREQ_HZ, PARAM_SIGNAL_AMP_A,
-    PARAM_SIGNAL_TIME_S, ACTION_SIGNAL_START, ACTION_SIGNAL_ABORT,
+    PARAM_SIGNAL_TIME_S, PARAM_CTRL_CURRENT_FF_ENABLE,
+    ACTION_SIGNAL_START, ACTION_SIGNAL_ABORT,
 )
 
 MAGIC = b"AXDR"
@@ -249,6 +250,8 @@ def main():
     try:
         if client.read_u8(PARAM_MOTOR_MODE) != 0 or client.read_u8(PARAM_MOTOR_STATE) != 1:
             raise RuntimeError("set TORQUE mode and ENABLED state before testing; script will not Enable/Run")
+        if client.read_u8(PARAM_CTRL_CURRENT_FF_ENABLE) != 0:
+            raise RuntimeError("turn off current dq feedforward before baseline current FRF")
         for i, freq in enumerate(args.freq):
             if client.read_u8(PARAM_MOTOR_STATE) != 1:
                 raise RuntimeError("motor left ENABLED state")
