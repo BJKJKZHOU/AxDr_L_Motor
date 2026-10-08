@@ -27,6 +27,7 @@ Motor_Para_T Motor_Para = MOTOR_PARA_DEFAULT;
 float Control_Current_Bw_Hz = CUR_BW_HZ_DEFAULT;
 float Control_Speed_Bw_Hz = SPD_BW_HZ_DEFAULT;
 uint8_t Control_Current_Tune_Source = CTRL_TUNE_BANDWIDTH;
+uint8_t Current_FF_Enable = 0U;
 uint8_t Control_Speed_Tune_Source = CTRL_TUNE_BANDWIDTH;
 
 Current_Manual_T Current_Manual = {

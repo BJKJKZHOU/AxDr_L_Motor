@@ -13,6 +13,7 @@
 #include "Mechanical_ESO.h"
 #include "Math.h"
 #include "Motor_Control.h"
+#include "Motor_Para.h"
 #include "Motor_PWM.h"
 #include "Protection.h"
 #include "Sin_LUT.h"
@@ -215,6 +216,16 @@ void Fast_Loop(void)
 
         U_Lim = ADC.Vbus_V * INV_SQRT3_F * VOLT_MOD_MAX;
         Current_Loop(Id_Ref, Iq_Ref, U_Lim, &Ud, &Uq);
+
+        /* Encoder servo dq decoupling and back-EMF feedforward. */
+        if ((Current_FF_Enable != 0U) && (Motor_Mode <= POSITION) && Encoder_Park_Valid)
+        {
+            float We = (float)Motor_Para.Pp * Mechanical_ESO.State.Wm;
+
+            Ud -= We * Motor_Para.Lq * Motor_Run.Iq;
+            Uq += We * (Motor_Para.Ld * Motor_Run.Id + Motor_Para.Flux);
+        }
+
         Vector2_Limit(&Ud, &Uq, U_Lim);
 
         Motor_Run.Ud = Ud;

@@ -244,6 +244,9 @@ typedef enum
     /* Control_Current_Tune_Source: 当前电流环增益来源；Bandwidth按模型和带宽生成实际PI，Manual发布RAM中的Id/Iq手调参数。切换不读Flash，Save保存当前Manual配置。 */
     PARAM_CTRL_CURRENT_SOURCE = 0x0A06U,
 
+    /* Current_FF_Enable: 有感Torque/Speed/Position模式的dq交叉耦合与反电动势前馈；0关闭(默认)，1开启，使用机械ESO转速及电机Ld/Lq/Flux。 */
+    PARAM_CTRL_CURRENT_FF_ENABLE = 0x0A07U,
+
     /* Control_Speed_Bw_Hz: 速度环设计带宽；写入后切换为Bandwidth并由当前J/B/Flux/Pp重新计算速度PI增益。 */
     PARAM_CTRL_SPEED_BW_HZ = 0x0A10U,
 
