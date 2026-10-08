@@ -64,6 +64,12 @@ float Signal_Injection_Run(void)
         return 0.0f;
     }
 
+    if (Signal_Injection.State.Sample_Cnt >= Signal_Injection.State.Sample_Max)
+    {
+        Signal_Injection_Stop();
+        return 0.0f;
+    }
+
     SinCos(Signal_Injection.State.Phase, &Sin, &Cos);
     Out = Signal_Injection.State.Amp_A * Sin;
     Signal_Injection.State.Out = Out;
@@ -75,11 +81,5 @@ float Signal_Injection_Run(void)
     }
 
     Signal_Injection.State.Sample_Cnt++;
-    if (Signal_Injection.State.Sample_Cnt >= Signal_Injection.State.Sample_Max)
-    {
-        /* This last sample remains visible to Plot; next cycle is zero. */
-        Signal_Injection.State.Active = 0U;
-    }
-
     return Out;
 }

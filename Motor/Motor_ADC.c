@@ -175,6 +175,7 @@ void Fast_Loop(void)
 
     if (!Current_OK)
     {
+        Signal_Injection_Stop();
         Motor_Run.Ualpha = 0.0f;
         Motor_Run.Ubeta = 0.0f;
         goto finish;

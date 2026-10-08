@@ -14,6 +14,8 @@
 #include "Motor_Type.h"
 #include "Parameter.h"
 #include "Sensorless.h"
+#include "Signal_Injection.h"
+#include "Current_Loop.h"
 #include "USB_Thread.h"
 #include "control_params.h"
 
