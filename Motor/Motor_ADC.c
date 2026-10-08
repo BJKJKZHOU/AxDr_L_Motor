@@ -11,6 +11,7 @@
 #include "Current_Loop.h"
 #include "Encoder.h"
 #include "Mechanical_ESO.h"
+#include "Math.h"
 #include "Motor_Control.h"
 #include "Motor_PWM.h"
 #include "Protection.h"
@@ -108,7 +109,17 @@ void Fast_Loop(void)
 {
     Motor_Fast_Mode_e Fast_Mode;
     bool Current_OK;
+    bool Encoder_Park_Valid;
     float Theta_e;
+    float Theta_Encoder;
+    float Ialpha;
+    float Ibeta;
+    float Sin;
+    float Cos;
+    float Iq_Encoder;
+    float Ud;
+    float Uq;
+    float U_Lim;
     float Id_Ref;
     float Iq_Ref;
     float Ualpha;
@@ -136,6 +147,11 @@ void Fast_Loop(void)
     ADC.Ic_A = -(ADC.Ia_A + ADC.Ib_A);
     ADC.Vbus_V = (float)ADC.Vbus_Raw * VBUS_RAW_TO_V;
 
+    Ialpha = ADC.Ia_A;
+    Ibeta = (ADC.Ia_A + 2.0f * ADC.Ib_A) * INV_SQRT3_F;
+    Encoder_Park_Valid = false;
+    Iq_Encoder = 0.0f;
+
     /* Check current protection before observer work; trip disables PWM here. */
     Current_OK = Protection_Current_Fast(ADC.Ia_A, ADC.Ib_A, ADC.Ic_A);
 
@@ -144,20 +160,18 @@ void Fast_Loop(void)
         (Mechanical_ESO.Para.Valid != 0U))
     {
         float Theta_m = Encoder.Theta_m;
-        float Iq = 0.0f;
 
         if (Motor_Cal.Valid != 0U)
         {
-            float Sin;
-            float Cos;
-
-            /* Use this ADC sample in the encoder dq frame, including coast
-             * current; the control-mode Iq may be stale or use another angle. */
-            SinCos(Angle_Wrap((float)Motor_Para.Pp * Theta_m + Motor_Cal.Theta_Off), &Sin, &Cos);
-            Iq = -ADC.Ia_A * Sin + (ADC.Ia_A + 2.0f * ADC.Ib_A) * INV_SQRT3_F * Cos;
+            /* ESO uses the encoder frame, including coast current. The same
+             * Park basis can be reused if FOC selects this electrical angle. */
+            Theta_Encoder = Angle_Wrap((float)Motor_Para.Pp * Theta_m + Motor_Cal.Theta_Off);
+            SinCos(Theta_Encoder, &Sin, &Cos);
+            Iq_Encoder = -Ialpha * Sin + Ibeta * Cos;
+            Encoder_Park_Valid = true;
         }
 
-        Mechanical_ESO_Run(Theta_m, Encoder.Valid != 0U, Iq);
+        Mechanical_ESO_Run(Theta_m, Encoder.Valid != 0U, Iq_Encoder);
     }
 
     if (!Current_OK)
@@ -187,8 +201,28 @@ void Fast_Loop(void)
 
     if (Fast_Mode == FAST_CURRENT)
     {
+        /* Motor_Fast_Run may use the previous-cycle dq values (IF/ident).
+         * Publish this sample only after it has selected the FOC angle. */
+        if (!Encoder_Park_Valid || (Theta_e != Theta_Encoder))
+        {
+            SinCos(Theta_e, &Sin, &Cos);
+            Motor_Run.Iq = -Ialpha * Sin + Ibeta * Cos;
+        }
+        else
+        {
+            Motor_Run.Iq = Iq_Encoder;
+        }
+        Motor_Run.Id = Ialpha * Cos + Ibeta * Sin;
         Motor_Run.Theta_e = Theta_e;
-        Current_Loop(Id_Ref, Iq_Ref, &Ualpha, &Ubeta);
+
+        U_Lim = ADC.Vbus_V * INV_SQRT3_F * VOLT_MOD_MAX;
+        Current_Loop(Id_Ref, Iq_Ref, U_Lim, &Ud, &Uq);
+        Vector2_Limit(&Ud, &Uq, U_Lim);
+
+        Motor_Run.Ud = Ud;
+        Motor_Run.Uq = Uq;
+        Ualpha = Ud * Cos - Uq * Sin;
+        Ubeta = Ud * Sin + Uq * Cos;
     }
 
     Motor_Run.Ualpha = Ualpha;

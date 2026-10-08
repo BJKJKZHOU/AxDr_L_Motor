@@ -14,6 +14,6 @@ extern PID_T Id_Ctrl;
 extern PID_T Iq_Ctrl;
 
 void Current_Loop_State_Reset(void);
-FAST_CODE void Current_Loop(float Id_Ref, float Iq_Ref, float *Ualpha, float *Ubeta);
+FAST_CODE void Current_Loop(float Id_Ref, float Iq_Ref, float U_Lim, float *Ud, float *Uq);
 
 #endif /* CURRENT_LOOP_H */
