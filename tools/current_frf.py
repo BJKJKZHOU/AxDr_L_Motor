@@ -234,6 +234,7 @@ def main():
     p.add_argument("--duration", type=float, default=2.0, help="Seconds per point, max 60")
     p.add_argument("--settle-cycles", type=float, default=2.0, help="Initial periods excluded")
     p.add_argument("--out", type=Path, default=Path("current_frf_capture"))
+    p.add_argument("--plot", action="store_true", help="write bode.png (requires matplotlib)")
     args = p.parse_args()
     if (not args.freq or any(not math.isfinite(f) or f <= 0 or f > 5000 for f in args.freq) or
         not math.isfinite(args.amp) or args.amp <= 0 or
@@ -289,6 +290,27 @@ def main():
                         "sample_rate_hz": FAST_RATE_HZ, "points": results},
                        ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
         )
+        if args.plot:
+            try:
+                import matplotlib.pyplot as plt
+            except ImportError as exc:
+                raise RuntimeError("matplotlib is required for --plot") from exc
+            xs = np.array([point["frequency_hz"] for point in results])
+            order = np.argsort(xs)
+            ys = [results[i]["closed_loop_Id_over_IdRef"] for i in order]
+            gain = [v["gain_db"] for v in ys]
+            phase = np.rad2deg(np.unwrap(np.deg2rad([v["phase_deg"] for v in ys])))
+            fig, axes = plt.subplots(2, 1, sharex=True, figsize=(7, 6))
+            axes[0].semilogx(xs[order], gain, "o-")
+            axes[0].set_ylabel("Id / IdRef (dB)")
+            axes[1].semilogx(xs[order], phase, "o-")
+            axes[1].set_ylabel("Phase (deg)")
+            axes[1].set_xlabel("Frequency (Hz)")
+            for axis in axes:
+                axis.grid(True, which="both")
+            fig.tight_layout()
+            fig.savefig(args.out / "bode.png", dpi=150)
+            plt.close(fig)
         print("Results:", args.out / "bode.json")
     finally:
         try:
