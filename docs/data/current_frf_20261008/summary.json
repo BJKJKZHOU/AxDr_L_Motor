@@ -1,0 +1,86 @@
+{
+  "completed": true,
+  "frequency_points": 66,
+  "adc": "2x47.5 cycles, 40 MHz",
+  "FF": 0,
+  "injection_peak_A": 0.3,
+  "PI_original_restored_Hz": 2000.0,
+  "bandwidth_results": {
+    "500": {
+      "minus3db_hz_log_interpolated": [
+        484.6843699540375
+      ],
+      "max_measured_gain_db": -0.012861264379005598,
+      "max_measured_gain_freq_hz": 20.0,
+      "last_measured_hz": 5000.0,
+      "last_gain_db": -12.482546348234626
+    },
+    "1000": {
+      "minus3db_hz_log_interpolated": [
+        3519.0703765656317
+      ],
+      "max_measured_gain_db": -0.003985746909013878,
+      "max_measured_gain_freq_hz": 20.0,
+      "last_measured_hz": 5000.0,
+      "last_gain_db": -5.7950532850952685
+    },
+    "2000": {
+      "minus3db_hz_log_interpolated": [],
+      "max_measured_gain_db": 2.3790453298463787,
+      "max_measured_gain_freq_hz": 4500.0,
+      "last_measured_hz": 5000.0,
+      "last_gain_db": 1.6436930243608514
+    }
+  },
+  "noise": [
+    {
+      "PI_setting_Hz": 2000,
+      "Id_std_A": 0.16092992642549558,
+      "Iq_std_A": 0.06799167670311168,
+      "Udq_ac_rms_V": 0.17372258844164534,
+      "Id_1_to_1000Hz_rms_A": 0.009039539801980807
+    },
+    {
+      "PI_setting_Hz": 1000,
+      "Id_std_A": 0.13682187819837827,
+      "Iq_std_A": 0.06260921432953438,
+      "Udq_ac_rms_V": 0.0757755355539674,
+      "Id_1_to_1000Hz_rms_A": 0.015462686423671039
+    },
+    {
+      "PI_setting_Hz": 500,
+      "Id_std_A": 0.12855209944627788,
+      "Iq_std_A": 0.06052527773450769,
+      "Udq_ac_rms_V": 0.03664563046735036,
+      "Id_1_to_1000Hz_rms_A": 0.021914357582921602
+    }
+  ],
+  "timing_ADC_Run_median_us": {
+    "off_before": 13.025,
+    "on": 13.89375,
+    "off_after": 12.89375
+  },
+  "cumulative_fast_max_us": 45.8875,
+  "counter_deltas": {
+    "deadline": 0,
+    "enc_miss": 0,
+    "enc_err": 0,
+    "crc_err": 0,
+    "fast_drop": 0,
+    "normal_drop": 0
+  },
+  "disabled_IdRef_stale_A": 0.03426607325673103,
+  "reenable_before_next_Start_IdRef_A": 0,
+  "restored": true,
+  "final_state": {
+    "state": 0,
+    "ready": 1,
+    "valid": 1,
+    "fault": 0,
+    "error": 0,
+    "trip": 0,
+    "vbus": 24.633983612060547
+  },
+  "frequency_limit_note": "Parameter interface limits injection to 5000 Hz; 2000 Hz setting -3 dB point was not observed.",
+  "noise_note": "Board feedback PSD and voltage-command PSD; no independent physical current or acoustic measurement."
+}
