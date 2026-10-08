@@ -111,7 +111,6 @@ void Fast_Loop(void)
     bool Current_OK;
     bool Encoder_Park_Valid;
     float Theta_e;
-    float Theta_Encoder;
     float Ialpha;
     float Ibeta;
     float Sin;
@@ -163,10 +162,8 @@ void Fast_Loop(void)
 
         if (Motor_Cal.Valid != 0U)
         {
-            /* ESO uses the encoder frame, including coast current. The same
-             * Park basis can be reused if FOC selects this electrical angle. */
-            Theta_Encoder = Angle_Wrap((float)Motor_Para.Pp * Theta_m + Motor_Cal.Theta_Off);
-            SinCos(Theta_Encoder, &Sin, &Cos);
+            /* ESO uses the encoder frame, including coast current. */
+            SinCos(Angle_Wrap((float)Motor_Para.Pp * Theta_m + Motor_Cal.Theta_Off), &Sin, &Cos);
             Iq_Encoder = -Ialpha * Sin + Ibeta * Cos;
             Encoder_Park_Valid = true;
         }
@@ -203,7 +200,8 @@ void Fast_Loop(void)
     {
         /* Motor_Fast_Run may use the previous-cycle dq values (IF/ident).
          * Publish this sample only after it has selected the FOC angle. */
-        if (!Encoder_Park_Valid || (Theta_e != Theta_Encoder))
+        /* Only the three sensored servo modes use the encoder FOC frame. */
+        if (!Encoder_Park_Valid || (Motor_Mode > POSITION))
         {
             SinCos(Theta_e, &Sin, &Cos);
             Motor_Run.Iq = -Ialpha * Sin + Ibeta * Cos;
