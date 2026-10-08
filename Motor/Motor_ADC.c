@@ -5,6 +5,8 @@
 
 #include "Motor_ADC.h"
 
+#include <stdbool.h>
+
 #include "Plot.h"
 #include "Current_Loop.h"
 #include "Encoder.h"
@@ -105,6 +107,7 @@ static void Iab_Calib(void)
 void Fast_Loop(void)
 {
     Motor_Fast_Mode_e Fast_Mode;
+    bool Current_OK;
     float Theta_e;
     float Id_Ref;
     float Iq_Ref;
@@ -133,7 +136,31 @@ void Fast_Loop(void)
     ADC.Ic_A = -(ADC.Ia_A + ADC.Ib_A);
     ADC.Vbus_V = (float)ADC.Vbus_Raw * VBUS_RAW_TO_V;
 
-    if (!Protection_Current_Fast(ADC.Ia_A, ADC.Ib_A, ADC.Ic_A))
+    /* Check current protection before observer work; trip disables PWM here. */
+    Current_OK = Protection_Current_Fast(ADC.Ia_A, ADC.Ib_A, ADC.Ic_A);
+
+    /* Feedback remains live with PWM off and in every control mode. */
+    if ((Encoder.Ready != 0U) && (Encoder.Fault == 0U) &&
+        (Mechanical_ESO.Para.Valid != 0U))
+    {
+        float Theta_m = Encoder.Theta_m;
+        float Iq = 0.0f;
+
+        if (Motor_Cal.Valid != 0U)
+        {
+            float Sin;
+            float Cos;
+
+            /* Use this ADC sample in the encoder dq frame, including coast
+             * current; the control-mode Iq may be stale or use another angle. */
+            SinCos(Angle_Wrap((float)Motor_Para.Pp * Theta_m + Motor_Cal.Theta_Off), &Sin, &Cos);
+            Iq = -ADC.Ia_A * Sin + (ADC.Ia_A + 2.0f * ADC.Ib_A) * INV_SQRT3_F * Cos;
+        }
+
+        Mechanical_ESO_Run(Theta_m, Encoder.Valid != 0U, Iq);
+    }
+
+    if (!Current_OK)
     {
         Motor_Run.Ualpha = 0.0f;
         Motor_Run.Ubeta = 0.0f;
@@ -171,27 +198,6 @@ void Fast_Loop(void)
     PWM_Update(DutyA, DutyB, DutyC);
 
 finish:
-    /* Feedback remains live with PWM off and in every control mode. */
-    if ((Encoder.Ready != 0U) && (Encoder.Fault == 0U) &&
-        (Mechanical_ESO.Para.Valid != 0U))
-    {
-        float Theta_m = Encoder.Theta_m;
-        float Iq = 0.0f;
-
-        if (Motor_Cal.Valid != 0U)
-        {
-            float Sin;
-            float Cos;
-
-            /* Use this ADC sample in the encoder dq frame, including coast
-             * current; the control-mode Iq may be stale or use another angle. */
-            SinCos(Angle_Wrap((float)Motor_Para.Pp * Theta_m + Motor_Cal.Theta_Off), &Sin, &Cos);
-            Iq = -ADC.Ia_A * Sin + (ADC.Ia_A + 2.0f * ADC.Ib_A) * INV_SQRT3_F * Cos;
-        }
-
-        Mechanical_ESO_Run(Theta_m, Encoder.Valid != 0U, Iq);
-    }
-
     Plot_Fast_Sample();
     Cyc = DWT->CYCCNT - T0;
     Fast_Time.ADC_Run_Cyc = Cyc;
