@@ -29,22 +29,36 @@ typedef enum
 
 } Control_Tune_Source_e;
 
+typedef struct
+{
+    float Id_Kp;
+    float Id_Ki;
+    float Iq_Kp;
+    float Iq_Ki;
+
+} Current_Manual_T;
+
+typedef struct
+{
+    float Kp;
+    float Ki;
+
+} Speed_Manual_T;
+
+extern Current_Manual_T Current_Manual;
+extern Speed_Manual_T Speed_Manual;
+
 extern float Control_Current_Bw_Hz;
 extern float Control_Speed_Bw_Hz;
 extern uint8_t Control_Current_Tune_Source;
+extern uint8_t Current_FF_Enable;
 extern uint8_t Control_Speed_Tune_Source;
 
 void Current_Tuning_Update(void);
 void Speed_Tuning_Update(void);
-void Current_Tuning_Source_Changed(void);
-void Speed_Tuning_Source_Changed(void);
-void Mechanical_ESO_Tuning_Update(void);
-
-/* Refresh runtime values that depend on the active motor model. */
-void Motor_Para_Update(void);
-
-/* Pp also changes the mechanical-to-electrical coordinate mapping. */
-void Motor_Pp_Changed(void);
+/* Validate a candidate model/ESO bandwidth before publishing either one.
+ * On failure, active parameters, coefficients and observer state are unchanged. */
+bool Motor_Para_Update(const Motor_Para_T *Para, float Eso_Bw_Hz);
 
 bool Motor_IF_Para_Build(float Vbus_V, float I_Max_A, Motor_IF_Para_T *Para);
 

@@ -121,7 +121,7 @@ typedef enum
     /* Encoder_Config.SPI_Type: SPI协议下选择的编码器芯片协议。 */
     PARAM_ENCODER_SPI_TYPE = 0x0310U,
 
-    /* Servo_Phase_Config.I_Search_A: 伺服寻相过程使用的持续寻相电流。 */
+    /* Servo_Phase_Config.I_Search_A: 伺服寻相两次静态ALIGN的Id电流及方向辨识起转的Iq电流；起转后Iq归零等待500ms。 */
     PARAM_PHASE_I_SEARCH = 0x0401U,
 
     /* Motor_Cal.Valid: 当前伺服相位/编码器校准结果是否有效。 */
@@ -133,10 +133,10 @@ typedef enum
     /* Motor_Cal.Theta_Off: 寻相/校准得到的编码器到电角度的零位偏置。 */
     PARAM_CAL_THETA_OFF = 0x0404U,
 
-    /* Servo_Phase_Theta_Off_Error_Get(): 最近一次伺服寻相正反扫描得到的电角零偏一致性误差。 */
+    /* Servo_Phase_Theta_Off_Error_Get(): 两次静态ALIGN计算得到的电角零位偏差，单位rad；最后一次成功计算后更新。 */
     PARAM_PHASE_THETA_OFF_ERROR = 0x0410U,
 
-    /* Servo_Phase_Verify_Move_Get(): 最近一次伺服寻相最终正Iq方向验证得到的机械位移。 */
+    /* Servo_Phase_Verify_Move_Get(): 已停用的寻相诊断字段；简化寻相不再执行正Iq验证，此值恒为0。 */
     PARAM_PHASE_VERIFY_MOVE = 0x0411U,
 
     /* Parameter_Run_Position_Get(): 当前用户机械坐标下的位置反馈。 */
@@ -159,6 +159,12 @@ typedef enum
 
     /* Motion_Config.Wm_Dec: 运动规划器机械减速度限制，可在运行期间修改。 */
     PARAM_MOTION_WM_DEC = 0x0603U,
+
+    /* Motion_Config.Te_Rate: 仅Torque模式的转矩指令变化率，运行及Stop降至零转矩共用；0关闭斜坡，默认0。可在运行期间修改，不影响Speed和Position模式。 */
+    PARAM_MOTION_TE_RATE = 0x0604U,
+
+    /* Motion_Config.Profile: 有感Speed/Position轨迹：0梯形；1五次速度S曲线、保持梯形加减速时间（峰值1.875倍）；2五次速度S曲线、保持峰值加减速度（时间1.875倍）。允许DISABLED/ENABLED修改，RUN禁止。 */
+    PARAM_MOTION_PROFILE = 0x0605U,
 
     /* Motor_Mode: 当前选择的电机控制模式；与TORQUE/SPEED/POSITION/OPEN_LOOP/IDENT/SENSORLESS_SPEED/PHASE_SEARCH对应。 */
     PARAM_MOTOR_MODE = 0x0701U,
@@ -223,31 +229,34 @@ typedef enum
     /* Control_Current_Bw_Hz: 电流环设计带宽；写入后切换为Bandwidth并由当前Rs/Ld/Lq重新计算Id/Iq PI增益。 */
     PARAM_CTRL_CURRENT_BW_HZ = 0x0A01U,
 
-    /* Id_Ctrl.Para.Kp: Id电流环实际Kp；直接写入后切换为Manual调参。 */
+    /* Current_Manual.Id_Kp: Id电流环Manual配置Kp；写入后切换为Manual并发布整组手调增益。 */
     PARAM_CTRL_ID_KP = 0x0A02U,
 
-    /* Id_Ctrl.Para.Ki: Id电流环实际Ki；直接写入后切换为Manual调参。 */
+    /* Current_Manual.Id_Ki: Id电流环Manual配置Ki；写入后切换为Manual并发布整组手调增益。 */
     PARAM_CTRL_ID_KI = 0x0A03U,
 
-    /* Iq_Ctrl.Para.Kp: Iq电流环实际Kp；直接写入后切换为Manual调参。 */
+    /* Current_Manual.Iq_Kp: Iq电流环Manual配置Kp；写入后切换为Manual并发布整组手调增益。 */
     PARAM_CTRL_IQ_KP = 0x0A04U,
 
-    /* Iq_Ctrl.Para.Ki: Iq电流环实际Ki；直接写入后切换为Manual调参。 */
+    /* Current_Manual.Iq_Ki: Iq电流环Manual配置Ki；写入后切换为Manual并发布整组手调增益。 */
     PARAM_CTRL_IQ_KI = 0x0A05U,
 
-    /* Control_Current_Tune_Source: 当前电流环增益来源；切到Bandwidth时按当前模型重新计算PI，Manual保留直接增益。 */
+    /* Control_Current_Tune_Source: 当前电流环增益来源；Bandwidth按模型和带宽生成实际PI，Manual发布RAM中的Id/Iq手调参数。切换不读Flash，Save保存当前Manual配置。 */
     PARAM_CTRL_CURRENT_SOURCE = 0x0A06U,
+
+    /* Current_FF_Enable: 有感Torque/Speed/Position模式的dq交叉耦合与反电动势前馈；0关闭(默认)，1开启，使用机械ESO转速及电机Ld/Lq/Flux。 */
+    PARAM_CTRL_CURRENT_FF_ENABLE = 0x0A07U,
 
     /* Control_Speed_Bw_Hz: 速度环设计带宽；写入后切换为Bandwidth并由当前J/B/Flux/Pp重新计算速度PI增益。 */
     PARAM_CTRL_SPEED_BW_HZ = 0x0A10U,
 
-    /* Speed_Ctrl.Para.Kp: 速度环实际Kp；直接写入后切换为Manual调参。 */
+    /* Speed_Manual.Kp: 速度环Manual配置Kp；写入后切换为Manual并发布整组手调增益。 */
     PARAM_CTRL_SPEED_KP = 0x0A11U,
 
-    /* Speed_Ctrl.Para.Ki: 速度环实际Ki；直接写入后切换为Manual调参。 */
+    /* Speed_Manual.Ki: 速度环Manual配置Ki；写入后切换为Manual并发布整组手调增益。 */
     PARAM_CTRL_SPEED_KI = 0x0A12U,
 
-    /* Control_Speed_Tune_Source: 当前速度环增益来源；切到Bandwidth时按当前模型重新计算PI，Manual保留直接增益。 */
+    /* Control_Speed_Tune_Source: 当前速度环增益来源；Bandwidth按模型和带宽生成实际PI，Manual发布RAM中的手调参数。切换不读Flash，Save保存当前Manual配置。 */
     PARAM_CTRL_SPEED_SOURCE = 0x0A13U,
 
     /* Pos_Ctrl.Para.Kp: 位置环P增益，单位为(rad/s)/rad。 */
@@ -288,6 +297,39 @@ typedef enum
 
     /* MOTOR_CMD_PARAMETER_SAVE: 将当前持久化参数显式保存到NVS；仅DISABLED状态允许执行。 */
     ACTION_PARAMETER_SAVE = 0x1202U,
+
+    /* Speed_Ctrl.Para.Kp: 速度控制器当前实际使用的Kp，由Source选择生成；不保存。 */
+    PARAM_CTRL_SPEED_KP_EFFECTIVE = 0x0A14U,
+
+    /* Speed_Ctrl.Para.Ki: 速度控制器当前实际使用的Ki，由Source选择生成；不保存。 */
+    PARAM_CTRL_SPEED_KI_EFFECTIVE = 0x0A15U,
+
+    /* Signal_Injection.Para.Freq_Hz: 有感d轴电流单频正弦激励频率；Start时锁存。 */
+    PARAM_SIGNAL_FREQ_HZ = 0x0B01U,
+
+    /* Signal_Injection.Para.Amp_A: 有感d轴电流正弦激励峰值；Start时核对有效电流限值并锁存。 */
+    PARAM_SIGNAL_AMP_A = 0x0B02U,
+
+    /* Signal_Injection.Para.Time_S: 单个激励频点的持续时间；到期自动结束，最大60秒。 */
+    PARAM_SIGNAL_TIME_S = 0x0B03U,
+
+    /* Signal_Injection.State.Active: 频率响应注入是否正在执行。 */
+    PARAM_SIGNAL_ACTIVE = 0x0B04U,
+
+    /* Signal_Injection.State.Out: 本次快环实际叠加的d轴激励；供FAST Plot同步定位激励时段。 */
+    PARAM_SIGNAL_OUT = 0x0B05U,
+
+    /* Id_Ctrl.Sig.Ref: 实际进入d轴电流PI的参考（含信号激励）。 */
+    PARAM_SIGNAL_ID_REF = 0x0B06U,
+
+    /* Id_Ctrl.Sig.Out: d轴PI电压输出，未叠加模型前馈、未经过最终dq二维限幅。 */
+    PARAM_SIGNAL_ID_PI_OUT = 0x0B07U,
+
+    /* MOTOR_CMD_SIGNAL_START: 仅在有感TORQUE/ENABLED运行有限时长的d轴正弦激励。 */
+    ACTION_SIGNAL_START = 0x1301U,
+
+    /* MOTOR_CMD_SIGNAL_ABORT: 立即取消激励，不改变正常Motor Stop/Disable状态。 */
+    ACTION_SIGNAL_ABORT = 0x1302U,
 
 } Parameter_Id_e;
 

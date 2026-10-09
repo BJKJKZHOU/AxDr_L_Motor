@@ -11,6 +11,7 @@
 
 #include "Encoder.h"
 #include "Flash_Storage.h"
+#include "Mechanical_ESO.h"
 #include "Motor_Para.h"
 #include "Motor_Type.h"
 #include "Parameter.h"
@@ -92,8 +93,10 @@ static bool Calibration_Load(void)
     return true;
 }
 
-int NVS_Storage_Load_All(void)
+int NVS_Storage_Load(uint16_t Load_Id)
 {
+    Motor_Para_T Model = Motor_Para;
+    float Eso_Bw_Hz = Mechanical_ESO_Bw_Hz;
     Parameter_Value_T Value;
     Parameter_Type_e Type;
     Parameter_Status_e Param_Status;
@@ -109,11 +112,20 @@ int NVS_Storage_Load_All(void)
         return Status;
     }
 
+    if ((Load_Id != NVS_ALL) && !Parameter_Persistent_Read(Load_Id, &Type, &Value))
+    {
+        return -EINVAL;
+    }
+
     while (Parameter_Persistent_Next(&Index, &Id, &Type, &Value))
     {
-        if ((Id == PARAM_CAL_VALID) ||
+        if ((Load_Id != NVS_ALL) && (Id != Load_Id))
+        {
+            continue;
+        }
+        if ((Load_Id == NVS_ALL) && ((Id == PARAM_CAL_VALID) ||
             (Id == PARAM_CAL_ENC_DIR) ||
-            (Id == PARAM_CAL_THETA_OFF))
+            (Id == PARAM_CAL_THETA_OFF)))
         {
             continue;
         }
@@ -126,16 +138,54 @@ int NVS_Storage_Load_All(void)
 
         memset(&Value, 0, sizeof(Value));
         Rc = nvs_read(&Storage_NVS, Id, &Value, Size);
-        if (Rc < 0)
-        {
-            continue;
-        }
         if (Rc != (ssize_t)Size)
         {
+            if (Load_Id != NVS_ALL)
+            {
+                return (Rc < 0) ? (int)Rc : -EINVAL;
+            }
+            continue;
+        }
+
+        /* Validate scalars now, but stage the complete model: testing ESO
+         * against a mixture of old/new records would depend on ID order. */
+        Param_Status = Parameter_Check(Id, Type, Value);
+        if (Param_Status != PARAM_OK)
+        {
+            if (Load_Id != NVS_ALL)
+            {
+                return -EINVAL;
+            }
+            continue;
+        }
+        bool Model_Field = true;
+
+        switch (Id)
+        {
+            case PARAM_MOTOR_PP: Model.Pp = Value.U8; break;
+            case PARAM_MOTOR_RS: Model.Rs = Value.F32; break;
+            case PARAM_MOTOR_LD: Model.Ld = Value.F32; break;
+            case PARAM_MOTOR_LQ: Model.Lq = Value.F32; break;
+            case PARAM_MOTOR_FLUX: Model.Flux = Value.F32; break;
+            case PARAM_MOTOR_J: Model.J = Value.F32; break;
+            case PARAM_MOTOR_B: Model.B = Value.F32; break;
+            case PARAM_CTRL_MECH_ESO_BW_HZ: Eso_Bw_Hz = Value.F32; break;
+            default: Model_Field = false; break;
+        }
+        if (Model_Field)
+        {
+            if (Load_Id != NVS_ALL)
+            {
+                return Motor_Para_Update(&Model, Eso_Bw_Hz) ? 0 : -EINVAL;
+            }
             continue;
         }
 
         Param_Status = Parameter_Restore(Id, Type, Value);
+        if (Load_Id != NVS_ALL)
+        {
+            return (Param_Status == PARAM_OK) ? 0 : -EINVAL;
+        }
         if (Param_Status != PARAM_OK)
         {
             continue;
@@ -145,49 +195,29 @@ int NVS_Storage_Load_All(void)
     /* Persistent values are restored as one configuration snapshot. Rebuild
      * runtime dependencies only after all ordinary records are in place so
      * results do not depend on Parameter table order. */
-    Motor_Para_Update();
-    Encoder_Config_Changed();
-
-    (void)Calibration_Load();
-    return 0;
-}
-
-int NVS_Storage_Save(uint16_t Id)
-{
-    Parameter_Value_T Value;
-    Parameter_Type_e Type;
-    uint8_t Size;
-    ssize_t Rc;
-    int Status;
-
-    Status = NVS_Storage_Init();
+    Status = Motor_Para_Update(&Model, Eso_Bw_Hz) ? 0 : -EINVAL;
     if (Status != 0)
     {
-        return Status;
+        /* Other persistent configuration was restored independently. Publish
+         * its selected gains against the unchanged, previously active model. */
+        Current_Tuning_Update();
+        Speed_Tuning_Update();
     }
-
-    if (!Parameter_Persistent_Read(Id, &Type, &Value))
+    if (Status == 0)
     {
-        return -EINVAL;
+        Encoder_Config_Changed();
+        (void)Calibration_Load();
     }
-
-    Size = Parameter_Value_Size(Type);
-    if (Size == 0U)
+    else
     {
-        return -EINVAL;
+        /* Do not rebind encoder feedback (which clears ESO State) after a
+         * rejected model. Stored calibration may describe a different Pp. */
+        Motor_Cal.Valid = 0U;
     }
-
-    Rc = nvs_write(&Storage_NVS, Id, &Value, Size);
-    if (Rc < 0)
-    {
-        return (int)Rc;
-    }
-
-    /* NVS returns zero when the value is already stored. */
-    return ((Rc == 0) || (Rc == (ssize_t)Size)) ? 0 : -EIO;
+    return Status;
 }
 
-int NVS_Storage_Save_All(void)
+int NVS_Storage_Save(const uint16_t *Ids, uint16_t Count, NVS_Select_e Select)
 {
     Parameter_Value_T Value;
     Parameter_Type_e Type;
@@ -197,25 +227,74 @@ int NVS_Storage_Save_All(void)
     ssize_t Rc;
     int Status;
 
+    if (((Count != 0U) && (Ids == NULL)) ||
+        ((Select != NVS_INCLUDE) && (Select != NVS_EXCLUDE)))
+    {
+        return -EINVAL;
+    }
+    /* Reject an invalid list before any records are written. */
+    for (uint16_t n = 0U; n < Count; n++)
+    {
+        if (!Parameter_Persistent_Read(Ids[n], &Type, &Value))
+        {
+            return -EINVAL;
+        }
+    }
+    if ((Select == NVS_INCLUDE) && (Count == 0U))
+    {
+        return 0;
+    }
+
     Status = NVS_Storage_Init();
     if (Status != 0)
     {
         return Status;
     }
 
-    while (Parameter_Persistent_Next(&Index, &Id, &Type, &Value))
+    for (;;)
     {
+        if (Select == NVS_INCLUDE)
+        {
+            if (Index == Count)
+            {
+                break;
+            }
+            /* Preserve caller order, notably calibration's Valid-last write. */
+            Id = Ids[Index++];
+            (void)Parameter_Persistent_Read(Id, &Type, &Value);
+        }
+        else
+        {
+            uint16_t n;
+
+            if (!Parameter_Persistent_Next(&Index, &Id, &Type, &Value))
+            {
+                break;
+            }
+            for (n = 0U; n < Count; n++)
+            {
+                if (Id == Ids[n])
+                {
+                    break;
+                }
+            }
+            if (n != Count)
+            {
+                continue;
+            }
+        }
+
         Size = Parameter_Value_Size(Type);
         if (Size == 0U)
         {
-            continue;
+            return -EINVAL;
         }
-
         Rc = nvs_write(&Storage_NVS, Id, &Value, Size);
         if (Rc < 0)
         {
             return (int)Rc;
         }
+        /* NVS returns zero when the value is already stored. */
         if ((Rc != 0) && (Rc != (ssize_t)Size))
         {
             return -EIO;
