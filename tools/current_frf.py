@@ -16,6 +16,8 @@ import time
 
 import numpy as np
 
+from bode_plot import bode_metrics, plot_bode_a4, responses
+
 try:
     import serial
 except ImportError as exc:
@@ -200,8 +202,9 @@ def analyze(raw, freq, amp, settle_cycles):
     pi_out, out_err = sinusoid_fit(interval[:, 3], freq, t)
     if abs(ref) < max(0.005, amp * 0.2):
         raise RuntimeError("injected IdRef amplitude too small")
-    loop = current / ref
-    control = pi_out / ref
+    frf = responses(ref, current, pi_out)
+    loop = frf["T"]
+    control = frf["HU"]
 
     def response(value):
         return {
@@ -215,6 +218,15 @@ def analyze(raw, freq, amp, settle_cycles):
         "input_amplitude_measured_a": float(abs(ref)),
         "closed_loop_Id_over_IdRef": response(loop),
         "controller_UdPI_over_IdRef": response(control),
+        "open_loop_L": response(frf["L"]),
+        "sensitivity_S": response(frf["S"]),
+        "plant_G": response(frf["G"]),
+        "controller_C": response(frf["C"]),
+        "phasors": {
+            "IdRef": [float(ref.real), float(ref.imag)],
+            "Id": [float(current.real), float(current.imag)],
+            "UdPI": [float(pi_out.real), float(pi_out.imag)],
+        },
         "fit_residual_rms": {
             "id_ref_a": ref_err, "id_a": cur_err, "ud_pi_v": out_err,
         },
@@ -293,27 +305,31 @@ def main():
                         "sample_rate_hz": FAST_RATE_HZ, "points": results},
                        ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
         )
-        if args.plot:
-            try:
-                import matplotlib.pyplot as plt
-            except ImportError as exc:
-                raise RuntimeError("matplotlib is required for --plot") from exc
-            xs = np.array([point["frequency_hz"] for point in results])
-            order = np.argsort(xs)
-            ys = [results[i]["closed_loop_Id_over_IdRef"] for i in order]
-            gain = [v["gain_db"] for v in ys]
-            phase = np.rad2deg(np.unwrap(np.deg2rad([v["phase_deg"] for v in ys])))
-            fig, axes = plt.subplots(2, 1, sharex=True, figsize=(7, 6))
-            axes[0].semilogx(xs[order], gain, "o-")
-            axes[0].set_ylabel("Id / IdRef (dB)")
-            axes[1].semilogx(xs[order], phase, "o-")
-            axes[1].set_ylabel("Phase (deg)")
-            axes[1].set_xlabel("Frequency (Hz)")
-            for axis in axes:
-                axis.grid(True, which="both")
-            fig.tight_layout()
-            fig.savefig(args.out / "bode.png", dpi=150)
-            plt.close(fig)
+        if len(results) >= 2:
+            def sample_phasor(point, name):
+                return complex(*point["phasors"][name])
+
+            transfer = [
+                responses(sample_phasor(point, "IdRef"),
+                          sample_phasor(point, "Id"),
+                          sample_phasor(point, "UdPI"))
+                for point in results
+            ]
+            freq = np.array([point["frequency_hz"] for point in results])
+            L = np.array([item["L"] for item in transfer])
+            S = np.array([item["S"] for item in transfer])
+            T = np.array([item["T"] for item in transfer])
+            if args.plot:
+                margins = plot_bode_a4(
+                    freq, L, S, T, "CURRENT Id sweep", args.out / "bode.png"
+                )
+            else:
+                margins = bode_metrics(freq, L, T)
+            (args.out / "bode_metrics.json").write_text(
+                json.dumps(margins, indent=2) + "\n", encoding="utf-8"
+            )
+        elif args.plot:
+            print("Bode plot requires at least two frequency points; raw capture saved.")
         print("Results:", args.out / "bode.json")
     finally:
         try:
