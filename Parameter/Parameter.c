@@ -262,15 +262,48 @@ static Parameter_Status_e Parameter_Apply(const Parameter_Entry_T *Entry,
         return Status;
     }
 
+    /* A gain/bandwidth write also selects its source, even if the value matches. */
     if (Parameter_Value_Equal(Entry, Value))
     {
+        switch (Entry->Id)
+        {
+            case PARAM_CTRL_ID_KP:
+            case PARAM_CTRL_ID_KI:
+            case PARAM_CTRL_IQ_KP:
+            case PARAM_CTRL_IQ_KI:
+            case PARAM_CTRL_SPEED_KP:
+            case PARAM_CTRL_SPEED_KI:
+            case PARAM_CTRL_CURRENT_BW_HZ:
+            case PARAM_CTRL_SPEED_BW_HZ:
+                Parameter_On_Change(Entry->Id);
+                break;
+            default:
+                break;
+        }
         return PARAM_OK;
     }
 
-    Parameter_Value_Write(Entry, Value);
-    Parameter_On_Change(Entry->Id);
+    /* Cross-parameter ESO validity belongs to the complete candidate model.
+     * Do not write a model field and then try to repair a failed observer update. */
+    Motor_Para_T Model = Motor_Para;
+    float Eso_Bw_Hz = Mechanical_ESO_Bw_Hz;
 
-    return PARAM_OK;
+    switch (Entry->Id)
+    {
+        case PARAM_MOTOR_PP: Model.Pp = Value.U8; break;
+        case PARAM_MOTOR_RS: Model.Rs = Value.F32; break;
+        case PARAM_MOTOR_LD: Model.Ld = Value.F32; break;
+        case PARAM_MOTOR_LQ: Model.Lq = Value.F32; break;
+        case PARAM_MOTOR_FLUX: Model.Flux = Value.F32; break;
+        case PARAM_MOTOR_J: Model.J = Value.F32; break;
+        case PARAM_MOTOR_B: Model.B = Value.F32; break;
+        case PARAM_CTRL_MECH_ESO_BW_HZ: Eso_Bw_Hz = Value.F32; break;
+        default:
+            Parameter_Value_Write(Entry, Value);
+            Parameter_On_Change(Entry->Id);
+            return PARAM_OK;
+    }
+    return Motor_Para_Update(&Model, Eso_Bw_Hz) ? PARAM_OK : PARAM_ERR_VALUE;
 }
 
 static Parameter_Status_e Parameter_Write_Common(uint16_t Id,
@@ -410,6 +443,18 @@ bool Parameter_Persistent_Next(uint32_t *Index,
     }
 
     return false;
+}
+
+Parameter_Status_e Parameter_Check(uint16_t Id, Parameter_Type_e Type,
+                                   Parameter_Value_T Value)
+{
+    const Parameter_Entry_T *Entry = Parameter_Find(Id);
+
+    if (Entry == NULL)
+    {
+        return PARAM_ERR_ID;
+    }
+    return Parameter_Value_Check(Entry, Type, Value);
 }
 
 Parameter_Status_e Parameter_Restore(uint16_t Id,

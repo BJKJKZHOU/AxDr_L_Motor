@@ -100,8 +100,8 @@ class SensoredSpeedTest(base.IdentificationClient):
         )
         self.parameter_write(base.PARAM_TARGET_SPEED, base.PARAM_FLOAT, 0.0)
 
-        speed_kp = self.parameter_read(base.PARAM_CTRL_SPEED_KP, base.PARAM_FLOAT)
-        speed_ki = self.parameter_read(base.PARAM_CTRL_SPEED_KI, base.PARAM_FLOAT)
+        speed_kp = self.parameter_read(base.PARAM_CTRL_SPEED_KP_EFFECTIVE, base.PARAM_FLOAT)
+        speed_ki = self.parameter_read(base.PARAM_CTRL_SPEED_KI_EFFECTIVE, base.PARAM_FLOAT)
 
         print(
             f"Speed BW={self.args.speed_bw:.1f} Hz "

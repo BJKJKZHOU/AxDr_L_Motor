@@ -37,55 +37,6 @@ void Current_Loop_State_Reset(void)
     Iq_Ctrl.Sig.Out = 0.0f;
 }
 
-void Current_Loop_Track(float Theta_e,
-                        float Id_Ref,
-                        float Iq_Ref,
-                        float Ualpha,
-                        float Ubeta)
-{
-    float Ialpha;
-    float Ibeta;
-    float Sin;
-    float Cos;
-    float Ud;
-    float Uq;
-    float U_Lim;
-
-    SinCos(Angle_Wrap(Theta_e), &Sin, &Cos);
-
-    Ialpha = ADC.Ia_A;
-    Ibeta = (ADC.Ia_A + 2.0f * ADC.Ib_A) * INV_SQRT3_F;
-    Motor_Run.Id = Ialpha * Cos + Ibeta * Sin;
-    Motor_Run.Iq = -Ialpha * Sin + Ibeta * Cos;
-
-    Ud = Ualpha * Cos + Ubeta * Sin;
-    Uq = -Ualpha * Sin + Ubeta * Cos;
-    U_Lim = ADC.Vbus_V * INV_SQRT3_F * VOLT_MOD_MAX;
-    Vector2_Limit(&Ud, &Uq, U_Lim);
-    Current_Loop_Limits_Update(U_Lim);
-
-    Id_Ctrl.Sig.Ref = Id_Ref;
-    Id_Ctrl.Sig.Fbk = Motor_Run.Id;
-    Id_Ctrl.Sig.Err = Id_Ref - Motor_Run.Id;
-    Iq_Ctrl.Sig.Ref = Iq_Ref;
-    Iq_Ctrl.Sig.Fbk = Motor_Run.Iq;
-    Iq_Ctrl.Sig.Err = Iq_Ref - Motor_Run.Iq;
-
-    Id_Ctrl.State.Int = Ud - Id_Ctrl.Para.Kp * Id_Ctrl.Sig.Err;
-    Iq_Ctrl.State.Int = Uq - Iq_Ctrl.Para.Kp * Iq_Ctrl.Sig.Err;
-    Limit_Value(&Id_Ctrl.State.Int, Id_Ctrl.Para.Int_Min, Id_Ctrl.Para.Int_Max);
-    Limit_Value(&Iq_Ctrl.State.Int, Iq_Ctrl.Para.Int_Min, Iq_Ctrl.Para.Int_Max);
-
-    Id_Ctrl.State.Fbk_Pre = Motor_Run.Id;
-    Iq_Ctrl.State.Fbk_Pre = Motor_Run.Iq;
-    Id_Ctrl.Sig.Out = Ud;
-    Iq_Ctrl.Sig.Out = Uq;
-
-    Motor_Run.Theta_e = Angle_Wrap(Theta_e);
-    Motor_Run.Ud = Ud;
-    Motor_Run.Uq = Uq;
-}
-
 void Current_Loop(float Id_Ref, float Iq_Ref, float *Ualpha, float *Ubeta)
 {
     float Ialpha;

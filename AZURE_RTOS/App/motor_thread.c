@@ -18,7 +18,8 @@
 #include "USB_Thread.h"
 #include "main.h"
 
-#define MOTOR_STACK_SIZE  512U
+/* S-curve replanning also needs room for the preempted FPU context. */
+#define MOTOR_STACK_SIZE  1024U
 #define MOTOR_THREAD_PRIO 5U
 #define MOTOR_CMD_Q_LEN   8U
 #define MOTOR_CMD_Q_WORDS 5U
@@ -306,7 +307,7 @@ static void Motor_Cmd_Run(void)
                 {
                     Action_Status = AXDR_ERR_STATE;
                 }
-                else if (NVS_Storage_Save_All() != 0)
+                else if (NVS_Storage_Save(NULL, 0U, NVS_EXCLUDE) != 0)
                 {
                     Action_Status = AXDR_ERR_CONFIG;
                 }
@@ -329,9 +330,9 @@ UINT Motor_Thread_Init(VOID *memory_ptr)
 
     byte_pool = (TX_BYTE_POOL *)memory_ptr;
 
-    /* Restore persisted configuration before the Motor thread starts running.
-     * Missing or invalid records leave the compiled defaults in place. */
-    (void)NVS_Storage_Load_All();
+    /* Restore configuration before the Motor thread starts. Invalid scalar
+     * records keep defaults; a rejected model leaves ESO/calibration invalid. */
+    (void)NVS_Storage_Load(NVS_ALL);
 
     if (tx_semaphore_create(&Motor_Sem, "Motor Semaphore", 0U) != TX_SUCCESS)
     {

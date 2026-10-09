@@ -42,7 +42,9 @@ typedef struct
 extern Mechanical_ESO_T Mechanical_ESO;
 extern float Mechanical_ESO_Bw_Hz;
 
-bool Mechanical_ESO_Config(float J, float B, float Kt, float Wo);
+/* Pure coefficient calculation; writes Result only on success. */
+bool Mechanical_ESO_Para_Build(Mechanical_ESO_Para_T *Result,
+                                float J, float B, float Kt, float Wo);
 /* Theta_Meas is the direction-corrected single-turn mechanical angle. */
 FAST_CODE void Mechanical_ESO_Run(float Theta_Meas, bool Position_Valid, float Iq);
 float Mechanical_ESO_Wm_Get(void);
