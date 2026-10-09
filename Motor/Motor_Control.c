@@ -18,6 +18,7 @@
 #include "Motion_Loop.h"
 #include "Open_Loop.h"
 #include "Ramp.h"
+#include "SCurve.h"
 #include "Sensorless.h"
 #include "Servo_Phase.h"
 #include "Trapezoid.h"
@@ -50,6 +51,7 @@ static volatile Motor_State_e Motor_State = DISABLED;
 
 static Current_Ref_T Current_Ref = { 0 };
 static Motion_Ref_T Motion_Ref = { 0 };
+static SCurve_T SCurve = { 0 };
 static float Wm_Ref = 0.0f;
 static float We_Ref = 0.0f;
 static float Sensorless_We_Target = 0.0f;
@@ -124,6 +126,7 @@ static void Motion_State_Reset(void)
     Wm_Ref = 0.0f;
     We_Ref = 0.0f;
     Trapezoid_Reset(&Motion_Ref, Motor_Run.Turn, Motor_Run.Theta_m, 0.0f);
+    SCurve = (SCurve_T){ 0 };
     Pos_Div = 0U;
 }
 
@@ -192,6 +195,8 @@ void Motor_Control(void)
     float Iq_Min;
     float Iq_Max;
     float Wm_Corr;
+    float Iq_Target;
+    float Iq_Step;
     Motor_Limit_T Lim;
 
     if (Motor_State == DISABLED)
@@ -227,108 +232,84 @@ void Motor_Control(void)
 
     Motor_Limit_Get(&Lim);
 
-    if ((Motor_Mode == SPEED) || (Motor_Mode == OPEN_LOOP))
+    switch (Motor_Mode)
     {
-        if (Stop_Pending)
-        {
-            Wm_Target = 0.0f;
-        }
-        else
-        {
-            Wm_Target = (Motor_State == RUN) ? Motor_User_To_Internal(Motor_Cmd.Wm_Target) : 0.0f;
+        case OPEN_LOOP:
+            Wm_Target = ((Motor_State == RUN) && !Stop_Pending) ?
+                        Motor_User_To_Internal(Motor_Cmd.Wm_Target) : 0.0f;
             Limit_Value(&Wm_Target, -Lim.Wm_Max, Lim.Wm_Max);
-        }
-
-        Ramp_Run(&Motion_Ref, Wm_Target, Motion_Config.Wm_Acc, Motion_Config.Wm_Dec, SPD_TS);
-        Wm_Ref = Motion_Ref.Wm;
-        We_Ref = (float)Motor_Para.Pp * Wm_Ref;
-
-        if (Stop_Pending && (Motion_Ref.Wm == 0.0f))
-        {
-            Stop_Pending = false;
-            Motor_State = ENABLED;
-        }
-    }
-    else if (Motor_Mode == SENSORLESS_SPEED)
-    {
-        if (Sensorless_State_Get() == SL_FAILED)
-        {
-            NonServo_Enabled_Apply();
-            return;
-        }
-
-        if (Stop_Pending)
-        {
-            Wm_Target = 0.0f;
-        }
-        else
-        {
-            Wm_Target = (Motor_State == RUN) ? Motor_User_To_Internal(Motor_Cmd.Wm_Target) : 0.0f;
-            Limit_Value(&Wm_Target, -Lim.Wm_Max, Lim.Wm_Max);
-        }
-
-        Sensorless_We_Target = (float)Motor_Para.Pp * Wm_Target;
-
-        if (Sensorless_Profile_Active && !Sensorless_Speed_Control_Active())
-        {
-            Sensorless_Profile_Active = false;
-        }
-
-        if (!Sensorless_Profile_Active && Sensorless_Speed_Control_Active())
-        {
-            Wm_Ref = Sensorless_Wm_Get();
-            Ramp_Reset(&Motion_Ref, Wm_Ref);
-            Sensorless_Profile_Active = true;
-        }
-
-        if (Sensorless_Profile_Active)
-        {
             Ramp_Run(&Motion_Ref, Wm_Target, Motion_Config.Wm_Acc, Motion_Config.Wm_Dec, SPD_TS);
             Wm_Ref = Motion_Ref.Wm;
-        }
-        else
-        {
-            Wm_Ref = Sensorless_Wm_Get();
-        }
+            We_Ref = (float)Motor_Para.Pp * Wm_Ref;
 
-        We_Ref = (float)Motor_Para.Pp * Wm_Ref;
+            Current_Ref.Id = 0.0f;
+            Current_Ref.Iq = 0.0f;
+            return;
 
-        if (Stop_Pending && (Wm_Ref == 0.0f))
-        {
-            if (Sensorless_Stop_Delay_Cnt < SENSORLESS_STOP_DELAY_TICKS)
-            {
-                Sensorless_Stop_Delay_Cnt++;
-            }
-
-            if (Sensorless_Stop_Delay_Cnt >= SENSORLESS_STOP_DELAY_TICKS)
+        case SENSORLESS_SPEED:
+            if (Sensorless_State_Get() == SL_FAILED)
             {
                 NonServo_Enabled_Apply();
+                return;
             }
-        }
-        else
-        {
-            Sensorless_Stop_Delay_Cnt = 0U;
-        }
-    }
 
-    if (Motor_Mode == OPEN_LOOP)
-    {
-        Current_Ref.Id = 0.0f;
-        Current_Ref.Iq = 0.0f;
-        return;
-    }
+            Wm_Target = ((Motor_State == RUN) && !Stop_Pending) ?
+                        Motor_User_To_Internal(Motor_Cmd.Wm_Target) : 0.0f;
+            Limit_Value(&Wm_Target, -Lim.Wm_Max, Lim.Wm_Max);
+            Sensorless_We_Target = (float)Motor_Para.Pp * Wm_Target;
 
-    if (Motor_Mode == SENSORLESS_SPEED)
-    {
-        Current_Ref.Id = 0.0f;
-        Current_Ref.Iq = 0.0f;
+            if (Sensorless_Profile_Active && !Sensorless_Speed_Control_Active())
+            {
+                Sensorless_Profile_Active = false;
+            }
 
-        if (Motor_State == RUN)
-        {
-            Sensorless_Control(We_Ref, -Lim.I_Max, Lim.I_Max);
-        }
+            if (!Sensorless_Profile_Active && Sensorless_Speed_Control_Active())
+            {
+                Wm_Ref = Sensorless_Wm_Get();
+                Ramp_Reset(&Motion_Ref, Wm_Ref);
+                Sensorless_Profile_Active = true;
+            }
 
-        return;
+            if (Sensorless_Profile_Active)
+            {
+                Ramp_Run(&Motion_Ref, Wm_Target, Motion_Config.Wm_Acc, Motion_Config.Wm_Dec, SPD_TS);
+                Wm_Ref = Motion_Ref.Wm;
+            }
+            else
+            {
+                Wm_Ref = Sensorless_Wm_Get();
+            }
+
+            We_Ref = (float)Motor_Para.Pp * Wm_Ref;
+
+            if (Stop_Pending && (Wm_Ref == 0.0f))
+            {
+                if (Sensorless_Stop_Delay_Cnt < SENSORLESS_STOP_DELAY_TICKS)
+                {
+                    Sensorless_Stop_Delay_Cnt++;
+                }
+
+                if (Sensorless_Stop_Delay_Cnt >= SENSORLESS_STOP_DELAY_TICKS)
+                {
+                    NonServo_Enabled_Apply();
+                }
+            }
+            else
+            {
+                Sensorless_Stop_Delay_Cnt = 0U;
+            }
+
+            Current_Ref.Id = 0.0f;
+            Current_Ref.Iq = 0.0f;
+
+            if (Motor_State == RUN)
+            {
+                Sensorless_Control(We_Ref, -Lim.I_Max, Lim.I_Max);
+            }
+            return;
+
+        default:
+            break;
     }
 
     Current_Ref.Id = 0.0f;
@@ -356,28 +337,59 @@ void Motor_Control(void)
     switch (Motor_Mode)
     {
         case TORQUE:
-            if (Motor_State == RUN)
+            Kt = 1.5f * (float)Motor_Para.Pp * Motor_Para.Flux;
+            if ((Motor_State == RUN) && __builtin_isfinite(Kt) && (Kt > 0.0f))
             {
-                Kt = 1.5f * (float)Motor_Para.Pp * Motor_Para.Flux;
-
-                if (!__builtin_isfinite(Kt) || (Kt <= 0.0f))
-                {
-                    Current_Ref.Iq = 0.0f;
-                    break;
-                }
-
                 Te_Max = Kt * Lim.I_Max;
-                Te_Ref = Motor_User_To_Internal(Motor_Cmd.Te_Target);
+                Te_Ref = Stop_Pending ? 0.0f : Motor_User_To_Internal(Motor_Cmd.Te_Target);
                 Limit_Value(&Te_Ref, -Te_Max, Te_Max);
-                Current_Ref.Iq = Te_Ref / Kt;
+                Iq_Target = Te_Ref / Kt;
+                if (Motion_Config.Te_Rate > 0.0f)
+                {
+                    /* Continue from the current-limited reference, without a second
+                     * torque state that could run ahead during saturation. */
+                    Iq_Step = Motion_Config.Te_Rate * SPD_TS / Kt;
+                    Limit_Value(&Iq_Target, Current_Ref.Iq - Iq_Step, Current_Ref.Iq + Iq_Step);
+                }
+                Current_Ref.Iq = Iq_Target;
             }
             else
             {
                 Current_Ref.Iq = 0.0f;
             }
-            break;
+
+            /* Stop completes on the reference actually passed to the current loop. */
+            Limit_Value(&Current_Ref.Iq, Iq_Min, Iq_Max);
+            if (Stop_Pending && (Current_Ref.Iq == 0.0f))
+            {
+                Stop_Pending = false;
+                Motor_State = ENABLED;
+            }
+            return;
 
         case SPEED:
+            Wm_Target = ((Motor_State == RUN) && !Stop_Pending) ?
+                        Motor_User_To_Internal(Motor_Cmd.Wm_Target) : 0.0f;
+            Limit_Value(&Wm_Target, -Lim.Wm_Max, Lim.Wm_Max);
+            if (Motion_Config.Profile == MOTION_TRAPEZOID)
+            {
+                Ramp_Run(&Motion_Ref, Wm_Target, Motion_Config.Wm_Acc, Motion_Config.Wm_Dec, SPD_TS);
+            }
+            else
+            {
+                SCurve_Speed(&SCurve, &Motion_Ref, Wm_Target,
+                             Motion_Config.Wm_Acc, Motion_Config.Wm_Dec, Motion_Config.Profile, SPD_TS);
+            }
+            Wm_Ref = Motion_Ref.Wm;
+            We_Ref = (float)Motor_Para.Pp * Wm_Ref;
+
+            if (Stop_Pending && (Motion_Ref.Wm == 0.0f) &&
+                ((Motion_Config.Profile == MOTION_TRAPEZOID) || (SCurve.Count == 0U)))
+            {
+                Stop_Pending = false;
+                Motor_State = ENABLED;
+            }
+
             Current_Ref.Iq = Speed_Loop(We_Ref, We_Fbk, Iq_Min, Iq_Max);
             break;
 
@@ -386,7 +398,19 @@ void Motor_Control(void)
             {
                 if (Stop_Pending)
                 {
-                    if (Trapezoid_Stop(&Motion_Ref, Motion_Config.Wm_Dec, POS_TS))
+                    bool Stopped;
+
+                    if (Motion_Config.Profile == MOTION_TRAPEZOID)
+                    {
+                        Stopped = Trapezoid_Stop(&Motion_Ref, Motion_Config.Wm_Dec, POS_TS);
+                    }
+                    else
+                    {
+                        SCurve_Speed(&SCurve, &Motion_Ref, 0.0f,
+                                     Motion_Config.Wm_Acc, Motion_Config.Wm_Dec, Motion_Config.Profile, POS_TS);
+                        Stopped = (SCurve.Count == 0U) && (Motion_Ref.Wm == 0.0f);
+                    }
+                    if (Stopped)
                     {
                         Stop_Pending = false;
                         Motor_State = ENABLED;
@@ -402,13 +426,22 @@ void Motor_Control(void)
                      * supplies magnitude. Zero brakes the trajectory in place. */
                     Wm_Target = __builtin_fabsf(Motor_Cmd.Wm_Target);
                     Limit_Value(&Wm_Target, 0.0f, Lim.Wm_Max);
-                    Trapezoid_Run(&Motion_Ref,
-                                  Pos_Turn_Target,
-                                  Pos_Theta_Target,
-                                  Wm_Target,
-                                  Motion_Config.Wm_Acc,
-                                  Motion_Config.Wm_Dec,
-                                  POS_TS);
+                    if (Motion_Config.Profile == MOTION_TRAPEZOID)
+                    {
+                        Trapezoid_Run(&Motion_Ref,
+                                      Pos_Turn_Target,
+                                      Pos_Theta_Target,
+                                      Wm_Target,
+                                      Motion_Config.Wm_Acc,
+                                      Motion_Config.Wm_Dec,
+                                      POS_TS);
+                    }
+                    else
+                    {
+                        SCurve_Position(&SCurve, &Motion_Ref, Pos_Turn_Target, Pos_Theta_Target,
+                                        Wm_Target, Motion_Config.Wm_Acc, Motion_Config.Wm_Dec,
+                                        Motion_Config.Profile, POS_TS);
+                    }
                 }
 
                 Wm_Corr = Position_Loop(Motion_Ref.Turn, Motion_Ref.Theta, -Lim.Wm_Max, Lim.Wm_Max);
@@ -446,31 +479,27 @@ Motor_Fast_Mode_e Motor_Fast_Run(float *Theta_e,
         return FAST_OFF;
     }
 
+    /* Sensored modes retain current control while ENABLED for servo holding. */
+    if (Servo_Mode())
+    {
+        *Theta_e = Encoder_Theta_e();
+        *Id_Ref = Current_Ref.Id;
+        *Iq_Ref = Current_Ref.Iq;
+        return FAST_CURRENT;
+    }
+
+    if (Motor_State != RUN)
+    {
+        return FAST_OFF;
+    }
+
     switch (Motor_Mode)
     {
-        case TORQUE:
-        case SPEED:
-        case POSITION:
-            *Theta_e = Encoder_Theta_e();
-            *Id_Ref = Current_Ref.Id;
-            *Iq_Ref = Current_Ref.Iq;
-            return FAST_CURRENT;
-
         case OPEN_LOOP:
-            if (Motor_State != RUN)
-            {
-                return FAST_OFF;
-            }
-
             Open_Loop(We_Ref, Theta_e, Id_Ref, Iq_Ref);
             return FAST_CURRENT;
 
         case IDENT:
-            if (Motor_State != RUN)
-            {
-                return FAST_OFF;
-            }
-
             return Identification_Fast_Run(ADC.Ia_A,
                                            ADC.Ib_A,
                                            ADC.Ic_A,
@@ -481,20 +510,10 @@ Motor_Fast_Mode_e Motor_Fast_Run(float *Theta_e,
                                            Ubeta);
 
         case SENSORLESS_SPEED:
-            if (Motor_State != RUN)
-            {
-                return FAST_OFF;
-            }
-
             Sensorless_Run(ADC.Ia_A, ADC.Ib_A, Sensorless_We_Target, Theta_e, Id_Ref, Iq_Ref);
             return FAST_CURRENT;
 
         case PHASE_SEARCH:
-            if (Motor_State != RUN)
-            {
-                return FAST_OFF;
-            }
-
             return Servo_Phase_Fast_Run(Theta_e, Id_Ref, Iq_Ref, Ualpha, Ubeta);
 
         default:
@@ -652,7 +671,8 @@ void Motor_Stop(void)
         return;
     }
 
-    if ((Motor_Mode == SPEED) || (Motor_Mode == POSITION) || (Motor_Mode == SENSORLESS_SPEED))
+    if ((Motor_Mode == TORQUE) || (Motor_Mode == SPEED) ||
+        (Motor_Mode == POSITION) || (Motor_Mode == SENSORLESS_SPEED))
     {
         if (Motor_Mode == SENSORLESS_SPEED)
         {

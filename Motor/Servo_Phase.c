@@ -118,8 +118,14 @@ static void Fail(Servo_Phase_Fail_e Reason)
 
 static bool Calibration_Save(void)
 {
+    const uint16_t Valid_Id = PARAM_CAL_VALID;
+    const uint16_t Ids[] = {
+        PARAM_MOTOR_PP, PARAM_ENCODER_PROTOCOL, PARAM_ENCODER_SPI_TYPE,
+        PARAM_CAL_ENC_DIR, PARAM_CAL_THETA_OFF, PARAM_CAL_VALID,
+    };
+
     Motor_Cal.Valid = 0U;
-    if (NVS_Storage_Save(PARAM_CAL_VALID) != 0)
+    if (NVS_Storage_Save(&Valid_Id, 1U, NVS_INCLUDE) != 0)
     {
         Motor_Cal.Valid = 1U;
         return false;
@@ -127,12 +133,7 @@ static bool Calibration_Save(void)
 
     Motor_Cal.Valid = 1U;
 
-    if ((NVS_Storage_Save(PARAM_MOTOR_PP) != 0) ||
-        (NVS_Storage_Save(PARAM_ENCODER_PROTOCOL) != 0) ||
-        (NVS_Storage_Save(PARAM_ENCODER_SPI_TYPE) != 0) ||
-        (NVS_Storage_Save(PARAM_CAL_ENC_DIR) != 0) ||
-        (NVS_Storage_Save(PARAM_CAL_THETA_OFF) != 0) ||
-        (NVS_Storage_Save(PARAM_CAL_VALID) != 0))
+    if (NVS_Storage_Save(Ids, sizeof(Ids) / sizeof(Ids[0]), NVS_INCLUDE) != 0)
     {
         return false;
     }

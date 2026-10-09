@@ -67,6 +67,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Motion/Motion.c
     Motion/Ramp.c
     Motion/Trapezoid.c
+    Motion/SCurve.c
     Motor/Motor_ADC.c
     Motor/Encoder.c
     Motor/Encoder_Drv/MT6816.c
