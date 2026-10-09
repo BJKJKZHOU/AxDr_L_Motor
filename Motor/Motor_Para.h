@@ -51,6 +51,7 @@ extern Speed_Manual_T Speed_Manual;
 extern float Control_Current_Bw_Hz;
 extern float Control_Speed_Bw_Hz;
 extern uint8_t Control_Current_Tune_Source;
+extern uint8_t Current_FF_Enable;
 extern uint8_t Control_Speed_Tune_Source;
 
 void Current_Tuning_Update(void);

@@ -812,6 +812,17 @@ objects:
     allowed_symbols: [CTRL_TUNE_BANDWIDTH, CTRL_TUNE_MANUAL]
     on_change: CURRENT_SOURCE
 
+  PARAM_CTRL_CURRENT_FF_ENABLE:
+    id: 0x0A07
+    type: u8
+    access: rw
+    persistent: true
+    binding: Current_FF_Enable
+    label: Current dq Feedforward
+    description: "有感Torque/Speed/Position模式的dq交叉耦合与反电动势前馈；0关闭(默认)，1开启，使用机械ESO转速及电机Ld/Lq/Flux。"
+    write_state: not_running
+    allowed: [0, 1]
+
   PARAM_CTRL_SPEED_BW_HZ:
     id: 0x0A10
     type: f32

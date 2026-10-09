@@ -5,11 +5,15 @@
 
 #include "Motor_ADC.h"
 
+#include <stdbool.h>
+
 #include "Plot.h"
 #include "Current_Loop.h"
 #include "Encoder.h"
 #include "Mechanical_ESO.h"
+#include "Math.h"
 #include "Motor_Control.h"
+#include "Motor_Para.h"
 #include "Motor_PWM.h"
 #include "Protection.h"
 #include "Sin_LUT.h"
@@ -105,7 +109,17 @@ static void Iab_Calib(void)
 void Fast_Loop(void)
 {
     Motor_Fast_Mode_e Fast_Mode;
+    bool Current_OK;
+    bool Encoder_Park_Valid;
     float Theta_e;
+    float Ialpha;
+    float Ibeta;
+    float Sin;
+    float Cos;
+    float Iq_Encoder;
+    float Ud;
+    float Uq;
+    float U_Lim;
     float Id_Ref;
     float Iq_Ref;
     float Ualpha;
@@ -133,7 +147,32 @@ void Fast_Loop(void)
     ADC.Ic_A = -(ADC.Ia_A + ADC.Ib_A);
     ADC.Vbus_V = (float)ADC.Vbus_Raw * VBUS_RAW_TO_V;
 
-    if (!Protection_Current_Fast(ADC.Ia_A, ADC.Ib_A, ADC.Ic_A))
+    Ialpha = ADC.Ia_A;
+    Ibeta = (ADC.Ia_A + 2.0f * ADC.Ib_A) * INV_SQRT3_F;
+    Encoder_Park_Valid = false;
+    Iq_Encoder = 0.0f;
+
+    /* Check current protection before observer work; trip disables PWM here. */
+    Current_OK = Protection_Current_Fast(ADC.Ia_A, ADC.Ib_A, ADC.Ic_A);
+
+    /* Feedback remains live with PWM off and in every control mode. */
+    if ((Encoder.Ready != 0U) && (Encoder.Fault == 0U) &&
+        (Mechanical_ESO.Para.Valid != 0U))
+    {
+        float Theta_m = Encoder.Theta_m;
+
+        if (Motor_Cal.Valid != 0U)
+        {
+            /* ESO uses the encoder frame, including coast current. */
+            SinCos(Angle_Wrap((float)Motor_Para.Pp * Theta_m + Motor_Cal.Theta_Off), &Sin, &Cos);
+            Iq_Encoder = -Ialpha * Sin + Ibeta * Cos;
+            Encoder_Park_Valid = true;
+        }
+
+        Mechanical_ESO_Run(Theta_m, Encoder.Valid != 0U, Iq_Encoder);
+    }
+
+    if (!Current_OK)
     {
         Motor_Run.Ualpha = 0.0f;
         Motor_Run.Ubeta = 0.0f;
@@ -160,8 +199,39 @@ void Fast_Loop(void)
 
     if (Fast_Mode == FAST_CURRENT)
     {
+        /* Motor_Fast_Run may use the previous-cycle dq values (IF/ident).
+         * Publish this sample only after it has selected the FOC angle. */
+        /* Only the three sensored servo modes use the encoder FOC frame. */
+        if (!Encoder_Park_Valid || (Motor_Mode > POSITION))
+        {
+            SinCos(Theta_e, &Sin, &Cos);
+            Motor_Run.Iq = -Ialpha * Sin + Ibeta * Cos;
+        }
+        else
+        {
+            Motor_Run.Iq = Iq_Encoder;
+        }
+        Motor_Run.Id = Ialpha * Cos + Ibeta * Sin;
         Motor_Run.Theta_e = Theta_e;
-        Current_Loop(Id_Ref, Iq_Ref, &Ualpha, &Ubeta);
+
+        U_Lim = ADC.Vbus_V * INV_SQRT3_F * VOLT_MOD_MAX;
+        Current_Loop(Id_Ref, Iq_Ref, U_Lim, &Ud, &Uq);
+
+        /* Encoder servo dq decoupling and back-EMF feedforward. */
+        if ((Current_FF_Enable != 0U) && (Motor_Mode <= POSITION) && Encoder_Park_Valid)
+        {
+            float We = (float)Motor_Para.Pp * Mechanical_ESO.State.Wm;
+
+            Ud -= We * Motor_Para.Lq * Motor_Run.Iq;
+            Uq += We * (Motor_Para.Ld * Motor_Run.Id + Motor_Para.Flux);
+        }
+
+        Vector2_Limit(&Ud, &Uq, U_Lim);
+
+        Motor_Run.Ud = Ud;
+        Motor_Run.Uq = Uq;
+        Ualpha = Ud * Cos - Uq * Sin;
+        Ubeta = Ud * Sin + Uq * Cos;
     }
 
     Motor_Run.Ualpha = Ualpha;
@@ -171,27 +241,6 @@ void Fast_Loop(void)
     PWM_Update(DutyA, DutyB, DutyC);
 
 finish:
-    /* Feedback remains live with PWM off and in every control mode. */
-    if ((Encoder.Ready != 0U) && (Encoder.Fault == 0U) &&
-        (Mechanical_ESO.Para.Valid != 0U))
-    {
-        float Theta_m = Encoder.Theta_m;
-        float Iq = 0.0f;
-
-        if (Motor_Cal.Valid != 0U)
-        {
-            float Sin;
-            float Cos;
-
-            /* Use this ADC sample in the encoder dq frame, including coast
-             * current; the control-mode Iq may be stale or use another angle. */
-            SinCos(Angle_Wrap((float)Motor_Para.Pp * Theta_m + Motor_Cal.Theta_Off), &Sin, &Cos);
-            Iq = -ADC.Ia_A * Sin + (ADC.Ia_A + 2.0f * ADC.Ib_A) * INV_SQRT3_F * Cos;
-        }
-
-        Mechanical_ESO_Run(Theta_m, Encoder.Valid != 0U, Iq);
-    }
-
     Plot_Fast_Sample();
     Cyc = DWT->CYCCNT - T0;
     Fast_Time.ADC_Run_Cyc = Cyc;
