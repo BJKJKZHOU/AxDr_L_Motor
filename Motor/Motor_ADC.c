@@ -182,7 +182,7 @@ void Fast_Loop(void)
     }
 
     Fast_Mode = Motor_Fast_Run(&Theta_e, &Id_Ref, &Iq_Ref, &Ualpha, &Ubeta);
-    Motor_Plot_Iq_Ref = 0.0f;
+    Motor_Plot_Iq_Ref = Iq_Ref;
 
     if (Fast_Mode == FAST_OFF)
     {

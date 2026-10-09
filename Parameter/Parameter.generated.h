@@ -133,10 +133,10 @@ typedef enum
     /* Motor_Cal.Theta_Off: 寻相/校准得到的编码器到电角度的零位偏置。 */
     PARAM_CAL_THETA_OFF = 0x0404U,
 
-    /* Servo_Phase_Theta_Off_Error_Get(): 最近一次伺服寻相正反扫描得到的电角零偏一致性误差。 */
+    /* Servo_Phase_Theta_Off_Error_Get(): 旧寻相诊断字段，现已停用；简化寻相后恒为0。 */
     PARAM_PHASE_THETA_OFF_ERROR = 0x0410U,
 
-    /* Servo_Phase_Verify_Move_Get(): 最近一次伺服寻相最终正Iq方向验证得到的机械位移。 */
+    /* Servo_Phase_Verify_Move_Get(): 已停用的寻相诊断字段；简化寻相不再执行正Iq验证，此值恒为0。 */
     PARAM_PHASE_VERIFY_MOVE = 0x0411U,
 
     /* Parameter_Run_Position_Get(): 当前用户机械坐标下的位置反馈。 */

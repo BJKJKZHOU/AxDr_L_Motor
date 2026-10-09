@@ -456,7 +456,7 @@ objects:
     getter: Servo_Phase_Theta_Off_Error_Get
     label: Phase Offset Error
     unit: rad
-    description: "最近一次伺服寻相正反扫描得到的电角零偏一致性误差。"
+    description: "旧寻相诊断字段，现已停用；简化寻相后恒为0。"
 
   PARAM_PHASE_VERIFY_MOVE:
     id: 0x0411
