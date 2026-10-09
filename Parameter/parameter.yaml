@@ -22,6 +22,7 @@ objects:
     unit: A
     description: "ADC采样得到的A相电流反馈。"
     plot: { modes: [fast, normal], fast_scale: 0.001 }
+
   PARAM_ADC_IB:
     id: 0x0002
     type: f32
@@ -31,6 +32,7 @@ objects:
     unit: A
     description: "ADC采样得到的B相电流反馈。"
     plot: { modes: [fast, normal], fast_scale: 0.001 }
+
   PARAM_ADC_IC:
     id: 0x0003
     type: f32
@@ -40,6 +42,7 @@ objects:
     unit: A
     description: "由相电流采样链得到的C相电流反馈。"
     plot: { modes: [fast, normal], fast_scale: 0.001 }
+
   PARAM_ADC_VBUS:
     id: 0x0004
     type: f32
@@ -49,6 +52,7 @@ objects:
     unit: V
     description: "直流母线电压采样值。"
     plot: { modes: [normal] }
+
   PARAM_RUN_ID:
     id: 0x0010
     type: f32
@@ -58,6 +62,7 @@ objects:
     unit: A
     description: "FOC Park变换后的d轴实际电流反馈。"
     plot: { modes: [fast, normal], fast_scale: 0.001 }
+
   PARAM_RUN_IQ:
     id: 0x0011
     type: f32
@@ -67,6 +72,7 @@ objects:
     unit: A
     description: "FOC Park变换后的q轴实际电流反馈。"
     plot: { modes: [fast, normal], fast_scale: 0.001 }
+
   PARAM_RUN_UD:
     id: 0x0012
     type: f32
@@ -76,6 +82,7 @@ objects:
     unit: V
     description: "FOC电流环输出的d轴电压。"
     plot: { modes: [fast, normal], fast_scale: 0.001 }
+
   PARAM_RUN_UQ:
     id: 0x0013
     type: f32
@@ -85,6 +92,7 @@ objects:
     unit: V
     description: "FOC电流环输出的q轴电压。"
     plot: { modes: [fast, normal], fast_scale: 0.001 }
+
   PARAM_RUN_THETA_E:
     id: 0x0014
     type: f32
@@ -94,6 +102,7 @@ objects:
     unit: rad
     description: "当前FOC实际使用的电角度。"
     plot: { modes: [fast, normal], fast_scale: 0.0002 }
+
   PARAM_RUN_UALPHA:
     id: 0x0015
     type: f32
@@ -103,6 +112,7 @@ objects:
     unit: V
     description: "上一快环实际送入SVPWM的alpha轴电压命令。"
     plot: { modes: [fast, normal], fast_scale: 0.001 }
+
   PARAM_RUN_UBETA:
     id: 0x0016
     type: f32
@@ -112,6 +122,7 @@ objects:
     unit: V
     description: "上一快环实际送入SVPWM的beta轴电压命令。"
     plot: { modes: [fast, normal], fast_scale: 0.001 }
+
   PARAM_OBS_THETA:
     id: 0x0020
     type: f32
@@ -121,6 +132,7 @@ objects:
     unit: rad
     description: "磁链观测器PLL估算的电角度。"
     plot: { modes: [fast, normal], fast_scale: 0.0002 }
+
   PARAM_OBS_WE:
     id: 0x0021
     type: f32
@@ -130,6 +142,7 @@ objects:
     unit: rad/s
     description: "磁链观测器PLL估算的电角速度。"
     plot: { modes: [fast, normal], fast_scale: 0.1 }
+
   PARAM_MECH_ESO_THETA:
     id: 0x0022
     type: f32
@@ -139,6 +152,7 @@ objects:
     unit: rad
     description: "Mechanical ESO估算的单圈机械角度，范围[0,2π)，仅用于诊断与波形对比。"
     plot: { modes: [fast, normal], fast_scale: 0.0002 }
+
   PARAM_MECH_ESO_WM:
     id: 0x0023
     type: f32
@@ -148,6 +162,7 @@ objects:
     unit: rad/s
     description: "Mechanical ESO估算的机械角速度。"
     plot: { modes: [fast, normal], fast_scale: 0.1 }
+
   PARAM_MECH_ESO_TD:
     id: 0x0024
     type: f32
@@ -157,6 +172,7 @@ objects:
     unit: N*m
     description: "Mechanical ESO估算的负载/扰动转矩，仅用于诊断。"
     plot: { modes: [fast, normal], fast_scale: 0.001 }
+
   PARAM_MECH_ESO_ERROR:
     id: 0x0025
     type: f32
@@ -166,6 +182,7 @@ objects:
     unit: rad
     description: "Mechanical ESO的单圈角度观测误差，Theta_meas-Theta_hat回绕到[-π,π)。"
     plot: { modes: [fast, normal], fast_scale: 0.0002 }
+
   PARAM_MOTOR_PP:
     id: 0x0101
     type: u8
@@ -415,9 +432,9 @@ objects:
     binding: Servo_Phase_Config.I_Search_A
     label: Phase Search Current
     unit: A
-    description: "伺服寻相过程使用的持续寻相电流。"
+    description: "伺服寻相两次静态ALIGN的Id电流及方向辨识起转的Iq电流；起转后Iq归零等待500ms。"
     write_state: disabled
-    range: { min: 0.0, exclusive_min: true, max_symbol: SERVO_PHASE_I_MAX_A }
+    range: { min: 0.0, exclusive_min: true }
 
   PARAM_CAL_VALID:
     id: 0x0402
@@ -456,16 +473,16 @@ objects:
     getter: Servo_Phase_Theta_Off_Error_Get
     label: Phase Offset Error
     unit: rad
-    description: "最近一次伺服寻相正反扫描得到的电角零偏一致性误差。"
+    description: "两次静态ALIGN计算得到的电角零位偏差，单位rad；最后一次成功计算后更新。"
 
   PARAM_PHASE_VERIFY_MOVE:
     id: 0x0411
     type: f32
     access: ro
     getter: Servo_Phase_Verify_Move_Get
-    label: Phase Verify Move
+    label: Phase Verify Move (retired)
     unit: rad
-    description: "最近一次伺服寻相最终正Iq方向验证得到的机械位移。"
+    description: "已停用的寻相诊断字段；简化寻相不再执行正Iq验证，此值恒为0。"
 
   PARAM_RUN_POSITION:
     id: 0x0501

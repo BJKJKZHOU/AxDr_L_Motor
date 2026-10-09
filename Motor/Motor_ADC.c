@@ -229,6 +229,11 @@ void Fast_Loop(void)
             }
         }
 
+        /* One command-current limit for every current-controlled mode, including
+         * phase search, I/F and the final injected d-axis reference. */
+        Vector2_Limit(&Id_Ref, &Iq_Ref, Motor_I_Limit_Effective_Get());
+        Motor_Plot_Iq_Ref = Iq_Ref;
+
         U_Lim = ADC.Vbus_V * INV_SQRT3_F * VOLT_MOD_MAX;
         Current_Loop(Id_Ref, Iq_Ref, U_Lim, &Ud, &Uq);
 

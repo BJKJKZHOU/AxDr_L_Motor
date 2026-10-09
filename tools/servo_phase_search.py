@@ -164,8 +164,8 @@ class PhaseSearch(base.IdentificationClient):
             "cal_valid": bool(self.parameter_read(base.PARAM_CAL_VALID, base.PARAM_U8)),
             "enc_dir": self.parameter_read(base.PARAM_CAL_ENC_DIR, PARAM_I8),
             "theta_off": self.parameter_read(base.PARAM_CAL_THETA_OFF, base.PARAM_FLOAT),
-            "verify_move": self.parameter_read(
-                base.PARAM_PHASE_VERIFY_MOVE, base.PARAM_FLOAT
+            "phase_offset_error": self.parameter_read(
+                base.PARAM_PHASE_THETA_OFF_ERROR, base.PARAM_FLOAT
             ),
             "i_search": self.parameter_read(
                 base.PARAM_PHASE_I_SEARCH, base.PARAM_FLOAT
@@ -216,7 +216,7 @@ def print_result(result):
     print(f"  Motor_Cal.Valid={int(result['cal_valid'])}")
     print(f"  Enc_Dir={result['enc_dir']:+d}")
     print(f"  Theta_Off={result['theta_off']:+.6f} rad")
-    print(f"  Verify_Move={result['verify_move']:+.6f} rad")
+    print(f"  Phase_Offset_Error={result['phase_offset_error']:+.6f} rad")
     print(f"  I_Search={result['i_search']:.3f} A")
 
 
@@ -240,7 +240,7 @@ def parse_args():
         help="optional user current limit applied before phase search",
     )
     parser.add_argument("--encoder-timeout", type=float, default=2.0)
-    parser.add_argument("--phase-timeout", type=float, default=8.0)
+    parser.add_argument("--phase-timeout", type=float, default=30.0)
     parser.add_argument("--poll-interval", type=float, default=0.05)
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=1.0)

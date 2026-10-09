@@ -207,10 +207,14 @@ void Motor_Control(void)
 
     if (Motor_Mode == PHASE_SEARCH)
     {
-        if ((Motor_State == RUN) && !Servo_Phase_Active())
+        if (Motor_State == RUN)
         {
-            NonServo_Enabled_Apply();
-            (void)Servo_Phase_Apply();
+            if (!Servo_Phase_Active())
+            {
+                /* Phase calibration is applied only while DISABLED. */
+                Disable_Apply();
+                (void)Servo_Phase_Apply();
+            }
         }
 
         return;
