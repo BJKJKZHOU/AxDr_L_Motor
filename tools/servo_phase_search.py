@@ -164,9 +164,6 @@ class PhaseSearch(base.IdentificationClient):
             "cal_valid": bool(self.parameter_read(base.PARAM_CAL_VALID, base.PARAM_U8)),
             "enc_dir": self.parameter_read(base.PARAM_CAL_ENC_DIR, PARAM_I8),
             "theta_off": self.parameter_read(base.PARAM_CAL_THETA_OFF, base.PARAM_FLOAT),
-            "verify_move": self.parameter_read(
-                base.PARAM_PHASE_VERIFY_MOVE, base.PARAM_FLOAT
-            ),
             "i_search": self.parameter_read(
                 base.PARAM_PHASE_I_SEARCH, base.PARAM_FLOAT
             ),
@@ -216,7 +213,6 @@ def print_result(result):
     print(f"  Motor_Cal.Valid={int(result['cal_valid'])}")
     print(f"  Enc_Dir={result['enc_dir']:+d}")
     print(f"  Theta_Off={result['theta_off']:+.6f} rad")
-    print(f"  Verify_Move={result['verify_move']:+.6f} rad")
     print(f"  I_Search={result['i_search']:.3f} A")
 
 

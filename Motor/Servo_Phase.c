@@ -14,38 +14,28 @@
 #include "motor_params.h"
 
 /*
- * Servo phase search establishes one self-consistent motor coordinate:
- *   encoder native direction -> internal mechanical direction
- *   encoder zero point -> electrical zero point
- *   +Iq -> internal positive mechanical motion
- *
- * The positive/negative scans are used only to establish and confirm motion
- * direction. Theta_Off is taken from the static ALIGN position after Enc_Dir
- * is known; it is not estimated from dynamic scan lag.
+ * Servo phase search establishes the encoder direction and electrical zero:
+ *   1. align rotor with a fixed electrical field,
+ *   2. turn that field one positive electrical revolution,
+ *   3. hold the field until the encoder angle is stable.
+ * No speed loop, sensorless observer or positive-Iq verification is required.
  */
-#define PHASE_SEARCH_I_DEFAULT_A   0.5f
-#define PHASE_VERIFY_I_RATIO       0.6f
-#define PHASE_ALIGN_TIME_S         0.5f
-#define PHASE_ALIGN_CNT            ((uint32_t)(PHASE_ALIGN_TIME_S / CUR_TS + 0.5f))
-#define PHASE_SEARCH_WE_RAD_S      TWO_PI_F
-#define PHASE_SEARCH_TRAVEL_RAD    TWO_PI_F
-#define PHASE_SEARCH_TIME_S        (PHASE_SEARCH_TRAVEL_RAD / PHASE_SEARCH_WE_RAD_S)
-#define PHASE_SEARCH_CNT           ((uint32_t)(PHASE_SEARCH_TIME_S / CUR_TS + 0.5f))
-#define PHASE_SEARCH_MOVE_RATIO    0.25f
-#define PHASE_SETTLE_TIME_S        0.25f
-#define PHASE_SETTLE_CNT           ((uint32_t)(PHASE_SETTLE_TIME_S / CUR_TS + 0.5f))
-#define PHASE_VERIFY_TIME_S        0.25f
-#define PHASE_VERIFY_CNT           ((uint32_t)(PHASE_VERIFY_TIME_S / CUR_TS + 0.5f))
-#define PHASE_VERIFY_MOVE_RAD      0.005f
+#define PHASE_SEARCH_I_DEFAULT_A  0.5f
+#define PHASE_SEARCH_WE_RAD_S     TWO_PI_F
+#define PHASE_SEARCH_TRAVEL_RAD   TWO_PI_F
+#define PHASE_SEARCH_MOVE_RATIO  0.25f
+#define PHASE_STABLE_DELTA_RAD   0.005f
+#define PHASE_STABLE_WINDOW_S    0.10f
+#define PHASE_WAIT_TIMEOUT_S     3.0f
+#define PHASE_STABLE_CNT         ((uint32_t)(PHASE_STABLE_WINDOW_S / CUR_TS + 0.5f))
+#define PHASE_WAIT_TIMEOUT_CNT   ((uint32_t)(PHASE_WAIT_TIMEOUT_S / CUR_TS + 0.5f))
 
 typedef enum
 {
     PHASE_IDLE = 0,
     PHASE_ALIGN,
-    PHASE_SEARCH_POS,
-    PHASE_SEARCH_NEG,
-    PHASE_SETTLE,
-    PHASE_VERIFY,
+    PHASE_SCAN,
+    PHASE_HOLD,
     PHASE_DONE,
     PHASE_FAILED,
 
@@ -54,14 +44,13 @@ typedef enum
 typedef struct
 {
     Servo_Phase_State_e State;
-    uint32_t Cnt;
+    uint32_t Wait_Cnt;
+    uint32_t Stable_Cnt;
     float Theta_Cmd;
-    float Theta_Native_Align;
     float Theta_Native_Pre;
+    float Stable_Theta;
     float Native_Delta;
-    float Verify_Delta;
     float I_Search_A;
-
     int8_t Enc_Dir;
     float Theta_Off;
 
@@ -99,6 +88,21 @@ static float Native_To_Internal(float Theta_Native)
     }
 
     return Theta_Native;
+}
+
+static bool Angle_Stable(float Theta)
+{
+    if (__builtin_fabsf(Angle_Delta(Theta, Phase.Stable_Theta)) > PHASE_STABLE_DELTA_RAD)
+    {
+        Phase.Stable_Theta = Theta;
+        Phase.Stable_Cnt = 0U;
+    }
+    else if (Phase.Stable_Cnt < PHASE_STABLE_CNT)
+    {
+        Phase.Stable_Cnt++;
+    }
+
+    return Phase.Stable_Cnt >= PHASE_STABLE_CNT;
 }
 
 static void Result_Snapshot(Servo_Phase_Result_State_e State, Servo_Phase_Fail_e Fail)
@@ -143,36 +147,7 @@ static bool Calibration_Save(void)
 
 bool Servo_Phase_Start(void)
 {
-    float I_Search;
-
     if ((Encoder.Ready == 0U) || (Encoder.Fault != 0U) || (Motor_Para.Pp == 0U))
-    {
-        return false;
-    }
-
-    I_Search = Servo_Phase_Config.I_Search_A;
-
-    if (!__builtin_isfinite(I_Search) || (I_Search <= 0.0f))
-    {
-        return false;
-    }
-
-    if (I_Search > SERVO_PHASE_I_MAX_A)
-    {
-        I_Search = SERVO_PHASE_I_MAX_A;
-    }
-
-    if (I_Search > Motor_Lim.I_Max)
-    {
-        I_Search = Motor_Lim.I_Max;
-    }
-
-    if (I_Search > User_Lim.I_Max)
-    {
-        I_Search = User_Lim.I_Max;
-    }
-
-    if (I_Search <= 0.0f)
     {
         return false;
     }
@@ -181,8 +156,9 @@ bool Servo_Phase_Start(void)
     Last_Result = (Servo_Phase_Result_T){ 0 };
     Last_Result.State = SERVO_PHASE_RESULT_RUNNING;
 
-    Phase.I_Search_A = I_Search;
-    Last_Result.I_Search_A = I_Search;
+    Phase.I_Search_A = Servo_Phase_Config.I_Search_A;
+    Phase.Stable_Theta = Encoder.Theta_Native;
+    Last_Result.I_Search_A = Phase.I_Search_A;
     Phase.State = PHASE_ALIGN;
 
     return true;
@@ -200,7 +176,7 @@ void Servo_Phase_Abort(void)
 
 bool Servo_Phase_Active(void)
 {
-    return (Phase.State >= PHASE_ALIGN) && (Phase.State <= PHASE_VERIFY);
+    return (Phase.State >= PHASE_ALIGN) && (Phase.State <= PHASE_HOLD);
 }
 
 bool Servo_Phase_Apply(void)
@@ -263,27 +239,36 @@ Motor_Fast_Mode_e Servo_Phase_Fast_Run(float *Theta_e,
             *Theta_e = 0.0f;
             *Id_Ref = Phase.I_Search_A;
 
-            if (++Phase.Cnt >= PHASE_ALIGN_CNT)
+            if (Angle_Stable(Encoder.Theta_Native))
             {
-                Phase.Cnt = 0U;
                 Phase.Theta_Cmd = 0.0f;
-                Phase.Theta_Native_Align = Encoder.Theta_Native;
                 Phase.Theta_Native_Pre = Encoder.Theta_Native;
                 Phase.Native_Delta = 0.0f;
-                Phase.State = PHASE_SEARCH_POS;
+                Phase.State = PHASE_SCAN;
+            }
+            else if (++Phase.Wait_Cnt >= PHASE_WAIT_TIMEOUT_CNT)
+            {
+                Fail(SERVO_PHASE_FAIL_ALIGN_TIMEOUT);
+                return FAST_OFF;
             }
             return FAST_CURRENT;
 
-        case PHASE_SEARCH_POS:
-            Phase.Theta_Cmd = Angle_Wrap(Phase.Theta_Cmd + PHASE_SEARCH_WE_RAD_S * CUR_TS);
-            *Theta_e = Phase.Theta_Cmd;
+        case PHASE_SCAN:
+            /* Keep the commanded travel unwrapped: completion is angular,
+             * not a fixed elapsed-time success condition. */
+            Phase.Theta_Cmd += PHASE_SEARCH_WE_RAD_S * CUR_TS;
+            if (Phase.Theta_Cmd > PHASE_SEARCH_TRAVEL_RAD)
+            {
+                Phase.Theta_Cmd = PHASE_SEARCH_TRAVEL_RAD;
+            }
+            *Theta_e = Angle_Wrap(Phase.Theta_Cmd);
             *Id_Ref = Phase.I_Search_A;
 
             Delta = Angle_Delta(Encoder.Theta_Native, Phase.Theta_Native_Pre);
             Phase.Theta_Native_Pre = Encoder.Theta_Native;
             Phase.Native_Delta += Delta;
 
-            if (++Phase.Cnt >= PHASE_SEARCH_CNT)
+            if (Phase.Theta_Cmd >= PHASE_SEARCH_TRAVEL_RAD)
             {
                 Move_Min = PHASE_SEARCH_MOVE_RATIO * PHASE_SEARCH_TRAVEL_RAD / (float)Motor_Para.Pp;
                 if (__builtin_fabsf(Phase.Native_Delta) < Move_Min)
@@ -296,79 +281,28 @@ Motor_Fast_Mode_e Servo_Phase_Fast_Run(float *Theta_e,
                 Phase.Enc_Dir = (Phase.Native_Delta > 0.0f) ? 1 : -1;
                 Last_Result.Enc_Dir = Phase.Enc_Dir;
                 Last_Result.Pos_Move = (float)Phase.Enc_Dir * Phase.Native_Delta;
-
-                Phase.Cnt = 0U;
-                Phase.Native_Delta = 0.0f;
-                Phase.Theta_Native_Pre = Encoder.Theta_Native;
-                Phase.State = PHASE_SEARCH_NEG;
+                Phase.Stable_Theta = Encoder.Theta_Native;
+                Phase.Stable_Cnt = 0U;
+                Phase.Wait_Cnt = 0U;
+                Phase.State = PHASE_HOLD;
             }
             return FAST_CURRENT;
 
-        case PHASE_SEARCH_NEG:
-            Phase.Theta_Cmd = Angle_Wrap(Phase.Theta_Cmd - PHASE_SEARCH_WE_RAD_S * CUR_TS);
-            *Theta_e = Phase.Theta_Cmd;
-            *Id_Ref = Phase.I_Search_A;
-
-            Delta = Angle_Delta(Encoder.Theta_Native, Phase.Theta_Native_Pre);
-            Phase.Theta_Native_Pre = Encoder.Theta_Native;
-            Phase.Native_Delta += (float)Phase.Enc_Dir * Delta;
-
-            if (++Phase.Cnt >= PHASE_SEARCH_CNT)
-            {
-                Move_Min = PHASE_SEARCH_MOVE_RATIO * PHASE_SEARCH_TRAVEL_RAD / (float)Motor_Para.Pp;
-                Last_Result.Neg_Move = Phase.Native_Delta;
-
-                if (Phase.Native_Delta > -Move_Min)
-                {
-                    Fail(SERVO_PHASE_FAIL_NO_NEG_MOVE);
-                    return FAST_OFF;
-                }
-
-                Theta_m_Align = Native_To_Internal(Phase.Theta_Native_Align);
-                Phase.Theta_Off = Angle_Wrap(-(float)Motor_Para.Pp * Theta_m_Align);
-                Last_Result.Theta_Off = Phase.Theta_Off;
-
-                Phase.Cnt = 0U;
-                Phase.Theta_Cmd = 0.0f;
-                Phase.Native_Delta = 0.0f;
-                Phase.Theta_Native_Pre = Encoder.Theta_Native;
-                Phase.State = PHASE_SETTLE;
-            }
-            return FAST_CURRENT;
-
-        case PHASE_SETTLE:
+        case PHASE_HOLD:
             *Theta_e = 0.0f;
             *Id_Ref = Phase.I_Search_A;
 
-            if (++Phase.Cnt >= PHASE_SETTLE_CNT)
+            if (Angle_Stable(Encoder.Theta_Native))
             {
-                Phase.Cnt = 0U;
-                Phase.Verify_Delta = 0.0f;
-                Phase.Theta_Native_Pre = Encoder.Theta_Native;
-                Phase.State = PHASE_VERIFY;
-            }
-            return FAST_CURRENT;
-
-        case PHASE_VERIFY:
-            *Theta_e = Angle_Wrap((float)Motor_Para.Pp * Native_To_Internal(Encoder.Theta_Native) + Phase.Theta_Off);
-            *Iq_Ref = PHASE_VERIFY_I_RATIO * Phase.I_Search_A;
-
-            Delta = Angle_Delta(Encoder.Theta_Native, Phase.Theta_Native_Pre);
-            Phase.Theta_Native_Pre = Encoder.Theta_Native;
-            Phase.Verify_Delta += (float)Phase.Enc_Dir * Delta;
-
-            if (++Phase.Cnt >= PHASE_VERIFY_CNT)
-            {
-                Last_Result.Verify_Move = Phase.Verify_Delta;
-
-                if (Phase.Verify_Delta <= PHASE_VERIFY_MOVE_RAD)
-                {
-                    Fail(SERVO_PHASE_FAIL_VERIFY_DIR);
-                    return FAST_OFF;
-                }
-
+                Theta_m_Align = Native_To_Internal(Encoder.Theta_Native);
+                Phase.Theta_Off = Angle_Wrap(-(float)Motor_Para.Pp * Theta_m_Align);
                 Phase.State = PHASE_DONE;
                 Result_Snapshot(SERVO_PHASE_RESULT_PASS, SERVO_PHASE_FAIL_NONE);
+                return FAST_OFF;
+            }
+            if (++Phase.Wait_Cnt >= PHASE_WAIT_TIMEOUT_CNT)
+            {
+                Fail(SERVO_PHASE_FAIL_HOLD_TIMEOUT);
                 return FAST_OFF;
             }
             return FAST_CURRENT;

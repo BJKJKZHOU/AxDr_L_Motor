@@ -417,7 +417,7 @@ objects:
     unit: A
     description: "伺服寻相过程使用的持续寻相电流。"
     write_state: disabled
-    range: { min: 0.0, exclusive_min: true, max_symbol: SERVO_PHASE_I_MAX_A }
+    range: { min: 0.0, exclusive_min: true }
 
   PARAM_CAL_VALID:
     id: 0x0402
@@ -463,9 +463,9 @@ objects:
     type: f32
     access: ro
     getter: Servo_Phase_Verify_Move_Get
-    label: Phase Verify Move
+    label: Phase Verify Move (retired)
     unit: rad
-    description: "最近一次伺服寻相最终正Iq方向验证得到的机械位移。"
+    description: "已停用的寻相诊断字段；简化寻相不再执行正Iq验证，此值恒为0。"
 
   PARAM_RUN_POSITION:
     id: 0x0501

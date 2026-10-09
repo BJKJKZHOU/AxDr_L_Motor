@@ -11,8 +11,6 @@
 
 #include "Motor_Type.h"
 
-#define SERVO_PHASE_I_MAX_A 2.0f
-
 typedef enum
 {
     SERVO_PHASE_RESULT_NONE = 0,
@@ -31,6 +29,8 @@ typedef enum
     SERVO_PHASE_FAIL_VERIFY_DIR,
     SERVO_PHASE_FAIL_ABORTED,
     SERVO_PHASE_FAIL_APPLY,
+    SERVO_PHASE_FAIL_ALIGN_TIMEOUT,
+    SERVO_PHASE_FAIL_HOLD_TIMEOUT,
 
 } Servo_Phase_Fail_e;
 
