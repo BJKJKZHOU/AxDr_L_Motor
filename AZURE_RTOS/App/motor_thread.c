@@ -15,6 +15,7 @@
 #include "Protocol.h"
 #include "Protection.h"
 #include "Servo_Phase.h"
+#include "Signal_Injection.h"
 #include "USB_Thread.h"
 #include "main.h"
 
@@ -299,6 +300,26 @@ static void Motor_Cmd_Run(void)
                     Action_Status = AXDR_ERR_CONFIG;
                 }
                 Motor_Action_Response(&Msg, Action_Status);
+                break;
+
+            case MOTOR_CMD_SIGNAL_START:
+                Action_Status = AXDR_OK;
+                if ((Motor_State_Get() != ENABLED) ||
+                    (Motor_Mode_Get() != TORQUE) ||
+                    !Protection_Enable_Allowed())
+                {
+                    Action_Status = AXDR_ERR_STATE;
+                }
+                else if (!Signal_Injection_Start(Motor_I_Limit_Effective_Get()))
+                {
+                    Action_Status = AXDR_ERR_CONFIG;
+                }
+                Motor_Action_Response(&Msg, Action_Status);
+                break;
+
+            case MOTOR_CMD_SIGNAL_ABORT:
+                Signal_Injection_Stop();
+                Motor_Action_Response(&Msg, AXDR_OK);
                 break;
 
             case MOTOR_CMD_PARAMETER_SAVE:

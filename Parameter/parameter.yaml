@@ -1001,3 +1001,91 @@ objects:
     binding: Speed_Ctrl.Para.Ki
     label: Speed Effective Ki
     description: "速度控制器当前实际使用的Ki，由Source选择生成；不保存。"
+
+  # Temporary frequency-response injection; never saved to NVS.
+  PARAM_SIGNAL_FREQ_HZ:
+    id: 0x0B01
+    type: f32
+    access: rw
+    binding: Signal_Injection.Para.Freq_Hz
+    label: Signal Frequency
+    unit: Hz
+    description: "有感d轴电流单频正弦激励频率；Start时锁存。"
+    write_state: not_running
+    range: { min: 0.0, exclusive_min: true, max: 5000.0 }
+
+  PARAM_SIGNAL_AMP_A:
+    id: 0x0B02
+    type: f32
+    access: rw
+    binding: Signal_Injection.Para.Amp_A
+    label: Signal Amplitude
+    unit: A
+    description: "有感d轴电流正弦激励峰值；Start时核对有效电流限值并锁存。"
+    write_state: not_running
+    range: { min: 0.0, exclusive_min: true }
+
+  PARAM_SIGNAL_TIME_S:
+    id: 0x0B03
+    type: f32
+    access: rw
+    binding: Signal_Injection.Para.Time_S
+    label: Signal Duration
+    unit: s
+    description: "单个激励频点的持续时间；到期自动结束，最大60秒。"
+    write_state: not_running
+    range: { min: 0.0, exclusive_min: true, max: 60.0 }
+
+  PARAM_SIGNAL_ACTIVE:
+    id: 0x0B04
+    type: u8
+    access: ro
+    binding: Signal_Injection.State.Active
+    label: Signal Active
+    description: "频率响应注入是否正在执行。"
+
+  PARAM_SIGNAL_OUT:
+    id: 0x0B05
+    type: f32
+    access: ro
+    binding: Signal_Injection.State.Out
+    label: Signal Injected
+    unit: A
+    description: "本次快环实际叠加的d轴激励；供FAST Plot同步定位激励时段。"
+    plot: { modes: [fast, normal], fast_scale: 0.001 }
+
+  PARAM_SIGNAL_ID_REF:
+    id: 0x0B06
+    type: f32
+    access: ro
+    binding: Id_Ctrl.Sig.Ref
+    label: Id Ref
+    unit: A
+    description: "实际进入d轴电流PI的参考（含信号激励）。"
+    plot: { modes: [fast, normal], fast_scale: 0.001 }
+
+  PARAM_SIGNAL_ID_PI_OUT:
+    id: 0x0B07
+    type: f32
+    access: ro
+    binding: Id_Ctrl.Sig.Out
+    label: Id PI Output
+    unit: V
+    description: "d轴PI电压输出，未叠加模型前馈、未经过最终dq二维限幅。"
+    plot: { modes: [fast, normal], fast_scale: 0.001 }
+
+  ACTION_SIGNAL_START:
+    id: 0x1301
+    type: action
+    access: wo
+    command: MOTOR_CMD_SIGNAL_START
+    label: Signal Start
+    description: "仅在有感TORQUE/ENABLED运行有限时长的d轴正弦激励。"
+
+  ACTION_SIGNAL_ABORT:
+    id: 0x1302
+    type: action
+    access: wo
+    command: MOTOR_CMD_SIGNAL_ABORT
+    label: Signal Abort
+    description: "立即取消激励，不改变正常Motor Stop/Disable状态。"

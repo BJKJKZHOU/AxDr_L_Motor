@@ -91,6 +91,14 @@
 { PARAM_CTRL_SPEED_KP_EFFECTIVE, PARAM_FLOAT, &Speed_Ctrl.Para.Kp, -INFINITY, INFINITY, 0U },
 { PARAM_CTRL_SPEED_KI_EFFECTIVE, PARAM_FLOAT, &Speed_Ctrl.Para.Ki, -INFINITY, INFINITY, 0U },
 
+{ PARAM_SIGNAL_FREQ_HZ, PARAM_FLOAT, &Signal_Injection.Para.Freq_Hz, 0.0f, 5000.0f, PARAM_FLAG_HOST_WRITE | PARAM_FLAG_NOT_RUNNING },
+{ PARAM_SIGNAL_AMP_A, PARAM_FLOAT, &Signal_Injection.Para.Amp_A, 0.0f, INFINITY, PARAM_FLAG_HOST_WRITE | PARAM_FLAG_NOT_RUNNING },
+{ PARAM_SIGNAL_TIME_S, PARAM_FLOAT, &Signal_Injection.Para.Time_S, 0.0f, 60.0f, PARAM_FLAG_HOST_WRITE | PARAM_FLAG_NOT_RUNNING },
+{ PARAM_SIGNAL_ACTIVE, PARAM_U8, &Signal_Injection.State.Active, -INFINITY, INFINITY, 0U },
+{ PARAM_SIGNAL_OUT, PARAM_FLOAT, &Signal_Injection.State.Out, -INFINITY, INFINITY, 0U },
+{ PARAM_SIGNAL_ID_REF, PARAM_FLOAT, &Id_Ctrl.Sig.Ref, -INFINITY, INFINITY, 0U },
+{ PARAM_SIGNAL_ID_PI_OUT, PARAM_FLOAT, &Id_Ctrl.Sig.Out, -INFINITY, INFINITY, 0U },
+
 #elif defined(PARAM_GENERATE_VALIDATE)
 case PARAM_MOTOR_RS:
     if ((Number <= 0.0f))
@@ -286,6 +294,26 @@ case PARAM_CTRL_SPEED_SOURCE:
     }
     break;
 
+case PARAM_SIGNAL_FREQ_HZ:
+    if ((Number <= 0.0f))
+    {
+        return PARAM_ERR_VALUE;
+    }
+    break;
+
+case PARAM_SIGNAL_AMP_A:
+    if ((Number <= 0.0f))
+    {
+        return PARAM_ERR_VALUE;
+    }
+    break;
+
+case PARAM_SIGNAL_TIME_S:
+    if ((Number <= 0.0f))
+    {
+        return PARAM_ERR_VALUE;
+    }
+    break;
 #elif defined(PARAM_GENERATE_ON_CHANGE)
 case PARAM_ENCODER_PROTOCOL:
 case PARAM_ENCODER_SPI_TYPE:
@@ -461,6 +489,16 @@ case ACTION_PARAMETER_SAVE:
     Msg.Arg = (ULONG)0U;
     break;
 
+case ACTION_SIGNAL_START:
+    Msg.Cmd = (ULONG)MOTOR_CMD_SIGNAL_START;
+    Msg.Arg = (ULONG)0U;
+    break;
+
+case ACTION_SIGNAL_ABORT:
+    Msg.Cmd = (ULONG)MOTOR_CMD_SIGNAL_ABORT;
+    Msg.Arg = (ULONG)0U;
+    break;
+
 #elif defined(PARAM_GENERATE_PLOT)
 case PARAM_ADC_IA:
     *Scale = 0.001f;
@@ -530,6 +568,17 @@ case PARAM_MECH_ESO_ERROR:
     *Scale = 0.0002f;
     return &Mechanical_ESO.State.Error;
 
+case PARAM_SIGNAL_OUT:
+    *Scale = 0.001f;
+    return &Signal_Injection.State.Out;
+
+case PARAM_SIGNAL_ID_REF:
+    *Scale = 0.001f;
+    return &Id_Ctrl.Sig.Ref;
+
+case PARAM_SIGNAL_ID_PI_OUT:
+    *Scale = 0.001f;
+    return &Id_Ctrl.Sig.Out;
 #else
 #error "Parameter.generated.inc section not selected"
 #endif

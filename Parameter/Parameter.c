@@ -25,6 +25,7 @@
 #include "Protection.h"
 #include "Sensorless.h"
 #include "Servo_Phase.h"
+#include "Signal_Injection.h"
 
 #define PARAM_FLAG_HOST_WRITE       (1U << 0)
 #define PARAM_FLAG_DISABLED_ONLY    (1U << 1)

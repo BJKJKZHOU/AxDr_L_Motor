@@ -21,6 +21,7 @@
 #include "SCurve.h"
 #include "Sensorless.h"
 #include "Servo_Phase.h"
+#include "Signal_Injection.h"
 #include "Trapezoid.h"
 #include "control_params.h"
 #include "motor_params.h"
@@ -620,6 +621,8 @@ void Motor_Start(void)
         return;
     }
 
+    Signal_Injection_Stop();
+
     /* Identification is entered only through Motor_Ident_Start(). */
     if (Motor_Mode == IDENT)
     {
@@ -666,6 +669,9 @@ void Motor_Start(void)
 
 void Motor_Stop(void)
 {
+    /* Stop cancels test excitation even when the servo is holding ENABLED. */
+    Signal_Injection_Stop();
+
     if (Motor_State != RUN)
     {
         return;
@@ -718,6 +724,8 @@ void Motor_Stop(void)
 
 void Motor_Disable(void)
 {
+    Signal_Injection_Stop();
+
     if (Motor_State == RUN)
     {
         Motor_Stop();
