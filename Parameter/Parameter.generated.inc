@@ -579,6 +579,7 @@ case PARAM_SIGNAL_ID_REF:
 case PARAM_SIGNAL_ID_PI_OUT:
     *Scale = 0.001f;
     return &Id_Ctrl.Sig.Out;
+
 #else
 #error "Parameter.generated.inc section not selected"
 #endif

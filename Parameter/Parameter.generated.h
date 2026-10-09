@@ -324,6 +324,7 @@ typedef enum
 
     /* Id_Ctrl.Sig.Out: d轴PI电压输出，未叠加模型前馈、未经过最终dq二维限幅。 */
     PARAM_SIGNAL_ID_PI_OUT = 0x0B07U,
+
     /* MOTOR_CMD_SIGNAL_START: 仅在有感TORQUE/ENABLED运行有限时长的d轴正弦激励。 */
     ACTION_SIGNAL_START = 0x1301U,
 
