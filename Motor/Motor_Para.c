@@ -27,109 +27,90 @@ Motor_Para_T Motor_Para = MOTOR_PARA_DEFAULT;
 float Control_Current_Bw_Hz = CUR_BW_HZ_DEFAULT;
 float Control_Speed_Bw_Hz = SPD_BW_HZ_DEFAULT;
 uint8_t Control_Current_Tune_Source = CTRL_TUNE_BANDWIDTH;
+uint8_t Current_FF_Enable = 0U;
 uint8_t Control_Speed_Tune_Source = CTRL_TUNE_BANDWIDTH;
+
+Current_Manual_T Current_Manual = {
+    .Id_Kp = ID_KP_DEFAULT, .Id_Ki = ID_KI_DEFAULT,
+    .Iq_Kp = IQ_KP_DEFAULT, .Iq_Ki = IQ_KI_DEFAULT,
+};
+Speed_Manual_T Speed_Manual = { .Kp = SPD_KP_DEFAULT, .Ki = SPD_KI_DEFAULT };
 
 static float IF_We_RL_Base = MOTOR_IF_WE_RL_RATIO * MOTOR_RS_DEFAULT / MOTOR_LQ_DEFAULT;
 
 void Current_Tuning_Update(void)
 {
-    float Wc;
+    Current_Manual_T Gain = Current_Manual;
+    uint32_t Primask;
 
-    Wc = TWO_PI_F * Control_Current_Bw_Hz;
+    if (Control_Current_Tune_Source == CTRL_TUNE_BANDWIDTH)
+    {
+        float Wc = TWO_PI_F * Control_Current_Bw_Hz;
 
-    Id_Ctrl.Para.Kp = Motor_Para.Ld * Wc;
-    Id_Ctrl.Para.Ki = Motor_Para.Rs * Wc;
-    Iq_Ctrl.Para.Kp = Motor_Para.Lq * Wc;
-    Iq_Ctrl.Para.Ki = Motor_Para.Rs * Wc;
+        Gain.Id_Kp = Motor_Para.Ld * Wc;
+        Gain.Id_Ki = Motor_Para.Rs * Wc;
+        Gain.Iq_Kp = Motor_Para.Lq * Wc;
+        Gain.Iq_Ki = Motor_Para.Rs * Wc;
+    }
+    /* The current ISR must see all four gains from the same tuning update. */
+    Primask = __get_PRIMASK();
+    __disable_irq();
+    Id_Ctrl.Para.Kp = Gain.Id_Kp;
+    Id_Ctrl.Para.Ki = Gain.Id_Ki;
+    Iq_Ctrl.Para.Kp = Gain.Iq_Kp;
+    Iq_Ctrl.Para.Ki = Gain.Iq_Ki;
+    __set_PRIMASK(Primask);
 }
 
 void Speed_Tuning_Update(void)
 {
-    float Wc;
-    float Kt;
-    float Den;
+    float Kp = Speed_Manual.Kp;
+    float Ki = Speed_Manual.Ki;
 
-    Wc = TWO_PI_F * Control_Speed_Bw_Hz;
-    Kt = 1.5f * (float)Motor_Para.Pp * Motor_Para.Flux;
-    Den = (float)Motor_Para.Pp * Kt;
-
-    if (Den > 0.0f)
-    {
-        Speed_Ctrl.Para.Kp = Motor_Para.J * Wc / Den;
-        Speed_Ctrl.Para.Ki = Motor_Para.B * Wc / Den;
-    }
-    else
-    {
-        Speed_Ctrl.Para.Kp = 0.0f;
-        Speed_Ctrl.Para.Ki = 0.0f;
-    }
-}
-
-void Current_Tuning_Source_Changed(void)
-{
-    if (Control_Current_Tune_Source == CTRL_TUNE_BANDWIDTH)
-    {
-        Current_Tuning_Update();
-    }
-}
-
-void Speed_Tuning_Source_Changed(void)
-{
     if (Control_Speed_Tune_Source == CTRL_TUNE_BANDWIDTH)
     {
-        Speed_Tuning_Update();
+        float Wc = TWO_PI_F * Control_Speed_Bw_Hz;
+        float Kt = 1.5f * (float)Motor_Para.Pp * Motor_Para.Flux;
+        float Den = (float)Motor_Para.Pp * Kt;
+
+        Kp = (Den > 0.0f) ? Motor_Para.J * Wc / Den : 0.0f;
+        Ki = (Den > 0.0f) ? Motor_Para.B * Wc / Den : 0.0f;
     }
+    Speed_Ctrl.Para.Kp = Kp;
+    Speed_Ctrl.Para.Ki = Ki;
 }
 
-void Mechanical_ESO_Tuning_Update(void)
+bool Motor_Para_Update(const Motor_Para_T *Para, float Eso_Bw_Hz)
 {
-    float Kt;
+    Mechanical_ESO_Para_T Eso;
+    float Kt = 1.5f * (float)Para->Pp * Para->Flux;
     uint32_t Primask;
 
-    Kt = 1.5f * (float)Motor_Para.Pp * Motor_Para.Flux;
-    /* ESO also runs while disabled: publish a coherent coefficient set. */
+    if (!Mechanical_ESO_Para_Build(&Eso, Para->J, Para->B, Kt,
+                                  TWO_PI_F * Eso_Bw_Hz))
+    {
+        return false;
+    }
+
+    /* Build outside the critical section. ESO runs even while disabled;
+     * publish its model and coefficients together without touching State. */
     Primask = __get_PRIMASK();
     __disable_irq();
-    (void)Mechanical_ESO_Config(Motor_Para.J,
-                                Motor_Para.B,
-                                Kt,
-                                TWO_PI_F * Mechanical_ESO_Bw_Hz);
+    if (Para->Pp != Motor_Para.Pp)
+    {
+        Motor_Cal_Invalidate();
+    }
+    Motor_Para = *Para;
+    Mechanical_ESO_Bw_Hz = Eso_Bw_Hz;
+    Mechanical_ESO.Para = Eso;
     __set_PRIMASK(Primask);
-}
 
-/*
- * Refresh runtime values derived from the active motor model.
- *
- * NVS restores persistent Parameter values without firing per-Parameter
- * on-change hooks; after the complete record set is restored, storage calls
- * this once so runtime state is built from one coherent configuration.
- *
- * Current and speed gains follow their persisted tuning source. Bandwidth
- * mode tracks Motor_Para changes; Manual mode keeps the user-written gains.
- */
-void Motor_Para_Update(void)
-{
     IF_We_RL_Base = (Motor_Para.Lq > 0.0f) ?
                         MOTOR_IF_WE_RL_RATIO * Motor_Para.Rs / Motor_Para.Lq :
                         0.0f;
-
-    if (Control_Current_Tune_Source == CTRL_TUNE_BANDWIDTH)
-    {
-        Current_Tuning_Update();
-    }
-
-    if (Control_Speed_Tune_Source == CTRL_TUNE_BANDWIDTH)
-    {
-        Speed_Tuning_Update();
-    }
-
-    Mechanical_ESO_Tuning_Update();
-}
-
-void Motor_Pp_Changed(void)
-{
-    Motor_Cal_Invalidate();
-    Motor_Para_Update();
+    Current_Tuning_Update();
+    Speed_Tuning_Update();
+    return true;
 }
 
 bool Motor_IF_Para_Build(float Vbus_V, float I_Max_A, Motor_IF_Para_T *Para)

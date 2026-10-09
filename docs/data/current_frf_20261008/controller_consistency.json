@@ -1,0 +1,530 @@
+[
+  {
+    "bw": 2000,
+    "frequency_hz": 20,
+    "controller_ratio_db": 0.026792177999081887,
+    "controller_ratio_phase_deg": 0.41908182475733935,
+    "plant_gain_db": 9.618379015456208,
+    "plant_phase_deg": -1.3216859874401536
+  },
+  {
+    "bw": 2000,
+    "frequency_hz": 40,
+    "controller_ratio_db": 0.021683617402701718,
+    "controller_ratio_phase_deg": 0.26664740317877256,
+    "plant_gain_db": 9.499677133978386,
+    "plant_phase_deg": -2.8762157184826704
+  },
+  {
+    "bw": 2000,
+    "frequency_hz": 70,
+    "controller_ratio_db": -0.027466023211663252,
+    "controller_ratio_phase_deg": 0.21974507360079726,
+    "plant_gain_db": 9.530924901119494,
+    "plant_phase_deg": -4.839556440373609
+  },
+  {
+    "bw": 2000,
+    "frequency_hz": 100,
+    "controller_ratio_db": -0.0030007700883711843,
+    "controller_ratio_phase_deg": 0.2486866611174119,
+    "plant_gain_db": 9.526058205275099,
+    "plant_phase_deg": -7.096527766239285
+  },
+  {
+    "bw": 2000,
+    "frequency_hz": 150,
+    "controller_ratio_db": -0.006069961046915992,
+    "controller_ratio_phase_deg": 0.12385385814902121,
+    "plant_gain_db": 9.496373803182324,
+    "plant_phase_deg": -9.901312309625895
+  },
+  {
+    "bw": 2000,
+    "frequency_hz": 220,
+    "controller_ratio_db": 0.002550367579956794,
+    "controller_ratio_phase_deg": 0.06713670143933956,
+    "plant_gain_db": 9.346284323343932,
+    "plant_phase_deg": -14.594704384036731
+  },
+  {
+    "bw": 2000,
+    "frequency_hz": 330,
+    "controller_ratio_db": -0.00023932687448461563,
+    "controller_ratio_phase_deg": 0.03824350008603126,
+    "plant_gain_db": 9.14784635972912,
+    "plant_phase_deg": -20.694914660425805
+  },
+  {
+    "bw": 2000,
+    "frequency_hz": 500,
+    "controller_ratio_db": 0.006870382748607053,
+    "controller_ratio_phase_deg": -0.04780600854525346,
+    "plant_gain_db": 8.689623532839637,
+    "plant_phase_deg": -30.04848400743569
+  },
+  {
+    "bw": 2000,
+    "frequency_hz": 700,
+    "controller_ratio_db": -0.003237147663958727,
+    "controller_ratio_phase_deg": 0.06899795166469279,
+    "plant_gain_db": 8.243210623590585,
+    "plant_phase_deg": -40.73522892569632
+  },
+  {
+    "bw": 2000,
+    "frequency_hz": 1000,
+    "controller_ratio_db": -0.0017504129405423092,
+    "controller_ratio_phase_deg": -0.05550846938378236,
+    "plant_gain_db": 7.156813040464822,
+    "plant_phase_deg": -54.728475319778106
+  },
+  {
+    "bw": 2000,
+    "frequency_hz": 1250,
+    "controller_ratio_db": 0.0015257164712483423,
+    "controller_ratio_phase_deg": -0.01402510284784692,
+    "plant_gain_db": 6.495099588372951,
+    "plant_phase_deg": -64.59989976762753
+  },
+  {
+    "bw": 2000,
+    "frequency_hz": 1500,
+    "controller_ratio_db": 0.003776873721085194,
+    "controller_ratio_phase_deg": -0.02435914335991335,
+    "plant_gain_db": 5.587346936596257,
+    "plant_phase_deg": -73.76516961729754
+  },
+  {
+    "bw": 2000,
+    "frequency_hz": 1750,
+    "controller_ratio_db": 0.0022409753083217714,
+    "controller_ratio_phase_deg": -0.03334208040339847,
+    "plant_gain_db": 4.621415694114302,
+    "plant_phase_deg": -82.60871230231237
+  },
+  {
+    "bw": 2000,
+    "frequency_hz": 2000,
+    "controller_ratio_db": -0.00558093086557583,
+    "controller_ratio_phase_deg": -0.06183724902530826,
+    "plant_gain_db": 3.838117812629653,
+    "plant_phase_deg": -90.17875810759519
+  },
+  {
+    "bw": 2000,
+    "frequency_hz": 2250,
+    "controller_ratio_db": 0.002778818244398675,
+    "controller_ratio_phase_deg": -0.01947271383925085,
+    "plant_gain_db": 2.8687538405419915,
+    "plant_phase_deg": -97.67675443925488
+  },
+  {
+    "bw": 2000,
+    "frequency_hz": 2500,
+    "controller_ratio_db": -0.0029147708645829136,
+    "controller_ratio_phase_deg": -0.01832056571816762,
+    "plant_gain_db": 2.1257902665074533,
+    "plant_phase_deg": -104.43464977299391
+  },
+  {
+    "bw": 2000,
+    "frequency_hz": 2750,
+    "controller_ratio_db": 0.0023831997956114555,
+    "controller_ratio_phase_deg": -0.014827177064857878,
+    "plant_gain_db": 1.1966296561902012,
+    "plant_phase_deg": -110.83359756330223
+  },
+  {
+    "bw": 2000,
+    "frequency_hz": 3000,
+    "controller_ratio_db": 0.00047222484087377115,
+    "controller_ratio_phase_deg": -0.014313568823807613,
+    "plant_gain_db": 0.4496830563008056,
+    "plant_phase_deg": -117.23271681926825
+  },
+  {
+    "bw": 2000,
+    "frequency_hz": 3500,
+    "controller_ratio_db": 0.001571535224285374,
+    "controller_ratio_phase_deg": -0.008983826188031029,
+    "plant_gain_db": -1.1983733665962881,
+    "plant_phase_deg": -129.0679275657261
+  },
+  {
+    "bw": 2000,
+    "frequency_hz": 4000,
+    "controller_ratio_db": -0.0009310269514323722,
+    "controller_ratio_phase_deg": -0.02217305327734882,
+    "plant_gain_db": -2.538497287274123,
+    "plant_phase_deg": -138.87793764350542
+  },
+  {
+    "bw": 2000,
+    "frequency_hz": 4500,
+    "controller_ratio_db": 0.001946492546996931,
+    "controller_ratio_phase_deg": -0.0029793063222937513,
+    "plant_gain_db": -3.749802118191705,
+    "plant_phase_deg": -149.8124813492529
+  },
+  {
+    "bw": 2000,
+    "frequency_hz": 5000,
+    "controller_ratio_db": 0.0006262578786700235,
+    "controller_ratio_phase_deg": 0.0027073971362461023,
+    "plant_gain_db": -4.689595719916178,
+    "plant_phase_deg": -158.11810449922766
+  },
+  {
+    "bw": 1000,
+    "frequency_hz": 20,
+    "controller_ratio_db": 0.0030044056608645145,
+    "controller_ratio_phase_deg": 0.14310744097852426,
+    "plant_gain_db": 9.812640186674095,
+    "plant_phase_deg": -1.6450586227978452
+  },
+  {
+    "bw": 1000,
+    "frequency_hz": 40,
+    "controller_ratio_db": 0.0015694373670358756,
+    "controller_ratio_phase_deg": 0.17109462918453522,
+    "plant_gain_db": 9.9006191104129,
+    "plant_phase_deg": -2.3954580313503184
+  },
+  {
+    "bw": 1000,
+    "frequency_hz": 70,
+    "controller_ratio_db": 0.003563690302160624,
+    "controller_ratio_phase_deg": 0.08465422757367662,
+    "plant_gain_db": 9.825343584892648,
+    "plant_phase_deg": -4.452129279703576
+  },
+  {
+    "bw": 1000,
+    "frequency_hz": 100,
+    "controller_ratio_db": -0.009506884984151698,
+    "controller_ratio_phase_deg": 0.13656594752311163,
+    "plant_gain_db": 9.79966688834086,
+    "plant_phase_deg": -6.781219756708154
+  },
+  {
+    "bw": 1000,
+    "frequency_hz": 150,
+    "controller_ratio_db": 0.002617643485134185,
+    "controller_ratio_phase_deg": 0.0555931541188852,
+    "plant_gain_db": 9.82931030986854,
+    "plant_phase_deg": -10.19230109541495
+  },
+  {
+    "bw": 1000,
+    "frequency_hz": 220,
+    "controller_ratio_db": 0.007178110940803572,
+    "controller_ratio_phase_deg": 0.03648293697411489,
+    "plant_gain_db": 9.738346286957348,
+    "plant_phase_deg": -14.340515279606242
+  },
+  {
+    "bw": 1000,
+    "frequency_hz": 330,
+    "controller_ratio_db": -0.0011614885633702988,
+    "controller_ratio_phase_deg": 0.028928488512651687,
+    "plant_gain_db": 9.542937370209465,
+    "plant_phase_deg": -20.857324878251873
+  },
+  {
+    "bw": 1000,
+    "frequency_hz": 500,
+    "controller_ratio_db": 0.005278846577670103,
+    "controller_ratio_phase_deg": -0.009479199476257314,
+    "plant_gain_db": 9.228728461672821,
+    "plant_phase_deg": -30.193043354240196
+  },
+  {
+    "bw": 1000,
+    "frequency_hz": 700,
+    "controller_ratio_db": -0.0016916447277234422,
+    "controller_ratio_phase_deg": 0.049707968801767345,
+    "plant_gain_db": 8.790200095055877,
+    "plant_phase_deg": -40.25408196385409
+  },
+  {
+    "bw": 1000,
+    "frequency_hz": 1000,
+    "controller_ratio_db": -0.0007617543709402439,
+    "controller_ratio_phase_deg": -0.02697966329478635,
+    "plant_gain_db": 8.082933174020456,
+    "plant_phase_deg": -53.740730449859136
+  },
+  {
+    "bw": 1000,
+    "frequency_hz": 1250,
+    "controller_ratio_db": 0.0016604116764722089,
+    "controller_ratio_phase_deg": 0.0009497080047985611,
+    "plant_gain_db": 7.149203329430012,
+    "plant_phase_deg": -64.49607200980958
+  },
+  {
+    "bw": 1000,
+    "frequency_hz": 1500,
+    "controller_ratio_db": 0.003780122029924406,
+    "controller_ratio_phase_deg": -0.004307110258113171,
+    "plant_gain_db": 6.258066845420109,
+    "plant_phase_deg": -74.20233043649525
+  },
+  {
+    "bw": 1000,
+    "frequency_hz": 1750,
+    "controller_ratio_db": 0.003286929980829442,
+    "controller_ratio_phase_deg": -0.011271260993807883,
+    "plant_gain_db": 5.445343529194306,
+    "plant_phase_deg": -82.96625397233788
+  },
+  {
+    "bw": 1000,
+    "frequency_hz": 2000,
+    "controller_ratio_db": -9.76333969354906e-05,
+    "controller_ratio_phase_deg": -0.04611025111449748,
+    "plant_gain_db": 4.578652984572886,
+    "plant_phase_deg": -90.21732553702408
+  },
+  {
+    "bw": 1000,
+    "frequency_hz": 2250,
+    "controller_ratio_db": 0.004044187086631082,
+    "controller_ratio_phase_deg": -0.0034397697759608855,
+    "plant_gain_db": 3.7986988235216264,
+    "plant_phase_deg": -98.35881243078583
+  },
+  {
+    "bw": 1000,
+    "frequency_hz": 2500,
+    "controller_ratio_db": -2.557585752215237e-05,
+    "controller_ratio_phase_deg": -0.017352305703902317,
+    "plant_gain_db": 2.9810930656397976,
+    "plant_phase_deg": -104.99769143771373
+  },
+  {
+    "bw": 1000,
+    "frequency_hz": 2750,
+    "controller_ratio_db": 0.003589378433146643,
+    "controller_ratio_phase_deg": -0.003460375397492902,
+    "plant_gain_db": 2.205602445514177,
+    "plant_phase_deg": -111.37968703982345
+  },
+  {
+    "bw": 1000,
+    "frequency_hz": 3000,
+    "controller_ratio_db": 0.002585246670049584,
+    "controller_ratio_phase_deg": -0.006690944899849807,
+    "plant_gain_db": 1.4442671659280633,
+    "plant_phase_deg": -117.17910685547335
+  },
+  {
+    "bw": 1000,
+    "frequency_hz": 3500,
+    "controller_ratio_db": 0.002544802427926456,
+    "controller_ratio_phase_deg": -0.002574617973848261,
+    "plant_gain_db": 0.18184242552323648,
+    "plant_phase_deg": -128.81663230515068
+  },
+  {
+    "bw": 1000,
+    "frequency_hz": 4000,
+    "controller_ratio_db": 0.0010116227588300244,
+    "controller_ratio_phase_deg": -0.028510116569106812,
+    "plant_gain_db": -1.1280479607921026,
+    "plant_phase_deg": -139.7255681941981
+  },
+  {
+    "bw": 1000,
+    "frequency_hz": 4500,
+    "controller_ratio_db": 0.0030710643597431364,
+    "controller_ratio_phase_deg": 0.0002273043037230783,
+    "plant_gain_db": -1.9879814587204416,
+    "plant_phase_deg": -149.74994397673993
+  },
+  {
+    "bw": 1000,
+    "frequency_hz": 5000,
+    "controller_ratio_db": 0.000399993988328631,
+    "controller_ratio_phase_deg": 0.003390429991751629,
+    "plant_gain_db": -3.07710795964198,
+    "plant_phase_deg": -157.42321544067232
+  },
+  {
+    "bw": 500,
+    "frequency_hz": 20,
+    "controller_ratio_db": -0.02697694461254167,
+    "controller_ratio_phase_deg": 0.12345035749140548,
+    "plant_gain_db": 9.933241907779047,
+    "plant_phase_deg": -1.5390232928825673
+  },
+  {
+    "bw": 500,
+    "frequency_hz": 40,
+    "controller_ratio_db": 0.012683942448391864,
+    "controller_ratio_phase_deg": 0.07307499797454053,
+    "plant_gain_db": 9.93995324150663,
+    "plant_phase_deg": -2.4496610902656943
+  },
+  {
+    "bw": 500,
+    "frequency_hz": 70,
+    "controller_ratio_db": 0.0059747567839416,
+    "controller_ratio_phase_deg": 0.04233030590899273,
+    "plant_gain_db": 10.027744142810324,
+    "plant_phase_deg": -4.764918460719284
+  },
+  {
+    "bw": 500,
+    "frequency_hz": 100,
+    "controller_ratio_db": -0.005464685421576973,
+    "controller_ratio_phase_deg": 0.06370673913913767,
+    "plant_gain_db": 9.911307872407782,
+    "plant_phase_deg": -6.335399680793179
+  },
+  {
+    "bw": 500,
+    "frequency_hz": 150,
+    "controller_ratio_db": -0.005311332339818491,
+    "controller_ratio_phase_deg": 0.02945076341199225,
+    "plant_gain_db": 10.073805556022839,
+    "plant_phase_deg": -10.640414279794625
+  },
+  {
+    "bw": 500,
+    "frequency_hz": 220,
+    "controller_ratio_db": -0.0003150556715337989,
+    "controller_ratio_phase_deg": 0.036859887609678635,
+    "plant_gain_db": 10.206144480626838,
+    "plant_phase_deg": -14.554650007570668
+  },
+  {
+    "bw": 500,
+    "frequency_hz": 330,
+    "controller_ratio_db": -0.003472880196655163,
+    "controller_ratio_phase_deg": 0.023661999775130785,
+    "plant_gain_db": 10.113641396443786,
+    "plant_phase_deg": -20.900389830122784
+  },
+  {
+    "bw": 500,
+    "frequency_hz": 500,
+    "controller_ratio_db": 0.0045614396141957165,
+    "controller_ratio_phase_deg": 0.0031241146886358717,
+    "plant_gain_db": 9.997968577591378,
+    "plant_phase_deg": -30.284493772144046
+  },
+  {
+    "bw": 500,
+    "frequency_hz": 700,
+    "controller_ratio_db": -0.0020575814643367532,
+    "controller_ratio_phase_deg": 0.02653606362922686,
+    "plant_gain_db": 9.60397070566486,
+    "plant_phase_deg": -40.55395875179385
+  },
+  {
+    "bw": 500,
+    "frequency_hz": 1000,
+    "controller_ratio_db": 0.0006681784652539072,
+    "controller_ratio_phase_deg": -0.02942269809433333,
+    "plant_gain_db": 8.86056265551813,
+    "plant_phase_deg": -55.91577276815555
+  },
+  {
+    "bw": 500,
+    "frequency_hz": 1250,
+    "controller_ratio_db": 0.0026953876292544437,
+    "controller_ratio_phase_deg": -0.002215549550443599,
+    "plant_gain_db": 8.025860582423153,
+    "plant_phase_deg": -65.63508927889261
+  },
+  {
+    "bw": 500,
+    "frequency_hz": 1500,
+    "controller_ratio_db": 0.003254691434171255,
+    "controller_ratio_phase_deg": -0.005448377980062747,
+    "plant_gain_db": 7.218193324951475,
+    "plant_phase_deg": -74.21499442764869
+  },
+  {
+    "bw": 500,
+    "frequency_hz": 1750,
+    "controller_ratio_db": 0.0037646331908386026,
+    "controller_ratio_phase_deg": -0.014747988912737672,
+    "plant_gain_db": 6.499724395889067,
+    "plant_phase_deg": -83.04055447214493
+  },
+  {
+    "bw": 500,
+    "frequency_hz": 2000,
+    "controller_ratio_db": 0.0022061827610144603,
+    "controller_ratio_phase_deg": -0.04816924035019693,
+    "plant_gain_db": 5.649713843179463,
+    "plant_phase_deg": -91.09935861244837
+  },
+  {
+    "bw": 500,
+    "frequency_hz": 2250,
+    "controller_ratio_db": 0.002708919729231228,
+    "controller_ratio_phase_deg": -0.0057889345089362524,
+    "plant_gain_db": 4.9147017720837045,
+    "plant_phase_deg": -99.66697271912507
+  },
+  {
+    "bw": 500,
+    "frequency_hz": 2500,
+    "controller_ratio_db": 0.000896596403385502,
+    "controller_ratio_phase_deg": -0.0264528966411535,
+    "plant_gain_db": 4.216470371261212,
+    "plant_phase_deg": -105.52582492698149
+  },
+  {
+    "bw": 500,
+    "frequency_hz": 2750,
+    "controller_ratio_db": 0.0036471152666593845,
+    "controller_ratio_phase_deg": -0.0027944467967988725,
+    "plant_gain_db": 3.4642244634471546,
+    "plant_phase_deg": -112.55496556887492
+  },
+  {
+    "bw": 500,
+    "frequency_hz": 3000,
+    "controller_ratio_db": 0.0021959028164291665,
+    "controller_ratio_phase_deg": -0.010494037350359057,
+    "plant_gain_db": 2.862922788944708,
+    "plant_phase_deg": -119.46266958847698
+  },
+  {
+    "bw": 500,
+    "frequency_hz": 3500,
+    "controller_ratio_db": 0.003149539155918241,
+    "controller_ratio_phase_deg": -0.0020129498243419935,
+    "plant_gain_db": 1.5919639650516757,
+    "plant_phase_deg": -129.92750003059658
+  },
+  {
+    "bw": 500,
+    "frequency_hz": 4000,
+    "controller_ratio_db": 0.0023109686811643724,
+    "controller_ratio_phase_deg": -0.034424427239910106,
+    "plant_gain_db": 0.0642151934393845,
+    "plant_phase_deg": -141.53508644753413
+  },
+  {
+    "bw": 500,
+    "frequency_hz": 4500,
+    "controller_ratio_db": 0.0034542858835673296,
+    "controller_ratio_phase_deg": 0.001229521666819158,
+    "plant_gain_db": -0.6780685666124502,
+    "plant_phase_deg": -151.99168300266373
+  },
+  {
+    "bw": 500,
+    "frequency_hz": 5000,
+    "controller_ratio_db": 0.0012196858926667147,
+    "controller_ratio_phase_deg": 0.0010133033053860297,
+    "plant_gain_db": -2.147878769139787,
+    "plant_phase_deg": -161.3639946365341
+  }
+]

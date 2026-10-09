@@ -8,6 +8,7 @@
 #include "Flux.h"
 #include "JB.h"
 #include "Math.h"
+#include "Mechanical_ESO.h"
 #include "Motor_ADC.h"
 #include "Motor_Config.h"
 #include "Motor_Para.h"
@@ -205,6 +206,7 @@ void Identification_Control(void)
 
 bool Identification_Apply(void)
 {
+    Motor_Para_T Model = Motor_Para;
     const Rs_Ls_Result_T *Rs_Ls_Result;
     const Flux_Result_T *Flux_Result;
     const JB_Result_T *JB_Result;
@@ -222,11 +224,10 @@ bool Identification_Apply(void)
             return false;
         }
 
-        Motor_Para.Rs = Rs_Ls_Result->Rs_Ohm;
-        Motor_Para.Ld = Rs_Ls_Result->Ls_H;
-        Motor_Para.Lq = Rs_Ls_Result->Ls_H;
-        Motor_Para_Update();
-        return true;
+        Model.Rs = Rs_Ls_Result->Rs_Ohm;
+        Model.Ld = Rs_Ls_Result->Ls_H;
+        Model.Lq = Rs_Ls_Result->Ls_H;
+        return Motor_Para_Update(&Model, Mechanical_ESO_Bw_Hz);
     }
 
     if (Ident_Mode == IDENT_FLUX)
@@ -237,9 +238,8 @@ bool Identification_Apply(void)
             return false;
         }
 
-        Motor_Para.Flux = Flux_Result->Flux_Wb;
-        Motor_Para_Update();
-        return true;
+        Model.Flux = Flux_Result->Flux_Wb;
+        return Motor_Para_Update(&Model, Mechanical_ESO_Bw_Hz);
     }
 
     if (Ident_Mode == IDENT_JB)
@@ -250,10 +250,9 @@ bool Identification_Apply(void)
             return false;
         }
 
-        Motor_Para.J = JB_Result->J_Kgm2;
-        Motor_Para.B = JB_Result->B_Nms;
-        Motor_Para_Update();
-        return true;
+        Model.J = JB_Result->J_Kgm2;
+        Model.B = JB_Result->B_Nms;
+        return Motor_Para_Update(&Model, Mechanical_ESO_Bw_Hz);
     }
 
     return false;

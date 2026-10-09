@@ -15,10 +15,12 @@
 #include "Protocol.h"
 #include "Protection.h"
 #include "Servo_Phase.h"
+#include "Signal_Injection.h"
 #include "USB_Thread.h"
 #include "main.h"
 
-#define MOTOR_STACK_SIZE  512U
+/* S-curve replanning also needs room for the preempted FPU context. */
+#define MOTOR_STACK_SIZE  1024U
 #define MOTOR_THREAD_PRIO 5U
 #define MOTOR_CMD_Q_LEN   8U
 #define MOTOR_CMD_Q_WORDS 5U
@@ -300,13 +302,33 @@ static void Motor_Cmd_Run(void)
                 Motor_Action_Response(&Msg, Action_Status);
                 break;
 
+            case MOTOR_CMD_SIGNAL_START:
+                Action_Status = AXDR_OK;
+                if ((Motor_State_Get() != ENABLED) ||
+                    (Motor_Mode_Get() != TORQUE) ||
+                    !Protection_Enable_Allowed())
+                {
+                    Action_Status = AXDR_ERR_STATE;
+                }
+                else if (!Signal_Injection_Start(Motor_I_Limit_Effective_Get()))
+                {
+                    Action_Status = AXDR_ERR_CONFIG;
+                }
+                Motor_Action_Response(&Msg, Action_Status);
+                break;
+
+            case MOTOR_CMD_SIGNAL_ABORT:
+                Signal_Injection_Stop();
+                Motor_Action_Response(&Msg, AXDR_OK);
+                break;
+
             case MOTOR_CMD_PARAMETER_SAVE:
                 Action_Status = AXDR_OK;
                 if (Motor_State_Get() != DISABLED)
                 {
                     Action_Status = AXDR_ERR_STATE;
                 }
-                else if (NVS_Storage_Save_All() != 0)
+                else if (NVS_Storage_Save(NULL, 0U, NVS_EXCLUDE) != 0)
                 {
                     Action_Status = AXDR_ERR_CONFIG;
                 }
@@ -329,9 +351,9 @@ UINT Motor_Thread_Init(VOID *memory_ptr)
 
     byte_pool = (TX_BYTE_POOL *)memory_ptr;
 
-    /* Restore persisted configuration before the Motor thread starts running.
-     * Missing or invalid records leave the compiled defaults in place. */
-    (void)NVS_Storage_Load_All();
+    /* Restore configuration before the Motor thread starts. Invalid scalar
+     * records keep defaults; a rejected model leaves ESO/calibration invalid. */
+    (void)NVS_Storage_Load(NVS_ALL);
 
     if (tx_semaphore_create(&Motor_Sem, "Motor Semaphore", 0U) != TX_SUCCESS)
     {

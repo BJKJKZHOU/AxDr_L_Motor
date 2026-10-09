@@ -35,15 +35,12 @@ CAST_C = {"u8": "uint8_t", "i8": "int8_t", "f32": "float", "i32": "int32_t", "u3
 PLOT_MODES = {"fast", "normal"}
 
 ON_CHANGE_C = {
-    "MOTOR_PARA": "Motor_Para_Update();",
-    "MOTOR_PP": "Motor_Pp_Changed();",
     "CURRENT_TUNING": "Control_Current_Tune_Source = CTRL_TUNE_BANDWIDTH; Current_Tuning_Update();",
-    "CURRENT_GAIN": "Control_Current_Tune_Source = CTRL_TUNE_MANUAL;",
-    "CURRENT_SOURCE": "Current_Tuning_Source_Changed();",
+    "CURRENT_GAIN": "Control_Current_Tune_Source = CTRL_TUNE_MANUAL; Current_Tuning_Update();",
+    "CURRENT_SOURCE": "Current_Tuning_Update();",
     "SPEED_TUNING": "Control_Speed_Tune_Source = CTRL_TUNE_BANDWIDTH; Speed_Tuning_Update();",
-    "SPEED_GAIN": "Control_Speed_Tune_Source = CTRL_TUNE_MANUAL;",
-    "SPEED_SOURCE": "Speed_Tuning_Source_Changed();",
-    "ESO_TUNING": "Mechanical_ESO_Tuning_Update();",
+    "SPEED_GAIN": "Control_Speed_Tune_Source = CTRL_TUNE_MANUAL; Speed_Tuning_Update();",
+    "SPEED_SOURCE": "Speed_Tuning_Update();",
     "ENCODER_CONFIG": "Encoder_Config_Changed();",
 }
 

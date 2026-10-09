@@ -11,8 +11,6 @@
 
 #include "Motor_Type.h"
 
-#define SERVO_PHASE_I_MAX_A 2.0f
-
 typedef enum
 {
     SERVO_PHASE_RESULT_NONE = 0,
@@ -26,9 +24,6 @@ typedef enum
 {
     SERVO_PHASE_FAIL_NONE = 0,
     SERVO_PHASE_FAIL_ENCODER,
-    SERVO_PHASE_FAIL_NO_POS_MOVE,
-    SERVO_PHASE_FAIL_NO_NEG_MOVE,
-    SERVO_PHASE_FAIL_VERIFY_DIR,
     SERVO_PHASE_FAIL_ABORTED,
     SERVO_PHASE_FAIL_APPLY,
 
@@ -47,10 +42,9 @@ typedef struct
 
     int8_t Enc_Dir;
     float Theta_Off;
+    float Theta_Off_Error;
 
     float Pos_Move;
-    float Neg_Move;
-    float Verify_Move;
 
     float I_Search_A;
 
@@ -69,11 +63,10 @@ static inline bool Servo_Phase_Result_Valid(void)
     return Servo_Phase_Last_Result_Get()->State == SERVO_PHASE_RESULT_PASS;
 }
 
-/* Legacy host diagnostic retained until the generated parameter dictionary is
- * regenerated; dynamic scan offset mismatch is no longer part of calibration. */
+/* Difference between static zero measurements at the two ALIGN positions. */
 static inline float Servo_Phase_Theta_Off_Error_Get(void)
 {
-    return 0.0f;
+    return Servo_Phase_Last_Result_Get()->Theta_Off_Error;
 }
 
 static inline float Servo_Phase_Pos_Move_Get(void)
@@ -83,12 +76,12 @@ static inline float Servo_Phase_Pos_Move_Get(void)
 
 static inline float Servo_Phase_Neg_Move_Get(void)
 {
-    return Servo_Phase_Last_Result_Get()->Neg_Move;
+    return 0.0f;
 }
 
 static inline float Servo_Phase_Verify_Move_Get(void)
 {
-    return Servo_Phase_Last_Result_Get()->Verify_Move;
+    return 0.0f;
 }
 
 Motor_Fast_Mode_e Servo_Phase_Fast_Run(float *Theta_e,
