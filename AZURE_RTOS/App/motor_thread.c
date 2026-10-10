@@ -331,7 +331,7 @@ static void Motor_Cmd_Run(void)
                 {
                     Action_Status = AXDR_ERR_STATE;
                 }
-                else if (NVS_Storage_Save(NULL, 0U, NVS_EXCLUDE) != 0)
+                else if (NVS_Storage_Save_All() != 0)
                 {
                     Action_Status = AXDR_ERR_CONFIG;
                 }
@@ -356,7 +356,7 @@ UINT Motor_Thread_Init(VOID *memory_ptr)
 
     /* Restore configuration before the Motor thread starts. Invalid scalar
      * records keep defaults; a rejected model leaves ESO/calibration invalid. */
-    (void)NVS_Storage_Load(NVS_ALL);
+    (void)NVS_Storage_Load_All();
 
     if (tx_semaphore_create(&Motor_Sem, "Motor Semaphore", 0U) != TX_SUCCESS)
     {

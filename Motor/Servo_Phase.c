@@ -126,7 +126,7 @@ static bool Calibration_Save(void)
     };
 
     Motor_Cal.Valid = 0U;
-    if (NVS_Storage_Save(&Valid_Id, 1U, NVS_INCLUDE) != 0)
+    if (NVS_Storage_Save_Ids(&Valid_Id, 1U) != 0)
     {
         Motor_Cal.Valid = 1U;
         return false;
@@ -134,7 +134,7 @@ static bool Calibration_Save(void)
 
     Motor_Cal.Valid = 1U;
 
-    if (NVS_Storage_Save(Ids, sizeof(Ids) / sizeof(Ids[0]), NVS_INCLUDE) != 0)
+    if (NVS_Storage_Save_Ids(Ids, sizeof(Ids) / sizeof(Ids[0])) != 0)
     {
         return false;
     }
