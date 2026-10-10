@@ -136,14 +136,21 @@ class MechanicalESOTest(unittest.TestCase):
                     self.assertFalse(self.configure(*args))
                     self.assertEqual(bytes(self.eso), before)
 
-    def test_invalid_coefficients_preserve_active_observer(self):
+    def test_finite_negative_l1_is_allowed(self):
+        # A finite but aggressive B/J to bandwidth ratio must not be
+        # rejected solely because the designed observer gain L1 is negative.
+        self.eso.State = State(1, 30, .002, .0001)
+        before = bytes(self.eso.State)
+        self.assertTrue(self.configure(J, B, KT, 2 * math.pi * .001))
+        self.assertLess(self.eso.Para.L1, 0)
+        self.assertEqual(bytes(self.eso.State), before)
+
+    def test_unrepresentable_coefficients_preserve_active_observer(self):
         self.eso.State = State(1, 30, .002, .0001)
         before = bytes(self.eso)
-        # Positive finite inputs can still produce L1 <= 0 or overflow.
-        for args in ((J, B, KT, 2 * math.pi * .001),
-                     (J, 1.0, KT, 2 * math.pi * 100),
-                     (J, B, KT, 1e20),
-                     (1e-10, 0, 1e30, 628), (1e-40, 0, KT, 628)):
+        for args in ((J, B, KT, 1e20),
+                     (1e-10, 0, 1e30, 628),
+                     (1e-40, 0, KT, 628)):
             with self.subTest(args=args):
                 self.assertFalse(self.configure(*args))
                 self.assertEqual(bytes(self.eso), before)

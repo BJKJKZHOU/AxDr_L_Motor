@@ -71,6 +71,7 @@ ssize_t nvs_write(struct nvs_fs *Fs, uint16_t Id, const void *Data, size_t Size)
 #include "Protection.h"
 #include "Sensorless.h"
 #include "Servo_Phase.h"
+#include "Signal_Injection.h"
 #include "control_params.h"
 #include "motor_params.h"
 #include <zephyr/kvss/nvs.h>
@@ -84,6 +85,8 @@ Motor_Config_T Motor_Config;
 Motor_Cmd_T Motor_Cmd;
 Motor_Cal_T Motor_Cal;
 Motor_Run_T Motor_Run;
+volatile Motor_Frf_Speed_T Motor_Frf_Speed;
+volatile Signal_Injection_T Signal_Injection;
 uint8_t Motor_Mode;
 const Motor_Limit_T Motor_Lim = { .I_Max = 20.0f, .Wm_Max = 1000.0f };
 Motor_Limit_T User_Lim;
@@ -171,6 +174,10 @@ void Test_Record(uint16_t Id, float Gain, int Size)
     Record[Id].Size = Size;
 }
 int Test_Record_Size(uint16_t Id) { return Record[Id].Size; }
+int Test_Record_U8(uint16_t Id)
+{
+    return (Record[Id].Size == 1) ? (int)Record[Id].Data[0] : -1;
+}
 void Test_Ram_Defaults(void)
 {
     Test_State = DISABLED;
@@ -300,8 +307,8 @@ bool Test_Calibration_Save(void)
         cls.lib.Test_Effective.restype = ct.c_float
         cls.lib.Test_Record.argtypes = [ct.c_uint16, ct.c_float, ct.c_int]
         cls.lib.Test_Record_Size.argtypes = [ct.c_uint16]
-        cls.lib.NVS_Storage_Save.argtypes = [ct.POINTER(ct.c_uint16), ct.c_uint16, ct.c_int]
-        cls.lib.NVS_Storage_Load.argtypes = [ct.c_uint16]
+        cls.lib.NVS_Storage_Save_Ids.argtypes = [ct.POINTER(ct.c_uint16), ct.c_uint16]
+        cls.lib.Test_Record_U8.argtypes = [ct.c_uint16]
         cls.lib.Test_Calibration_Save.restype = ct.c_bool
         cls.lib.Test_Rough.argtypes = [ct.c_float, ct.c_float]
         cls.lib.Test_Ident_Apply.argtypes = [ct.c_int, ct.c_float, ct.c_float, ct.c_bool]
@@ -346,10 +353,10 @@ bool Test_Calibration_Save(void)
         self.assertEqual(self.lib.Test_Save_Config(), 0)
         self.lib.Test_Ram_Defaults()
         self.assertEqual(self.lib.Test_Read(profile), 0)
-        self.assertEqual(self.lib.NVS_Storage_Load(0xFFFF), 0)
+        self.assertEqual(self.lib.NVS_Storage_Load_All(), 0)
         self.assertEqual(self.lib.Test_Read(profile), 2)
         self.lib.Test_Setup()
-        self.assertEqual(self.lib.NVS_Storage_Load(0xFFFF), 0)
+        self.assertEqual(self.lib.NVS_Storage_Load_All(), 0)
         self.assertEqual(self.lib.Test_Read(profile), 0)
 
     def test_save_bandwidth_preserves_manual_for_each_loop(self):
@@ -374,7 +381,7 @@ bool Test_Calibration_Save(void)
                 for gain in bandwidth[2]:
                     self.assertEqual(self.lib.Test_Record_Size(gain), 4)
                 self.lib.Test_Ram_Defaults()
-                self.assertEqual(self.lib.NVS_Storage_Load(0xFFFF), 0)
+                self.assertEqual(self.lib.NVS_Storage_Load_All(), 0)
                 self.assertEqual(self.lib.Test_Read(manual[0]), 1)
                 self.assertEqual(self.values(manual), expected)
                 self.assertEqual(self.lib.Test_Read(p.PARAM_CTRL_POSITION_KP), 21)
@@ -449,7 +456,7 @@ bool Test_Calibration_Save(void)
         bandwidths = [self.lib.Test_Read(group[1]) for group in GROUPS]
         self.assertEqual(self.lib.Test_Save_Config(), 0)
         self.lib.Test_Ram_Defaults()
-        self.assertEqual(self.lib.NVS_Storage_Load(0xFFFF), 0)
+        self.assertEqual(self.lib.NVS_Storage_Load_All(), 0)
         for group, gains, bw, manual in zip(GROUPS, calculated, bandwidths, saved):
             self.assertEqual(self.lib.Test_Read(group[0]), 0)
             self.assertEqual(self.lib.Test_Read(group[1]), bw)
@@ -462,7 +469,7 @@ bool Test_Calibration_Save(void)
         expected = [self.manual(group) for group in GROUPS]
         self.assertEqual(self.lib.Test_Save_Config(), 0)
         self.lib.Test_Ram_Defaults()
-        self.assertEqual(self.lib.NVS_Storage_Load(0xFFFF), 0)
+        self.assertEqual(self.lib.NVS_Storage_Load_All(), 0)
         for param in (p.PARAM_MOTOR_RS, p.PARAM_MOTOR_LD, p.PARAM_MOTOR_LQ,
                       p.PARAM_MOTOR_J, p.PARAM_MOTOR_B, p.PARAM_MOTOR_FLUX):
             self.write(param, self.lib.Test_Read(param) * 1.1)
@@ -509,51 +516,52 @@ bool Test_Calibration_Save(void)
             self.assertEqual(tuple(self.lib.Test_Read(i) for i in ids), self.effective(SPEED))
             for param in ids:
                 self.assertEqual(self.lib.Test_Write(param, 1), 3)
-                self.assertEqual(self.save([param]), -22)
+                self.assertEqual(self.save_ids([param]), -22)
 
-    def test_eso_rejects_invalid_candidate_without_publishing(self):
+    def test_eso_accepts_finite_gains_and_rejects_numeric_overflow(self):
         eso = ESO.in_dll(self.lib, "Mechanical_ESO")
         eso.State = State(1, 30, .002, .0001)
-        for param, value in ((p.PARAM_MOTOR_J, 1e-20), (p.PARAM_MOTOR_B, 100),
+        old_state = bytes(eso.State)
+
+        # A negative L1 at low bandwidth is not itself an invalid model.
+        self.write(p.PARAM_CTRL_MECH_ESO_BW_HZ, 100)
+        self.write(p.PARAM_MOTOR_B, self.lib.Test_Read(p.PARAM_MOTOR_J) * 1000)
+        self.write(p.PARAM_CTRL_MECH_ESO_BW_HZ, 1)
+        self.assertLess(eso.Para.L1, 0)
+        self.assertEqual(bytes(eso.State), old_state)
+
+        # Mathematically unrepresentable float coefficients remain rejected.
+        for param, value in ((p.PARAM_MOTOR_J, 1e-40),
                              (p.PARAM_MOTOR_FLUX, 3e38)):
-            before, old = bytes(eso), self.lib.Test_Read(param)
+            before = bytes(eso)
+            old = self.lib.Test_Read(param)
             self.assertEqual(self.lib.Test_Write(param, value), 4)
             self.assertEqual(self.lib.Test_Read(param), old)
             self.assertEqual(bytes(eso), before)
-        # Valid at 100 Hz but not at 1 Hz; both bandwidths pass scalar validation.
-        self.write(p.PARAM_CTRL_MECH_ESO_BW_HZ, 100)
-        self.write(p.PARAM_MOTOR_B, self.lib.Test_Read(p.PARAM_MOTOR_J) * 100)
-        before = bytes(eso)
-        self.assertEqual(self.lib.Test_Write(p.PARAM_CTRL_MECH_ESO_BW_HZ, 1), 4)
-        self.assertEqual(self.lib.Test_Read(p.PARAM_CTRL_MECH_ESO_BW_HZ), 100)
-        self.assertEqual(bytes(eso), before)
-        self.write(p.PARAM_CTRL_MECH_ESO_BW_HZ, 200)
-        self.assertNotEqual(bytes(eso.Para), before[:ct.sizeof(eso.Para)])
-        self.assertEqual(bytes(eso.State), bytes(State(1, 30, .002, .0001)))
-        # Increasing Pp can overflow Kt/J even when Flux itself is finite.
+
         self.write(p.PARAM_MOTOR_FLUX, 1e32)
-        before, old_pp = bytes(eso), self.lib.Test_Read(p.PARAM_MOTOR_PP)
+        before = bytes(eso)
+        old_pp = self.lib.Test_Read(p.PARAM_MOTOR_PP)
         self.assertEqual(self.lib.Test_Write(p.PARAM_MOTOR_PP, 255), 4)
         self.assertEqual(self.lib.Test_Read(p.PARAM_MOTOR_PP), old_pp)
         self.assertEqual(bytes(eso), before)
 
-    def test_nvs_stages_model_before_eso_validation(self):
-        # J is restored before B. New J with old B is invalid, the final pair is valid.
+    def test_nvs_restores_complete_model_before_eso_update(self):
+        # J and B belong to one saved motor model, not two successive updates.
         self.write(p.PARAM_CTRL_MECH_ESO_BW_HZ, 100)
         self.write(p.PARAM_MOTOR_B, self.lib.Test_Read(p.PARAM_MOTOR_J) * 100)
         self.lib.Test_Record(p.PARAM_MOTOR_J, 1e-8, 4)
         self.lib.Test_Record(p.PARAM_MOTOR_B, 1e-8, 4)
-        self.assertEqual(self.lib.NVS_Storage_Load(p.PARAM_MOTOR_J), -22)
-        self.assertEqual(self.lib.NVS_Storage_Load(0xFFFF), 0)
+        self.assertEqual(self.lib.NVS_Storage_Load_All(), 0)
         self.assertAlmostEqual(self.lib.Test_Read(p.PARAM_MOTOR_J), 1e-8, delta=1e-14)
         self.assertAlmostEqual(ESO.in_dll(self.lib, "Mechanical_ESO").Para.B_Over_J, 1)
 
-    def test_nvs_invalid_model_keeps_active_model_and_eso(self):
+    def test_nvs_unrepresentable_model_keeps_active_model_and_eso(self):
         eso = ESO.in_dll(self.lib, "Mechanical_ESO")
         eso.State = State(1, 30, .002, .0001)
         before, old_j = bytes(eso), self.lib.Test_Read(p.PARAM_MOTOR_J)
-        self.lib.Test_Record(p.PARAM_MOTOR_J, 1e-20, 4)
-        self.assertEqual(self.lib.NVS_Storage_Load(0xFFFF), -22)
+        self.lib.Test_Record(p.PARAM_MOTOR_J, 1e-40, 4)
+        self.assertEqual(self.lib.NVS_Storage_Load_All(), -22)
         self.assertEqual(self.lib.Test_Read(p.PARAM_MOTOR_J), old_j)
         self.assertEqual(bytes(eso), before)
         self.assertEqual(self.lib.Test_Read(p.PARAM_CAL_VALID), 0)
@@ -582,7 +590,7 @@ bool Test_Calibration_Save(void)
         eso = ESO.in_dll(self.lib, "Mechanical_ESO")
         before = bytes(eso)
         old_j = self.lib.Test_Read(p.PARAM_MOTOR_J)
-        self.assertFalse(self.lib.Test_Ident_Apply(3, 1e-20, 1, True))
+        self.assertFalse(self.lib.Test_Ident_Apply(3, 1e-40, 1, True))
         self.assertEqual(self.lib.Test_Read(p.PARAM_MOTOR_J), old_j)
         self.assertEqual(bytes(eso), before)
         self.assertTrue(self.lib.Test_Ident_Apply(3, 1e-5, 1e-5, True))
@@ -592,54 +600,44 @@ bool Test_Calibration_Save(void)
         self.assertTrue(self.lib.Test_Ident_Apply(1, .1, .0001, True))
         self.assertAlmostEqual(self.lib.Test_Read(p.PARAM_MOTOR_RS), .1)
 
-    def save(self, ids=(), select=0):
+    def save_ids(self, ids=()):
         data = (ct.c_uint16 * len(ids))(*ids) if ids else None
-        return self.lib.NVS_Storage_Save(data, len(ids), select)
+        return self.lib.NVS_Storage_Save_Ids(data, len(ids))
 
-    def test_public_save_has_no_tuning_policy(self):
+    def test_save_all_preserves_manual_in_bandwidth_mode(self):
         self.assertEqual(self.lib.Test_Read(SPEED[0]), 0)
-        self.assertEqual(self.save([SPEED[2][0]]), 0)
+        self.assertEqual(self.save_ids([SPEED[2][0]]), 0)
         self.assertEqual(self.lib.Test_Record_Size(SPEED[2][0]), 4)
         self.assertEqual(self.lib.Test_Record_Size(SPEED[2][1]), 0)
-        self.assertEqual(self.save(select=1), 0)
+        self.assertEqual(self.lib.NVS_Storage_Save_All(), 0)
         for group in GROUPS:
             for gain in group[2]:
                 self.assertEqual(self.lib.Test_Record_Size(gain), 4)
 
-    def test_empty_include_exclusion_and_duplicate_ids(self):
-        self.assertEqual(self.save(), 0)
+    def test_empty_and_duplicate_ids(self):
+        self.assertEqual(self.save_ids(), 0)
         self.assertEqual(self.count("Test_Writes"), 0)
-        excluded = CURRENT[2] + SPEED[2]
-        self.assertEqual(self.save(excluded, 1), 0)
-        for gain in excluded:
-            self.assertEqual(self.lib.Test_Record_Size(gain), 0)
-        self.assertEqual(self.lib.Test_Record_Size(p.PARAM_CTRL_POSITION_KP), 4)
-        self.assertEqual(self.save([SPEED[2][0], SPEED[2][0]]), 0)
+        self.assertEqual(self.save_ids([SPEED[2][0], SPEED[2][0]]), 0)
+        self.assertEqual(self.count("Test_Writes"), 2)
         self.assertEqual(self.lib.Test_Record_Size(SPEED[2][0]), 4)
         self.assertEqual(self.lib.Test_Record_Size(SPEED[2][1]), 0)
 
-    def test_invalid_selection_rejected_before_any_write(self):
+    def test_invalid_id_list_rejected_before_any_write(self):
         for invalid in (0xFFFF, 0xEEEE, p.PARAM_ADC_IA, p.PARAM_TARGET_SPEED):
-            for select in (0, 1):
-                self.assertEqual(self.save([SPEED[2][0], invalid], select), -22)
-        self.assertEqual(self.save(select=2), -22)
-        self.assertEqual(self.lib.NVS_Storage_Save(None, 1, 0), -22)
+            self.assertEqual(self.save_ids([SPEED[2][0], invalid]), -22)
+        self.assertEqual(self.lib.NVS_Storage_Save_Ids(None, 1), -22)
         self.assertEqual(self.count("Test_Writes"), 0)
 
-    def test_single_load_validates_and_does_not_select_mode(self):
+    def test_full_load_skips_missing_and_invalid_gain_records(self):
         gain = SPEED[2][0]
-        before = self.lib.Test_Read(gain)
-        self.assertEqual(self.lib.NVS_Storage_Load(gain), -2)
-        self.assertEqual(self.lib.Test_Read(gain), before)
+        invalid = SPEED[2][1]
+        old_invalid = self.lib.Test_Read(invalid)
         self.lib.Test_Record(gain, 17, 4)
-        self.assertEqual(self.lib.NVS_Storage_Load(gain), 0)
+        self.lib.Test_Record(invalid, -1, 4)
+        self.assertEqual(self.lib.NVS_Storage_Load_All(), 0)
         self.assertEqual(self.lib.Test_Read(gain), 17)
+        self.assertEqual(self.lib.Test_Read(invalid), old_invalid)
         self.assertEqual(self.lib.Test_Read(SPEED[0]), 0)
-        self.lib.Test_Record(gain, -1, 4)
-        self.assertEqual(self.lib.NVS_Storage_Load(gain), -22)
-        self.assertEqual(self.lib.Test_Read(gain), 17)
-        for invalid in (0xEEEE, p.PARAM_ADC_IA, p.PARAM_TARGET_SPEED):
-            self.assertEqual(self.lib.NVS_Storage_Load(invalid), -22)
 
     def test_config_save_requires_disabled(self):
         for state in (1, 2):
@@ -673,8 +671,7 @@ bool Test_Calibration_Save(void)
             self.assertEqual(self.count("Test_Writes"), fail)
             self.assertEqual(list(log[:fail]), expected[:fail])
             if fail > 1:
-                self.assertEqual(self.lib.NVS_Storage_Load(p.PARAM_CAL_VALID), 0)
-                self.assertEqual(self.lib.Test_Read(p.PARAM_CAL_VALID), 0)
+                self.assertEqual(self.lib.Test_Record_U8(p.PARAM_CAL_VALID), 0)
 
 
 if __name__ == "__main__":

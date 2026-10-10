@@ -8,26 +8,18 @@
 
 #include <stdint.h>
 
-#define NVS_ALL UINT16_MAX
-
-typedef enum
-{
-    NVS_INCLUDE,
-    NVS_EXCLUDE,
-
-} NVS_Select_e;
-
 int NVS_Storage_Init(void);
-/* Ordinary single ID: restore without callbacks; missing record returns -ENOENT.
- * Model/ESO fields are validated and published together, including single loads.
- * NVS_ALL: keep RAM values for missing/invalid scalar records, then validate the
- * complete model. A rejected model is not published and returns -EINVAL;
- * other records still load, but encoder hardware is not rebound and stored
- * calibration is not accepted. */
-int NVS_Storage_Load(uint16_t Id);
-/* INCLUDE writes in list order; EXCLUDE writes all persistent IDs not listed.
- * Empty INCLUDE does nothing; empty EXCLUDE saves all. No tuning-mode policy. */
-int NVS_Storage_Save(const uint16_t *Ids, uint16_t Count, NVS_Select_e Select);
+/* Missing or invalid scalar records retain RAM defaults. Restore the motor
+ * model and ESO bandwidth together before updating derived coefficients.
+ * If the resulting coefficients are not representable, keep the active model
+ * and reject saved calibration; independent parameters still load. */
+int NVS_Storage_Load_All(void);
+/* Save every persistent Parameter, including Manual Kp/Ki even when the
+ * effective controller uses Bandwidth tuning. */
+int NVS_Storage_Save_All(void);
+/* Save selected persistent IDs in caller order (calibration Valid-last).
+ * An invalid list is rejected before writing; writes are not transactional. */
+int NVS_Storage_Save_Ids(const uint16_t *Ids, uint16_t Count);
 int NVS_Storage_Smoke_Test(void);
 
 extern volatile int NVS_Storage_Smoke_Result;

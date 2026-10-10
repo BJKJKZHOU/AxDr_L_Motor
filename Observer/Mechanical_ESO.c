@@ -52,9 +52,7 @@ bool Mechanical_ESO_Para_Build(Mechanical_ESO_Para_T *Result,
         !__builtin_isfinite(Para.B_Over_J) ||
         !__builtin_isfinite(Para.L1) ||
         !__builtin_isfinite(Para.L2) ||
-        !__builtin_isfinite(Para.L3) ||
-        (Para.L1 <= 0.0f) ||
-        (Para.L2 <= 0.0f))
+        !__builtin_isfinite(Para.L3))
     {
         return false;
     }
