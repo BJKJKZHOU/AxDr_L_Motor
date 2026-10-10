@@ -7,13 +7,13 @@
 
 #include "tim.h"
 
-/* TIM2 runs at 160 MHz: one bit is 2 us, T0H is 0.281 us and T1H is 0.9 us. */
+/* TIM2 runs at 170 MHz: one bit is 2 us, T0H is 0.282 us and T1H is 0.9 us. */
 #define RGB_DATA_BITS 24U
 #define RGB_RESET_CNT 128U /* 256 us low level */
 #define RGB_DATA_POS  RGB_RESET_CNT
 #define RGB_BUF_LEN   (RGB_RESET_CNT + RGB_DATA_BITS + RGB_RESET_CNT)
-#define RGB_T0H_CNT   45U
-#define RGB_T1H_CNT   144U
+#define RGB_T0H_CNT   48U
+#define RGB_T1H_CNT   153U
 
 static uint32_t RGB_Buf[RGB_BUF_LEN];
 

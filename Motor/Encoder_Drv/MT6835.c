@@ -21,8 +21,9 @@
 #define ENC_UNDERVOLT_FAULT_MS  2U
 #define ENC_UNDERVOLT_FAULT_CNT ((uint16_t)((CUR_FREQ_HZ_DEFAULT * (float)ENC_UNDERVOLT_FAULT_MS) / 1000.0f))
 
-#define ENC_CSN_LOW_CYC 16U
-#define ENC_SPI_END_CYC 160U
+/* At 170 MHz: CSN setup 100 ns, SPI timeout 1 us. */
+#define ENC_CSN_LOW_CYC 17U
+#define ENC_SPI_END_CYC 170U
 
 volatile MT6835_State_T MT6835_State = { 0 };
 

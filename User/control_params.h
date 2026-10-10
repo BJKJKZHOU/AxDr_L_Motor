@@ -19,17 +19,18 @@
 /*
  * TIM1 CH4/CH5 timing is expressed as physical time, not fixed CCR values.
  *
- * Current 20 kHz validated timing at TIM1 = 160 MHz:
- *   ARR  = 4000
- *   CCR4 = 2375
- *   CCR5 = 3800
+ * At TIM1 = 170 MHz and PWM = 20 kHz, rounded timer counts are:
+ *   ARR  = 4250
+ *   CCR4 = 2523
+ *   CCR5 = 4037
  *
- * Therefore:
- *   PWM center -> ADC trigger = (4000 - 3800) / 160 MHz = 1.25 us
- *   Encoder trigger -> ADC trigger = (3800 - 2375) / 160 MHz = 8.90625 us
+ * Physical timing targets retained from the validated 160 MHz configuration:
+ *   ADC trigger precedes PWM center by 1.25 us.
+ *   Encoder trigger precedes ADC trigger by 8.90625 us.
  *
- * At 40 MHz ADC clock and 47.5-cycle acquisition, the two-sample aperture
- * spans about 23.750..26.438 us, straddling the 25 us PWM center.
+ * At 42.5 MHz ADC clock and 47.5-cycle acquisition, the two-sample aperture
+ * spans about 23.747..26.276 us, straddling the 25 us PWM center, excluding
+ * trigger synchronization latency. This is calculated, not a measured margin.
  * PWM_Timing_Update() converts these time constraints back to timer counts.
  * Changing PWM_FREQ_HZ_DEFAULT therefore moves ARR/CCR4/CCR5 together while
  * preserving the measured peripheral timing in seconds.
