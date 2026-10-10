@@ -304,10 +304,10 @@ typedef enum
     /* Speed_Ctrl.Para.Ki: 速度控制器当前实际使用的Ki，由Source选择生成；不保存。 */
     PARAM_CTRL_SPEED_KI_EFFECTIVE = 0x0A15U,
 
-    /* Signal_Injection.Para.Freq_Hz: 有感d轴电流单频正弦激励频率；Start时锁存。 */
+    /* Signal_Injection.Para.Freq_Hz: 有感D/Q电流环或速度环正弦激励频率；Start时锁存。 */
     PARAM_SIGNAL_FREQ_HZ = 0x0B01U,
 
-    /* Signal_Injection.Para.Amp_A: 有感d轴电流正弦激励峰值；Start时核对有效电流限值并锁存。 */
+    /* Signal_Injection.Para.Amp_A: 有感D/Q电流注入峰值；Start时按实际电流上限检查。 */
     PARAM_SIGNAL_AMP_A = 0x0B02U,
 
     /* Signal_Injection.Para.Time_S: 单个激励频点的持续时间；到期自动结束，最大60秒。 */
@@ -316,7 +316,7 @@ typedef enum
     /* Signal_Injection.State.Active: 频率响应注入是否正在执行。 */
     PARAM_SIGNAL_ACTIVE = 0x0B04U,
 
-    /* Signal_Injection.State.Out: 本次快环实际叠加的d轴激励；供FAST Plot同步定位激励时段。 */
+    /* Signal_Injection.State.Out: 当前注入的正弦信号：D/Q为A，速度为机械rad/s；速度测试使用同周期速度快照。 */
     PARAM_SIGNAL_OUT = 0x0B05U,
 
     /* Id_Ctrl.Sig.Ref: 实际进入d轴电流PI的参考（含信号激励）。 */
@@ -325,7 +325,31 @@ typedef enum
     /* Id_Ctrl.Sig.Out: d轴PI电压输出，未叠加模型前馈、未经过最终dq二维限幅。 */
     PARAM_SIGNAL_ID_PI_OUT = 0x0B07U,
 
-    /* MOTOR_CMD_SIGNAL_START: 仅在有感TORQUE/ENABLED运行有限时长的d轴正弦激励。 */
+    /* Signal_Injection.Para.Target: 注入目标：0为Id，1为Iq，2为有感速度环；在Start时锁存。 */
+    PARAM_SIGNAL_TARGET = 0x0B08U,
+
+    /* Signal_Injection.Para.Speed_Amp: 有感速度环正弦激励的机械角速度峰值；Start时核对有效速度限值。 */
+    PARAM_SIGNAL_SPEED_AMP = 0x0B09U,
+
+    /* Iq_Ctrl.Sig.Ref: 实际进入q轴电流PI的参考（含注入）。 */
+    PARAM_SIGNAL_IQ_REF = 0x0B0AU,
+
+    /* Iq_Ctrl.Sig.Out: q轴PI电压输出，未叠加模型前馈、未经过最终dq二维限幅。 */
+    PARAM_SIGNAL_IQ_PI_OUT = 0x0B0BU,
+
+    /* Motor_Frf_Speed.Ref: 2kHz速度PI消费的电角速度参考，FAST读取同步快照。 */
+    PARAM_SIGNAL_SPEED_REF = 0x0B0CU,
+
+    /* Motor_Frf_Speed.Fbk: 2kHz速度PI消费的ESO电角速度反馈，FAST读取同步快照。 */
+    PARAM_SIGNAL_SPEED_FBK = 0x0B0DU,
+
+    /* Motor_Frf_Speed.Iq: 2kHz速度PI本周期输出的IqRef，同步采集。 */
+    PARAM_SIGNAL_SPEED_IQ_OUT = 0x0B0EU,
+
+    /* Motor_Frf_Speed.Inj: 本次2kHz速度环实际叠加的电角速度正弦激励，同步采集。 */
+    PARAM_SIGNAL_SPEED_INJ = 0x0B0FU,
+
+    /* MOTOR_CMD_SIGNAL_START: 在TORQUE/ENABLED执行D/Q电流激励，在SPEED/ENABLED执行速度激励。 */
     ACTION_SIGNAL_START = 0x1301U,
 
     /* MOTOR_CMD_SIGNAL_ABORT: 立即取消激励，不改变正常Motor Stop/Disable状态。 */

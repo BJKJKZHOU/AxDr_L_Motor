@@ -39,6 +39,17 @@ bool Motor_Ident_Apply(void);
 float Motor_Wm_Get(void);
 void Motor_Position_Get(int32_t *Turn, float *Theta);
 
+/* Coherent 2 kHz speed-PI sample, held for the 20 kHz FAST plot. */
+typedef struct
+{
+    float Ref;
+    float Fbk;
+    float Iq;
+    float Inj;
+} Motor_Frf_Speed_T;
+
+extern volatile Motor_Frf_Speed_T Motor_Frf_Speed;
+
 /* NORMAL Plot shadows in user mechanical coordinates. */
 extern volatile float Motor_Plot_Wm;
 extern volatile float Motor_Plot_Wm_Ref;

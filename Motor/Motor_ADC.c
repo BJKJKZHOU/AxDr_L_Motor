@@ -216,12 +216,20 @@ void Fast_Loop(void)
         Motor_Run.Id = Ialpha * Cos + Ibeta * Sin;
         Motor_Run.Theta_e = Theta_e;
 
-        /* Only the sensored torque hold tests the d-axis current loop. */
-        if (Signal_Injection.State.Active != 0U)
+        /* Current FRF is injected into the actual PI reference before limits. */
+        if ((Signal_Injection.State.Active != 0U) &&
+            (Signal_Injection.State.Target != SIGNAL_SPEED))
         {
             if ((Motor_Mode == TORQUE) && (Motor_State_Get() == ENABLED))
             {
-                Id_Ref += Signal_Injection_Run();
+                if (Signal_Injection.State.Target == SIGNAL_ID)
+                {
+                    Id_Ref += Signal_Injection_Run();
+                }
+                else
+                {
+                    Iq_Ref += Signal_Injection_Run();
+                }
             }
             else
             {

@@ -5,6 +5,8 @@
 
 #include "Motor_Control.h"
 
+#include "main.h"
+
 #include "Math.h"
 #include "Current_Loop.h"
 #include "Encoder.h"
@@ -42,6 +44,7 @@ Motor_Cal_T Motor_Cal = MOTOR_CAL_DEFAULT;
 const Motor_Limit_T Motor_Lim = MOTOR_LIM_DEFAULT;
 Motor_Limit_T User_Lim = USER_LIM_DEFAULT;
 Motor_Run_T Motor_Run = { 0 };
+volatile Motor_Frf_Speed_T Motor_Frf_Speed = { 0 };
 
 volatile float Motor_Plot_Wm = 0.0f;
 volatile float Motor_Plot_Wm_Ref = 0.0f;
@@ -198,6 +201,8 @@ void Motor_Control(void)
     float Wm_Corr;
     float Iq_Target;
     float Iq_Step;
+    float Speed_Inj;
+    uint32_t Primask;
     Motor_Limit_T Lim;
 
     if (Motor_State == DISABLED)
@@ -388,6 +393,22 @@ void Motor_Control(void)
             Wm_Ref = Motion_Ref.Wm;
             We_Ref = (float)Motor_Para.Pp * Wm_Ref;
 
+            /* Speed FRF bypasses the motion ramp, not the current loop. */
+            Speed_Inj = 0.0f;
+            if (Signal_Injection.State.Active != 0U &&
+                Signal_Injection.State.Target == SIGNAL_SPEED)
+            {
+                if (((Motor_State == ENABLED) || (Motor_State == RUN)) && !Stop_Pending)
+                {
+                    Speed_Inj = (float)Motor_Para.Pp * Signal_Injection_Run();
+                    We_Ref += Speed_Inj;
+                }
+                else
+                {
+                    Signal_Injection_Stop();
+                }
+            }
+
             if (Stop_Pending && (Motion_Ref.Wm == 0.0f) &&
                 ((Motion_Config.Profile == MOTION_TRAPEZOID) || (SCurve.Count == 0U)))
             {
@@ -396,6 +417,14 @@ void Motor_Control(void)
             }
 
             Current_Ref.Iq = Speed_Loop(We_Ref, We_Fbk, Iq_Min, Iq_Max);
+            /* Publish all four 2 kHz values atomically to FAST Plot. */
+            Primask = __get_PRIMASK();
+            __disable_irq();
+            Motor_Frf_Speed.Ref = Speed_Ctrl.Sig.Ref;
+            Motor_Frf_Speed.Fbk = Speed_Ctrl.Sig.Fbk;
+            Motor_Frf_Speed.Iq = Speed_Ctrl.Sig.Out;
+            Motor_Frf_Speed.Inj = Speed_Inj;
+            __set_PRIMASK(Primask);
             break;
 
         case POSITION:

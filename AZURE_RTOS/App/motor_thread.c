@@ -304,13 +304,16 @@ static void Motor_Cmd_Run(void)
 
             case MOTOR_CMD_SIGNAL_START:
                 Action_Status = AXDR_OK;
-                if ((Motor_State_Get() != ENABLED) ||
-                    (Motor_Mode_Get() != TORQUE) ||
-                    !Protection_Enable_Allowed())
+                if (!Protection_Enable_Allowed() ||
+                    ((Signal_Injection.Para.Target == SIGNAL_SPEED) ?
+                     ((Motor_Mode_Get() != SPEED) ||
+                      ((Motor_State_Get() != ENABLED) && (Motor_State_Get() != RUN))) :
+                     ((Motor_Mode_Get() != TORQUE) || (Motor_State_Get() != ENABLED))))
                 {
                     Action_Status = AXDR_ERR_STATE;
                 }
-                else if (!Signal_Injection_Start(Motor_I_Limit_Effective_Get()))
+                else if (!Signal_Injection_Start(Motor_I_Limit_Effective_Get(),
+                                                 Motor_Wm_Limit_Effective_Get()))
                 {
                     Action_Status = AXDR_ERR_CONFIG;
                 }
