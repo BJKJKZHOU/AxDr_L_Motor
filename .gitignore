@@ -21,3 +21,6 @@ Drivers/CMSIS/Device/ST/STM32G4xx/Source/Templates/system_stm32g4xx.c
 *.pfx
 *.log
 .DS_Store
+
+# Local high-rate test captures and temporary re-plots.
+/test-data/

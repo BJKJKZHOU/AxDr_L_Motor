@@ -90,13 +90,21 @@
 { PARAM_CTRL_MECH_ESO_BW_HZ, PARAM_FLOAT, &Mechanical_ESO_Bw_Hz, 1.0f, 2000.0f, PARAM_FLAG_HOST_WRITE | PARAM_FLAG_NOT_RUNNING | PARAM_FLAG_PERSISTENT },
 { PARAM_CTRL_SPEED_KP_EFFECTIVE, PARAM_FLOAT, &Speed_Ctrl.Para.Kp, -INFINITY, INFINITY, 0U },
 { PARAM_CTRL_SPEED_KI_EFFECTIVE, PARAM_FLOAT, &Speed_Ctrl.Para.Ki, -INFINITY, INFINITY, 0U },
-{ PARAM_SIGNAL_FREQ_HZ, PARAM_FLOAT, &Signal_Injection.Para.Freq_Hz, 0.0f, 5000.0f, PARAM_FLAG_HOST_WRITE | PARAM_FLAG_NOT_RUNNING },
+{ PARAM_SIGNAL_FREQ_HZ, PARAM_FLOAT, &Signal_Injection.Para.Freq_Hz, 0.0f, 9999.0f, PARAM_FLAG_HOST_WRITE },
 { PARAM_SIGNAL_AMP_A, PARAM_FLOAT, &Signal_Injection.Para.Amp_A, 0.0f, INFINITY, PARAM_FLAG_HOST_WRITE | PARAM_FLAG_NOT_RUNNING },
-{ PARAM_SIGNAL_TIME_S, PARAM_FLOAT, &Signal_Injection.Para.Time_S, 0.0f, 60.0f, PARAM_FLAG_HOST_WRITE | PARAM_FLAG_NOT_RUNNING },
+{ PARAM_SIGNAL_TIME_S, PARAM_FLOAT, &Signal_Injection.Para.Time_S, 0.0f, 60.0f, PARAM_FLAG_HOST_WRITE },
 { PARAM_SIGNAL_ACTIVE, PARAM_U8, &Signal_Injection.State.Active, -INFINITY, INFINITY, 0U },
 { PARAM_SIGNAL_OUT, PARAM_FLOAT, &Signal_Injection.State.Out, -INFINITY, INFINITY, 0U },
 { PARAM_SIGNAL_ID_REF, PARAM_FLOAT, &Id_Ctrl.Sig.Ref, -INFINITY, INFINITY, 0U },
 { PARAM_SIGNAL_ID_PI_OUT, PARAM_FLOAT, &Id_Ctrl.Sig.Out, -INFINITY, INFINITY, 0U },
+{ PARAM_SIGNAL_TARGET, PARAM_U8, &Signal_Injection.Para.Target, (float)SIGNAL_ID, (float)SIGNAL_SPEED, PARAM_FLAG_HOST_WRITE },
+{ PARAM_SIGNAL_SPEED_AMP, PARAM_FLOAT, &Signal_Injection.Para.Speed_Amp, 0.0f, INFINITY, PARAM_FLAG_HOST_WRITE },
+{ PARAM_SIGNAL_IQ_REF, PARAM_FLOAT, &Iq_Ctrl.Sig.Ref, -INFINITY, INFINITY, 0U },
+{ PARAM_SIGNAL_IQ_PI_OUT, PARAM_FLOAT, &Iq_Ctrl.Sig.Out, -INFINITY, INFINITY, 0U },
+{ PARAM_SIGNAL_SPEED_REF, PARAM_FLOAT, &Motor_Frf_Speed.Ref, -INFINITY, INFINITY, 0U },
+{ PARAM_SIGNAL_SPEED_FBK, PARAM_FLOAT, &Motor_Frf_Speed.Fbk, -INFINITY, INFINITY, 0U },
+{ PARAM_SIGNAL_SPEED_IQ_OUT, PARAM_FLOAT, &Motor_Frf_Speed.Iq, -INFINITY, INFINITY, 0U },
+{ PARAM_SIGNAL_SPEED_INJ, PARAM_FLOAT, &Motor_Frf_Speed.Inj, -INFINITY, INFINITY, 0U },
 
 #elif defined(PARAM_GENERATE_VALIDATE)
 case PARAM_MOTOR_RS:
@@ -308,6 +316,20 @@ case PARAM_SIGNAL_AMP_A:
     break;
 
 case PARAM_SIGNAL_TIME_S:
+    if ((Number <= 0.0f))
+    {
+        return PARAM_ERR_VALUE;
+    }
+    break;
+
+case PARAM_SIGNAL_TARGET:
+    if ((Value.U8 != (uint8_t)SIGNAL_ID) && (Value.U8 != (uint8_t)SIGNAL_IQ) && (Value.U8 != (uint8_t)SIGNAL_SPEED))
+    {
+        return PARAM_ERR_VALUE;
+    }
+    break;
+
+case PARAM_SIGNAL_SPEED_AMP:
     if ((Number <= 0.0f))
     {
         return PARAM_ERR_VALUE;
@@ -579,6 +601,30 @@ case PARAM_SIGNAL_ID_REF:
 case PARAM_SIGNAL_ID_PI_OUT:
     *Scale = 0.001f;
     return &Id_Ctrl.Sig.Out;
+
+case PARAM_SIGNAL_IQ_REF:
+    *Scale = 0.001f;
+    return &Iq_Ctrl.Sig.Ref;
+
+case PARAM_SIGNAL_IQ_PI_OUT:
+    *Scale = 0.001f;
+    return &Iq_Ctrl.Sig.Out;
+
+case PARAM_SIGNAL_SPEED_REF:
+    *Scale = 0.05f;
+    return &Motor_Frf_Speed.Ref;
+
+case PARAM_SIGNAL_SPEED_FBK:
+    *Scale = 0.05f;
+    return &Motor_Frf_Speed.Fbk;
+
+case PARAM_SIGNAL_SPEED_IQ_OUT:
+    *Scale = 0.001f;
+    return &Motor_Frf_Speed.Iq;
+
+case PARAM_SIGNAL_SPEED_INJ:
+    *Scale = 0.02f;
+    return &Motor_Frf_Speed.Inj;
 
 #else
 #error "Parameter.generated.inc section not selected"
