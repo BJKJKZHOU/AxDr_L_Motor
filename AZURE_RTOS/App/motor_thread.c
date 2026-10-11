@@ -8,6 +8,7 @@
 #include <stdbool.h>
 #include <string.h>
 
+#include "CAN.h"
 #include "Motor_Control.h"
 #include "NVS_Storage.h"
 #include "Parameter.h"
@@ -52,7 +53,8 @@ Motor_Parameter_Request_Status_e Motor_Parameter_Write_Request(
     uint16_t Id,
     Parameter_Type_e Type,
     const Parameter_Value_T *Value,
-    uint8_t Txn)
+    uint8_t Txn,
+    AxDr_Link_e Link)
 {
     Motor_Cmd_Msg_T Msg = { 0 };
 
@@ -68,7 +70,8 @@ Motor_Parameter_Request_Status_e Motor_Parameter_Write_Request(
         }
 
         Msg.Reserved = ((ULONG)Id << MOTOR_ACTION_ID_SHIFT) |
-                       ((ULONG)Txn << MOTOR_ACTION_TXN_SHIFT);
+                       ((ULONG)Txn << MOTOR_ACTION_TXN_SHIFT) |
+                       ((ULONG)Link << MOTOR_LINK_SHIFT);
     }
     else
     {
@@ -78,7 +81,8 @@ Motor_Parameter_Request_Status_e Motor_Parameter_Write_Request(
         memcpy(&Msg.Arg3,
                (const uint8_t *)Value + sizeof(Msg.Arg2),
                sizeof(Msg.Arg3));
-        Msg.Reserved = (ULONG)Type | ((ULONG)Txn << MOTOR_PARAM_TXN_SHIFT);
+        Msg.Reserved = (ULONG)Type | ((ULONG)Txn << MOTOR_PARAM_TXN_SHIFT) |
+                       ((ULONG)Link << MOTOR_LINK_SHIFT);
     }
 
     if (tx_queue_send(&Motor_Cmd_Q, &Msg, TX_NO_WAIT) != TX_SUCCESS)
@@ -99,18 +103,25 @@ static uint8_t Motor_Action_Txn_Get(const Motor_Cmd_Msg_T *Msg)
     return (uint8_t)((Msg->Reserved >> MOTOR_ACTION_TXN_SHIFT) & MOTOR_ACTION_TXN_MASK);
 }
 
+static AxDr_Link_e Motor_Action_Link_Get(const Motor_Cmd_Msg_T *Msg)
+{
+    return (AxDr_Link_e)(Msg->Reserved >> MOTOR_LINK_SHIFT);
+}
+
 static void Motor_Action_Response(const Motor_Cmd_Msg_T *Msg, AxDr_Status_e Status)
 {
     Protocol_Action_Response(Motor_Action_Txn_Get(Msg),
                              Motor_Action_Id_Get(Msg),
-                             Status);
+                             Status,
+                             Motor_Action_Link_Get(Msg));
 }
 
 static void Motor_Action_Complete(const Motor_Cmd_Msg_T *Msg, AxDr_Status_e Status)
 {
     Protocol_Action_Complete(Motor_Action_Txn_Get(Msg),
                              Motor_Action_Id_Get(Msg),
-                             Status);
+                             Status,
+                             Motor_Action_Link_Get(Msg));
 }
 
 static void Motor_Async_Action_Poll(void)
@@ -296,7 +307,8 @@ static void Motor_Cmd_Run(void)
                 Protocol_Parameter_Write_Response(
                     (uint8_t)(Msg.Reserved >> MOTOR_PARAM_TXN_SHIFT),
                     (uint16_t)Msg.Arg,
-                    Parameter_Status);
+                    Parameter_Status,
+                    (AxDr_Link_e)(Msg.Reserved >> MOTOR_LINK_SHIFT));
                 break;
 
             case MOTOR_CMD_IDENT_APPLY:
@@ -479,6 +491,9 @@ static void Motor_Entry(ULONG thread_input)
             USB_Tx_Poll();
             Cyc = DWT->CYCCNT - T0;
             Motor_Time_Set(Cyc, &Motor_Time.USB_Poll_Cyc, &Motor_Time.USB_Poll_Max);
+
+            /* Service at most one CAN RX and one CAN TX per motor tick. */
+            CAN_Poll();
 
             Normal_Div ^= 1U;
 

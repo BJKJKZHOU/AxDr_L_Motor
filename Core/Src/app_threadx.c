@@ -24,6 +24,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "motor_thread.h"
+#include "CAN.h"
 #include "panel_thread.h"
 
 /* USER CODE END Includes */
@@ -66,6 +67,9 @@ UINT App_ThreadX_Init(VOID *memory_ptr)
   /* USER CODE END App_ThreadX_MEM_POOL */
 
   /* USER CODE BEGIN App_ThreadX_Init */
+
+  /* FDCAN1 has already been configured in main.c. */
+  (void)CAN_Init();
 
   ret = Motor_Thread_Init(memory_ptr);
 

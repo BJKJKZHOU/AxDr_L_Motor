@@ -92,6 +92,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     BSP/ST7789.c
     BSP/LCD_Wave.c
     Comm/Protocol.c
+    Comm/CAN.c
     Comm/Plot.c
     Comm/USB_Thread.c
     AZURE_RTOS/App/motor_thread.c

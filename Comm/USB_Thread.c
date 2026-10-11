@@ -171,7 +171,7 @@ static VOID USB_Tx_Entry(ULONG thread_input)
 
             /* Service responses and NORMAL before continuous FAST traffic.
              * Reserve room before Pop: it releases the source buffer. */
-            if (Protocol_Tx_Pop(&Msg))
+            if (Protocol_Tx_Pop(AXDR_LINK_USB, &Msg))
             {
                 Len += USB_Frame_Pack(&Buf[Len], &Msg);
             }
@@ -293,7 +293,7 @@ static void USB_Rx_Data(const uint8_t *Data, uint16_t Len)
             return;
         }
 
-        Protocol_Rx(Can_ID, &USB_Rx_Stream[USB_FRAME_HEAD_SIZE], Data_Len);
+        Protocol_Rx(Can_ID, &USB_Rx_Stream[USB_FRAME_HEAD_SIZE], Data_Len, AXDR_LINK_USB);
 
         USB_Rx_Len = (uint16_t)(USB_Rx_Len - Frame_Len);
 

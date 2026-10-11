@@ -9,9 +9,11 @@
 #include <stdint.h>
 
 #include "Parameter.h"
+#include "Protocol.h"
 #include "tx_api.h"
 
 #define MOTOR_PARAM_TXN_SHIFT 8U
+#define MOTOR_LINK_SHIFT      24U
 
 /* Action context carried with the internal Motor queue message. */
 #define MOTOR_ACTION_ID_SHIFT  0U
@@ -92,7 +94,8 @@ Motor_Parameter_Request_Status_e Motor_Parameter_Write_Request(
     uint16_t Id,
     Parameter_Type_e Type,
     const Parameter_Value_T *Value,
-    uint8_t Txn);
+    uint8_t Txn,
+    AxDr_Link_e Link);
 UINT Motor_Thread_Init(VOID *memory_ptr);
 
 #endif /* MOTOR_THREAD_H */

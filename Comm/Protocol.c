@@ -8,6 +8,7 @@
 #include <stddef.h>
 #include <string.h>
 
+#include "CAN.h"
 #include "Parameter.h"
 #include "Plot.h"
 #include "Protection.h"
@@ -20,14 +21,20 @@
 #define AXDR_PLOT_CAP_HEADER_LEN 14U
 #define AXDR_PLOT_CAP_ENTRY_LEN 7U
 
-static AxDr_Msg_T Resp_Buf[AXDR_RESP_NUM];
-static volatile uint8_t Resp_Wr = 0U;
-static volatile uint8_t Resp_Rd = 0U;
+static AxDr_Msg_T Resp_Buf[AXDR_LINK_COUNT][AXDR_RESP_NUM];
+static volatile uint8_t Resp_Wr[AXDR_LINK_COUNT];
+static volatile uint8_t Resp_Rd[AXDR_LINK_COUNT];
 
-static uint32_t Event_Last_Report = 0U;
-static uint32_t Event_Last_Warning = 0U;
-static uint32_t Event_Last_Error = 0U;
-static uint32_t Event_Last_Trip = 0U;
+typedef struct
+{
+    uint32_t Report;
+    uint32_t Warning;
+    uint32_t Error;
+    uint32_t Trip;
+} Protocol_Event_T;
+
+/* Each transport tracks its own delivered protection-state snapshot. */
+static Protocol_Event_T Event_Last[AXDR_LINK_COUNT];
 
 uint8_t AxDr_CANFD_Length(uint8_t Required)
 {
@@ -90,27 +97,37 @@ bool AxDr_CANFD_Padding_Zero(const uint8_t *Data, uint8_t Required, uint8_t Len)
     return true;
 }
 
-static bool Response_Push(const AxDr_Msg_T *Msg)
+static bool Response_Push(AxDr_Link_e Link, const AxDr_Msg_T *Msg)
 {
     uint8_t Next;
     TX_INTERRUPT_SAVE_AREA
 
+    if (Link >= AXDR_LINK_COUNT)
+    {
+        return false;
+    }
+
     TX_DISABLE
-    Next = (uint8_t)((Resp_Wr + 1U) % AXDR_RESP_NUM);
-    if (Next == Resp_Rd)
+    Next = (uint8_t)((Resp_Wr[Link] + 1U) % AXDR_RESP_NUM);
+    if (Next == Resp_Rd[Link])
     {
         TX_RESTORE
         return false;
     }
-    Resp_Buf[Resp_Wr] = *Msg;
-    Resp_Wr = Next;
+    Resp_Buf[Link][Resp_Wr[Link]] = *Msg;
+    Resp_Wr[Link] = Next;
     TX_RESTORE
 
-    USB_Tx_Wake(USB_TX_RESP);
+    if (Link == AXDR_LINK_USB)
+    {
+        USB_Tx_Wake(USB_TX_RESP);
+    }
+    /* CAN is drained at the Motor Thread's regular 2 kHz tick. */
     return true;
 }
 
-static void Response(uint8_t Txn,
+static void Response(AxDr_Link_e Link,
+                     uint8_t Txn,
                      uint8_t Req_Msg,
                      uint8_t Req_Op,
                      AxDr_Status_e Status,
@@ -138,7 +155,7 @@ static void Response(uint8_t Txn,
         memcpy(&Msg.Data[4], Data, Len);
     }
 
-    (void)Response_Push(&Msg);
+    (void)Response_Push(Link, &Msg);
 }
 
 static AxDr_Status_e Parameter_Status_Map(Parameter_Status_e Status)
@@ -176,7 +193,7 @@ static AxDr_Status_e Motor_Parameter_Request_Status_Map(
     }
 }
 
-static void Parameter_Rx(const uint8_t *Data, uint8_t Len)
+static void Parameter_Rx(const uint8_t *Data, uint8_t Len, AxDr_Link_e Link)
 {
     uint8_t Txn;
     uint8_t Op;
@@ -220,7 +237,7 @@ static void Parameter_Rx(const uint8_t *Data, uint8_t Len)
                 Resp[1] = (uint8_t)(Id >> 8);
                 Resp[2] = (uint8_t)Type;
                 memcpy(&Resp[3], &Value, Value_Size);
-                Response(Txn,
+                Response(Link, Txn,
                          AXDR_MSG_PARAMETER,
                          Op,
                          Status,
@@ -272,7 +289,8 @@ static void Parameter_Rx(const uint8_t *Data, uint8_t Len)
                 Request_Status = Motor_Parameter_Write_Request(Id,
                                                                Type,
                                                                &Value,
-                                                               Txn);
+                                                               Txn,
+                                                               Link);
                 Status = Motor_Parameter_Request_Status_Map(Request_Status);
                 if (Status == AXDR_OK)
                 {
@@ -290,23 +308,24 @@ static void Parameter_Rx(const uint8_t *Data, uint8_t Len)
     {
         Id_Resp[0] = (uint8_t)Id;
         Id_Resp[1] = (uint8_t)(Id >> 8);
-        Response(Txn, AXDR_MSG_PARAMETER, Op, Status, Id_Resp, sizeof(Id_Resp));
+        Response(Link, Txn, AXDR_MSG_PARAMETER, Op, Status, Id_Resp, sizeof(Id_Resp));
     }
     else
     {
-        Response(Txn, AXDR_MSG_PARAMETER, Op, Status, NULL, 0U);
+        Response(Link, Txn, AXDR_MSG_PARAMETER, Op, Status, NULL, 0U);
     }
 }
 
 void Protocol_Parameter_Write_Response(uint8_t Txn,
                                        uint16_t Parameter_Id,
-                                       Parameter_Status_e Status)
+                                       Parameter_Status_e Status,
+                                       AxDr_Link_e Link)
 {
     uint8_t Resp[2];
 
     Resp[0] = (uint8_t)Parameter_Id;
     Resp[1] = (uint8_t)(Parameter_Id >> 8);
-    Response(Txn,
+    Response(Link, Txn,
              AXDR_MSG_PARAMETER,
              AXDR_PARAM_WRITE,
              Parameter_Status_Map(Status),
@@ -316,13 +335,14 @@ void Protocol_Parameter_Write_Response(uint8_t Txn,
 
 void Protocol_Action_Response(uint8_t Txn,
                               uint16_t Action_Id,
-                              AxDr_Status_e Status)
+                              AxDr_Status_e Status,
+                              AxDr_Link_e Link)
 {
     uint8_t Resp[2];
 
     Resp[0] = (uint8_t)Action_Id;
     Resp[1] = (uint8_t)(Action_Id >> 8);
-    Response(Txn,
+    Response(Link, Txn,
              AXDR_MSG_PARAMETER,
              AXDR_PARAM_WRITE,
              Status,
@@ -332,7 +352,8 @@ void Protocol_Action_Response(uint8_t Txn,
 
 void Protocol_Action_Complete(uint8_t Txn,
                               uint16_t Action_Id,
-                              AxDr_Status_e Status)
+                              AxDr_Status_e Status,
+                              AxDr_Link_e Link)
 {
     AxDr_Msg_T Msg = { 0 };
 
@@ -343,7 +364,7 @@ void Protocol_Action_Complete(uint8_t Txn,
     Msg.Data[2] = (uint8_t)Action_Id;
     Msg.Data[3] = (uint8_t)(Action_Id >> 8);
     Msg.Data[4] = (uint8_t)Status;
-    (void)Response_Push(&Msg);
+    (void)Response_Push(Link, &Msg);
 }
 
 static void Plot_Rx(const uint8_t *Data, uint8_t Len)
@@ -405,7 +426,7 @@ static void Plot_Rx(const uint8_t *Data, uint8_t Len)
                         Resp[3U + n * 2U] = (uint8_t)Var[n];
                         Resp[4U + n * 2U] = (uint8_t)(Var[n] >> 8);
                     }
-                    Response(Txn, AXDR_MSG_PLOT, Op, Status, Resp, (uint8_t)(3U + Count * 2U));
+                    Response(AXDR_LINK_USB, Txn, AXDR_MSG_PLOT, Op, Status, Resp, (uint8_t)(3U + Count * 2U));
                     return;
                 }
             }
@@ -516,7 +537,7 @@ static void Plot_Rx(const uint8_t *Data, uint8_t Len)
 
                 if (Status == AXDR_OK)
                 {
-                    Response(Txn, AXDR_MSG_PLOT, Op, Status, Resp, Dst);
+                    Response(AXDR_LINK_USB, Txn, AXDR_MSG_PLOT, Op, Status, Resp, Dst);
                     return;
                 }
             }
@@ -527,15 +548,16 @@ static void Plot_Rx(const uint8_t *Data, uint8_t Len)
         Status = AXDR_ERR_OP;
     }
 
-    Response(Txn, AXDR_MSG_PLOT, Op, Status, NULL, 0U);
+    Response(AXDR_LINK_USB, Txn, AXDR_MSG_PLOT, Op, Status, NULL, 0U);
 }
 
-void Protocol_Rx(uint16_t Id, const uint8_t *Data, uint8_t Len)
+void Protocol_Rx(uint16_t Id, const uint8_t *Data, uint8_t Len, AxDr_Link_e Link)
 {
     uint8_t Msg_Type;
     uint8_t Node;
 
-    if ((Id > 0x07FFU) || (Data == NULL) || !AxDr_CANFD_Length_Valid(Len))
+    if ((Link >= AXDR_LINK_COUNT) || (Id > 0x07FFU) ||
+        (Data == NULL) || !AxDr_CANFD_Length_Valid(Len))
     {
         return;
     }
@@ -550,9 +572,9 @@ void Protocol_Rx(uint16_t Id, const uint8_t *Data, uint8_t Len)
 
     if (Msg_Type == AXDR_MSG_PARAMETER)
     {
-        Parameter_Rx(Data, Len);
+        Parameter_Rx(Data, Len, Link);
     }
-    else if (Msg_Type == AXDR_MSG_PLOT)
+    else if ((Msg_Type == AXDR_MSG_PLOT) && (Link == AXDR_LINK_USB))
     {
         Plot_Rx(Data, Len);
     }
@@ -571,14 +593,6 @@ void Protocol_Event_Poll(void)
     Error = Protection.Fault;
     Trip = Protection.Trip;
 
-    if ((Report == Event_Last_Report) &&
-        (Warning == Event_Last_Warning) &&
-        (Error == Event_Last_Error) &&
-        (Trip == Event_Last_Trip))
-    {
-        return;
-    }
-
     Msg.Id = (uint16_t)((AXDR_MSG_EVENT << 6) | AXDR_NODE_ID);
     Msg.Len = AxDr_CANFD_Length(17U);
     Msg.Data[0] = AXDR_EVENT_NOTIFY;
@@ -587,28 +601,50 @@ void Protocol_Event_Poll(void)
     memcpy(&Msg.Data[9], &Error, sizeof(Error));
     memcpy(&Msg.Data[13], &Trip, sizeof(Trip));
 
-    if (Response_Push(&Msg))
+    for (uint32_t Link = 0U; Link < AXDR_LINK_COUNT; Link++)
     {
-        Event_Last_Report = Report;
-        Event_Last_Warning = Warning;
-        Event_Last_Error = Error;
-        Event_Last_Trip = Trip;
+        Protocol_Event_T *Last = &Event_Last[Link];
+
+        /* Send unsolicited Event frames on each initialized transport. */
+        if ((Link == AXDR_LINK_CAN) && !CAN_Active())
+        {
+            continue;
+        }
+
+        if ((Report == Last->Report) && (Warning == Last->Warning) &&
+            (Error == Last->Error) && (Trip == Last->Trip))
+        {
+            continue;
+        }
+
+        if (Response_Push((AxDr_Link_e)Link, &Msg))
+        {
+            Last->Report = Report;
+            Last->Warning = Warning;
+            Last->Error = Error;
+            Last->Trip = Trip;
+        }
     }
 }
 
-bool Protocol_Tx_Pop(AxDr_Msg_T *Msg)
+bool Protocol_Tx_Pop(AxDr_Link_e Link, AxDr_Msg_T *Msg)
 {
     TX_INTERRUPT_SAVE_AREA
 
+    if (Link >= AXDR_LINK_COUNT)
+    {
+        return false;
+    }
+
     TX_DISABLE
-    if (Resp_Rd == Resp_Wr)
+    if (Resp_Rd[Link] == Resp_Wr[Link])
     {
         TX_RESTORE
         return false;
     }
 
-    *Msg = Resp_Buf[Resp_Rd];
-    Resp_Rd = (uint8_t)((Resp_Rd + 1U) % AXDR_RESP_NUM);
+    *Msg = Resp_Buf[Link][Resp_Rd[Link]];
+    Resp_Rd[Link] = (uint8_t)((Resp_Rd[Link] + 1U) % AXDR_RESP_NUM);
     TX_RESTORE
 
     return true;

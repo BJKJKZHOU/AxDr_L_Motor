@@ -41,6 +41,13 @@
 
 typedef enum
 {
+    AXDR_LINK_USB = 0,
+    AXDR_LINK_CAN,
+    AXDR_LINK_COUNT
+} AxDr_Link_e;
+
+typedef enum
+{
     AXDR_OK = 0,
     AXDR_ERR_OP,
     AXDR_ERR_LENGTH,
@@ -67,17 +74,20 @@ uint8_t AxDr_CANFD_Length(uint8_t Required);
 bool AxDr_CANFD_Length_Valid(uint8_t Len);
 bool AxDr_CANFD_Padding_Zero(const uint8_t *Data, uint8_t Required, uint8_t Len);
 
-void Protocol_Rx(uint16_t Id, const uint8_t *Data, uint8_t Len);
+void Protocol_Rx(uint16_t Id, const uint8_t *Data, uint8_t Len, AxDr_Link_e Link);
 void Protocol_Parameter_Write_Response(uint8_t Txn,
                                        uint16_t Parameter_Id,
-                                       Parameter_Status_e Status);
+                                       Parameter_Status_e Status,
+                                       AxDr_Link_e Link);
 void Protocol_Action_Response(uint8_t Txn,
                               uint16_t Action_Id,
-                              AxDr_Status_e Status);
+                              AxDr_Status_e Status,
+                              AxDr_Link_e Link);
 void Protocol_Action_Complete(uint8_t Txn,
                               uint16_t Action_Id,
-                              AxDr_Status_e Status);
+                              AxDr_Status_e Status,
+                              AxDr_Link_e Link);
 void Protocol_Event_Poll(void);
-bool Protocol_Tx_Pop(AxDr_Msg_T *Msg);
+bool Protocol_Tx_Pop(AxDr_Link_e Link, AxDr_Msg_T *Msg);
 
 #endif /* PROTOCOL_H */
