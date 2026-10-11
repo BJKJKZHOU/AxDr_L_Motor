@@ -56,6 +56,7 @@ typedef enum
 static volatile Sensorless_State_e State = SL_IDLE;
 static volatile To_Obs_State_e To_Obs_State = TO_OBS_WAIT;
 static bool Stop_Requested = false;
+static bool Known_Theta_Start = false;
 
 static Flux_Observer_T Sensorless_Observer = { 0 };
 PLL_T Sensorless_PLL = { 0 };
@@ -144,6 +145,7 @@ bool Sensorless_Begin(void)
     float Am_IF;
 
     State = SL_IDLE;
+    Known_Theta_Start = false;
     To_Obs_State = TO_OBS_WAIT;
     Stop_Requested = false;
     Flux_Obs_U_Valid = false;
@@ -224,6 +226,52 @@ bool Sensorless_Begin(void)
     return true;
 }
 
+bool Sensorless_Begin_Known_Theta(float Theta_e)
+{
+    float Ialpha;
+    float Ibeta;
+
+    State = SL_IDLE;
+    Known_Theta_Start = false;
+    Stop_Requested = false;
+    Flux_Obs_U_Valid = false;
+    Obs_Iq_Ref = 0.0f;
+    Obs_Id_Ref = 0.0f;
+    We_Obs_F = 0.0f;
+
+    if (!__builtin_isfinite(Theta_e) ||
+        (Motor_Para.Pp == 0U) ||
+        !__builtin_isfinite(Motor_Para.Rs) || (Motor_Para.Rs <= 0.0f) ||
+        !__builtin_isfinite(Motor_Para.Ld) || (Motor_Para.Ld <= 0.0f) ||
+        !__builtin_isfinite(Motor_Para.Flux) || (Motor_Para.Flux <= 0.0f) ||
+        !__builtin_isfinite(ADC.Vbus_V) || (ADC.Vbus_V <= 0.0f) ||
+        (Current_Limit_Get() <= 0.0f))
+    {
+        State = SL_FAILED;
+        return false;
+    }
+
+    Sensorless_Observer.Para.Rs = Motor_Para.Rs;
+    Sensorless_Observer.Para.Ls = Motor_Para.Ld;
+    Sensorless_Observer.Para.Flux = Motor_Para.Flux;
+    Sensorless_Observer.Para.BW_Hz = FLUX_OBS_BW_HZ;
+    Sensorless_PLL.Para.Kp = PLL_KP;
+    Sensorless_PLL.Para.Ki = PLL_KI;
+
+    Ialpha = ADC.Ia_A;
+    Ibeta = (ADC.Ia_A + 2.0f * ADC.Ib_A) * INV_SQRT3_F;
+    Theta_e = Angle_Wrap(Theta_e);
+    Flux_Observer_Reset(&Sensorless_Observer, Theta_e, Ialpha, Ibeta);
+    PLL_Reset(&Sensorless_PLL, Theta_e, 0.0f);
+    Speed_Loop_State_Reset(0.0f);
+    Current_Loop_State_Reset();
+
+    Theta_Use_Last = Theta_e;
+    Known_Theta_Start = true;
+    State = SL_OBS;
+    return true;
+}
+
 void Sensorless_Stop_Request(void)
 {
     Stop_Requested = true;
@@ -232,6 +280,7 @@ void Sensorless_Stop_Request(void)
 void Sensorless_Stop(void)
 {
     Stop_Requested = false;
+    Known_Theta_Start = false;
     State = SL_IDLE;
 }
 
@@ -448,7 +497,7 @@ void Sensorless_Run(float Ia_A, float Ib_A, float We_Target, float *Theta_e, flo
         *Id_Ref = 0.0f;
         *Iq_Ref = Obs_Iq_Ref;
 
-        if (Abs_F(Sensorless_PLL.State.We) <= We_Obs_Exit)
+        if (!Known_Theta_Start && (Abs_F(Sensorless_PLL.State.We) <= We_Obs_Exit))
         {
             IF_Init(&Sensorless_IF, Theta_Obs, Sensorless_PLL.State.We);
             Sensorless_IF.State.Iq = Obs_Iq_Ref;

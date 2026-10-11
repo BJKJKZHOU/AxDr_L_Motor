@@ -25,6 +25,7 @@ typedef enum
     IDENT,
     SENSORLESS_SPEED,
     PHASE_SEARCH,
+    SENSORLESS_SPEED_KNOWN_ANGLE, /* encoder angle is used only at startup */
 
 } Motor_Mode_e;
 

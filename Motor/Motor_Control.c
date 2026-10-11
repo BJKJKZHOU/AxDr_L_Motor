@@ -141,7 +141,7 @@ static FAST_CODE bool Servo_Mode(void)
 
 static void NonServo_Enabled_Apply(void)
 {
-    if (Motor_Mode == SENSORLESS_SPEED)
+    if ((Motor_Mode == SENSORLESS_SPEED) || (Motor_Mode == SENSORLESS_SPEED_KNOWN_ANGLE))
     {
         Sensorless_Stop();
     }
@@ -166,7 +166,7 @@ static void Disable_Apply(void)
 {
     Stop_Pending = false;
 
-    if (Motor_Mode == SENSORLESS_SPEED)
+    if ((Motor_Mode == SENSORLESS_SPEED) || (Motor_Mode == SENSORLESS_SPEED_KNOWN_ANGLE))
     {
         Sensorless_Stop();
     }
@@ -252,6 +252,7 @@ void Motor_Control(void)
             return;
 
         case SENSORLESS_SPEED:
+        case SENSORLESS_SPEED_KNOWN_ANGLE:
             if (Sensorless_State_Get() == SL_FAILED)
             {
                 NonServo_Enabled_Apply();
@@ -544,6 +545,7 @@ Motor_Fast_Mode_e Motor_Fast_Run(float Encoder_Theta_e,
                                            Ubeta);
 
         case SENSORLESS_SPEED:
+        case SENSORLESS_SPEED_KNOWN_ANGLE:
             Sensorless_Run(ADC.Ia_A, ADC.Ib_A, Sensorless_We_Target, Theta_e, Id_Ref, Iq_Ref);
             return FAST_CURRENT;
 
@@ -599,6 +601,7 @@ Motor_Position_T Motor_Position_Ref_Get(void)
 
 bool Motor_Encoder_Required(void)
 {
+    /* Known-angle mode needs the encoder at Run only, not as feedback. */
     return Servo_Mode() || (Motor_Mode == PHASE_SEARCH);
 }
 
@@ -611,12 +614,14 @@ void Motor_Enable(void)
         return;
     }
 
-    if (Motor_Encoder_Required() && ((Encoder.Ready == 0U) || (Encoder.Fault != 0U)))
+    if ((Motor_Encoder_Required() || (Motor_Mode == SENSORLESS_SPEED_KNOWN_ANGLE)) &&
+        ((Encoder.Ready == 0U) || (Encoder.Fault != 0U)))
     {
         return;
     }
 
-    if (Servo_Mode() && (Motor_Cal.Valid == 0U))
+    if ((Servo_Mode() || (Motor_Mode == SENSORLESS_SPEED_KNOWN_ANGLE)) &&
+        (Motor_Cal.Valid == 0U))
     {
         return;
     }
@@ -667,7 +672,8 @@ void Motor_Start(void)
         Current_Loop_State_Reset();
         Open_Loop_Reset();
     }
-    else if (Motor_Mode == SENSORLESS_SPEED)
+    else if ((Motor_Mode == SENSORLESS_SPEED) ||
+             (Motor_Mode == SENSORLESS_SPEED_KNOWN_ANGLE))
     {
         Sensorless_Profile_Active = false;
         Sensorless_We_Target = 0.0f;
@@ -675,9 +681,23 @@ void Motor_Start(void)
         Wm_Ref = 0.0f;
         We_Ref = 0.0f;
 
-        if (!Sensorless_Begin())
+        if (Motor_Mode == SENSORLESS_SPEED)
         {
-            return;
+            if (!Sensorless_Begin())
+            {
+                return;
+            }
+        }
+        else
+        {
+            /* Read the calibrated angle once; only NLOB/PLL then drives FOC. */
+            if ((Encoder.Ready == 0U) || (Encoder.Valid == 0U) ||
+                (Encoder.Fault != 0U) || (Motor_Cal.Valid == 0U) ||
+                !Sensorless_Begin_Known_Theta(Angle_Wrap((float)Motor_Para.Pp * Motor_Run.Theta_m +
+                                                       Motor_Cal.Theta_Off)))
+            {
+                return;
+            }
         }
     }
     else if (Motor_Mode == PHASE_SEARCH)
@@ -711,9 +731,10 @@ void Motor_Stop(void)
     }
 
     if ((Motor_Mode == TORQUE) || (Motor_Mode == SPEED) ||
-        (Motor_Mode == POSITION) || (Motor_Mode == SENSORLESS_SPEED))
+        (Motor_Mode == POSITION) || (Motor_Mode == SENSORLESS_SPEED) ||
+        (Motor_Mode == SENSORLESS_SPEED_KNOWN_ANGLE))
     {
-        if (Motor_Mode == SENSORLESS_SPEED)
+        if ((Motor_Mode == SENSORLESS_SPEED) || (Motor_Mode == SENSORLESS_SPEED_KNOWN_ANGLE))
         {
             Sensorless_Stop_Request();
             Sensorless_Stop_Delay_Cnt = 0U;
@@ -817,7 +838,8 @@ bool Motor_Ident_Apply(void)
 
 float Motor_Wm_Get(void)
 {
-    if ((Motor_Mode == SENSORLESS_SPEED) && (Motor_State == RUN))
+    if (((Motor_Mode == SENSORLESS_SPEED) || (Motor_Mode == SENSORLESS_SPEED_KNOWN_ANGLE)) &&
+        (Motor_State == RUN))
     {
         return Motor_Internal_To_User(Sensorless_Wm_Get());
     }

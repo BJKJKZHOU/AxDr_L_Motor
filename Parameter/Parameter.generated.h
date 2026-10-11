@@ -55,6 +55,9 @@ typedef enum
     /* Mechanical_ESO.State.Error: Mechanical ESO的单圈角度观测误差，Theta_meas-Theta_hat回绕到[-π,π)。 */
     PARAM_MECH_ESO_ERROR = 0x0025U,
 
+    /* Encoder.Theta_m: 编码器单圈机械角度，仅作无感估计真值对照；不参与无感运行反馈。 */
+    PARAM_ENCODER_THETA_M = 0x0026U,
+
     /* Motor_Para.Pp: 电机极对数。 */
     PARAM_MOTOR_PP = 0x0101U,
 
@@ -166,7 +169,7 @@ typedef enum
     /* Motion_Config.Profile: 有感Speed/Position轨迹：0梯形；1五次速度S曲线、保持梯形加减速时间（峰值1.875倍）；2五次速度S曲线、保持峰值加减速度（时间1.875倍）。允许DISABLED/ENABLED修改，RUN禁止。 */
     PARAM_MOTION_PROFILE = 0x0605U,
 
-    /* Motor_Mode: 当前选择的电机控制模式；与TORQUE/SPEED/POSITION/OPEN_LOOP/IDENT/SENSORLESS_SPEED/PHASE_SEARCH对应。 */
+    /* Motor_Mode: 当前选择的电机控制模式；与TORQUE/SPEED/POSITION/OPEN_LOOP/IDENT/SENSORLESS_SPEED/PHASE_SEARCH/SENSORLESS_SPEED_KNOWN_ANGLE对应。 */
     PARAM_MOTOR_MODE = 0x0701U,
 
     /* Motor_Cmd.Te_Target: Torque模式的用户机械转矩目标。 */

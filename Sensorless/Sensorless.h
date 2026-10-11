@@ -26,7 +26,7 @@ typedef enum
 
 } Sensorless_State_e;
 
-/* Normal SENSORLESS_SPEED mode PLL runtime.
+/* Shared sensorless speed PLL runtime.
  *
  * PARAM_OBS_THETA / PARAM_OBS_WE intentionally remain bound to the normal
  * sensorless Flux-Observer PLL. Identification owns a separate Ident_PLL
@@ -37,6 +37,7 @@ extern PLL_T Sensorless_PLL;
 #define Flux_PLL Sensorless_PLL
 
 bool Sensorless_Begin(void);
+bool Sensorless_Begin_Known_Theta(float Theta_e);
 void Sensorless_Stop_Request(void);
 void Sensorless_Stop(void);
 FAST_CODE bool Sensorless_Active(void);

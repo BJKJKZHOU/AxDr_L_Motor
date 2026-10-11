@@ -240,6 +240,7 @@ static void Motor_Cmd_Run(void)
                         Parameter_Value.U8 = (uint8_t)SENSORLESS_SPEED;
                         break;
                     case SENSORLESS_SPEED:
+                    case SENSORLESS_SPEED_KNOWN_ANGLE:
                     case OPEN_LOOP:
                     case IDENT:
                     case PHASE_SEARCH:

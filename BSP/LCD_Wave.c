@@ -234,6 +234,7 @@ static const char *LCD_Mode_Name(Motor_Mode_e Mode)
         case OPEN_LOOP:       return "OPEN LOOP";
         case IDENT:           return "IDENT";
         case SENSORLESS_SPEED:return "SENSORLESS";
+        case SENSORLESS_SPEED_KNOWN_ANGLE: return "SL KNOWN";
         case PHASE_SEARCH:    return "PHASE";
         default:              return "UNKNOWN";
     }
@@ -247,6 +248,7 @@ static const char *LCD_Mode_Unit(Motor_Mode_e Mode)
         case POSITION:        return "TURNS";
         case SPEED:
         case SENSORLESS_SPEED:
+        case SENSORLESS_SPEED_KNOWN_ANGLE:
         case OPEN_LOOP:       return "RAD/S";
         default:              return "";
     }
@@ -294,6 +296,7 @@ static void LCD_Sample(void)
 
         case SPEED:
         case SENSORLESS_SPEED:
+        case SENSORLESS_SPEED_KNOWN_ANGLE:
         case OPEN_LOOP:
             Ref = Motor_Plot_Wm_Ref;
             Fbk = Motor_Plot_Wm;
@@ -358,6 +361,7 @@ static void LCD_Scale_Run(void)
         }
         case SPEED:
         case SENSORLESS_SPEED:
+        case SENSORLESS_SPEED_KNOWN_ANGLE:
         case OPEN_LOOP:
             End = Motor_Cmd.Wm_Target;
             break;
