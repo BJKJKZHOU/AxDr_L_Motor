@@ -89,6 +89,8 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Storage/Flash_Storage.c
     Storage/NVS_Storage.c
     BSP/RGB.c
+    BSP/ST7789.c
+    BSP/LCD_Wave.c
     Comm/Protocol.c
     Comm/Plot.c
     Comm/USB_Thread.c

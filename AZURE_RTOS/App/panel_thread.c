@@ -5,12 +5,15 @@
 
 #include "panel_thread.h"
 
+#include "LCD_Wave.h"
+#include "ST7789.h"
 #include "main.h"
 #include "Motor_Control.h"
 #include "RGB.h"
 #include "motor_thread.h"
 
-#define PANEL_STACK_SIZE  512U
+/* LCD rendering/HAL nesting plus the Cortex-M4F exception context. */
+#define PANEL_STACK_SIZE  1024U
 #define PANEL_THREAD_PRIO 10U
 #define KEY_SCAN_TICK     5U
 #define KEY_STABLE_CNT    3U
@@ -76,44 +79,65 @@ static void Panel_Entry(ULONG thread_input)
 {
     Key_T Key1 = { GPIO_PIN_SET, GPIO_PIN_SET, 0U };
     Key_T Key2 = { GPIO_PIN_SET, GPIO_PIN_SET, 0U };
+    Key_T Key3 = { GPIO_PIN_SET, GPIO_PIN_SET, 0U };
     Motor_State_e State;
     Motor_State_e State_Pre;
     Motor_Cmd_Msg_T Msg = { 0 };
     uint32_t Key1_Press;
     uint32_t Key2_Press;
+    uint32_t Key3_Press;
+    uint32_t Tick;
+    uint32_t Key_Tick;
 
     (void)thread_input;
 
     State_Pre = Motor_State_Get();
     Panel_LED(State_Pre);
 
+    (void)LCD_Wave_Init((uint32_t)tx_time_get());
+    Key_Tick = (uint32_t)tx_time_get() - KEY_SCAN_TICK;
+
     while (1)
     {
-        Key1_Press = Key_Press(&Key1, KEY1_GPIO_Port, KEY1_Pin);
-        Key2_Press = Key_Press(&Key2, KEY2_GPIO_Port, KEY2_Pin);
+        Tick = (uint32_t)tx_time_get();
 
-        if (Key1_Press != 0U)
+        if ((uint32_t)(Tick - Key_Tick) >= KEY_SCAN_TICK)
         {
-            Msg.Cmd = (ULONG)MOTOR_CMD_EN_TOGGLE;
-            Msg.Arg = 0U;
-            (void)tx_queue_send(&Motor_Cmd_Q, &Msg, TX_NO_WAIT);
-        }
-        else if (Key2_Press != 0U)
-        {
-            Msg.Cmd = (ULONG)MOTOR_CMD_RUN_TOGGLE;
-            Msg.Arg = 0U;
-            (void)tx_queue_send(&Motor_Cmd_Q, &Msg, TX_NO_WAIT);
+            Key_Tick = Tick;
+            Key1_Press = Key_Press(&Key1, KEY1_GPIO_Port, KEY1_Pin);
+            Key2_Press = Key_Press(&Key2, KEY2_GPIO_Port, KEY2_Pin);
+            Key3_Press = Key_Press(&Key3, KEY3_GPIO_Port, KEY3_Pin);
+
+            if (Key1_Press != 0U)
+            {
+                Msg.Cmd = (ULONG)MOTOR_CMD_EN_TOGGLE;
+                Msg.Arg = 0U;
+                (void)tx_queue_send(&Motor_Cmd_Q, &Msg, TX_NO_WAIT);
+            }
+            else if (Key2_Press != 0U)
+            {
+                Msg.Cmd = (ULONG)MOTOR_CMD_RUN_TOGGLE;
+                Msg.Arg = 0U;
+                (void)tx_queue_send(&Motor_Cmd_Q, &Msg, TX_NO_WAIT);
+            }
+            else if ((Key3_Press != 0U) && (Motor_State_Get() == DISABLED))
+            {
+                Msg.Cmd = (ULONG)MOTOR_CMD_MODE_NEXT;
+                Msg.Arg = 0U;
+                (void)tx_queue_send(&Motor_Cmd_Q, &Msg, TX_NO_WAIT);
+            }
+
+            State = Motor_State_Get();
+
+            if (State != State_Pre)
+            {
+                Panel_LED(State);
+                State_Pre = State;
+            }
         }
 
-        State = Motor_State_Get();
-
-        if (State != State_Pre)
-        {
-            Panel_LED(State);
-            State_Pre = State;
-        }
-
-        tx_thread_sleep(KEY_SCAN_TICK);
+        LCD_Wave_Run(Tick);
+        ST7789_Wait();
     }
 }
 
