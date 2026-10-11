@@ -10,7 +10,9 @@
 #include "ST7789.h"
 #include "Encoder.h"
 #include "Mechanical_ESO.h"
+#include "Math.h"
 #include "Motor_ADC.h"
+#include "Motor_Config.h"
 #include "Motor_Control.h"
 #include "Motor_Type.h"
 #include "main.h"
@@ -47,6 +49,10 @@ static uint16_t History_Count = 0U;
 static Motor_Mode_e Display_Mode = TORQUE;
 static float Scale_Min = -1.0f;
 static float Scale_Max = 1.0f;
+/* Display interval is latched per position move; the trajectory keeps no origin. */
+static float Pos_Start = 0.0f;
+static float Pos_End = 0.0f;
+static bool Pos_Run = false;
 
 static bool LCD_Active = false;
 static bool Frame_Valid = false;
@@ -299,15 +305,22 @@ static void LCD_Sample(void)
             break;
 
         case POSITION:
+        {
+            float End = (float)Motor_Cmd.Position_Target.Turn +
+                        Motor_Cmd.Position_Target.Theta / TWO_PI_F;
+            bool Running = (Motor_State_Get() == RUN);
+
             Ref = Motor_Plot_Position_Ref;
             Fbk = ((Encoder.Ready != 0U) && (Encoder.Fault == 0U)) ?
                   Motor_Plot_Position : __builtin_nanf("");
-            if (History_Count == 0U)
+            if ((History_Count == 0U) || (End != Pos_End) || (Running && !Pos_Run))
             {
-                Scale_Min = Ref - 0.5f;
-                Scale_Max = Ref + 0.5f;
+                Pos_Start = __builtin_isfinite(Fbk) ? Fbk : Ref;
+                Pos_End = End;
             }
+            Pos_Run = Running;
             break;
+        }
 
         default:
             Ref = __builtin_nanf("");
@@ -325,23 +338,85 @@ static void LCD_Sample(void)
     }
 }
 
-static void LCD_Scale_Include(float Value)
+static void LCD_Scale_Run(void)
 {
+    float Start = 0.0f;
+    float End;
+    float Min;
+    float Max;
+    float Span;
     float Margin;
 
-    if (!__builtin_isfinite(Value))
+    switch (Display_Mode)
+    {
+        case TORQUE:
+        {
+            float Kt = 1.5f * (float)Motor_Para.Pp * Motor_Para.Flux;
+            End = (__builtin_isfinite(Kt) && (Kt > 0.0f)) ?
+                  Motor_User_To_Internal(Motor_Cmd.Te_Target) / Kt : 0.0f;
+            break;
+        }
+        case SPEED:
+        case SENSORLESS_SPEED:
+        case OPEN_LOOP:
+            End = Motor_Cmd.Wm_Target;
+            break;
+        case POSITION:
+            Start = Pos_Start;
+            End = Pos_End;
+            break;
+        default:
+            return;
+    }
+
+    if (!__builtin_isfinite(Start) || !__builtin_isfinite(End))
     {
         return;
     }
 
-    Margin = (Scale_Max - Scale_Min) * 0.25f;
-    if (Value < Scale_Min)
+    Min = (Start < End) ? Start : End;
+    Max = (Start > End) ? Start : End;
+    Span = Max - Min;
+    /* A zero command/distance still needs a nonzero axis: A, turns, rad/s. */
+    if (Span == 0.0f)
     {
-        Scale_Min = Value - Margin;
+        Span = (Display_Mode == TORQUE) ? 0.5f : ((Display_Mode == POSITION) ? 0.1f : 2.0f);
+        Min -= Span * 0.5f;
+        Max += Span * 0.5f;
     }
-    if (Value > Scale_Max)
+
+    /* Command span / 60%: each margin is 20% of the complete axis. */
+    Margin = Span / 3.0f;
+    Min -= Margin;
+    Max += Margin;
+    Scale_Min = Min;
+    Scale_Max = Max;
+
+    /* Only visible feedback can enlarge the axis; old references cannot. */
+    for (uint16_t n = 0U; (n < History_Count) && (n < LCD_WINDOW_COUNT); n++)
     {
-        Scale_Max = Value + Margin;
+        uint16_t Index = (uint16_t)((History_Head - n - 1U) & (LCD_HISTORY_LEN - 1U));
+        float Value = History_Fbk[Index];
+
+        if (__builtin_isfinite(Value))
+        {
+            if (Value < Scale_Min)
+            {
+                Scale_Min = Value;
+            }
+            if (Value > Scale_Max)
+            {
+                Scale_Max = Value;
+            }
+        }
+    }
+    if (Scale_Min < Min)
+    {
+        Scale_Min -= Margin;
+    }
+    if (Scale_Max > Max)
+    {
+        Scale_Max += Margin;
     }
 }
 
@@ -426,12 +501,7 @@ static void LCD_Render(void)
 
     memset(Frame_New, 0, sizeof(Frame_New));
 
-    for (uint16_t n = 0U; n < History_Count; n++)
-    {
-        uint16_t Index = (uint16_t)((History_Head - n - 1U) & (LCD_HISTORY_LEN - 1U));
-        LCD_Scale_Include(History_Ref[Index]);
-        LCD_Scale_Include(History_Fbk[Index]);
-    }
+    LCD_Scale_Run();
 
     if (History_Count != 0U)
     {
