@@ -64,6 +64,7 @@ float Mechanical_ESO_Wm_Get(void) { return Mechanical_ESO.State.Wm; }
 /* These modes must never execute in a sensored control regression. */
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 bool Sensorless_Begin(void) { abort(); }
+bool Sensorless_Begin_Known_Theta(float theta) { (void)theta; abort(); }
 void Sensorless_Stop_Request(void) { abort(); }
 void Sensorless_Stop(void) { abort(); }
 bool Sensorless_Active(void) { abort(); }
