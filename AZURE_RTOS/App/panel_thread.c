@@ -12,6 +12,7 @@
 #include "RGB.h"
 #include "motor_thread.h"
 
+/* LCD rendering/HAL nesting plus the Cortex-M4F exception context. */
 #define PANEL_STACK_SIZE  1024U
 #define PANEL_THREAD_PRIO 10U
 #define KEY_SCAN_TICK     5U
@@ -78,11 +79,13 @@ static void Panel_Entry(ULONG thread_input)
 {
     Key_T Key1 = { GPIO_PIN_SET, GPIO_PIN_SET, 0U };
     Key_T Key2 = { GPIO_PIN_SET, GPIO_PIN_SET, 0U };
+    Key_T Key3 = { GPIO_PIN_SET, GPIO_PIN_SET, 0U };
     Motor_State_e State;
     Motor_State_e State_Pre;
     Motor_Cmd_Msg_T Msg = { 0 };
     uint32_t Key1_Press;
     uint32_t Key2_Press;
+    uint32_t Key3_Press;
     uint32_t Tick;
     uint32_t Key_Tick;
 
@@ -103,6 +106,7 @@ static void Panel_Entry(ULONG thread_input)
             Key_Tick = Tick;
             Key1_Press = Key_Press(&Key1, KEY1_GPIO_Port, KEY1_Pin);
             Key2_Press = Key_Press(&Key2, KEY2_GPIO_Port, KEY2_Pin);
+            Key3_Press = Key_Press(&Key3, KEY3_GPIO_Port, KEY3_Pin);
 
             if (Key1_Press != 0U)
             {
@@ -113,6 +117,12 @@ static void Panel_Entry(ULONG thread_input)
             else if (Key2_Press != 0U)
             {
                 Msg.Cmd = (ULONG)MOTOR_CMD_RUN_TOGGLE;
+                Msg.Arg = 0U;
+                (void)tx_queue_send(&Motor_Cmd_Q, &Msg, TX_NO_WAIT);
+            }
+            else if ((Key3_Press != 0U) && (Motor_State_Get() == DISABLED))
+            {
+                Msg.Cmd = (ULONG)MOTOR_CMD_MODE_NEXT;
                 Msg.Arg = 0U;
                 (void)tx_queue_send(&Motor_Cmd_Q, &Msg, TX_NO_WAIT);
             }

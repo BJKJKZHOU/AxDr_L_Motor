@@ -226,6 +226,31 @@ static void Motor_Cmd_Run(void)
                 }
                 break;
 
+            case MOTOR_CMD_MODE_NEXT:
+                Parameter_Value = (Parameter_Value_T){ 0 };
+                switch (Motor_Mode_Get())
+                {
+                    case TORQUE:
+                        Parameter_Value.U8 = (uint8_t)SPEED;
+                        break;
+                    case SPEED:
+                        Parameter_Value.U8 = (uint8_t)POSITION;
+                        break;
+                    case POSITION:
+                        Parameter_Value.U8 = (uint8_t)SENSORLESS_SPEED;
+                        break;
+                    case SENSORLESS_SPEED:
+                    case OPEN_LOOP:
+                    case IDENT:
+                    case PHASE_SEARCH:
+                        Parameter_Value.U8 = (uint8_t)TORQUE;
+                        break;
+                    default:
+                        continue;
+                }
+                (void)Parameter_Write(PARAM_MOTOR_MODE, PARAM_U8, Parameter_Value);
+                break;
+
             case MOTOR_CMD_IDENT_START:
                 Action_Status = AXDR_OK;
                 if ((Motor_State_Get() != ENABLED) ||
