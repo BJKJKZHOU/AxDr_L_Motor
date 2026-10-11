@@ -83,7 +83,9 @@ CubeMX 重新生成后，需要注意：
 
 ## 上位机与通信
 
-固件使用 AxDr CAN-FD 风格的应用层协议，USB CDC 使用同一套消息结构。
+固件使用原生 AxDr CAN FD 应用层协议；USB CDC 通过 `AXDR` 帧头封装相同的消息。板载 FDCAN1 已接入 Parameter、Action 和 Event，USB Plot 的 FAST/NORMAL 连续传输保持不变。
+
+- [CAN FD 控制通信](docs/CANFD_控制通信.md)：报文格式、CN11 接线及测试条件。
 
 VOFA+ 的 JustCANFD 协议支持和相关上位机代码维护在：
 
@@ -100,7 +102,7 @@ Motion/          速度斜坡与梯形位置轨迹
 Identification/  Rs/Ls、磁链与 J/B 辨识
 Observer/        Flux Observer、PLL 与机械 ESO
 Sensorless/      I/F 启动与无感控制集成
-Comm/            USB、Protocol 与 Plot
+Comm/            CAN FD、USB、Protocol 与 Plot
 Parameter/       参数定义、访问与生成文件
 Storage/         Flash 与 NVS 参数存储
 User/            电机和控制参数
