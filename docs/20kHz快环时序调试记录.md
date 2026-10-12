@@ -560,3 +560,61 @@ FAST 生产端丢弃：         0
 该优化已经解决当前 Deadline Miss，但在加入 Observer Takeover、无感速度环或
 Fine Flux 逻辑前，仍应保留耗时预算审查。诊断阶段如果不需要 7 路 FAST，应减少
 FAST 通道以恢复更大的调试余量。
+
+
+## 9. ARR→CCR 12.5 μs 专项计时（待本地上板验证）
+
+`perf/fast-loop-timing` 在 170 MHz / 20 kHz 下沿用 `Fast_Time`、`Fast_Snap`，
+在当前 ADC JEOS → `Fast_Loop()` 中增加以下统计，未调整电流环、机械 ESO、
+采样触发或 PWM 更新时序。
+
+| 字段 | 计时范围 | 单位 |
+|---|---|---|
+| `ESO_Cyc / ESO_Max` | `Mechanical_ESO_Run()` 调用前后 | DWT CPU cycles |
+| `PI_Cyc / PI_Max` | `Current_Loop()` 两轴 PID 调用前后 | DWT CPU cycles |
+| `SVPWM_Cyc / SVPWM_Max` | `SVPWM_Calc()` 调用前后 | DWT CPU cycles |
+| `ADC_CCR_Cyc / ADC_CCR_Max` | ADC IRQ 入口到 `PWM_Update()` 返回 | DWT CPU cycles |
+| `ARR_CCR_Tick / ARR_CCR_Tick_Max` | ARR 顶点到 `PWM_Update()` 返回 | TIM1 timer ticks |
+| `ARR_CCR_Count` | MOE 有效、到达 `PWM_Update()` 的计时次数 | 次 |
+| `ARR_CCR_Late` | 更新时不在 ARR 后下降计数半周期，或已跨越新的 PWM 下溢基准 | 次 |
+
+`ARR_CCR_Tick` 在 CCR3 写入后立刻读取 TIM1 CNT/DIR，以 `ARR-CNT`
+估算 ARR 顶点至完成写入的时间；包含从 CCR3 写入返回函数及读取计数器的少量开销。
+这不是从 TIM1 下溢 ISR 的 DWT 时间戳外推。若此时计数器不在对应的下降半周期，
+将 `ARR_CCR_Tick` 设为 `UINT32_MAX` 并累加 `ARR_CCR_Late`，不把环绕后的
+短时间误记为通过。没有 MOE 的周期不会计入 ARR→CCR 样本。
+
+当前 TIM1 时钟与 CPU 都为 170 MHz，PSC=0，因此 TIM1 的一个计数也是 1/170 μs，
+12.5 μs 对应 2125 计数。以后改变时钟树或预分频时，必须先核对 TIM1 实际时钟，
+不能把 TIM1 ticks 永远当成 CPU cycles。
+
+统计继续使用前 2000 次 ADC 中断预热、清空最大值，至 4000 次冻结一次快照的机制。
+`Fast_Time` 的最大值在预热后持续累计；`Fast_Snap` 仅反映一次早期窗口。
+每次通过 SWD 开始新一轮测试时，应重启快照窗口并保留固件真实运行状态。
+
+### 本地测试
+
+先编译、烧录与板上程序一致的 Release ELF，然后单独启动 OpenOCD：
+
+```bash
+cmake --preset Release
+cmake --build --preset Release
+openocd -f openocd.cfg
+```
+
+在另一个终端运行已有的无停机 SWD 检查脚本，先在安全电压下
+通过现有控制接口进入有感 ENABLED/RUN 状态：
+
+```bash
+python3 tools/lcd_foc_check.py --elf build/Release/AxDr_L_Motor.elf --mode normal --seconds 10 --arr-ccr-limit-us 12.5
+```
+
+该参数仅在确实有 PWM-active CCR 样本、没有 `ARR_CCR_Late` 且最大值不超过
+12.5 μs 时通过；不传 `--arr-ccr-limit-us` 则只报告指标，不以 12.5 μs 作为
+退出条件。JSON 中的 `arr_ccr_max_us`、`adc_ccr_max_us`、`eso_max_us`、
+`pi_max_us`、`svpwm_max_us` 对应关键诊断数据。
+
+本次阶段仅完成代码计时，不预设已经满足 12.5 μs。测量本身增加少量访问寄存器、
+DWT 与更新 Max 的开销，属于偏保守的带仪表测量；不同分段的最大值可能来自不同
+采样周期，不可以直接相加充当同一周期的总耗时。之后以真实板上 Release 数据
+判断是 ESO、PID、SVPWM 还是采样与 ISR 延迟为主要耗时来源。
