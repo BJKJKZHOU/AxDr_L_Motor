@@ -5,6 +5,9 @@
 
 #include "Math.h"
 
+#include <float.h>
+#include <limits.h>
+
 /* CRC-8 byte recurrence, polynomial 0x07, MSB first. */
 const uint8_t CRC8_07_Table[256] = {
     0x00U, 0x07U, 0x0EU, 0x09U, 0x1CU, 0x1BU, 0x12U, 0x15U, 0x38U, 0x3FU, 0x36U, 0x31U, 0x24U, 0x23U, 0x2AU, 0x2DU,
@@ -69,33 +72,79 @@ void Vector2_Limit(float *X, float *Y, float Lim)
     *Y *= Scale;
 }
 
+/*
+ * 依赖 IEEE 754 binary32 位布局：1 位符号、8 位指数（偏置 127）、
+ * 23 位显式尾数（含隐含首位共 24 位有效精度）。
+ * TWO_PI_F 舍入后的位模式为 0x40C90FDB，即 0x1.921fb6p+2f；
+ * 修改周期常量时，需同步下方的整数约数、指数基准和缩放因子。
+ */
+_Static_assert(sizeof(float) * CHAR_BIT == 32 && FLT_RADIX == 2 &&
+               FLT_MANT_DIG == 24 && FLT_MIN_EXP == -125 && FLT_MAX_EXP == 128,
+               "Angle_Wrap requires IEEE 754 binary32 float");
+_Static_assert(TWO_PI_F == 0x1.921fb6p+2f,
+               "Angle_Wrap requires the binary32 period 0x40C90FDB");
+
 float Angle_Wrap(float Theta)
 {
+    const float Period = TWO_PI_F;
+    uint32_t Bits;
+    uint32_t Mag;
+    uint32_t Rem;
+    uint32_t Exp;
+
     if (!__builtin_isfinite(Theta))
     {
         return Theta;
     }
 
-    if (Theta >= TWO_PI_F)
+    if ((Theta >= 0.0f) && (Theta < Period))
     {
-        if (Theta < (2.0f * TWO_PI_F))
-        {
-            return Theta - TWO_PI_F;
-        }
-        Theta = __builtin_fmodf(Theta, TWO_PI_F);
-    }
-    else if (Theta < 0.0f)
-    {
-        if (Theta >= -TWO_PI_F)
-        {
-            return Theta + TWO_PI_F;
-        }
-        Theta = __builtin_fmodf(Theta, TWO_PI_F);
-        if (Theta < 0.0f)
-        {
-            Theta += TWO_PI_F;
-        }
+        return Theta;
     }
 
-    return Theta;
+    if ((Theta < 0.0f) && (Theta >= -Period))
+    {
+        return Theta + Period;
+    }
+
+    __builtin_memcpy(&Bits, &Theta, sizeof(Bits));
+
+    Mag = Bits & 0x7FFFFFFFU;
+    Exp = ((Mag >> 23) & 0xFFU) - 129U;
+    Rem = (Mag & 0x7FFFFFU) | 0x800000U;
+
+    /* 2π 的指数域为 129（真实指数 2），补上隐含首位后的尾数为 0xC90FDB。 */
+    const uint32_t Divisor = 0xC90FDBU;
+
+    while (Exp > 0U)
+    {
+        if (Rem >= Divisor)
+        {
+            Rem -= Divisor;
+        }
+
+        Rem <<= 1;
+        Exp--;
+    }
+
+    if (Rem >= Divisor)
+    {
+        Rem -= Divisor;
+    }
+
+    /* 余数与 2π 使用相同指数，乘以 2^(2-23) 将整数尾数还原为弧度。 */
+    float Result = (float)Rem * 0x1p-21f;
+
+    if (Theta < 0.0f)
+    {
+        if (Rem != 0U)
+        {
+            return Period - Result;
+        }
+
+        /* 保留原有零符号：-2π 返回 +0，更小的负整数倍周期返回 -0。 */
+        return (Mag > 0x40C90FDBU) ? -0.0f : 0.0f;
+    }
+
+    return Result;
 }

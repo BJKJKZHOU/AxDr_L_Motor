@@ -167,7 +167,7 @@ def measure(args):
             "arr_ccr_mean_us": ((((live["ARR_CCR_Sum_Hi"] << 32)
                                   | live["ARR_CCR_Sum_Lo"]) * (psc + 1)
                                  * 1e6 / clock) / max(
-                                     1, live["ARR_CCR_Count"] - live["ARR_CCR_Late"]),
+                                     1, live["ARR_CCR_Count"] - live["ARR_CCR_Late"])),
             "arr_ccr_over_12_5us": live["ARR_CCR_Over"],
             "arr_ccr_over_12_5us_pct": (live["ARR_CCR_Over"] * 100
                                         / max(1, live["ARR_CCR_Count"] -

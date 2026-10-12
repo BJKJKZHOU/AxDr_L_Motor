@@ -34,7 +34,20 @@ enable_language(C ASM)
 # Create an executable object type
 add_executable(${CMAKE_PROJECT_NAME})
 
+option(MATH_TIME "Measure fast-loop math calls with DWT (adds ISR overhead)" OFF)
+if(MATH_TIME)
+    target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE MATH_TIME=1)
+endif()
+
 # Add STM32CubeMX generated sources
+option(DUAL_LIMIT_TEST "Bounded on-target dual saturation experiment" OFF)
+if(DUAL_LIMIT_TEST)
+    if(MATH_TIME)
+        message(FATAL_ERROR "DUAL_LIMIT_TEST and MATH_TIME must be measured separately")
+    endif()
+    target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE DUAL_LIMIT_TEST=1)
+endif()
+
 add_subdirectory(cmake/stm32cubemx)
 
 # Keep Eclipse middleware dependencies outside CubeMX-owned Middlewares/ST paths.

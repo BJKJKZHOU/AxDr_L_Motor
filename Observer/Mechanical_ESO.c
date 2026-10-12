@@ -7,6 +7,10 @@
 
 #include "control_params.h"
 
+#ifdef MATH_TIME
+#include "Math_Time.h"
+#endif
+
 Mechanical_ESO_T Mechanical_ESO = { 0 };
 float Mechanical_ESO_Bw_Hz = MECH_ESO_BW_HZ_DEFAULT;
 
@@ -69,6 +73,10 @@ void Mechanical_ESO_Run(float Theta_Meas, bool Position_Valid, float Iq)
     float Theta_Dot;
     float Wm_Dot;
     float Td_Dot;
+#ifdef MATH_TIME
+    uint32_t Math_T0;
+    float Math_Theta;
+#endif
 
     if (Mechanical_ESO.Para.Valid == 0U)
     {
@@ -108,7 +116,16 @@ void Mechanical_ESO_Run(float Theta_Meas, bool Position_Valid, float Iq)
     Mechanical_ESO.State.Td += Td_Dot * CUR_TS;
 
     /* Bound the angle after consuming the derivatives, before the next sample. */
+#ifdef MATH_TIME
+    Math_Theta = Mechanical_ESO.State.Theta;
+    Math_T0 = Math_Clock();
+#endif
     Mechanical_ESO.State.Theta = Angle_Wrap(Mechanical_ESO.State.Theta);
+#ifdef MATH_TIME
+    Math_Time[MATH_WRAP_ESO].Cyc = Math_Clock() - Math_T0;
+    Math_Time[MATH_WRAP_ESO].Alt = __builtin_isfinite(Math_Theta) &&
+        ((Math_Theta >= 2.0f * TWO_PI_F) || (Math_Theta < -TWO_PI_F));
+#endif
 }
 
 float Mechanical_ESO_Wm_Get(void)
