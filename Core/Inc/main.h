@@ -65,6 +65,21 @@ typedef struct
   uint32_t Enc_Late;
   uint32_t Enc_Miss;
   uint32_t Deadline_Miss;
+  /* Additional fast-control profiling; existing field offsets stay fixed. */
+  uint32_t ADC_IRQ_T0;        /* DWT at ADC IRQ entry. */
+  uint32_t ADC_PWM_T0;        /* Underflow epoch captured at ADC IRQ entry. */
+  uint32_t ESO_Cyc;
+  uint32_t ESO_Max;
+  uint32_t PI_Cyc;
+  uint32_t PI_Max;
+  uint32_t SVPWM_Cyc;
+  uint32_t SVPWM_Max;
+  uint32_t ADC_CCR_Cyc;       /* ADC IRQ entry to completed CCR write, DWT. */
+  uint32_t ADC_CCR_Max;
+  uint32_t ARR_CCR_Tick;      /* ARR peak to CCR write: TIM1 ticks, not DWT. */
+  uint32_t ARR_CCR_Tick_Max;  /* Largest valid descending-half measurement. */
+  uint32_t ARR_CCR_Count;     /* PWM-active cycles that reached PWM_Update. */
+  uint32_t ARR_CCR_Late;      /* CCR write outside the intended half-cycle. */
 
 } Fast_Time_T;
 

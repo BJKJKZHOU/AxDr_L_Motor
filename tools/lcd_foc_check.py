@@ -40,7 +40,11 @@ FAST_FIELDS = (
     "SPI_2_Cyc", "SPI_2_ISR_Cyc", "SPI_2_Flag", "SPI_2_CNDTR",
     "Enc_Cyc", "ADC_Cyc", "ADC_Run_Cyc", "ADC_Run_Max", "ADC_ISR_Cyc",
     "ADC_ISR_Max", "Fast_Cyc", "Fast_Max", "Enc_Late", "Enc_Miss",
-    "Deadline_Miss",
+    "Deadline_Miss", "ADC_IRQ_T0", "ADC_PWM_T0",
+    "ESO_Cyc", "ESO_Max", "PI_Cyc", "PI_Max", "SVPWM_Cyc",
+    "SVPWM_Max", "ADC_CCR_Cyc", "ADC_CCR_Max",
+    "ARR_CCR_Tick", "ARR_CCR_Tick_Max", "ARR_CCR_Count",
+    "ARR_CCR_Late",
 )
 
 
@@ -124,6 +128,19 @@ def measure(args):
             "snap_ready": read("ready")[0], "snap": snap, "live": live,
             "fast_max_us": live["Fast_Max"] * 1e6 / clock,
             "adc_isr_max_us": live["ADC_ISR_Max"] * 1e6 / clock,
+            "eso_max_us": live["ESO_Max"] * 1e6 / clock,
+            "pi_max_us": live["PI_Max"] * 1e6 / clock,
+            "svpwm_max_us": live["SVPWM_Max"] * 1e6 / clock,
+            "adc_ccr_max_us": live["ADC_CCR_Max"] * 1e6 / clock,
+            # This board runs TIM1 at HCLK; account for the TIM1 prescaler.
+            "arr_ccr_max_us": (live["ARR_CCR_Tick_Max"] * (psc + 1)
+                               * 1e6 / clock),
+            "arr_ccr_count": live["ARR_CCR_Count"],
+            "arr_ccr_late": live["ARR_CCR_Late"],
+            "arr_ccr_within_12_5us": (live["ARR_CCR_Count"] > 0
+                                      and live["ARR_CCR_Late"] == 0
+                                      and live["ARR_CCR_Tick_Max"] * (psc + 1)
+                                      * 1e6 / clock <= 12.5),
         }
         return result
     finally:
@@ -139,9 +156,13 @@ def main():
     parser.add_argument("--seconds", type=float, default=5.0)
     parser.add_argument("--keep-mode", action="store_true")
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--arr-ccr-limit-us", type=float,
+                        help="require PWM-active ARR->CCR3 timing within this limit")
     args = parser.parse_args()
     if not 1.0 <= args.seconds <= 60.0:
         parser.error("--seconds must be between 1 and 60")
+    if args.arr_ccr_limit_us is not None and args.arr_ccr_limit_us <= 0.0:
+        parser.error("--arr-ccr-limit-us must be positive")
     result = measure(args)
     text = json.dumps(result, indent=2) + "\n"
     if args.output:
@@ -157,6 +178,13 @@ def main():
         raise SystemExit("FOC maximum exceeds the PWM period")
     if args.mode == "full" and result["frames"] == 0:
         raise SystemExit("no full-frame DMA transfers completed")
+    if args.arr_ccr_limit_us is not None:
+        if result["arr_ccr_count"] == 0:
+            raise SystemExit("No PWM-active CCR samples; enable the motor first")
+        if result["arr_ccr_late"]:
+            raise SystemExit("CCR write missed the intended ARR descending half")
+        if result["arr_ccr_max_us"] > args.arr_ccr_limit_us:
+            raise SystemExit("ARR->CCR3 maximum exceeds the requested limit")
 
 
 if __name__ == "__main__":

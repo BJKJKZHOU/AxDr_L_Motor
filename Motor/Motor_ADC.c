@@ -131,8 +131,18 @@ void Fast_Loop(void)
     float DutyC;
     uint32_t T0;
     uint32_t Cyc;
+    uint32_t Stage_T0;
+    uint32_t CCR_T0;
+    uint32_t Cnt;
+    uint32_t Arr;
+    uint32_t Dir;
 
     T0 = DWT->CYCCNT;
+    Fast_Time.ESO_Cyc = 0U;
+    Fast_Time.PI_Cyc = 0U;
+    Fast_Time.SVPWM_Cyc = 0U;
+    Fast_Time.ADC_CCR_Cyc = 0U;
+    Fast_Time.ARR_CCR_Tick = UINT32_MAX;
 
     /*
      * Ia/Ib are Rank1 simultaneous samples. Vbus is ADC2 injected Rank2.
@@ -173,7 +183,14 @@ void Fast_Loop(void)
             Encoder_Park_Valid = true;
         }
 
+        Stage_T0 = DWT->CYCCNT;
         Mechanical_ESO_Run(Theta_m, Encoder.Valid != 0U, Iq_Encoder);
+        Cyc = DWT->CYCCNT - Stage_T0;
+        Fast_Time.ESO_Cyc = Cyc;
+        if (Cyc > Fast_Time.ESO_Max)
+        {
+            Fast_Time.ESO_Max = Cyc;
+        }
     }
 
     if (!Current_OK)
@@ -247,7 +264,14 @@ void Fast_Loop(void)
         Motor_Plot_Iq_Ref = Iq_Ref;
 
         U_Lim = ADC.Vbus_V * INV_SQRT3_F * VOLT_MOD_MAX;
+        Stage_T0 = DWT->CYCCNT;
         Current_Loop(Id_Ref, Iq_Ref, U_Lim, &Ud, &Uq);
+        Cyc = DWT->CYCCNT - Stage_T0;
+        Fast_Time.PI_Cyc = Cyc;
+        if (Cyc > Fast_Time.PI_Max)
+        {
+            Fast_Time.PI_Max = Cyc;
+        }
 
         /* Encoder servo dq decoupling and back-EMF feedforward. */
         if ((Current_FF_Enable != 0U) && (Motor_Mode <= POSITION) && Encoder_Park_Valid)
@@ -269,8 +293,50 @@ void Fast_Loop(void)
     Motor_Run.Ualpha = Ualpha;
     Motor_Run.Ubeta = Ubeta;
 
+    Stage_T0 = DWT->CYCCNT;
     SVPWM_Calc(Ualpha, Ubeta, ADC.Vbus_V, &DutyA, &DutyB, &DutyC);
+    Cyc = DWT->CYCCNT - Stage_T0;
+    Fast_Time.SVPWM_Cyc = Cyc;
+    if (Cyc > Fast_Time.SVPWM_Max)
+    {
+        Fast_Time.SVPWM_Max = Cyc;
+    }
+
     PWM_Update(DutyA, DutyB, DutyC);
+    /* The measurement follows the CCR3 write and includes function return.
+     * Use TIM1 CNT/DIR for the real ARR peak, not the underflow ISR timestamp. */
+    CCR_T0 = DWT->CYCCNT;
+    Cnt = TIM1->CNT;
+    Dir = TIM1->CR1;
+    Arr = TIM1->ARR;
+
+    if ((TIM1->BDTR & TIM_BDTR_MOE) != 0U)
+    {
+        Cyc = CCR_T0 - Fast_Time.ADC_IRQ_T0;
+        Fast_Time.ADC_CCR_Cyc = Cyc;
+        if (Cyc > Fast_Time.ADC_CCR_Max)
+        {
+            Fast_Time.ADC_CCR_Max = Cyc;
+        }
+
+        Fast_Time.ARR_CCR_Count++;
+        /* The ascending half or a new underflow epoch means the intended
+         * ARR-to-bottom window was missed; don't report wrapped elapsed time. */
+        if (((Dir & TIM_CR1_DIR) == 0U) || (Cnt > Arr) ||
+            (Fast_Time.T0 != Fast_Time.ADC_PWM_T0))
+        {
+            Fast_Time.ARR_CCR_Late++;
+        }
+        else
+        {
+            Cyc = Arr - Cnt;
+            Fast_Time.ARR_CCR_Tick = Cyc;
+            if (Cyc > Fast_Time.ARR_CCR_Tick_Max)
+            {
+                Fast_Time.ARR_CCR_Tick_Max = Cyc;
+            }
+        }
+    }
 
 finish:
     Plot_Fast_Sample();

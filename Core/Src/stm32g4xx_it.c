@@ -272,6 +272,8 @@ FAST_CODE void ADC1_2_IRQHandler(void)
 
   T0 = DWT->CYCCNT;
   Fast_T0 = Fast_Time.T0;
+  Fast_Time.ADC_IRQ_T0 = T0;
+  Fast_Time.ADC_PWM_T0 = Fast_T0;
 
   /* JEOC is also set by the final rank; clear both before running the loop. */
   ADC1->ISR = ADC_ISR_JEOC | ADC_ISR_JEOS;
@@ -318,6 +320,13 @@ FAST_CODE void ADC1_2_IRQHandler(void)
       if (Fast_Time.Snap_Cnt == FAST_SNAP_WARMUP_CYC)
       {
         Fast_Time.TIM_ISR_Max = 0U;
+        Fast_Time.ESO_Max = 0U;
+        Fast_Time.PI_Max = 0U;
+        Fast_Time.SVPWM_Max = 0U;
+        Fast_Time.ADC_CCR_Max = 0U;
+        Fast_Time.ARR_CCR_Tick_Max = 0U;
+        Fast_Time.ARR_CCR_Count = 0U;
+        Fast_Time.ARR_CCR_Late = 0U;
         Fast_Time.ADC_Run_Max = 0U;
         Fast_Time.ADC_ISR_Max = 0U;
         Fast_Time.Fast_Max = 0U;
