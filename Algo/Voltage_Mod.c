@@ -15,6 +15,7 @@ void SVPWM_Calc(float Ualpha, float Ubeta, float Vbus, float *DutyA, float *Duty
     float Umax;
     float Umin;
     float Uoff;
+    float Inv_Vbus;
     float Da;
     float Db;
     float Dc;
@@ -53,9 +54,10 @@ void SVPWM_Calc(float Ualpha, float Ubeta, float Vbus, float *DutyA, float *Duty
 
     Uoff = -0.5f * (Umax + Umin);
 
-    Da = 0.5f + (Ua + Uoff) / Vbus;
-    Db = 0.5f + (Ub + Uoff) / Vbus;
-    Dc = 0.5f + (Uc + Uoff) / Vbus;
+    Inv_Vbus = 1.0f / Vbus;
+    Da = 0.5f + (Ua + Uoff) * Inv_Vbus;
+    Db = 0.5f + (Ub + Uoff) * Inv_Vbus;
+    Dc = 0.5f + (Uc + Uoff) * Inv_Vbus;
 
     Limit_Value(&Da, 0.0f, 1.0f);
     Limit_Value(&Db, 0.0f, 1.0f);

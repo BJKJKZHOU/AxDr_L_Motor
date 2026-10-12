@@ -12,11 +12,13 @@
 #include "Identification.h"
 
 void Motor_Control(void);
-FAST_CODE Motor_Fast_Mode_e Motor_Fast_Run(float *Theta_e,
-                                 float *Id_Ref,
-                                 float *Iq_Ref,
-                                 float *Ualpha,
-                                 float *Ubeta);
+FAST_CODE Motor_Fast_Mode_e Motor_Fast_Run(float Encoder_Theta_e,
+                                          bool Encoder_Park_Valid,
+                                          float *Theta_e,
+                                          float *Id_Ref,
+                                          float *Iq_Ref,
+                                          float *Ualpha,
+                                          float *Ubeta);
 
 FAST_CODE Motor_State_e Motor_State_Get(void);
 Motor_Mode_e Motor_Mode_Get(void);
