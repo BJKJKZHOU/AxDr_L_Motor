@@ -139,11 +139,6 @@ static FAST_CODE bool Servo_Mode(void)
     return (Motor_Mode == TORQUE) || (Motor_Mode == SPEED) || (Motor_Mode == POSITION);
 }
 
-static FAST_CODE float Encoder_Theta_e(void)
-{
-    return Angle_Wrap((float)Motor_Para.Pp * Motor_Run.Theta_m + Motor_Cal.Theta_Off);
-}
-
 static void NonServo_Enabled_Apply(void)
 {
     if (Motor_Mode == SENSORLESS_SPEED)
@@ -496,7 +491,9 @@ void Motor_Control(void)
     Limit_Value(&Current_Ref.Iq, Iq_Min, Iq_Max);
 }
 
-Motor_Fast_Mode_e Motor_Fast_Run(float *Theta_e,
+Motor_Fast_Mode_e Motor_Fast_Run(float Encoder_Theta_e,
+                                 bool Encoder_Park_Valid,
+                                 float *Theta_e,
                                  float *Id_Ref,
                                  float *Iq_Ref,
                                  float *Ualpha,
@@ -516,7 +513,10 @@ Motor_Fast_Mode_e Motor_Fast_Run(float *Theta_e,
     /* Sensored modes retain current control while ENABLED for servo holding. */
     if (Servo_Mode())
     {
-        *Theta_e = Encoder_Theta_e();
+        /* Reuse the angle already calculated for the encoder-frame Park.
+         * Retain the original angle path if encoder/ESO feedback is unavailable. */
+        *Theta_e = Encoder_Park_Valid ? Encoder_Theta_e :
+                   Angle_Wrap((float)Motor_Para.Pp * Motor_Run.Theta_m + Motor_Cal.Theta_Off);
         *Id_Ref = Current_Ref.Id;
         *Iq_Ref = Current_Ref.Iq;
         return FAST_CURRENT;
