@@ -132,10 +132,6 @@ void Fast_Loop(void)
     uint32_t T0;
     uint32_t Cyc;
     uint32_t Stage_T0;
-    uint32_t CCR_T0;
-    uint32_t Cnt;
-    uint32_t Arr;
-    uint32_t Dir;
 
     T0 = DWT->CYCCNT;
     Fast_Time.ESO_Cyc = 0U;
@@ -303,40 +299,6 @@ void Fast_Loop(void)
     }
 
     PWM_Update(DutyA, DutyB, DutyC);
-    /* The measurement follows the CCR3 write and includes function return.
-     * Use TIM1 CNT/DIR for the real ARR peak, not the underflow ISR timestamp. */
-    CCR_T0 = DWT->CYCCNT;
-    Cnt = TIM1->CNT;
-    Dir = TIM1->CR1;
-    Arr = TIM1->ARR;
-
-    if ((TIM1->BDTR & TIM_BDTR_MOE) != 0U)
-    {
-        Cyc = CCR_T0 - Fast_Time.ADC_IRQ_T0;
-        Fast_Time.ADC_CCR_Cyc = Cyc;
-        if (Cyc > Fast_Time.ADC_CCR_Max)
-        {
-            Fast_Time.ADC_CCR_Max = Cyc;
-        }
-
-        Fast_Time.ARR_CCR_Count++;
-        /* The ascending half or a new underflow epoch means the intended
-         * ARR-to-bottom window was missed; don't report wrapped elapsed time. */
-        if (((Dir & TIM_CR1_DIR) == 0U) || (Cnt > Arr) ||
-            (Fast_Time.T0 != Fast_Time.ADC_PWM_T0))
-        {
-            Fast_Time.ARR_CCR_Late++;
-        }
-        else
-        {
-            Cyc = Arr - Cnt;
-            Fast_Time.ARR_CCR_Tick = Cyc;
-            if (Cyc > Fast_Time.ARR_CCR_Tick_Max)
-            {
-                Fast_Time.ARR_CCR_Tick_Max = Cyc;
-            }
-        }
-    }
 
 finish:
     Plot_Fast_Sample();

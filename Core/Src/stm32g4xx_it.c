@@ -327,6 +327,25 @@ FAST_CODE void ADC1_2_IRQHandler(void)
         Fast_Time.ARR_CCR_Tick_Max = 0U;
         Fast_Time.ARR_CCR_Count = 0U;
         Fast_Time.ARR_CCR_Late = 0U;
+        Fast_Time.ARR_CCR_Min = UINT32_MAX;
+        Fast_Time.ARR_CCR_Over = 0U;
+        Fast_Time.ARR_CCR_Sum_Lo = 0U;
+        Fast_Time.ARR_CCR_Sum_Hi = 0U;
+        Fast_Time.ARR_CCR_Worst_Seq = 0U;
+        Fast_Time.ARR_CCR_Worst_ADC = 0U;
+        Fast_Time.ARR_CCR_Worst_ESO = 0U;
+        Fast_Time.ARR_CCR_Worst_PI = 0U;
+        Fast_Time.ARR_CCR_Worst_SVPWM = 0U;
+        Fast_Time.ARR_CCR_Win_N = 0U;
+        Fast_Time.ARR_CCR_Win_Max = 0U;
+        Fast_Time.ARR_CCR_Win_Over = 0U;
+        Fast_Time.ARR_CCR_Win_Total = 0U;
+        Fast_Time.ARR_CCR_Win_Bad = 0U;
+        Fast_Time.ARR_CCR_Win_Last = 0U;
+        for (uint32_t n = 0U; n < FAST_CCR_HIST_COUNT; n++)
+        {
+          Fast_CCR_Hist[n] = 0U;
+        }
         Fast_Time.ADC_Run_Max = 0U;
         Fast_Time.ADC_ISR_Max = 0U;
         Fast_Time.Fast_Max = 0U;

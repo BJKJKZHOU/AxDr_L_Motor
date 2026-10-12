@@ -80,8 +80,28 @@ typedef struct
   uint32_t ARR_CCR_Tick_Max;  /* Largest valid descending-half measurement. */
   uint32_t ARR_CCR_Count;     /* PWM-active cycles that reached PWM_Update. */
   uint32_t ARR_CCR_Late;      /* CCR write outside the intended half-cycle. */
+  uint32_t ARR_CCR_Min;       /* Minimum valid TIM1 ticks. */
+  uint32_t ARR_CCR_Over;      /* Number of samples over 12.5 us at 170 MHz. */
+  uint32_t ARR_CCR_Sum_Lo;    /* 64-bit sum of valid TIM1 ticks, low word. */
+  uint32_t ARR_CCR_Sum_Hi;    /* High word. */
+  uint32_t ARR_CCR_Worst_Seq; /* Active sample number of the largest time. */
+  uint32_t ARR_CCR_Worst_ADC; /* Same-cycle ADC IRQ -> CCR DWT cycles. */
+  uint32_t ARR_CCR_Worst_ESO;
+  uint32_t ARR_CCR_Worst_PI;
+  uint32_t ARR_CCR_Worst_SVPWM;
+  uint32_t ARR_CCR_Win_N;     /* Active samples in current 1000-sample block. */
+  uint32_t ARR_CCR_Win_Max;
+  uint32_t ARR_CCR_Win_Over;
+  uint32_t ARR_CCR_Win_Total; /* Completed 1000-sample blocks. */
+  uint32_t ARR_CCR_Win_Bad;   /* Blocks with at least one over-limit sample. */
+  uint32_t ARR_CCR_Win_Last;  /* Maximum of most recently completed block. */
 
 } Fast_Time_T;
+
+/* 64 bins, 43 TIM1 ticks each (~0.253 us at 170 MHz).
+ * The last bin also collects all longer times. */
+#define FAST_CCR_HIST_COUNT 64U
+extern volatile uint32_t Fast_CCR_Hist[FAST_CCR_HIST_COUNT];
 
 
 extern volatile Fast_Time_T Fast_Time;
