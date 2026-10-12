@@ -113,6 +113,7 @@ void Fast_Loop(void)
     bool Current_OK;
     bool Encoder_Park_Valid;
     float Theta_e;
+    float Encoder_Theta_e;
     float Ialpha;
     float Ibeta;
     float Sin;
@@ -151,6 +152,7 @@ void Fast_Loop(void)
     Ialpha = ADC.Ia_A;
     Ibeta = (ADC.Ia_A + 2.0f * ADC.Ib_A) * INV_SQRT3_F;
     Encoder_Park_Valid = false;
+    Encoder_Theta_e = 0.0f;
     Iq_Encoder = 0.0f;
 
     /* Check current protection before observer work; trip disables PWM here. */
@@ -165,7 +167,8 @@ void Fast_Loop(void)
         if (Motor_Cal.Valid != 0U)
         {
             /* ESO uses the encoder frame, including coast current. */
-            SinCos(Angle_Wrap((float)Motor_Para.Pp * Theta_m + Motor_Cal.Theta_Off), &Sin, &Cos);
+            Encoder_Theta_e = Angle_Wrap((float)Motor_Para.Pp * Theta_m + Motor_Cal.Theta_Off);
+            SinCos(Encoder_Theta_e, &Sin, &Cos);
             Iq_Encoder = -Ialpha * Sin + Ibeta * Cos;
             Encoder_Park_Valid = true;
         }
@@ -181,7 +184,8 @@ void Fast_Loop(void)
         goto finish;
     }
 
-    Fast_Mode = Motor_Fast_Run(&Theta_e, &Id_Ref, &Iq_Ref, &Ualpha, &Ubeta);
+    Fast_Mode = Motor_Fast_Run(Encoder_Theta_e, Encoder_Park_Valid,
+                               &Theta_e, &Id_Ref, &Iq_Ref, &Ualpha, &Ubeta);
     Motor_Plot_Iq_Ref = Iq_Ref;
 
     if (Fast_Mode == FAST_OFF)

@@ -29,7 +29,11 @@ void PID_Run(PID_T *Pid, float Ts)
         Int = Pid->Para.Int_Min;
     }
 
-    D = -Pid->Para.Kd * (Pid->Sig.Fbk - Pid->State.Fbk_Pre) / Ts;
+    D = 0.0f;
+    if (Pid->Para.Kd != 0.0f)
+    {
+        D = -Pid->Para.Kd * (Pid->Sig.Fbk - Pid->State.Fbk_Pre) / Ts;
+    }
 
     Out = P + Int + D;
 
