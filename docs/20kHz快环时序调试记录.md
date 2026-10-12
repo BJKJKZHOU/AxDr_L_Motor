@@ -618,3 +618,51 @@ python3 tools/lcd_foc_check.py --elf build/Release/AxDr_L_Motor.elf --mode norma
 DWT 与更新 Max 的开销，属于偏保守的带仪表测量；不同分段的最大值可能来自不同
 采样周期，不可以直接相加充当同一周期的总耗时。之后以真实板上 Release 数据
 判断是 ESO、PID、SVPWM 还是采样与 ISR 延迟为主要耗时来源。
+
+
+### 9.1 多周期统计与偶发尖峰定位
+
+在 `6eff5a5` 提交后，实际时刻采样移动至 `PWM_Update()` 写入 CCR3
+之后的第一处代码，不再等待返回到 `Fast_Loop()`；因此新旧测量基线有
+少量仪表开销差异，不能将差异全部当作电流算法变快。
+
+新增统计均只在实际写入 CCR 的 PWM-active 周期累积：
+
+| 字段 | 含义 |
+|---|---|
+| `ARR_CCR_Min` | ARR→CCR 有效周期最小计数 |
+| `ARR_CCR_Over` | ARR→CCR 超过 2125 ticks（12.5 μs）的次数 |
+| `ARR_CCR_Sum_Lo / Sum_Hi` | TIM1 tick 累计和，用于平均时间 |
+| `ARR_CCR_Worst_Seq` | 最大值出现时的有效更新序号 |
+| `ARR_CCR_Worst_ADC / ESO / PI / SVPWM` | **与最大值同一拍**的分段 DWT 周期数 |
+| `ARR_CCR_Win_Total` | 每 1000 个 PWM-active 周期完成一个统计窗口 |
+| `ARR_CCR_Win_Bad` | 上述窗口中出现过超限的窗口个数 |
+| `ARR_CCR_Win_Last` | 最近已完成窗口的最大时间（TIM1 ticks） |
+| `Fast_CCR_Hist[64]` | 所有有效样本的时延直方图：43 ticks/档（约 0.253 μs），最后一档包含所有更长时间 |
+
+`tools/lcd_foc_check.py` 已支持输出 `arr_ccr_min_us`、
+`arr_ccr_mean_us`、`arr_ccr_over_12_5us` 和百分比、
+`arr_ccr_p50_upper_us` / `p95` / `p99` / `p999`、
+`arr_ccr_windows_50ms_completed`、`arr_ccr_windows_50ms_over_limit`，
+以及 `arr_ccr_worst_sample_stages_us`。分位数为直方图桶的上边界估计，
+不是微秒级精确分位值；最高桶没有有限上界，返回 null。
+
+运行命令保持不变：
+
+```bash
+python3 tools/lcd_foc_check.py --mode normal --seconds 10 \
+    --arr-ccr-limit-us 12.5 --output /tmp/fast-timing.json
+```
+
+比较 `over_12_5us` 与 `windows_50ms_over_limit`：
+若仅少数样本、少数窗口越界，更像偶发中断抢占、窗口切换或罕见计算路径；
+若普遍越界则应优化常规热路径。即便分位数达标，严格的 12.5 μs
+最大值要求仍保持不变。第 2000 次 ADC 中断会清空这些统计与直方图，
+所以启动前的初始化不进入正式分布；`Fast_Time` 在预热后持续累积，
+`Fast_Snap` 仍只冻结早期窗口的结构体字段，直方图未冻结。
+
+直方图和窗口统计在写入 CCR3 **之后**执行，不计入 ARR→CCR 时间，
+但仍会占用 ADC ISR 的剩余执行时间，应同时观察 `ADC_ISR_Max`、
+`Fast_Max` 和 `Deadline_Miss`。频繁中断抢占仍可能发生在 CCR3
+写入与紧接着读取 CNT 之间，若出现无法解释的个别尖峰，需要进一步
+结合 GPIO/逻辑分析仪或 DWT 捕获确认，并核对中断优先级。
