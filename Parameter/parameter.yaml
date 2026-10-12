@@ -836,7 +836,7 @@ objects:
     persistent: true
     binding: Current_FF_Enable
     label: Current dq Feedforward
-    description: "有感Torque/Speed/Position模式的dq交叉耦合与反电动势前馈；0关闭(默认)，1开启，使用机械ESO转速及电机Ld/Lq/Flux。"
+    description: "有感Torque/Speed/Position模式的dq交叉耦合与反电动势前馈；0关闭，1开启(默认)，使用机械ESO转速及电机Ld/Lq/Flux。"
     write_state: not_running
     allowed: [0, 1]
 
