@@ -118,7 +118,7 @@ void Test_Setup(int Mode, float Kt, int Dir, float Rate)
 float Test_Iq(void)
 {
     float Theta, Id, Iq, Ua, Ub;
-    (void)Motor_Fast_Run(&Theta, &Id, &Iq, &Ua, &Ub);
+    (void)Motor_Fast_Run(0.0f, false, &Theta, &Id, &Iq, &Ua, &Ub);
     return Iq;
 }
 
@@ -140,7 +140,7 @@ void Test_Vbus(float Vbus) { ADC.Vbus_V = Vbus; }
         cls.lib.Test_Current_Limit.argtypes = [ct.c_float]
         cls.lib.Test_Vbus.argtypes = [ct.c_float]
         cls.lib.Motor_State_Get.restype = ct.c_int
-        cls.lib.Motor_Fast_Run.argtypes = [ct.POINTER(ct.c_float)] * 5
+        cls.lib.Motor_Fast_Run.argtypes = [ct.c_float, ct.c_bool] + [ct.POINTER(ct.c_float)] * 5
         cls.lib.Motor_Fast_Run.restype = ct.c_int
         cls.lib.Motor_Position_Ref_Get.restype = Position
         cls.lib.Motor_Wm_Ref_Get.restype = ct.c_float
@@ -298,7 +298,7 @@ void Test_Vbus(float Vbus) { ADC.Vbus_V = Vbus; }
                     mode.value = value
                     try:
                         outputs = [ct.c_float(123) for _ in range(5)]
-                        fast = self.lib.Motor_Fast_Run(*(ct.byref(x) for x in outputs))
+                        fast = self.lib.Motor_Fast_Run(0.0, False, *(ct.byref(x) for x in outputs))
                         expected = 1 if state == ENABLED and value in (TORQUE, SPEED, POSITION) else 0
                         self.assertEqual(fast, expected)
                         self.assertEqual([x.value for x in outputs], [0] * 5)
