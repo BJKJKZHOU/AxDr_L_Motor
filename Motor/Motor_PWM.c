@@ -77,8 +77,8 @@ void PWM_Update(float DutyA, float DutyB, float DutyC)
 
     /* Capture at the register-write boundary before accounting overhead.
      * TIM1 CNT is the ARR-peak reference; DWT measures ADC IRQ -> CCR. */
-    CCR_T0 = DWT->CYCCNT;
     Cnt = TIM1->CNT;
+    CCR_T0 = DWT->CYCCNT;
     Dir = TIM1->CR1;
 
     Cyc = CCR_T0 - Fast_Time.ADC_IRQ_T0;
