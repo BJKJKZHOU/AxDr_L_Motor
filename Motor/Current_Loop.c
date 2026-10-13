@@ -5,11 +5,18 @@
 
 #include "Current_Loop.h"
 
+#include "Motor_Para.h"
 #include "Motor_Type.h"
 #include "control_params.h"
 
 PID_T Id_Ctrl = ID_CTRL_DEFAULT;
 PID_T Iq_Ctrl = IQ_CTRL_DEFAULT;
+LADRC_T Id_LADRC = { 0 };
+LADRC_T Iq_LADRC = { 0 };
+
+uint8_t Current_Controller = CURRENT_CTRL_PI;
+float Control_LADRC_Bw_Hz = CUR_LADRC_BW_HZ_DEFAULT;
+float Control_LADRC_Eso_Bw_Hz = CUR_LADRC_ESO_BW_HZ_DEFAULT;
 
 extern Motor_Run_T Motor_Run;
 
@@ -32,16 +39,52 @@ void Current_Loop_State_Reset(void)
     Iq_Ctrl.State.Int = 0.0f;
     Id_Ctrl.Sig.Out = 0.0f;
     Iq_Ctrl.Sig.Out = 0.0f;
+
+    Id_LADRC.State.Z1 = 0.0f;
+    Id_LADRC.State.Z2 = 0.0f;
+    Iq_LADRC.State.Z1 = 0.0f;
+    Iq_LADRC.State.Z2 = 0.0f;
+    Id_LADRC.Sig.Out = 0.0f;
+    Iq_LADRC.Sig.Out = 0.0f;
+    Id_LADRC.Sig.Ref_Dot = 0.0f;
+    Iq_LADRC.Sig.Ref_Dot = 0.0f;
 }
 
-void Current_Loop(float Id_Ref, float Iq_Ref, float U_Lim, float *Ud, float *Uq)
+void Current_Loop(float Id_Ref, float Iq_Ref, float U_Lim,
+                  float Ud_FF, float Uq_FF,
+                  float *Ud, float *Uq)
 {
-    /* Id/Iq are the current fast-loop Park feedback, shared with the ESO
-     * when both use the encoder electrical angle. */
+    /* Shared FRF/Plot channels report the active controller. */
     Id_Ctrl.Sig.Ref = Id_Ref;
     Id_Ctrl.Sig.Fbk = Motor_Run.Id;
     Iq_Ctrl.Sig.Ref = Iq_Ref;
     Iq_Ctrl.Sig.Fbk = Motor_Run.Iq;
+
+    if ((Current_Controller == CURRENT_CTRL_LADRC) && (Motor_Mode <= POSITION))
+    {
+        Id_LADRC.Sig.Ref = Id_Ref;
+        Id_LADRC.Sig.Fbk = Motor_Run.Id;
+        Id_LADRC.Sig.F0 = (-Motor_Para.Rs * Motor_Run.Id - Ud_FF) * Id_LADRC.Para.B0;
+        Id_LADRC.Sig.U_Applied = Motor_Run.Ud;
+
+        Iq_LADRC.Sig.Ref = Iq_Ref;
+        Iq_LADRC.Sig.Fbk = Motor_Run.Iq;
+        Iq_LADRC.Sig.F0 = (-Motor_Para.Rs * Motor_Run.Iq - Uq_FF) * Iq_LADRC.Para.B0;
+        Iq_LADRC.Sig.U_Applied = Motor_Run.Uq;
+
+        LADRC_Run(&Id_LADRC, CUR_TS);
+        LADRC_Run(&Iq_LADRC, CUR_TS);
+
+        /* LSEF gives total voltage. Remove the model feedforward here,
+         * since the shared FOC path adds it once after this controller. */
+        *Ud = Id_LADRC.Sig.Out - Ud_FF;
+        *Uq = Iq_LADRC.Sig.Out - Uq_FF;
+
+        /* Keep legacy PI plot IDs live under LADRC. */
+        Id_Ctrl.Sig.Out = *Ud;
+        Iq_Ctrl.Sig.Out = *Uq;
+        return;
+    }
 
     Current_Loop_Limits_Update(U_Lim);
 

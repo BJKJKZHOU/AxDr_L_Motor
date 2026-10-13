@@ -237,6 +237,8 @@ void Fast_Loop(void)
     float Iq_Encoder;
     float Ud;
     float Uq;
+    float Ud_FF;
+    float Uq_FF;
     float U_Lim;
     float Id_Ref;
     float Iq_Ref;
@@ -393,16 +395,20 @@ void Fast_Loop(void)
         Motor_Plot_Iq_Ref = Iq_Ref;
 
         U_Lim = ADC.Vbus_V * INV_SQRT3_F * VOLT_MOD_MAX;
-        Current_Loop(Id_Ref, Iq_Ref, U_Lim, &Ud, &Uq);
-
-        /* Encoder servo dq decoupling and back-EMF feedforward. */
+        Ud_FF = 0.0f;
+        Uq_FF = 0.0f;
         if ((Current_FF_Enable != 0U) && (Motor_Mode <= POSITION) && Encoder_Park_Valid)
         {
             float We = (float)Motor_Para.Pp * Mechanical_ESO.State.Wm;
 
-            Ud -= We * Motor_Para.Lq * Motor_Run.Iq;
-            Uq += We * (Motor_Para.Ld * Motor_Run.Id + Motor_Para.Flux);
+            Ud_FF = -We * Motor_Para.Lq * Motor_Run.Iq;
+            Uq_FF = We * (Motor_Para.Ld * Motor_Run.Id + Motor_Para.Flux);
         }
+
+        Current_Loop(Id_Ref, Iq_Ref, U_Lim, Ud_FF, Uq_FF, &Ud, &Uq);
+        /* One shared model feedforward and final voltage-vector limit. */
+        Ud += Ud_FF;
+        Uq += Uq_FF;
 
         Vector2_Limit(&Ud, &Uq, U_Lim);
 

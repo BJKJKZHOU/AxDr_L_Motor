@@ -247,6 +247,15 @@ typedef enum
     /* Current_FF_Enable: 有感Torque/Speed/Position模式的dq交叉耦合与反电动势前馈；0关闭，1开启(默认)，使用机械ESO转速及电机Ld/Lq/Flux。 */
     PARAM_CTRL_CURRENT_FF_ENABLE = 0x0A07U,
 
+    /* Current_Controller: 在DISABLED状态选择电流控制算法：0为PI(默认)，1为LADRC；LADRC先用于有感三种Servo模式。 */
+    PARAM_CTRL_CURRENT_CONTROLLER = 0x0A08U,
+
+    /* Control_LADRC_Bw_Hz: LADRC线性误差反馈增益对应频率，d/q共用；默认500 Hz，仅RAM生效。 */
+    PARAM_CTRL_LADRC_BW_HZ = 0x0A09U,
+
+    /* Control_LADRC_Eso_Bw_Hz: LADRC二阶LESO极点配置频率，d/q共用；默认1500 Hz，仅RAM生效。 */
+    PARAM_CTRL_LADRC_ESO_BW_HZ = 0x0A0AU,
+
     /* Control_Speed_Bw_Hz: 速度环设计带宽；写入后切换为Bandwidth并由当前J/B/Flux/Pp重新计算速度PI增益。 */
     PARAM_CTRL_SPEED_BW_HZ = 0x0A10U,
 
@@ -319,10 +328,10 @@ typedef enum
     /* Signal_Injection.State.Out: 当前注入的正弦信号：D/Q为A，速度为机械rad/s；速度测试使用同周期速度快照。 */
     PARAM_SIGNAL_OUT = 0x0B05U,
 
-    /* Id_Ctrl.Sig.Ref: 实际进入d轴电流PI的参考（含信号激励）。 */
+    /* Id_Ctrl.Sig.Ref: 实际进入d轴电流控制器的参考（含信号激励）。 */
     PARAM_SIGNAL_ID_REF = 0x0B06U,
 
-    /* Id_Ctrl.Sig.Out: d轴PI电压输出，未叠加模型前馈、未经过最终dq二维限幅。 */
+    /* Id_Ctrl.Sig.Out: 当前选中电流控制器的d轴电压输出，未叠加公共dq前馈、未经过最终dq二维限幅；保留原参数ID兼容旧扫频工具。 */
     PARAM_SIGNAL_ID_PI_OUT = 0x0B07U,
 
     /* Signal_Injection.Para.Target: 注入目标：0为Id，1为Iq，2为有感速度环；在Start时锁存。 */
@@ -331,10 +340,10 @@ typedef enum
     /* Signal_Injection.Para.Speed_Amp: 有感速度环正弦激励的机械角速度峰值；Start时核对有效速度限值。 */
     PARAM_SIGNAL_SPEED_AMP = 0x0B09U,
 
-    /* Iq_Ctrl.Sig.Ref: 实际进入q轴电流PI的参考（含注入）。 */
+    /* Iq_Ctrl.Sig.Ref: 实际进入q轴电流控制器的参考（含注入）。 */
     PARAM_SIGNAL_IQ_REF = 0x0B0AU,
 
-    /* Iq_Ctrl.Sig.Out: q轴PI电压输出，未叠加模型前馈、未经过最终dq二维限幅。 */
+    /* Iq_Ctrl.Sig.Out: 当前选中电流控制器的q轴电压输出，未叠加公共dq前馈、未经过最终dq二维限幅；保留原参数ID兼容旧扫频工具。 */
     PARAM_SIGNAL_IQ_PI_OUT = 0x0B0BU,
 
     /* Motor_Frf_Speed.Ref: 2kHz速度PI消费的电角速度参考，FAST读取同步快照。 */

@@ -56,6 +56,10 @@
  *
  * Id uses Ld and Iq uses Lq.
  */
+/* LADRC initial settings for testing, not validated closed-loop bandwidths. */
+#define CUR_LADRC_BW_HZ_DEFAULT     500.0f
+#define CUR_LADRC_ESO_BW_HZ_DEFAULT 1500.0f
+
 #define CUR_BW_HZ_DEFAULT 2000.0f
 #define CUR_WC_DEFAULT    (TWO_PI_F * CUR_BW_HZ_DEFAULT)
 
