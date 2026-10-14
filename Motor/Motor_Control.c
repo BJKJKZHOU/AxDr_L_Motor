@@ -126,10 +126,14 @@ static void Iq_Limit_Calc(float *Iq_Min, float *Iq_Max)
 
 static void Motion_State_Reset(void)
 {
+    int32_t Turn;
+    float Theta;
+
     Speed_Loop_State_Reset((float)Motor_Para.Pp * Mechanical_ESO_Wm_Get());
     Wm_Ref = 0.0f;
     We_Ref = 0.0f;
-    Trapezoid_Reset(&Motion_Ref, Motor_Run.Turn, Motor_Run.Theta_m, 0.0f);
+    Encoder_Position_Read(&Turn, &Theta);
+    Trapezoid_Reset(&Motion_Ref, Turn, Theta, 0.0f);
     SCurve = (SCurve_T){ 0 };
     Pos_Div = 0U;
 }
@@ -833,7 +837,11 @@ float Motor_Wm_Get(void)
 
 void Motor_Position_Get(int32_t *Turn, float *Theta)
 {
-    Motor_Position_Internal_To_User(Motor_Run.Turn, Motor_Run.Theta_m, Turn, Theta);
+    int32_t Turn_Int;
+    float Theta_Int;
+
+    Encoder_Position_Read(&Turn_Int, &Theta_Int);
+    Motor_Position_Internal_To_User(Turn_Int, Theta_Int, Turn, Theta);
 }
 
 void Motor_Plot_Normal_Update(void)
