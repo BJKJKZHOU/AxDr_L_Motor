@@ -2,6 +2,7 @@
 """Exercise real parameter, tuning and storage code with an in-memory NVS boundary."""
 
 import ctypes as ct
+import math
 from pathlib import Path
 import subprocess
 import tempfile
@@ -245,8 +246,6 @@ float Test_Read(uint16_t Id)
 #include "Flux.h"
 #include "JB.h"
 static bool RL_Temporary;
-static float Rs_Save, Ld_Save, Lq_Save;
-static uint8_t Current_Tune_Source_Save;
 void Current_Loop_State_Reset(void) { }
 ''' + rough + '''
 void Test_Rough(float Rs, float Ls) { Rough_RL_Apply(Rs, Ls); }
@@ -568,23 +567,45 @@ bool Test_Calibration_Save(void)
 
     def test_identification_temporary_current_gains_restore_source(self):
         for source in (0, 1):
+            self.setUp()
             manual = self.manual(CURRENT)
             self.write(CURRENT[0], source)
             before = self.effective(CURRENT)
             model = tuple(self.lib.Test_Read(i) for i in
                           (p.PARAM_MOTOR_RS, p.PARAM_MOTOR_LD, p.PARAM_MOTOR_LQ))
+            bw = self.lib.Test_Read(CURRENT[1])
             self.lib.Test_Rough(.1, .0001)
-            self.assertEqual(self.lib.Test_Read(CURRENT[0]), 0)
-            self.assertNotEqual(self.effective(CURRENT), before)
+
+            self.assertEqual(self.lib.Test_Read(CURRENT[0]), source)
+            expected = (.0001 * 2 * math.pi * bw, .1 * 2 * math.pi * bw) * 2
+            for actual, target in zip(self.effective(CURRENT), expected):
+                self.assertAlmostEqual(actual, target, delta=max(1e-6, abs(target) * 1e-5))
             self.assertEqual(self.values(CURRENT), manual)
+            self.assertEqual(tuple(self.lib.Test_Read(i) for i in
+                                   (p.PARAM_MOTOR_RS, p.PARAM_MOTOR_LD, p.PARAM_MOTOR_LQ)), model)
+
             self.lib.Test_Rough(.2, .0002)
             self.lib.Test_Rough_Restore()
             self.assertEqual(self.lib.Test_Read(CURRENT[0]), source)
             self.assertEqual(self.effective(CURRENT), before)
-            self.assertEqual(tuple(self.lib.Test_Read(i) for i in
-                                   (p.PARAM_MOTOR_RS, p.PARAM_MOTOR_LD, p.PARAM_MOTOR_LQ)), model)
+            self.assertEqual(self.values(CURRENT), manual)
             self.lib.Test_Rough_Restore()
             self.assertEqual(self.effective(CURRENT), before)
+
+    def test_identification_temporary_current_gains_zero_bandwidth(self):
+        self.write(p.PARAM_CTRL_CURRENT_BW_HZ, 0)
+        self.write(p.PARAM_CTRL_CURRENT_SOURCE, 1)
+        before = self.effective(CURRENT)
+        self.lib.Test_Rough(.2, .0003)
+        self.assertEqual(self.lib.Test_Read(p.PARAM_CTRL_CURRENT_SOURCE), 1)
+
+        expected = (.0003 * 2 * math.pi * 2000, .2 * 2 * math.pi * 2000) * 2
+        for actual, target in zip(self.effective(CURRENT), expected):
+            self.assertAlmostEqual(actual, target, delta=max(1e-6, abs(target) * 1e-5))
+
+        self.lib.Test_Rough_Restore()
+        self.assertEqual(self.effective(CURRENT), before)
+        self.assertEqual(self.lib.Test_Read(p.PARAM_CTRL_CURRENT_BW_HZ), 0)
 
     def test_identification_apply_validates_complete_model(self):
         eso = ESO.in_dll(self.lib, "Mechanical_ESO")
