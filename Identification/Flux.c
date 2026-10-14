@@ -816,11 +816,6 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
 
     Context->Theta_Obs = Ident_PLL.State.Theta;
 
-    Motor_Run.Theta_e = Context->Theta_Open;
-    Motor_Run.Id = Context->Id_Open;
-    Motor_Run.Iq = Context->Iq_Open;
-    Motor_Run.Ud = Context->Ud_Open;
-    Motor_Run.Uq = Context->Uq_Open;
     Model_U_Valid = true;
     Slow_Snapshot_Publish(Context);
 
