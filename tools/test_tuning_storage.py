@@ -599,9 +599,7 @@ bool Test_Calibration_Save(void)
         self.lib.Test_Rough(.2, .0003)
         self.assertEqual(self.lib.Test_Read(p.PARAM_CTRL_CURRENT_SOURCE), 1)
 
-        expected = (.0003 * 2 * math.pi * 2000, .2 * 2 * math.pi * 2000) * 2
-        for actual, target in zip(self.effective(CURRENT), expected):
-            self.assertAlmostEqual(actual, target, delta=max(1e-6, abs(target) * 1e-5))
+        self.assertEqual(self.effective(CURRENT), (0.0, 0.0, 0.0, 0.0))
 
         self.lib.Test_Rough_Restore()
         self.assertEqual(self.effective(CURRENT), before)

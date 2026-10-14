@@ -205,15 +205,13 @@ static void Probe_Voltage_Limit(float U_Max)
 
 static void Rough_RL_Apply(float Rs, float Ls)
 {
-    float Bw_Hz;
     float Wc;
     float Kp;
     float Ki;
 
     /* Rough RL tunes only the ALIGN current loop; do not change the motor model
      * or the selected tuning source. */
-    Bw_Hz = (Control_Current_Bw_Hz > 0.0f) ? Control_Current_Bw_Hz : CUR_BW_HZ_DEFAULT;
-    Wc = TWO_PI_F * Bw_Hz;
+    Wc = TWO_PI_F * Control_Current_Bw_Hz;
     Kp = Ls * Wc;
     Ki = Rs * Wc;
 
