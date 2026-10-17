@@ -191,6 +191,18 @@ float Encoder_Position_Get(void)
     return Encoder.Position;
 }
 
+void Encoder_Position_Read(int32_t *Turn, float *Theta)
+{
+    uint32_t Primask;
+
+    /* Turn and Theta_m are updated together by the encoder DMA ISR. */
+    Primask = __get_PRIMASK();
+    __disable_irq();
+    *Turn = Motor_Run.Turn;
+    *Theta = Motor_Run.Theta_m;
+    __set_PRIMASK(Primask);
+}
+
 void Encoder_Start(void)
 {
     if (Drv_Start != 0)

@@ -66,6 +66,7 @@ FAST_CODE void Encoder_Start(void);
 
 void Encoder_Config_Changed(void);
 float Encoder_Position_Get(void);
+void Encoder_Position_Read(int32_t *Turn, float *Theta);
 
 /* Drivers publish native [0, 2pi) angle here; generic Encoder.c owns direction mapping, turns and speed. */
 FAST_CODE void Encoder_Sample_Update(uint32_t Raw, float Theta);

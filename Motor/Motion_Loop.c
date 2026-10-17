@@ -5,8 +5,8 @@
 
 #include "Motion_Loop.h"
 
+#include "Encoder.h"
 #include "Math.h"
-#include "Motor_Type.h"
 #include "control_params.h"
 
 PID_T Pos_Ctrl = POSITION_CTRL_DEFAULT;
@@ -42,11 +42,14 @@ void Speed_Loop_Track(float We_Ref, float We_Fbk, float Iq, float Iq_Min, float 
 
 float Position_Loop(int32_t Turn_Ref, float Theta_Ref, float Wm_Min, float Wm_Max)
 {
+    int32_t Turn;
     int32_t Turn_Err;
+    float Theta;
 
-    Turn_Err = Turn_Ref - Motor_Run.Turn;
+    Encoder_Position_Read(&Turn, &Theta);
+    Turn_Err = Turn_Ref - Turn;
     Pos_Ctrl.Sig.Ref = (float)Turn_Err * TWO_PI_F + Theta_Ref;
-    Pos_Ctrl.Sig.Fbk = Motor_Run.Theta_m;
+    Pos_Ctrl.Sig.Fbk = Theta;
 
     Pos_Ctrl.Para.Out_Min = Wm_Min;
     Pos_Ctrl.Para.Out_Max = Wm_Max;
