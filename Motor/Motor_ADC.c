@@ -55,7 +55,7 @@ static uint32_t ADC1_JSQR_B;
 static uint32_t ADC2_JSQR_B;
 static uint32_t ADC2_JSQR_C;
 
-static bool ADC_Phase_Set(ADC_Sample_e Phase);
+static FAST_CODE bool ADC_Phase_Set(ADC_Sample_e Phase);
 static void Iabc_Calib(void);
 
 void ADC_Calib(void)
@@ -117,7 +117,7 @@ void ADC_Calib(void)
 /* TIM1 CH5/TRGO2 triggers both independent ADCs on the same falling edge.
  * The queue accepts one complete JSQR context per write. Keep JEXTSEL,
  * JEXTEN, JL and ADC2 Vbus Rank2 unchanged while switching Rank1. */
-static bool ADC_Phase_Set(ADC_Sample_e Phase)
+static FAST_CODE bool ADC_Phase_Set(ADC_Sample_e Phase)
 {
     if (Phase == ADC_Sample)
     {
