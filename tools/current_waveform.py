@@ -64,6 +64,7 @@ def load_capture(path, legacy_fs):
             return dict(values=values, names=names, pair=pair, fs=fs,
                         quality=quality, reason=reason, meta=meta,
                         label=meta.get("controller") or path.name.split(".waveform")[0],
+                        archive_stem=path.name[:-len(".waveform.nmixx")],
                         t=np.arange(len(raw), dtype=np.float64) / fs)
 
     if path.suffix == ".npz":
@@ -109,7 +110,7 @@ def load_capture(path, legacy_fs):
         raise ValueError(f"invalid legacy capture: {path}")
     return dict(values=values, names=names, pair=pair, fs=fs,
                 quality="unknown", reason="legacy format: firmware drops not verified",
-                meta=meta, label=label, t=t)
+                meta=meta, label=label, archive_stem=None, t=t)
 
 
 def validate(cap):
@@ -232,7 +233,7 @@ def plot_phase(cap, out):
              ha="center", fontsize=9)
     fig.text(.5, .034, " | ".join(stats) + "    Residual includes harmonics, noise and model error.",
              ha="center", fontsize=9)
-    path = out / f"{cap['stem']}.phase.png"
+    path = out / f"{cap['stem']}.waveform-phase.png"
     fig.savefig(path)
     plt.close(fig)
     return path
@@ -261,7 +262,8 @@ def plot_comparison(caps, out, zoom_ms, start_ms):
     axes[0, 0].set_ylabel("Phase-current feedback (A)")
     axes[0, -1].legend(ncol=3)
     fig.suptitle("Phase-current comparison | common amplitude scale", fontsize=15, y=.95)
-    path = out / "comparison.waveform.png"
+    combined = "-".join(re.sub(r"[^A-Za-z0-9_-]", "_", c["label"])[:24] for c in caps)
+    path = out / f"Compare-{combined}-{date.today().isoformat()}.waveform-comparison.png"
     fig.savefig(path)
     plt.close(fig)
     return path
@@ -290,12 +292,19 @@ def main():
         cap = validate(load_capture(path, args.fs))
         if args.labels:
             cap["label"] = args.labels[i]
-        cap["stem"] = f"{i+1:02d}-{re.sub(r'[^A-Za-z0-9_-]', '_', cap['label'])[:80]}"
+        source_stem = cap["archive_stem"] or (
+            re.sub(r"[^A-Za-z0-9_-]", "_", path.stem)[:70] + "-" + date.today().isoformat())
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", source_stem):
+            raise ValueError(f"invalid archive file name: {path.name}")
+        cap["stem"] = source_stem
         caps.append(cap)
     targets = [args.out / f"{c['stem']}.waveform.png" for c in caps]
-    targets += [args.out / f"{c['stem']}.phase.png" for c in caps if fundamental(c) is not None]
+    targets += [args.out / f"{c['stem']}.waveform-phase.png" for c in caps if fundamental(c) is not None]
     if len(caps) > 1:
-        targets.append(args.out / "comparison.waveform.png")
+        combined = "-".join(re.sub(r"[^A-Za-z0-9_-]", "_", c["label"])[:24] for c in caps)
+        targets.append(args.out / f"Compare-{combined}-{date.today().isoformat()}.waveform-comparison.png")
+    if len(set(targets)) != len(targets):
+        parser.error("different captures would overwrite the same output; choose distinct source names")
     if any(p.exists() for p in targets):
         parser.error("output files exist; choose another --out (archives are never overwritten)")
     args.out.mkdir(parents=True, exist_ok=True)

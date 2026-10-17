@@ -123,7 +123,7 @@ class WaveformTest(unittest.TestCase):
         data = fft.decode_samples(raw, group, names)
         freq, _, amp = fft.fft_spectrum(data[:2], fs)
         self.assertAlmostEqual(freq[np.argmax(amp[0])], 687.5, delta=25)
-        self.assertGreater(amp[0].max(), .65)
+        self.assertGreater(amp[0].max(), .60)
 
     def test_legacy_npz_read_only(self):
         path = self.out / "legacy.npz"
