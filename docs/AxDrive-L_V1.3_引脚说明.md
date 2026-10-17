@@ -35,9 +35,9 @@
 
 | 原理图信号 | MCU 引脚 | 当前配置 | 硬件用途 |
 | --- | --- | --- | --- |
-| `IC` | PA0 | ADC1_IN1，未加入转换序列 | C 相电流采样；当前由 `Ic = -(Ia + Ib)` 重建 |
-| `IB` | PA1 | ADC2_IN2，Injected Rank1 | B 相电流采样；与 IA 同步转换 |
-| `IA` | PA2 | ADC1_IN3，Injected Rank1 | A 相电流采样；与 IB 同步转换 |
+| `IC` | PA0 | ADC2_IN1，动态注入 Rank1 | C 相下管电流采样 |
+| `IB` | PA1 | ADC1_IN2 / ADC2_IN2，动态注入 Rank1 | B 相下管电流采样 |
+| `IA` | PA2 | ADC1_IN3，动态注入 Rank1 | A 相下管电流采样 |
 | `IBUS` | PA3 | 未配置、未采样 | 母线电流采样 |
 | `DAC` | PA4 | 未配置 | 板上模拟调试信号 |
 | `VA` | PC0 | ADC2_IN6 | A 相电压采样 |
@@ -49,10 +49,28 @@
 | `NTC1` | PB1 | ADC1_IN12 | 温度采样 1 |
 | `NTC3` | PB12 | ADC1_IN11 | 温度采样 3 |
 
-当前电流快环使用 ADC1/ADC2 双注入同步模式：ADC1 Rank1 采集 IA，ADC2
-Rank1 同时采集 IB。PA0 虽保留为 ADC1_IN1 模拟引脚，但未加入当前 ADC
-转换序列，IC 由 IA、IB 完成偏置校正后重建。IOC 中分配为 ADC 模拟引脚
-不等于该通道已经加入实际转换序列。
+当前动态采样实验分支将 ADC1/ADC2 配置为**独立 ADC、相同 TIM1 TRGO2 下降沿注入触发**，
+不再使用硬件 `ADC_DUALMODE_INJECSIMULT`。每周期按 SVPWM 占空比
+舍弃最大占空比对应的相：AB（ADC1 IA、ADC2 IB）、
+AC（ADC1 IA、ADC2 IC）、BC（ADC1 IB、ADC2 IC）。
+未采样的一相使用三相电流之和为零重建；ADC2 的注入 Rank2
+始终保留 Vbus 采样，电压保护链路保持原有数据来源。
+两个 ADC 的注入队列均保持 JQM=0（重复最后一个上下文），
+仅切换 Rank1，触发源、极性及转换序列长度不变；
+ADC1/ADC2 对 B 相各自校准独立零偏。
+
+### 生成配置与运行时通道切换
+
+`.ioc` 与 `Core/Src/adc.c` 已同步为独立 ADC、TIM1 TRGO2 下降沿触发。
+生成配置中的初始组合为 ADC1 Rank1 = IA、ADC2 Rank1 = IB、Rank2 = Vbus；
+PA0 的模拟引脚初始化及反初始化归属 ADC2。
+
+`ADC_Calib()` 检查独立模式、注入触发配置和序列长度，预计算四个通道的
+注入上下文并启用队列。运行时按下一周期的采样组合写入对应上下文；
+生成配置定义初始序列，动态选相由 `Motor/Motor_ADC.c` 实现。
+
+参考 ST MCSDK 的预计算注入上下文写入方式，但保留本工程的
+20 kHz 快环、PWM 触发时刻与 Vbus 采样；动态采样窗口自适应调整尚未实现。
 
 ## 4. 编码器与 Hall
 

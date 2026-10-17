@@ -59,7 +59,32 @@ void SVPWM_Calc(float Ualpha, float Ubeta, float Vbus, float *DutyA, float *Duty
     Db = 0.5f + (Ub + Uoff) * Inv_Vbus;
     Dc = 0.5f + (Uc + Uoff) * Inv_Vbus;
 
-    /* All active modulation paths limit the voltage before SVPWM. */
+    /* Keep physical duty bounds during overmodulation without helper calls. */
+    if (Da > 1.0f)
+    {
+        Da = 1.0f;
+    }
+    if (Da < 0.0f)
+    {
+        Da = 0.0f;
+    }
+    if (Db > 1.0f)
+    {
+        Db = 1.0f;
+    }
+    if (Db < 0.0f)
+    {
+        Db = 0.0f;
+    }
+    if (Dc > 1.0f)
+    {
+        Dc = 1.0f;
+    }
+    if (Dc < 0.0f)
+    {
+        Dc = 0.0f;
+    }
+
     *DutyA = Da;
     *DutyB = Db;
     *DutyC = Dc;
