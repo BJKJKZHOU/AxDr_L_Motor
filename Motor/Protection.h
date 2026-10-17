@@ -25,6 +25,7 @@ typedef enum
     PROT_OVERTEMP = (1UL << 6),
     PROT_PHASE_LOSS = (1UL << 7),
     PROT_DRIVER = (1UL << 8),
+    PROT_ADC = (1UL << 9),
 
 } Protection_Event_e;
 
