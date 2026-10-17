@@ -14,7 +14,7 @@
 #define PWM_FREQ_HZ_DEFAULT 20000.0f
 #define CUR_FREQ_HZ_DEFAULT PWM_FREQ_HZ_DEFAULT
 #define CUR_TS              (1.0f / CUR_FREQ_HZ_DEFAULT)
-#define VOLT_MOD_MAX        0.88f
+#define VOLT_MOD_MAX        0.98f
 
 /*
  * TIM1 CH4/CH5 timing is expressed as physical time, not fixed CCR values.
