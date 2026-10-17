@@ -390,7 +390,8 @@ def read_waveform(path):
         return raw.astype(expected, copy=False).tobytes(), group, names, fs
 
 
-def plot_spectrum(freq, values, names, units, kind, fs, n_samples, output):
+def plot_spectrum(freq, values, names, units, kind, fs, n_samples, output,
+                  quality="unknown", quality_reason=""):
     import matplotlib as mpl
     from matplotlib import pyplot as plt
     from matplotlib.ticker import AutoMinorLocator
@@ -416,10 +417,13 @@ def plot_spectrum(freq, values, names, units, kind, fs, n_samples, output):
         ax.grid(which="minor", linewidth=.30, alpha=.22)
         ax.xaxis.set_minor_locator(AutoMinorLocator(5))
         ax.yaxis.set_minor_locator(AutoMinorLocator(2))
-        fig.suptitle(f"AxDr  {kind.upper()}  |  Fs={fs:g} Hz  |  N={n_samples}",
+        fig.suptitle(f"AxDr  {kind.upper()}  |  Fs={fs:g} Hz  |  N={n_samples}  |  {quality}",
                      y=.963, fontsize=13, fontweight="bold")
         ax.legend(loc="lower center", bbox_to_anchor=(.5, 1.015), ncol=min(4, len(names)),
                   fontsize=9, frameon=False)
+        if quality != "valid":
+            fig.text(.5, .018, quality_reason or "Historical/unverified signal continuity",
+                     ha="center", fontsize=8)
         fig.savefig(output, dpi=180)
         plt.close(fig)
 
@@ -437,6 +441,8 @@ def draw_archive(archive_path, out):
         units = list(saved["channel_unit"])
         fs = float(saved["sample_rate_hz"][0])
         n = int(saved["sample_count"][0])
+        quality = str(saved["quality"][0]) if "quality" in saved.files else "unknown"
+        reason = str(saved["quality_reason"][0]) if "quality_reason" in saved.files else "Historical archive: quality not recorded"
         if values.shape != (len(names), len(freq)) or not np.all(np.isfinite(values)):
             raise ValueError("invalid archived spectrum")
         amp = np.abs(values) * 2
@@ -448,7 +454,7 @@ def draw_archive(archive_path, out):
             amp = values
     out.mkdir(parents=True, exist_ok=True)
     image = out / archive_path.name.replace(".nmixx", ".png")
-    plot_spectrum(freq, amp, names, units, kind, fs, n, image)
+    plot_spectrum(freq, amp, names, units, kind, fs, n, image, quality, reason)
     print("Replotted:", image)
 
 
@@ -569,7 +575,8 @@ def main():
         save_spectrum(archive, kind, group, names, fs, data.shape[1],
                       freq, spectrum, nfft, windows, status, reason)
         image = args.out / f"{prefix}.{kind}.png"
-        plot_spectrum(freq, plotted, names, units, kind, fs, data.shape[1], image)
+        plot_spectrum(freq, plotted, names, units, kind, fs, data.shape[1], image,
+                      status, reason)
         print("Saved:", archive, "and", image)
 
 
