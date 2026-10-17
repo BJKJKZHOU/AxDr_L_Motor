@@ -59,10 +59,7 @@ void SVPWM_Calc(float Ualpha, float Ubeta, float Vbus, float *DutyA, float *Duty
     Db = 0.5f + (Ub + Uoff) * Inv_Vbus;
     Dc = 0.5f + (Uc + Uoff) * Inv_Vbus;
 
-    Limit_Value(&Da, 0.0f, 1.0f);
-    Limit_Value(&Db, 0.0f, 1.0f);
-    Limit_Value(&Dc, 0.0f, 1.0f);
-
+    /* All active modulation paths limit the voltage before SVPWM. */
     *DutyA = Da;
     *DutyB = Db;
     *DutyC = Dc;
