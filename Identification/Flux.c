@@ -162,12 +162,8 @@ typedef struct
     float Ibeta;
     float Theta_Open;
     float Theta_Obs;
-    float Id_Open;
-    float Iq_Open;
     float Id_Ref_Open;
     float Iq_Ref_Open;
-    float Ud_Open;
-    float Uq_Open;
     int8_t Dir;
 
 } Flux_Fast_Context_T;
@@ -289,6 +285,9 @@ static bool Emf_Update(float Yd, float Yq)
 
 static void Obs_Para_Update(void)
 {
+    Flux_Observer_Para_T Para;
+    Flux_Observer_Calc_T Calc;
+    uint32_t Primask;
     float Flux;
 
     Flux = Flux_Estimator.State.Flux;
@@ -297,10 +296,20 @@ static void Obs_Para_Update(void)
         return;
     }
 
-    /* Flux is a naturally aligned 32-bit value on Cortex-M4. The fast observer
-     * may consume either the old or new complete value, never a partial float. */
-    Ident_Observer.Para.Flux = Flux;
-    Ident_Observer.Para.BW_Hz = Flux_Config.Observer.BW_Hz;
+    Para = Ident_Observer.Para;
+    Calc = Ident_Observer.Calc;
+    Para.Flux = Flux;
+    Para.BW_Hz = Flux_Config.Observer.BW_Hz;
+    (void)Flux_Observer_Calc_Update(&Para, &Calc);
+
+    /* Compute in the slow loop; the ISR must see the matching flux and gain.
+     * An invalid gain remains zero so the fast observer rejects it. */
+    Primask = __get_PRIMASK();
+    __disable_irq();
+    Ident_Observer.Para = Para;
+    Ident_Observer.Calc = Calc;
+    __DMB();
+    __set_PRIMASK(Primask);
 }
 
 static bool Obs_State_Stable(void)
@@ -603,17 +612,9 @@ static void Flux_Context_Base_Init(Flux_Fast_Context_T *Context, float Ia_A, flo
 
 static void Flux_Context_Open_Init(Flux_Fast_Context_T *Context)
 {
-    float Sin;
-    float Cos;
-
     Context->Theta_Open = Flux_IF.State.Theta_e;
-    SinCos(Context->Theta_Open, &Sin, &Cos);
-    Context->Id_Open = Context->Ialpha * Cos + Context->Ibeta * Sin;
-    Context->Iq_Open = -Context->Ialpha * Sin + Context->Ibeta * Cos;
     Context->Id_Ref_Open = 0.0f;
     Context->Iq_Ref_Open = 0.0f;
-    Context->Ud_Open = Motor_Run.Ualpha * Cos + Motor_Run.Ubeta * Sin;
-    Context->Uq_Open = -Motor_Run.Ualpha * Sin + Motor_Run.Ubeta * Cos;
 }
 
 static void Flux_Observer_Runtime_Run(Flux_Fast_Context_T *Context)
@@ -697,11 +698,12 @@ static Motor_Fast_Mode_e Flux_Finish_Run(const Flux_Fast_Context_T *Context,
     }
     else
     {
+        /* I/F uses its configured ramp; runtime dq feedback is unused. */
         IF_Run(&Flux_IF,
-               Context->Id_Open,
-               Context->Iq_Open,
-               Context->Ud_Open,
-               Context->Uq_Open,
+               0.0f,
+               0.0f,
+               0.0f,
+               0.0f,
                Theta_e,
                Id_Ref,
                Iq_Ref,
@@ -763,16 +765,16 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
     {
         /* 6d26e0a preset: reach half base speed in 1 s, then base speed in
          * another 5 s. Only the initial ramp uses this fixed profile. */
-        Flux_IF.Para.Acc = Abs_Value(We_Target) / Flux_Config.Workflow.Open_Accel_S *
+        Flux_IF.Para.Acc = IF_Acc_Command *
                            ((Abs_Value(Flux_IF.State.We) < 0.50f * Start_Para.We_Base) ? 3.0f : 0.60f);
     }
 
     T0 = DWT->CYCCNT;
     IF_Run(&Flux_IF,
-           Context->Id_Open,
-           Context->Iq_Open,
-           Context->Ud_Open,
-           Context->Uq_Open,
+           0.0f,
+           0.0f,
+           0.0f,
+           0.0f,
            Theta_e,
            Id_Ref,
            Iq_Ref,
@@ -794,7 +796,7 @@ static Flux_Step_e Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
 
     if ((State == FLUX_IF) && (Flux_IF.State.Mode == IF_HOLD))
     {
-        Flux_IF.Para.Acc = Abs_Value(We_Target) / Flux_Config.Workflow.Open_Accel_S;
+        Flux_IF.Para.Acc = IF_Acc_Command;
         Motion_Lost_Armed = false;
         Motion_Lost_Cnt = 0U;
         State = FLUX_OBS_WAIT;
@@ -1229,7 +1231,8 @@ bool Flux_Start(float Wm_Target)
     Flux_IF.Para.Iq_Min_A = Motor_Config.IF_Current_A;
     Flux_IF.Para.Iq_Max_A = Start_Para.Iq_Max_A;
     Flux_IF.Para.We_Base = Start_Para.We_Base;
-    Flux_IF.Para.Acc = Abs_Value(We_Target) / Flux_Config.Workflow.Open_Accel_S;
+    IF_Acc_Command = Abs_Value(We_Target) / Flux_Config.Workflow.Open_Accel_S;
+    Flux_IF.Para.Acc = IF_Acc_Command;
     Flux_IF.Para.Iq_Slew_A_S = IF_IQ_SLEW_A_S;
     Flux_IF.Para.Rs_Ohm = Motor_Para.Rs;
     Flux_IF.Para.Ld_H = Motor_Para.Ld;

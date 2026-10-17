@@ -47,6 +47,10 @@ typedef struct
 
 } Flux_Observer_T;
 
+/* Recalculate after parameter changes, before Run. A live observer must receive
+ * the matching Para and Calc together; prepare runtime updates outside the ISR. */
+FAST_CODE bool Flux_Observer_Calc_Update(const Flux_Observer_Para_T *Para, Flux_Observer_Calc_T *Calc);
+
 void Flux_Observer_Reset(Flux_Observer_T *Obs, float Theta_e, float Ialpha, float Ibeta);
 
 FAST_CODE bool Flux_Observer_Run(Flux_Observer_T *Obs,
