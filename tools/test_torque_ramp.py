@@ -55,6 +55,14 @@ volatile ADC_T ADC;
 volatile Encoder_T Encoder;
 Mechanical_ESO_T Mechanical_ESO;
 int Pwm_On;
+int Encoder_Position_Read_Cnt;
+
+void Encoder_Position_Read(int32_t *Turn, float *Theta)
+{
+    Encoder_Position_Read_Cnt++;
+    *Turn = Motor_Run.Turn;
+    *Theta = Motor_Run.Theta_m;
+}
 
 void PWM_Enable(void) { Pwm_On = 1; }
 void PWM_Disable(void) { Pwm_On = 0; }
@@ -157,6 +165,22 @@ void Test_Vbus(float Vbus) { ADC.Vbus_V = Vbus; }
     def step(self):
         self.lib.Motor_Control()
         return self.lib.Test_Iq()
+
+    def test_mechanical_position_consumers_read_snapshot(self):
+        reads = ct.c_int.in_dll(self.lib, "Encoder_Position_Read_Cnt")
+        self.lib.Test_Setup(POSITION, 0.5, 1, 2.0)
+        count = reads.value
+
+        # Position loop (2 kHz thread).
+        self.lib.Motor_Control()
+        self.assertEqual(reads.value, count + 1)
+
+        # User-coordinate feedback.
+        self.lib.Motor_Position_Get.argtypes = [ct.POINTER(ct.c_int32), ct.POINTER(ct.c_float)]
+        turn, theta = ct.c_int32(), ct.c_float()
+        self.lib.Motor_Position_Get(ct.byref(turn), ct.byref(theta))
+        self.assertEqual(reads.value, count + 2)
+        self.assertEqual((turn.value, theta.value), (0, 0.0))
 
     def test_slew_units_directions_reversal_and_endpoint(self):
         for kt in (0.25, 0.5, 1.0):

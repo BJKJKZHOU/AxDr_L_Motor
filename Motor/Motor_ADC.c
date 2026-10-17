@@ -22,6 +22,7 @@
 #include "adc.h"
 #include "control_params.h"
 #include "main.h"
+#include "stm32g4xx_ll_adc.h"
 #include "tim.h"
 
 #define ADC_SAMPLE_NUM 512U
@@ -41,10 +42,27 @@ volatile ADC_T ADC = { 0 };
 
 volatile float Motor_Plot_Iq_Ref = 0.0f;
 
-static void Iab_Calib(void);
+typedef enum
+{
+    ADC_SAMPLE_AB = 0,
+    ADC_SAMPLE_AC,
+    ADC_SAMPLE_BC,
+} ADC_Sample_e;
+
+static ADC_Sample_e ADC_Sample = ADC_SAMPLE_AB;
+static uint32_t ADC1_JSQR_A;
+static uint32_t ADC1_JSQR_B;
+static uint32_t ADC2_JSQR_B;
+static uint32_t ADC2_JSQR_C;
+
+static FAST_CODE bool ADC_Phase_Set(ADC_Sample_e Phase);
+static void Iabc_Calib(void);
 
 void ADC_Calib(void)
 {
+    uint32_t JSQR1;
+    uint32_t JSQR2;
+
     if (HAL_ADCEx_Calibration_Start(&hadc1, ADC_SINGLE_ENDED) != HAL_OK)
     {
         Error_Handler();
@@ -55,19 +73,85 @@ void ADC_Calib(void)
         Error_Handler();
     }
 
-    Iab_Calib();
+    JSQR1 = ADC1->JSQR;
+    JSQR2 = ADC2->JSQR;
+
+    /* Both ADCs must be independent, with the same TIM1 TRGO2 trigger.
+     * ADC1 uses one current rank; ADC2 keeps current + Vbus (rank 2).
+     * Generated ADC configuration is authoritative for this initial context. */
+    if ((LL_ADC_GetMultimode(__LL_ADC_COMMON_INSTANCE(ADC1)) != LL_ADC_MULTI_INDEPENDENT) ||
+        ((JSQR1 & ADC_JSQR_JEXTEN) == 0U) ||
+        (((JSQR1 ^ JSQR2) & (ADC_JSQR_JEXTSEL | ADC_JSQR_JEXTEN)) != 0U) ||
+        ((JSQR1 & ADC_JSQR_JL) != 0U) ||
+        ((JSQR2 & ADC_JSQR_JL) != ADC_JSQR_JL_0))
+    {
+        Error_Handler();
+    }
+
+    /* Alternate Rank1 channels use the same acquisition time. */
+    MODIFY_REG(ADC1->SMPR1, ADC_SMPR1_SMP2,
+               ((ADC1->SMPR1 & ADC_SMPR1_SMP3) >> ADC_SMPR1_SMP3_Pos) << ADC_SMPR1_SMP2_Pos);
+    MODIFY_REG(ADC2->SMPR1, ADC_SMPR1_SMP1,
+               ((ADC2->SMPR1 & ADC_SMPR1_SMP2) >> ADC_SMPR1_SMP2_Pos) << ADC_SMPR1_SMP1_Pos);
+
+    /* Following the MCSDK approach, precompute the full queue contexts.
+     * JQM=0 repeats the last context: only the channels change, never
+     * the trigger or length (STM32G474 ES0430 workaround). */
+    ADC1_JSQR_A = JSQR1;
+    ADC1_JSQR_B = (JSQR1 & ~ADC_JSQR_JSQ1) |
+                  ADC_JSQR_RK(ADC_CHANNEL_2, ADC_INJECTED_RANK_1);
+    ADC2_JSQR_B = JSQR2;
+    ADC2_JSQR_C = (JSQR2 & ~ADC_JSQR_JSQ1) |
+                  ADC_JSQR_RK(ADC_CHANNEL_1, ADC_INJECTED_RANK_1);
+
+    /* Setting the queue mode clears JSQR. Re-seed the initial AB pair. */
+    LL_ADC_INJ_SetQueueMode(ADC2, LL_ADC_INJ_QUEUE_2CONTEXTS_LAST_ACTIVE);
+    LL_ADC_INJ_SetQueueMode(ADC1, LL_ADC_INJ_QUEUE_2CONTEXTS_LAST_ACTIVE);
+    ADC2->JSQR = ADC2_JSQR_B;
+    ADC1->JSQR = ADC1_JSQR_A;
+    ADC_Sample = ADC_SAMPLE_AB;
+
+    Iabc_Calib();
 }
 
-static void Iab_Calib(void)
+/* TIM1 CH5/TRGO2 triggers both independent ADCs on the same falling edge.
+ * The queue accepts one complete JSQR context per write. Keep JEXTSEL,
+ * JEXTEN, JL and ADC2 Vbus Rank2 unchanged while switching Rank1. */
+static FAST_CODE bool ADC_Phase_Set(ADC_Sample_e Phase)
+{
+    if (Phase == ADC_Sample)
+    {
+        return true;
+    }
+
+    if ((Phase == ADC_SAMPLE_BC) != (ADC_Sample == ADC_SAMPLE_BC))
+    {
+        ADC1->JSQR = (Phase == ADC_SAMPLE_BC) ? ADC1_JSQR_B : ADC1_JSQR_A;
+    }
+
+    if ((Phase == ADC_SAMPLE_AB) != (ADC_Sample == ADC_SAMPLE_AB))
+    {
+        ADC2->JSQR = (Phase == ADC_SAMPLE_AB) ? ADC2_JSQR_B : ADC2_JSQR_C;
+    }
+
+    if (((ADC1->ISR | ADC2->ISR) & ADC_ISR_JQOVF) != 0U)
+    {
+        PWM_Disable();
+        Protection_Fault_Set(PROT_ADC);
+        return false;
+    }
+
+    ADC_Sample = Phase;
+    return true;
+}
+
+static void Iabc_Calib(void)
 {
     uint32_t Ia_Sum = 0U;
     uint32_t Ib_Sum = 0U;
+    uint32_t Ib1_Sum = 0U;
+    uint32_t Ic_Sum = 0U;
 
-    /*
-     * TIM1 CH5/TRGO2 triggers both injected ADCs.
-     * ADC1 JDR1 = Ia; ADC2 JDR1 = Ib; ADC2 JDR2 = Vbus.
-     * Offset calibration only uses the simultaneous current Rank1 samples.
-     */
     if (HAL_ADCEx_InjectedStart(&hadc2) != HAL_OK)
     {
         Error_Handler();
@@ -83,6 +167,7 @@ static void Iab_Calib(void)
         Error_Handler();
     }
 
+    /* AB: Ia on ADC1, Ib on ADC2. */
     for (uint32_t n = 0U; n < ADC_SAMPLE_NUM; n++)
     {
         if (HAL_ADCEx_InjectedPollForConversion(&hadc1, 100U) != HAL_OK)
@@ -94,17 +179,48 @@ static void Iab_Calib(void)
         Ib_Sum += ADC2->JDR1;
     }
 
-    HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_5);
+    if (!ADC_Phase_Set(ADC_SAMPLE_BC))
+    {
+        Error_Handler();
+    }
 
+    /* BC: Ib on ADC1, Ic on ADC2. Discard two transition triggers. */
+    for (uint32_t n = 0U; n < (ADC_SAMPLE_NUM + 2U); n++)
+    {
+        if (HAL_ADCEx_InjectedPollForConversion(&hadc1, 100U) != HAL_OK)
+        {
+            Error_Handler();
+        }
+
+        if (n >= 2U)
+        {
+            Ib1_Sum += ADC1->JDR1;
+            Ic_Sum += ADC2->JDR1;
+        }
+    }
+
+    /* Restore AB before normal fast-loop sampling starts. */
+    if (!ADC_Phase_Set(ADC_SAMPLE_AB))
+    {
+        Error_Handler();
+    }
+
+    for (uint32_t n = 0U; n < 2U; n++)
+    {
+        if (HAL_ADCEx_InjectedPollForConversion(&hadc1, 100U) != HAL_OK)
+        {
+            Error_Handler();
+        }
+    }
+
+    HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_5);
     HAL_ADCEx_InjectedStop(&hadc1);
     HAL_ADCEx_InjectedStop(&hadc2);
 
-    ADC.Ia_Off = (uint16_t)((Ia_Sum + (ADC_SAMPLE_NUM / 2U)) / ADC_SAMPLE_NUM);
-    ADC.Ib_Off = (uint16_t)((Ib_Sum + (ADC_SAMPLE_NUM / 2U)) / ADC_SAMPLE_NUM);
-
-    /* Fixed-AB first stage: Ic is reconstructed after Ia/Ib offset correction. */
-    ADC.Ic_Off = 0U;
-    ADC.Ic_Raw = 0U;
+    ADC.Ia_Off = (uint16_t)((Ia_Sum + ADC_SAMPLE_NUM / 2U) / ADC_SAMPLE_NUM);
+    ADC.Ib_Off = (uint16_t)((Ib_Sum + ADC_SAMPLE_NUM / 2U) / ADC_SAMPLE_NUM);
+    ADC.Ib1_Off = (uint16_t)((Ib1_Sum + ADC_SAMPLE_NUM / 2U) / ADC_SAMPLE_NUM);
+    ADC.Ic_Off = (uint16_t)((Ic_Sum + ADC_SAMPLE_NUM / 2U) / ADC_SAMPLE_NUM);
 }
 
 void Fast_Loop(void)
@@ -129,24 +245,54 @@ void Fast_Loop(void)
     float DutyA;
     float DutyB;
     float DutyC;
+    uint16_t Raw1;
+    uint16_t Raw2;
+    ADC_Sample_e Next_Sample;
     uint32_t T0;
     uint32_t Cyc;
 
     T0 = DWT->CYCCNT;
 
     /*
-     * Ia/Ib are Rank1 simultaneous samples. Vbus is ADC2 injected Rank2.
-     * The ADC1 Rank1 JEOS path drives the fast loop, so JDR2 may represent
-     * the completed value from the previous trigger; <= 50 us latency is
-     * negligible for the DC-bus measurement and avoids delaying current FOC.
+     * Both current samples use injected Rank1. ADC2 Rank2 Vbus may be one
+     * trigger old, as in the previous fixed-AB implementation.
      */
-    ADC.Ia_Raw = (uint16_t)ADC1->JDR1;
-    ADC.Ib_Raw = (uint16_t)ADC2->JDR1;
+    Raw1 = (uint16_t)ADC1->JDR1;
+    Raw2 = (uint16_t)ADC2->JDR1;
     ADC.Vbus_Raw = (uint16_t)ADC2->JDR2;
 
-    ADC.Ia_A = ((float)ADC.Ia_Off - (float)ADC.Ia_Raw) * CUR_RAW_TO_A;
-    ADC.Ib_A = ((float)ADC.Ib_Off - (float)ADC.Ib_Raw) * CUR_RAW_TO_A;
-    ADC.Ic_A = -(ADC.Ia_A + ADC.Ib_A);
+    ADC.Ia_Raw = 0U;
+    ADC.Ib_Raw = 0U;
+    ADC.Ic_Raw = 0U;
+
+    switch (ADC_Sample)
+    {
+        case ADC_SAMPLE_BC:
+            ADC.Ib_Raw = Raw1;
+            ADC.Ic_Raw = Raw2;
+            ADC.Ib_A = ((float)ADC.Ib1_Off - (float)Raw1) * CUR_RAW_TO_A;
+            ADC.Ic_A = ((float)ADC.Ic_Off - (float)Raw2) * CUR_RAW_TO_A;
+            ADC.Ia_A = -(ADC.Ib_A + ADC.Ic_A);
+            break;
+
+        case ADC_SAMPLE_AC:
+            ADC.Ia_Raw = Raw1;
+            ADC.Ic_Raw = Raw2;
+            ADC.Ia_A = ((float)ADC.Ia_Off - (float)Raw1) * CUR_RAW_TO_A;
+            ADC.Ic_A = ((float)ADC.Ic_Off - (float)Raw2) * CUR_RAW_TO_A;
+            ADC.Ib_A = -(ADC.Ia_A + ADC.Ic_A);
+            break;
+
+        case ADC_SAMPLE_AB:
+        default:
+            ADC.Ia_Raw = Raw1;
+            ADC.Ib_Raw = Raw2;
+            ADC.Ia_A = ((float)ADC.Ia_Off - (float)Raw1) * CUR_RAW_TO_A;
+            ADC.Ib_A = ((float)ADC.Ib_Off - (float)Raw2) * CUR_RAW_TO_A;
+            ADC.Ic_A = -(ADC.Ia_A + ADC.Ib_A);
+            break;
+    }
+
     ADC.Vbus_V = (float)ADC.Vbus_Raw * VBUS_RAW_TO_V;
 
     Ialpha = ADC.Ia_A;
@@ -271,6 +417,25 @@ void Fast_Loop(void)
 
     SVPWM_Calc(Ualpha, Ubeta, ADC.Vbus_V, &DutyA, &DutyB, &DutyC);
     PWM_Update(DutyA, DutyB, DutyC);
+
+    /* Skip the phase with the shortest low-side conduction window. */
+    if ((DutyA >= DutyB) && (DutyA >= DutyC))
+    {
+        Next_Sample = ADC_SAMPLE_BC;
+    }
+    else if (DutyB >= DutyC)
+    {
+        Next_Sample = ADC_SAMPLE_AC;
+    }
+    else
+    {
+        Next_Sample = ADC_SAMPLE_AB;
+    }
+
+    if (!ADC_Phase_Set(Next_Sample))
+    {
+        goto finish;
+    }
 
 finish:
     Plot_Fast_Sample();

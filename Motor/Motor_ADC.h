@@ -18,6 +18,7 @@ typedef struct
 
     uint16_t Ia_Off;
     uint16_t Ib_Off;
+    uint16_t Ib1_Off; /* B phase on ADC1; Ib_Off is for ADC2. */
     uint16_t Ic_Off;
 
     float Ia_A;

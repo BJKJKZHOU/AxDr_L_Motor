@@ -69,9 +69,7 @@ void MX_ADC1_Init(void)
 
   /** Configure the ADC multi-mode
   */
-  multimode.Mode = ADC_DUALMODE_INJECSIMULT;
-  multimode.DMAAccessMode = ADC_DMAACCESSMODE_DISABLED;
-  multimode.TwoSamplingDelay = ADC_TWOSAMPLINGDELAY_1CYCLE;
+  multimode.Mode = ADC_MODE_INDEPENDENT;
   if (HAL_ADCEx_MultiModeConfigChannel(&hadc1, &multimode) != HAL_OK)
   {
     Error_Handler();
@@ -172,6 +170,8 @@ void MX_ADC2_Init(void)
   sConfigInjected.InjectedDiscontinuousConvMode = DISABLE;
   sConfigInjected.AutoInjectedConv = DISABLE;
   sConfigInjected.QueueInjectedContext = DISABLE;
+  sConfigInjected.ExternalTrigInjecConv = ADC_EXTERNALTRIGINJEC_T1_TRGO2;
+  sConfigInjected.ExternalTrigInjecConvEdge = ADC_EXTERNALTRIGINJECCONV_EDGE_FALLING;
   sConfigInjected.InjecOversamplingMode = ENABLE;
   sConfigInjected.InjecOversampling.Ratio = ADC_OVERSAMPLING_RATIO_2;
   sConfigInjected.InjecOversampling.RightBitShift = ADC_RIGHTBITSHIFT_1;
@@ -225,12 +225,11 @@ void HAL_ADC_MspInit(ADC_HandleTypeDef* adcHandle)
     __HAL_RCC_GPIOA_CLK_ENABLE();
     __HAL_RCC_GPIOB_CLK_ENABLE();
     /**ADC1 GPIO Configuration
-    PA0     ------> ADC1_IN1
     PA2     ------> ADC1_IN3
     PB1     ------> ADC1_IN12
     PB12     ------> ADC1_IN11
     */
-    GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_2;
+    GPIO_InitStruct.Pin = GPIO_PIN_2;
     GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
@@ -292,6 +291,7 @@ void HAL_ADC_MspInit(ADC_HandleTypeDef* adcHandle)
     PC0     ------> ADC2_IN6
     PC1     ------> ADC2_IN7
     PC2     ------> ADC2_IN8
+    PA0     ------> ADC2_IN1
     PA1     ------> ADC2_IN2
     PA6     ------> ADC2_IN3
     PA7     ------> ADC2_IN4
@@ -304,7 +304,7 @@ void HAL_ADC_MspInit(ADC_HandleTypeDef* adcHandle)
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
-    GPIO_InitStruct.Pin = GPIO_PIN_1|GPIO_PIN_6|GPIO_PIN_7;
+    GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_1|GPIO_PIN_6|GPIO_PIN_7;
     GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
@@ -333,12 +333,11 @@ void HAL_ADC_MspDeInit(ADC_HandleTypeDef* adcHandle)
     }
 
     /**ADC1 GPIO Configuration
-    PA0     ------> ADC1_IN1
     PA2     ------> ADC1_IN3
     PB1     ------> ADC1_IN12
     PB12     ------> ADC1_IN11
     */
-    HAL_GPIO_DeInit(GPIOA, GPIO_PIN_0|GPIO_PIN_2);
+    HAL_GPIO_DeInit(GPIOA, GPIO_PIN_2);
 
     HAL_GPIO_DeInit(GPIOB, GPIO_PIN_1|GPIO_PIN_12);
 
@@ -373,6 +372,7 @@ void HAL_ADC_MspDeInit(ADC_HandleTypeDef* adcHandle)
     PC0     ------> ADC2_IN6
     PC1     ------> ADC2_IN7
     PC2     ------> ADC2_IN8
+    PA0     ------> ADC2_IN1
     PA1     ------> ADC2_IN2
     PA6     ------> ADC2_IN3
     PA7     ------> ADC2_IN4
@@ -382,7 +382,7 @@ void HAL_ADC_MspDeInit(ADC_HandleTypeDef* adcHandle)
     HAL_GPIO_DeInit(GPIOC, GPIO_PIN_0|GPIO_PIN_1|GPIO_PIN_2|GPIO_PIN_4
                           |GPIO_PIN_5);
 
-    HAL_GPIO_DeInit(GPIOA, GPIO_PIN_1|GPIO_PIN_6|GPIO_PIN_7);
+    HAL_GPIO_DeInit(GPIOA, GPIO_PIN_0|GPIO_PIN_1|GPIO_PIN_6|GPIO_PIN_7);
 
     /* ADC2 interrupt Deinit */
   /* USER CODE BEGIN ADC2:ADC1_2_IRQn disable */

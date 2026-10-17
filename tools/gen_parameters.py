@@ -117,6 +117,27 @@ def load_objects():
                     raise ValueError(f"{name}: fast Plot requires fast_scale > 0")
             elif "fast_scale" in plot:
                 raise ValueError(f"{name}: fast_scale requires fast mode")
+
+    # Host-only relationships are checked here, but do not alter generated C.
+    for name, obj in objects.items():
+        host = obj.get("host")
+        if host is None:
+            continue
+        if obj["type"] == "action" or obj["access"] != "rw" or not isinstance(host, dict):
+            raise ValueError(f"{name}: host readback requires a writable Parameter")
+        if set(host) - {"readback", "readback_prefixes"}:
+            raise ValueError(f"{name}: unsupported host metadata")
+        for field in ("readback", "readback_prefixes"):
+            entries = host.get(field, [])
+            if not isinstance(entries, list) or any(not isinstance(item, str) or not item for item in entries):
+                raise ValueError(f"{name}: host.{field} must be a list of strings")
+            if len(entries) != len(set(entries)):
+                raise ValueError(f"{name}: duplicate host.{field} entries")
+        for target in host.get("readback", []):
+            if target == name or target not in objects or objects[target]["type"] == "action":
+                raise ValueError(f"{name}: invalid host.readback target {target}")
+            if "r" not in objects[target]["access"]:
+                raise ValueError(f"{name}: host.readback target {target} is not readable")
     return objects
 
 
