@@ -100,10 +100,6 @@ static float Ls_C;
 static bool RL_Temporary;
 static bool Align_Pending;
 static bool Freq_Refined;
-static float Rs_Save;
-static float Ld_Save;
-static float Lq_Save;
-static uint8_t Current_Tune_Source_Save;
 
 static float Abs_Value(float Value)
 {
@@ -209,21 +205,22 @@ static void Probe_Voltage_Limit(float U_Max)
 
 static void Rough_RL_Apply(float Rs, float Ls)
 {
-    if (!RL_Temporary)
-    {
-        Rs_Save = Motor_Para.Rs;
-        Ld_Save = Motor_Para.Ld;
-        Lq_Save = Motor_Para.Lq;
-        Current_Tune_Source_Save = Control_Current_Tune_Source;
-        RL_Temporary = true;
-    }
+    float Wc;
+    float Kp;
+    float Ki;
 
-    Motor_Para.Rs = Rs;
-    Motor_Para.Ld = Ls;
-    Motor_Para.Lq = Ls;
-    Control_Current_Tune_Source = CTRL_TUNE_BANDWIDTH;
-    Current_Tuning_Update();
+    /* Rough RL tunes only the ALIGN current loop; do not change the motor model
+     * or the selected tuning source. */
+    Wc = TWO_PI_F * Control_Current_Bw_Hz;
+    Kp = Ls * Wc;
+    Ki = Rs * Wc;
+
+    Id_Ctrl.Para.Kp = Kp;
+    Id_Ctrl.Para.Ki = Ki;
+    Iq_Ctrl.Para.Kp = Kp;
+    Iq_Ctrl.Para.Ki = Ki;
     Current_Loop_State_Reset();
+    RL_Temporary = true;
 }
 
 static void Rough_RL_Restore(void)
@@ -232,11 +229,6 @@ static void Rough_RL_Restore(void)
     {
         return;
     }
-
-    Motor_Para.Rs = Rs_Save;
-    Motor_Para.Ld = Ld_Save;
-    Motor_Para.Lq = Lq_Save;
-    Control_Current_Tune_Source = Current_Tune_Source_Save;
 
     Current_Tuning_Update();
     Current_Loop_State_Reset();
