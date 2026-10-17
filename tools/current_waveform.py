@@ -1,302 +1,319 @@
 #!/usr/bin/env python3
-"""Plot AxDr phase-current feedback against time, with a sample-level zoom.
+"""Render existing AxDr waveform archives; hardware capture belongs to fft.py.
 
-Dependencies: numpy, matplotlib, pyserial (USB), OpenOCD + nm/llvm-nm
-(live capture integrity check). The ELF must match the running firmware.
+Only reads *.waveform.nmixx or legacy .i16/.npz input. Does not open USB,
+SWD or OpenOCD. Unknown/missing timing must never be interpreted as a
+continuous 20 kHz waveform or used for electrical-angle sine fitting.
 
 Examples:
-  python tools/current_waveform.py --port /dev/ttyACM0 --elf flashed.elf --labels LADRC
-  python tools/current_waveform.py --input pi.i16 ladrc.i16 --labels PI LADRC
-  python tools/current_waveform.py --input capture.npz --zoom-ms 2
-
-Legacy .i16 captures use their adjacent .json column metadata and Tick counter.
-Live acquisition uses the existing FAST Plot protocol and checks the firmware
-drop counter through SWD. Motor commands, parameters and firmware are unchanged.
-Each FOC cycle measures two phases and reconstructs the remaining phase.
+    python3 tools/current_waveform.py --input test-data/run/Current-PI.waveform.nmixx
+    python3 tools/current_waveform.py --input pi.waveform.nmixx ladrc.waveform.nmixx --labels PI LADRC
 """
 
 import argparse
-from datetime import datetime
+from datetime import date
 import json
 from pathlib import Path
 import re
-import shutil
-import subprocess
 import sys
 
 import numpy as np
 
-from fft import CHANNELS, PlotClient, channel_selection, decode_samples
+from fft import CHANNELS
 
-ROOT = Path(__file__).resolve().parents[1]
 PHASES = ("ia", "ib", "ic")
 COLORS = ("#2563eb", "#db6b16", "#169b79")
 
 
-def load_capture(path, fs):
+def load_capture(path, legacy_fs):
+    if path.name.endswith(".waveform.nmixx"):
+        with np.load(path, allow_pickle=False) as z:
+            if (int(z["format_version"][0]) != 1 or
+                    str(z["kind"][0]) != "waveform"):
+                raise ValueError(f"unsupported waveform archive: {path}")
+            group = str(z["group"][0])
+            raw = z["raw_samples"]
+            fs = float(z["sample_rate_hz"][0])
+            names = list(map(str, z["channel_name"]))
+            scale = z["channel_scale"]
+            seq = z["frame_seq"].astype(np.int64)
+            counts = z["frame_sample_count"].astype(np.int64)
+            quality = str(z["quality"][0])
+            reason = str(z["quality_reason"][0])
+            if (group != "fast" or raw.ndim != 2 or
+                    raw.dtype.kind != "i" or raw.dtype.itemsize != 2 or
+                    len(raw) < 2 or len(names) != raw.shape[1] or
+                    len(scale) != len(names) or len(seq) != len(counts) or
+                    int(counts.sum()) != len(raw) or
+                    quality not in ("valid", "unknown", "invalid") or
+                    not np.isfinite(fs) or fs <= 0 or
+                    not np.isfinite(scale).all() or
+                    len(set(names)) != len(names)):
+                raise ValueError(f"malformed FAST waveform archive: {path}")
+            if (quality == "valid" and
+                    (np.any(((np.diff(seq) & 0xFFFF) != 1)) or
+                     int(z["usb_seq_lost"][0]) != 0 or
+                     int(z["malformed_frames"][0]) != 0 or
+                     int(z["firmware_drop_before"][0]) < 0 or
+                     int(z["firmware_drop_after"][0]) < 0 or
+                     int(z["firmware_drop_before"][0]) != int(z["firmware_drop_after"][0]))):
+                raise ValueError(f"archive falsely claims valid continuous timing: {path}")
+            values = raw.astype(np.float64) * scale
+            meta = json.loads(str(z["metadata_json"][0]))
+            pair = np.full(len(raw), -1, dtype=np.int8)
+            return dict(values=values, names=names, pair=pair, fs=fs,
+                        quality=quality, reason=reason, meta=meta,
+                        label=meta.get("controller") or path.name.split(".waveform")[0],
+                        t=np.arange(len(raw), dtype=np.float64) / fs)
+
     if path.suffix == ".npz":
         with np.load(path, allow_pickle=False) as z:
             if int(z["format_version"].item()) != 1:
-                raise ValueError(f"unsupported waveform archive: {path}")
-            return dict(t=z["time_s"], values=z["values"],
-                        names=z["channel_names"].tolist(), pair=z["phase_pair"],
-                        fs=float(z["sample_rate_hz"].item()),
-                        label=str(z["label"].item()),
-                        meta=json.loads(str(z["metadata_json"].item())))
-
-    raw_path = path.with_suffix(".i16") if path.suffix == ".json" else path
-    meta = json.loads(raw_path.with_suffix(".json").read_text())
-    columns = meta["columns"]
-    raw = np.fromfile(raw_path, dtype="<i2")
-    if not len(raw) or len(raw) % len(columns):
-        raise ValueError(f"incomplete sample row: {raw_path}")
-    raw = raw.reshape(-1, len(columns)).astype(np.float64)
-    index = {col[0]: n for n, col in enumerate(columns)}
-    if "Tick" not in index:
-        raise ValueError("legacy capture requires a Tick column for its time axis")
-    ticks = raw[:, index["Tick"]].astype(np.int64)
-    step = np.mod(np.diff(ticks), 65536)
-    if np.any(step == 0):
-        raise ValueError("duplicate Tick values in capture")
-    t = np.r_[0, np.cumsum(step)] / fs
-    ids = {info[0]: name for name, info in CHANNELS.items()}
-    names, values = [], []
-    for n, (_, param_id, scale) in enumerate(columns):
-        if param_id in ids:
-            names.append(ids[param_id])
-            values.append(raw[:, n] * scale)
-    pair = raw[:, index["Pair"]].astype(np.int8) if "Pair" in index else np.full(len(t), -1)
-    return dict(t=t, values=np.asarray(values).T, names=names, pair=pair,
-                fs=fs, label=meta.get("mode", raw_path.stem).upper(), meta=meta)
-
-
-def capture_usb(args, out):
-    # Read only the upload-drop counter, never current values, via SWD.
-    # FAST packet sequence numbers alone do not expose discarded firmware blocks.
-    from ident_swd_trace import openocd_connect
-
-    nm = shutil.which("arm-none-eabi-nm") or shutil.which("llvm-nm") or shutil.which("nm")
-    if nm is None:
-        raise RuntimeError("live capture needs arm-none-eabi-nm, llvm-nm or nm")
-    symbols = subprocess.check_output([nm, "--defined-only", str(args.elf)], text=True)
-    match = re.search(r"^([0-9a-fA-F]+)\s+\w\s+Plot_Fast_Drop$", symbols, re.MULTILINE)
-    if not match:
-        raise ValueError("ELF has no Plot_Fast_Drop symbol")
-    address = int(match[1], 16)
-    tcl, proc, log = openocd_connect(args.openocd_config, out / "capture")
-    client = None
-    try:
-        tcl.command("poll")
-        tcl.ensure_running()
-        client = PlotClient(args.port, args.baud)
-        client.ser.timeout = .001
-        for attempt in range(args.attempts):
-            before = tcl.words(address, 1)[0]
-            try:
-                raw = client.capture("fast", args.channels, args.duration)
-            except RuntimeError as exc:
-                if not str(exc).startswith("incomplete Plot") or attempt + 1 == args.attempts:
-                    raise
-                continue
-            after = tcl.words(address, 1)[0]
-            if after == before:
-                break
-            if attempt + 1 == args.attempts:
-                raise RuntimeError("FAST upload dropped samples; use a shorter --duration")
-    finally:
-        if client is not None:
-            client.close()
-        tcl.close()
-        if proc is not None:
-            proc.terminate()
-            proc.wait(timeout=3)
-        if log is not None:
-            log.close()
-    values = decode_samples(raw, "fast", args.channels).T
-    return dict(t=np.arange(len(values)) / args.fs, values=values,
-                names=list(args.channels), pair=np.full(len(values), -1, dtype=np.int8),
-                fs=args.fs, label="Current",
-                meta=dict(source="USB FAST Plot", port=args.port,
-                          captured_at=datetime.now().isoformat(),
-                          firmware_elf=str(args.elf.resolve()),
-                          firmware_drop_delta=after - before))
-
-
-def validate_capture(cap):
-    t, values, names, pair = (cap[k] for k in ("t", "values", "names", "pair"))
-    if (t.ndim != 1 or len(t) < 2 or values.shape != (len(t), len(names))
-            or pair.shape != t.shape or len(set(names)) != len(names)
-            or not np.all(np.isfinite(t)) or not np.all(np.isfinite(values))
-            or not np.all(np.diff(t) > 0) or not np.isfinite(cap["fs"]) or cap["fs"] <= 0):
-        raise ValueError("invalid waveform samples or time axis")
-    if not np.all(np.isin(pair, [-1, 0, 1, 2])):
-        raise ValueError("invalid phase pair: expected AB=0, AC=1, BC=2")
-    missing = [name for name in PHASES if name not in names]
-    if len(missing) > 1:
-        raise ValueError("select at least two phase-current channels: ia, ib, ic")
-    if missing:
-        measured = [names.index(name) for name in PHASES if name in names]
-        cap["values"] = np.column_stack((values, -values[:, measured].sum(axis=1)))
-        cap["names"] = names + missing
-
-
-def continuous_runs(cap):
-    cuts = np.flatnonzero(np.diff(cap["t"]) > 1.5 / cap["fs"]) + 1
-    edges = np.r_[0, cuts, len(cap["t"])]
-    return list(zip(edges[:-1], edges[1:]))
-
-
-def zoom_indices(cap, zoom_ms, start_ms):
-    t = cap["t"]
-    if start_ms is not None:
-        start = int(np.searchsorted(t, start_ms / 1000))
-        end = int(np.searchsorted(t, (start_ms + zoom_ms) / 1000, side="right"))
+                raise ValueError("unsupported legacy NPZ")
+            values = z["values"]
+            t = z["time_s"]
+            names = list(map(str, z["channel_names"]))
+            pair = z["phase_pair"]
+            meta = json.loads(str(z["metadata_json"].item()))
+            fs = float(z["sample_rate_hz"].item())
+            label = str(z["label"].item())
     else:
-        first, last = max(continuous_runs(cap), key=lambda r: r[1] - r[0])
-        count = min(last - first, max(2, int(round(zoom_ms * cap["fs"] / 1000)) + 1))
-        start = first + (last - first - count) // 2
-        end = start + count
-    if end - start < 2:
-        raise ValueError(f"zoom contains fewer than two samples: {cap['label']}")
-    return start, end
+        raw_path = path.with_suffix(".i16") if path.suffix == ".json" else path
+        meta = json.loads(raw_path.with_suffix(".json").read_text(encoding="utf-8"))
+        columns = meta["columns"]
+        raw = np.fromfile(raw_path, dtype="<i2")
+        if not len(raw) or len(raw) % len(columns):
+            raise ValueError(f"incomplete legacy sample row: {raw_path}")
+        raw = raw.reshape(-1, len(columns)).astype(np.float64)
+        index = {col[0]: n for n, col in enumerate(columns)}
+        if "Tick" not in index:
+            raise ValueError("legacy .i16 requires Tick for the time axis")
+        step = np.diff(raw[:, index["Tick"]].astype(np.int64)) & 0xFFFF
+        if np.any(step == 0):
+            raise ValueError("duplicate legacy Tick")
+        t = np.r_[0, np.cumsum(step)] / legacy_fs
+        ids = {info[0]: name for name, info in CHANNELS.items()}
+        names, parts = [], []
+        for n, (_, param_id, scale) in enumerate(columns):
+            if param_id in ids:
+                names.append(ids[param_id])
+                parts.append(raw[:, n] * scale)
+        values = np.asarray(parts).T
+        fs = legacy_fs
+        pair = raw[:, index["Pair"]].astype(np.int8) if "Pair" in index else np.full(len(t), -1)
+        label = meta.get("mode", raw_path.stem)
+
+    if (values.ndim != 2 or values.shape != (len(t), len(names)) or
+            pair.shape != t.shape or not np.isfinite(values).all() or
+            not np.isfinite(t).all() or np.any(np.diff(t) <= 0)):
+        raise ValueError(f"invalid legacy capture: {path}")
+    return dict(values=values, names=names, pair=pair, fs=fs,
+                quality="unknown", reason="legacy format: firmware drops not verified",
+                meta=meta, label=label, t=t)
 
 
-def draw_phase(ax, cap, phase, start, end, origin, zoom):
-    t = cap["t"][start:end]
-    y = cap["values"][start:end, cap["names"].index(phase)]
-    # A missing interval is a break in the line, not a new invented sample.
-    breaks = np.flatnonzero(np.diff(t) > 1.5 / cap["fs"]) + 1
-    x = np.insert((t - origin) * 1000, breaks, np.nan)
-    y = np.insert(y, breaks, np.nan)
-    color = COLORS[PHASES.index(phase)]
-    style = dict(color=color, linewidth=1.15 if zoom else .95, marker=None)
-    ax.plot(x, y, label=f"I{phase[1]}", **style)
-    ax.axhline(0, color="#64748b", linewidth=.5, alpha=.5)
-    ax.grid(alpha=.20, linewidth=.6)
-    ax.set_ylabel("Phase current (A)")
-    ax.tick_params(labelsize=9)
-    ax.spines[["top", "right"]].set_visible(False)
+def validate(cap):
+    if any(p not in cap["names"] for p in PHASES):
+        present = [p for p in PHASES if p in cap["names"]]
+        missing = [p for p in PHASES if p not in cap["names"]]
+        if len(present) != 2 or len(missing) != 1:
+            raise ValueError("waveform needs two or three of ia, ib, ic")
+        cap["values"] = np.column_stack((cap["values"],
+                                        -cap["values"][:, [cap["names"].index(p) for p in present]].sum(axis=1)))
+        cap["names"].extend(missing)
+    if len(cap["t"]) < 2 or not np.isfinite(cap["values"]).all():
+        raise ValueError("empty/non-finite waveform")
+    return cap
 
 
-def render(caps, windows, out):
-    import matplotlib
-    matplotlib.use("Agg")
-    from matplotlib import pyplot as plt
-
-    plt.rcParams.update({"font.family": "DejaVu Sans", "font.size": 10,
-                         "axes.titleweight": "bold", "savefig.dpi": 170})
-    peak = max(float(np.max(np.abs(c["values"][:, [c["names"].index(p) for p in PHASES]])))
-               for c in caps)
-    full_limit = max(.01, peak * 1.08)
-    peak_zoom = max(float(np.max(np.abs(c["values"][a:b, [c["names"].index(p) for p in PHASES]])))
-                    for c, (a, b) in zip(caps, windows))
-    zoom_limit = max(.01, peak_zoom * 1.12)
-    footer = "Phase-current feedback | Two phases measured, third reconstructed each FOC cycle"
-    for cap, (start, end) in zip(caps, windows):
-        for suffix, first, last, limit in (("", 0, len(cap["t"]), full_limit),
-                                           ("-zoom", start, end, zoom_limit)):
-            fig, ax = plt.subplots(figsize=(13, 5))
-            fig.subplots_adjust(left=.08, right=.98, top=.81, bottom=.16)
-            fig.suptitle(f"{cap['label']} | Three-phase current", fontsize=17, y=.97)
-            fig.text(.5, .89,
-                     f"Fs = {cap['fs']:g} Hz   |   Ts = {1e6/cap['fs']:g} us   |   {last-first:,} samples",
-                     ha="center", color="#475569")
-            for phase in PHASES:
-                draw_phase(ax, cap, phase, first, last, 0, bool(suffix))
-            ax.set_ylim(-limit, limit)
-            ax.set_xlim(cap["t"][first] * 1000, cap["t"][last-1] * 1000)
-            ax.set_xlabel("Time (ms)")
-            ax.legend(loc="upper right", ncol=3, framealpha=.9)
-            fig.text(.5, .025, footer, ha="center", fontsize=8, color="#475569")
-            fig.savefig(out / f"{cap['stem']}{suffix}.png")
-            plt.close(fig)
-
-    if len(caps) > 1:
-        fig, axes = plt.subplots(1, len(caps), figsize=(6 * len(caps), 5), squeeze=False, sharey=True)
-        fig.subplots_adjust(left=.075, right=.98, top=.79, bottom=.17, wspace=.20)
-        fig.suptitle("Three-phase current comparison", fontsize=18, y=.97)
-        fig.text(.5, .915, "Same current and time scales | Sample-level zoom", ha="center", color="#475569")
-        duration = max((c["t"][b-1] - c["t"][a]) * 1000 for c, (a, b) in zip(caps, windows))
-        for col, (cap, (start, end)) in enumerate(zip(caps, windows)):
-            ax = axes[0, col]
-            for phase in PHASES:
-                draw_phase(ax, cap, phase, start, end, cap["t"][start], True)
-            ax.set_ylim(-zoom_limit, zoom_limit)
-            ax.set_xlim(0, duration)
-            ax.set_title(cap["label"])
-            ax.set_xlabel("Time from zoom start (ms)")
-            ax.legend(loc="upper right", ncol=3, framealpha=.9)
-        fig.text(.5, .025, footer, ha="center", fontsize=8, color="#475569")
-        fig.savefig(out / "comparison.png")
-        plt.close(fig)
+def zoom_range(cap, zoom_ms, start_ms):
+    n = len(cap["t"])
+    length = min(n, max(2, int(round(zoom_ms * cap["fs"] / 1000))))
+    if start_ms is None:
+        start = max(0, (n - length) // 2)
+    else:
+        if cap["quality"] != "valid":
+            raise ValueError("zoom start in milliseconds requires verified continuous timing")
+        start = int(round(start_ms * cap["fs"] / 1000))
+    if start < 0 or start + length > n:
+        raise ValueError("zoom range is outside saved samples")
+    return start, start + length
 
 
-def save_capture(cap, out):
-    units = [CHANNELS[name][1] for name in cap["names"]]
-    np.savez_compressed(out / f"{cap['stem']}.npz", format_version=1,
-                        time_s=cap["t"], values=cap["values"], channel_names=cap["names"],
-                        channel_units=units, phase_pair=cap["pair"], sample_rate_hz=cap["fs"],
-                        label=cap["label"], metadata_json=json.dumps(cap["meta"]))
-    header = ["time_s"] + [f"{name}_{unit}" for name, unit in zip(cap["names"], units)] + ["phase_pair"]
-    np.savetxt(out / f"{cap['stem']}.csv", np.column_stack((cap["t"], cap["values"], cap["pair"])),
-               delimiter=",", header=",".join(header), comments="", fmt="%.9g")
+def draw_series(ax, cap, first, last, point_style=False):
+    x = (cap["t"][first:last] * 1000 if cap["quality"] == "valid"
+         else np.arange(first, last))
+    for phase, color in zip(PHASES, COLORS):
+        y = cap["values"][first:last, cap["names"].index(phase)]
+        ax.plot(x, y, color=color, label=phase.upper(),
+                linewidth=.9 if cap["quality"] == "valid" else 0,
+                marker="." if point_style or cap["quality"] != "valid" else None,
+                markersize=2.6, alpha=.88)
+    ax.grid(which="major", alpha=.3)
+    ax.minorticks_on()
+    ax.grid(which="minor", alpha=.12)
+    ax.set_ylabel("Phase-current feedback (A)")
+    ax.set_xlabel("Time (ms)" if cap["quality"] == "valid"
+                  else "Received sample index (timing unverified)")
+    ax.legend(ncol=3, loc="upper right")
+
+
+def plot_waveform(cap, out, zoom_ms, start_ms):
+    import matplotlib.pyplot as plt
+
+    first, last = zoom_range(cap, zoom_ms, start_ms)
+    fig, axes = plt.subplots(2, 1, figsize=(11.69, 8.27), dpi=180)
+    fig.subplots_adjust(left=.09, right=.98, bottom=.08, top=.83, hspace=.38)
+    title = f"{cap['label']} | Three-phase current"
+    fig.suptitle(title, fontsize=15, y=.96)
+    fig.text(.5, .895,
+             f"Fs={cap['fs']:g} Hz   N={len(cap['t'])}   Quality={cap['quality']}",
+             ha="center", fontsize=10)
+    draw_series(axes[0], cap, 0, len(cap["t"]))
+    axes[0].set_title("Full received capture", loc="left")
+    draw_series(axes[1], cap, first, last, point_style=True)
+    axes[1].set_title("Sample-level zoom", loc="left")
+    fig.text(.5, .022, cap["reason"] or
+             "Two phases are measured per FOC cycle; the third is reconstructed",
+             ha="center", fontsize=8)
+    path = out / f"{cap['stem']}.waveform.png"
+    fig.savefig(path)
+    plt.close(fig)
+    return path
+
+
+def fundamental(cap):
+    """Fit DC and electrical-angle first harmonic; residual is NOT ADC noise."""
+    if cap["quality"] != "valid" or "theta_e" not in cap["names"]:
+        return None
+    theta = cap["values"][:, cap["names"].index("theta_e")]
+    unwrapped = np.unwrap(theta)
+    if np.ptp(unwrapped) < 4 * np.pi:
+        return None
+    design = np.column_stack((np.ones(len(theta)), np.cos(theta), np.sin(theta)))
+    if np.linalg.cond(design) > 1e5:
+        return None
+    fitted = {}
+    for phase in PHASES:
+        y = cap["values"][:, cap["names"].index(phase)]
+        coeff = np.linalg.lstsq(design, y, rcond=None)[0]
+        rms = float(np.hypot(coeff[1], coeff[2]) / np.sqrt(2))
+        residual = float(np.sqrt(np.mean((y - design @ coeff) ** 2)))
+        fitted[phase] = (coeff, rms, residual)
+    return theta % (2 * np.pi), fitted
+
+
+def plot_phase(cap, out):
+    fit = fundamental(cap)
+    if fit is None:
+        return None
+    import matplotlib.pyplot as plt
+
+    angle, fitted = fit
+    fig, ax = plt.subplots(figsize=(11.69, 8.27), dpi=180)
+    fig.subplots_adjust(left=.10, right=.98, top=.84, bottom=.13)
+    smooth = np.linspace(0, 2 * np.pi, 400)
+    stats = []
+    for phase, color in zip(PHASES, COLORS):
+        coeff, rms, residual = fitted[phase]
+        y = cap["values"][:, cap["names"].index(phase)]
+        ax.scatter(np.rad2deg(angle), y, s=3, alpha=.16, color=color)
+        ax.plot(np.rad2deg(smooth),
+                coeff[0] + coeff[1] * np.cos(smooth) + coeff[2] * np.sin(smooth),
+                lw=1.5, color=color, label=f"{phase.upper()} (fund. {rms:.3f} A)")
+        stats.append(f"{phase.upper()} residual={residual:.3f} A")
+    ax.set_xlim(0, 360)
+    ax.set_xlabel("FOC electrical angle (deg)")
+    ax.set_ylabel("Phase-current feedback (A)")
+    ax.grid(alpha=.25)
+    ax.legend(loc="upper right")
+    fig.suptitle(f"{cap['label']} | Electrical-angle overlay and fundamental", y=.96, fontsize=14)
+    fig.text(.5, .897, "Light points: measured feedback over multiple periods. Lines: first-harmonic fit",
+             ha="center", fontsize=9)
+    fig.text(.5, .034, " | ".join(stats) + "    Residual includes harmonics, noise and model error.",
+             ha="center", fontsize=9)
+    path = out / f"{cap['stem']}.phase.png"
+    fig.savefig(path)
+    plt.close(fig)
+    return path
+
+
+def plot_comparison(caps, out, zoom_ms, start_ms):
+    if len(caps) < 2:
+        return None
+    import matplotlib.pyplot as plt
+    from matplotlib.ticker import MaxNLocator
+
+    windows = [zoom_range(c, zoom_ms, start_ms) for c in caps]
+    fig, axes = plt.subplots(1, len(caps), figsize=(11.69, 8.27), dpi=180,
+                             sharey=True, squeeze=False)
+    fig.subplots_adjust(left=.08, right=.98, bottom=.15, top=.85, wspace=.13)
+    for ax, cap, (first, last) in zip(axes[0], caps, windows):
+        x = np.arange(last - first) / cap["fs"] * 1000 if cap["quality"] == "valid" else np.arange(last - first)
+        for phase, color in zip(PHASES, COLORS):
+            y = cap["values"][first:last, cap["names"].index(phase)]
+            ax.plot(x, y, color=color, lw=.9 if cap["quality"] == "valid" else 0,
+                    marker=".", markersize=2, label=phase.upper())
+        ax.set_title(f"{cap['label']} ({cap['quality']})", fontsize=11)
+        ax.set_xlabel("Relative time (ms)" if cap["quality"] == "valid" else "Received sample index")
+        ax.grid(alpha=.22)
+        ax.xaxis.set_major_locator(MaxNLocator(6))
+    axes[0, 0].set_ylabel("Phase-current feedback (A)")
+    axes[0, -1].legend(ncol=3)
+    fig.suptitle("Phase-current comparison | common amplitude scale", fontsize=15, y=.95)
+    path = out / "comparison.waveform.png"
+    fig.savefig(path)
+    plt.close(fig)
+    return path
 
 
 def main():
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    source = ap.add_mutually_exclusive_group(required=True)
-    source.add_argument("--input", type=Path, nargs="+", help="legacy .i16/.json or waveform .npz")
-    source.add_argument("--port", help="USB CDC device, e.g. /dev/ttyACM0")
-    ap.add_argument("--labels", nargs="+", help="one plot label per capture")
-    ap.add_argument("--out", type=Path, default=ROOT / "test-data" / "current-waveform" / datetime.now().strftime("%Y%m%d-%H%M%S"))
-    ap.add_argument("--zoom-ms", type=float, default=5.0)
-    ap.add_argument("--zoom-start-ms", type=float, help="default: center of longest continuous interval")
-    ap.add_argument("--fs", type=float, default=20000.0, help="legacy/live sample rate in Hz; NPZ uses its saved rate")
-    ap.add_argument("--duration", type=float, default=.01, help="USB burst duration in seconds (default: 0.01)")
-    ap.add_argument("--attempts", type=int, default=10, help="maximum USB burst attempts")
-    ap.add_argument("--channels", nargs="+", default=["ia", "ib"], help="USB FAST channels; missing phase is reconstructed")
-    ap.add_argument("--baud", type=int, default=115200)
-    ap.add_argument("--elf", type=Path, default=ROOT / "build/Release/AxDr_L_Motor.elf",
-                    help="ELF matching the running firmware, for the upload counter address")
-    ap.add_argument("--openocd-config", type=Path, default=ROOT / "openocd.cfg")
-    args = ap.parse_args()
-    if not 1 <= args.attempts <= 100:
-        ap.error("attempts must be between 1 and 100")
-    for value in (args.fs, args.duration, args.zoom_ms):
-        if not np.isfinite(value) or value <= 0:
-            ap.error("sample rate, duration and zoom must be positive finite numbers")
-    if args.zoom_start_ms is not None and (not np.isfinite(args.zoom_start_ms) or args.zoom_start_ms < 0):
-        ap.error("zoom start must be a nonnegative finite number")
-    count = len(args.input) if args.input else 1
-    if args.labels is not None and (len(args.labels) != count or any(not s.strip() for s in args.labels)):
-        ap.error("provide one nonempty label per capture")
-    if args.out.exists() and any(args.out.iterdir()):
-        ap.error(f"output directory is not empty: {args.out}")
-    args.channels = channel_selection("fast", args.channels)
-    if args.port and len(set(args.channels) & set(PHASES)) < 2:
-        ap.error("USB capture needs at least two phase-current channels")
-    args.out.mkdir(parents=True, exist_ok=True)
-    caps = [load_capture(p, args.fs) for p in args.input] if args.input else [capture_usb(args, args.out)]
-    for n, cap in enumerate(caps):
-        validate_capture(cap)
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--input", type=Path, nargs="+", required=True,
+                        help="waveform.nmixx, or legacy .i16/.json/.npz")
+    parser.add_argument("--labels", nargs="+", help="optional label per input")
+    parser.add_argument("--out", type=Path,
+                        default=Path("test-data") / f"{date.today():%Y%m%d}_current_waveform" / "plots")
+    parser.add_argument("--zoom-ms", type=float, default=5.0)
+    parser.add_argument("--zoom-start-ms", type=float)
+    parser.add_argument("--fs", type=float, default=20000.0, help="only for legacy .i16")
+    args = parser.parse_args()
+    if (not np.isfinite(args.fs) or args.fs <= 0 or
+            not np.isfinite(args.zoom_ms) or args.zoom_ms <= 0 or
+            (args.zoom_start_ms is not None and
+             (not np.isfinite(args.zoom_start_ms) or args.zoom_start_ms < 0))):
+        parser.error("invalid sample rate or zoom")
+    if args.labels is not None and len(args.labels) != len(args.input):
+        parser.error("--labels must match --input count")
+    caps = []
+    for i, path in enumerate(args.input):
+        cap = validate(load_capture(path, args.fs))
         if args.labels:
-            cap["label"] = args.labels[n]
-        slug = re.sub(r"[^A-Za-z0-9_-]", "_", cap["label"]).strip("_") or "current"
-        cap["stem"] = f"{n+1:02d}-{slug}"
-    windows = [zoom_indices(c, args.zoom_ms, args.zoom_start_ms) for c in caps]
-    for cap in caps:
-        save_capture(cap, args.out)
-    render(caps, windows, args.out)
-    for cap in caps:
-        print(f"{cap['label']}: {len(cap['t']):,} samples -> {args.out / (cap['stem'] + '.png')}")
+            cap["label"] = args.labels[i]
+        cap["stem"] = f"{i+1:02d}-{re.sub(r'[^A-Za-z0-9_-]', '_', cap['label'])[:80]}"
+        caps.append(cap)
+    targets = [args.out / f"{c['stem']}.waveform.png" for c in caps]
+    targets += [args.out / f"{c['stem']}.phase.png" for c in caps if fundamental(c) is not None]
     if len(caps) > 1:
-        print("Comparison:", args.out / "comparison.png")
-    return 0
+        targets.append(args.out / "comparison.waveform.png")
+    if any(p.exists() for p in targets):
+        parser.error("output files exist; choose another --out (archives are never overwritten)")
+    args.out.mkdir(parents=True, exist_ok=True)
+    for cap in caps:
+        print("Waveform:", plot_waveform(cap, args.out, args.zoom_ms, args.zoom_start_ms))
+        phase = plot_phase(cap, args.out)
+        if phase is not None:
+            print("Electrical angle:", phase)
+        else:
+            print(f"Electrical-angle fit unavailable ({cap['quality']}; need verified data and theta_e)")
+    comparison = plot_comparison(caps, args.out, args.zoom_ms, args.zoom_start_ms)
+    if comparison is not None:
+        print("Comparison:", comparison)
 
 
 if __name__ == "__main__":
     try:
-        raise SystemExit(main())
-    except (OSError, ValueError, RuntimeError, KeyError, subprocess.SubprocessError) as exc:
+        main()
+    except (OSError, ValueError, KeyError, RuntimeError) as exc:
         print(f"current_waveform: {exc}", file=sys.stderr)
         raise SystemExit(1)
