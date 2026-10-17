@@ -30,8 +30,8 @@ class WaveformTest(unittest.TestCase):
             quality="valid", quality_reason="",
             firmware_drop_before=8, firmware_drop_after=8,
             usb_seq_lost=0, malformed_frames=0,
-            frame_seq=np.arange(100, 132, dtype=np.uint16),
-            frame_sample_count=np.full(32, 20, dtype=np.uint8)
+            frame_seq=np.arange(100, 164, dtype=np.uint16),
+            frame_sample_count=np.full(64, 10, dtype=np.uint8)
         )
 
     def save(self, name="input", info=None):
