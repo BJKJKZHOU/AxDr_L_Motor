@@ -22,6 +22,7 @@
 #include "Motor_Control.h"
 #include "Motor_Para.h"
 #include "Motor_Type.h"
+#include "Plot.h"
 #include "Protection.h"
 #include "Sensorless.h"
 #include "Servo_Phase.h"

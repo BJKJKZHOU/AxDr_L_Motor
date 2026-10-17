@@ -56,6 +56,12 @@ typedef enum
     PARAM_MECH_ESO_ERROR = 0x0025U,
 
     /* Motor_Para.Pp: 电机极对数。 */
+    /* Plot_Fast_Drop: FAST Plot发送前丢弃的数据块累计数，每块20个采样点；仅用于USB采集完整性检查，不保存。 */
+    PARAM_PLOT_FAST_DROP = 0x0030U,
+
+    /* Plot_Normal_Drop: NORMAL Plot发送前丢弃的采样累计数；仅用于USB采集完整性检查，不保存。 */
+    PARAM_PLOT_NORMAL_DROP = 0x0031U,
+
     PARAM_MOTOR_PP = 0x0101U,
 
     /* Motor_Para.Rs: 电机相电阻Rs，供电机模型、电流控制及无感相关算法使用。 */
