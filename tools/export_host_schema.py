@@ -33,6 +33,7 @@ HOST_VALUE_FIELDS = (
     "label",
     "unit",
     "description",
+    "persistent",
     "write_state",
     "range",
     "allowed",
@@ -142,6 +143,15 @@ def render_host_schema(objects) -> str:
                 lines.append(f"{field} = {toml_array(value)}")
             else:
                 lines.append(f"{field} = {toml_scalar(value)}")
+
+        host = obj.get("host", {})
+        readback = list(host.get("readback", []))
+        for prefix in host.get("readback_prefixes", []):
+            readback.extend(name for name, target in values(objects)
+                            if name != symbol and name.startswith(prefix) and "r" in target["access"])
+        readback = list(dict.fromkeys(readback))
+        if readback:
+            lines.append(f"readback = {toml_array(readback)}")
 
         # Runtime PLOT_CAPS is authoritative. Keep exporting FAST scale for
         # current HostSchema consumers that still expose this metadata.

@@ -195,6 +195,9 @@ objects:
     range:
       min: 1
       max: 255
+    host:
+      readback: [PARAM_CTRL_SPEED_KP_EFFECTIVE, PARAM_CTRL_SPEED_KI_EFFECTIVE, PARAM_LIMIT_I_EFFECTIVE, PARAM_LIMIT_WM_EFFECTIVE]
+
 
   PARAM_MOTOR_RS:
     id: 0x0110
@@ -207,6 +210,9 @@ objects:
     description: "电机相电阻Rs，供电机模型、电流控制及无感相关算法使用。"
     write_state: disabled
     range: { min: 0.0, exclusive_min: true }
+    host:
+      readback: [PARAM_CTRL_SPEED_KP_EFFECTIVE, PARAM_CTRL_SPEED_KI_EFFECTIVE]
+
 
   PARAM_MOTOR_LD:
     id: 0x0111
@@ -243,6 +249,9 @@ objects:
     description: "电机永磁磁链参数。"
     write_state: disabled
     range: { min: 0.0, exclusive_min: true }
+    host:
+      readback: [PARAM_CTRL_SPEED_KP_EFFECTIVE, PARAM_CTRL_SPEED_KI_EFFECTIVE]
+
 
   PARAM_MOTOR_J:
     id: 0x0114
@@ -255,6 +264,9 @@ objects:
     description: "电机及等效负载转动惯量参数J。"
     write_state: disabled
     range: { min: 0.0, exclusive_min: true }
+    host:
+      readback: [PARAM_CTRL_SPEED_KP_EFFECTIVE, PARAM_CTRL_SPEED_KI_EFFECTIVE]
+
 
   PARAM_MOTOR_B:
     id: 0x0115
@@ -266,6 +278,9 @@ objects:
     description: "电机粘性阻尼/摩擦模型参数B。"
     write_state: disabled
     range: { min: 0.0 }
+    host:
+      readback: [PARAM_CTRL_SPEED_KP_EFFECTIVE, PARAM_CTRL_SPEED_KI_EFFECTIVE]
+
 
   PARAM_MOTOR_DIR:
     id: 0x0116
@@ -325,6 +340,9 @@ objects:
     description: "用户配置的最大相电流限制，实际限制不会超过硬件/固件Motor_Lim.I_Max。"
     write_state: disabled
     range: { min: 0.0, exclusive_min: true, max_binding: Motor_Lim.I_Max }
+    host:
+      readback: [PARAM_LIMIT_I_EFFECTIVE]
+
 
   PARAM_LIMIT_WM_MAX:
     id: 0x0202
@@ -337,6 +355,9 @@ objects:
     description: "用户配置的最大机械角速度限制，实际限制不会超过Motor_Lim.Wm_Max。"
     write_state: disabled
     range: { min: 0.0, exclusive_min: true, max_binding: Motor_Lim.Wm_Max }
+    host:
+      readback: [PARAM_LIMIT_WM_EFFECTIVE]
+
 
   PARAM_LIMIT_I_EFFECTIVE:
     id: 0x0203
@@ -385,6 +406,9 @@ objects:
     write_state: disabled
     allowed_symbols: [ENC_PROTOCOL_NONE, ENC_PROTOCOL_SPI]
     on_change: ENCODER_CONFIG
+    host:
+      readback: [PARAM_ENCODER_READY, PARAM_ENCODER_VALID, PARAM_ENCODER_FAULT]
+
 
   PARAM_ENCODER_READY:
     id: 0x0302
@@ -424,6 +448,9 @@ objects:
     write_state: disabled
     allowed_symbols: [ENC_SPI_MT6816, ENC_SPI_MT6835]
     on_change: ENCODER_CONFIG
+    host:
+      readback: [PARAM_ENCODER_READY, PARAM_ENCODER_VALID, PARAM_ENCODER_FAULT]
+
 
   PARAM_PHASE_I_SEARCH:
     id: 0x0401
@@ -768,6 +795,9 @@ objects:
     write_state: not_running
     range: { min: 0.0, exclusive_min: true, max: 5000.0 }
     on_change: CURRENT_TUNING
+    host:
+      readback: [PARAM_CTRL_CURRENT_SOURCE]
+
 
   PARAM_CTRL_ID_KP:
     id: 0x0A02
@@ -780,6 +810,9 @@ objects:
     write_state: not_running
     range: { min: 0.0 }
     on_change: CURRENT_GAIN
+    host:
+      readback: [PARAM_CTRL_CURRENT_SOURCE]
+
 
   PARAM_CTRL_ID_KI:
     id: 0x0A03
@@ -792,6 +825,9 @@ objects:
     write_state: not_running
     range: { min: 0.0 }
     on_change: CURRENT_GAIN
+    host:
+      readback: [PARAM_CTRL_CURRENT_SOURCE]
+
 
   PARAM_CTRL_IQ_KP:
     id: 0x0A04
@@ -804,6 +840,9 @@ objects:
     write_state: not_running
     range: { min: 0.0 }
     on_change: CURRENT_GAIN
+    host:
+      readback: [PARAM_CTRL_CURRENT_SOURCE]
+
 
   PARAM_CTRL_IQ_KI:
     id: 0x0A05
@@ -816,6 +855,9 @@ objects:
     write_state: not_running
     range: { min: 0.0 }
     on_change: CURRENT_GAIN
+    host:
+      readback: [PARAM_CTRL_CURRENT_SOURCE]
+
 
   PARAM_CTRL_CURRENT_SOURCE:
     id: 0x0A06
@@ -852,6 +894,9 @@ objects:
     write_state: not_running
     range: { min: 0.0, exclusive_min: true, max: 500.0 }
     on_change: SPEED_TUNING
+    host:
+      readback: [PARAM_CTRL_SPEED_SOURCE, PARAM_CTRL_SPEED_KP_EFFECTIVE, PARAM_CTRL_SPEED_KI_EFFECTIVE]
+
 
   PARAM_CTRL_SPEED_KP:
     id: 0x0A11
@@ -864,6 +909,9 @@ objects:
     write_state: not_running
     range: { min: 0.0 }
     on_change: SPEED_GAIN
+    host:
+      readback: [PARAM_CTRL_SPEED_SOURCE, PARAM_CTRL_SPEED_KP_EFFECTIVE, PARAM_CTRL_SPEED_KI_EFFECTIVE]
+
 
   PARAM_CTRL_SPEED_KI:
     id: 0x0A12
@@ -876,6 +924,9 @@ objects:
     write_state: not_running
     range: { min: 0.0 }
     on_change: SPEED_GAIN
+    host:
+      readback: [PARAM_CTRL_SPEED_SOURCE, PARAM_CTRL_SPEED_KP_EFFECTIVE, PARAM_CTRL_SPEED_KI_EFFECTIVE]
+
 
   PARAM_CTRL_SPEED_SOURCE:
     id: 0x0A13
@@ -888,6 +939,9 @@ objects:
     write_state: not_running
     allowed_symbols: [CTRL_TUNE_BANDWIDTH, CTRL_TUNE_MANUAL]
     on_change: SPEED_SOURCE
+    host:
+      readback: [PARAM_CTRL_SPEED_KP_EFFECTIVE, PARAM_CTRL_SPEED_KI_EFFECTIVE]
+
 
   PARAM_CTRL_POSITION_KP:
     id: 0x0A20
