@@ -6,6 +6,7 @@ Requires numpy, matplotlib; live USB capture additionally requires pyserial.
 """
 
 import argparse
+import json
 from datetime import date, datetime
 from pathlib import Path
 import re
@@ -293,7 +294,7 @@ def welch_psd(data, fs, window_size=8192):
 
 
 def save_spectrum(path, kind, group, names, fs, sample_count, frequency, values,
-                  fft_n, windows):
+                  fft_n, windows, quality="unknown", quality_reason=""):
     with path.open("wb") as handle:
         np.savez_compressed(
             handle,
@@ -310,6 +311,8 @@ def save_spectrum(path, kind, group, names, fs, sample_count, frequency, values,
             segment_count=np.array([windows], dtype=np.int64),
             freq_hz=frequency.astype(np.float64),
             spectrum=values,
+            quality=np.asarray([quality], dtype="<U16"),
+            quality_reason=np.asarray([quality_reason], dtype="<U256"),
         )
 
 
@@ -346,7 +349,7 @@ def save_waveform(path, raw, group, names, fs, info, metadata=None):
             quality=np.asarray([info["quality"]], dtype="<U16"),
             quality_reason=np.asarray([info["quality_reason"]], dtype="<U256"),
             captured_at=np.asarray([datetime.now().astimezone().isoformat()], dtype="<U40"),
-            metadata_json=np.asarray([__import__("json").dumps(metadata or {}, ensure_ascii=False)]),
+            metadata_json=np.asarray([json.dumps(metadata or {}, ensure_ascii=False)]),
         )
 
 
@@ -370,6 +373,14 @@ def read_waveform(path):
             raise ValueError("invalid archived waveform data")
         if sum(z["frame_sample_count"]) != len(raw):
             raise ValueError("waveform packet/sample count mismatch")
+        seq = z["frame_seq"].astype(np.int64)
+        if (len(seq) != len(z["frame_sample_count"]) or
+            np.any((np.diff(seq) & 0xFFFF) != 1) or
+            int(z["usb_seq_lost"][0]) or int(z["malformed_frames"][0]) or
+            int(z["firmware_drop_before"][0]) < 0 or
+            int(z["firmware_drop_after"][0]) < 0 or
+            int(z["firmware_drop_before"][0]) != int(z["firmware_drop_after"][0])):
+            raise ValueError("waveform frame/drop integrity check failed")
         if tuple(CHANNELS[n][0] for n in names) != tuple(z["channel_id"]):
             raise ValueError("waveform channel IDs do not match current definitions")
         if not np.array_equal(z["channel_scale"], np.asarray([
@@ -550,8 +561,13 @@ def main():
             freq, spectrum, nfft, windows = welch_psd(data, fs, args.welch_n)
             plotted = spectrum
         archive = args.out / f"{prefix}.{kind}.nmixx"
+        status = ("valid" if args.input_waveform is not None else
+                  (info["quality"] if info is not None else "unknown"))
+        reason = ("" if status == "valid" else
+                  (info["quality_reason"] if info is not None else
+                   "legacy raw without frame/drop metadata"))
         save_spectrum(archive, kind, group, names, fs, data.shape[1],
-                      freq, spectrum, nfft, windows)
+                      freq, spectrum, nfft, windows, status, reason)
         image = args.out / f"{prefix}.{kind}.png"
         plot_spectrum(freq, plotted, names, units, kind, fs, data.shape[1], image)
         print("Saved:", archive, "and", image)
