@@ -183,6 +183,22 @@ objects:
     description: "Mechanical ESO的单圈角度观测误差，Theta_meas-Theta_hat回绕到[-π,π)。"
     plot: { modes: [fast, normal], fast_scale: 0.0002 }
 
+  PARAM_PLOT_FAST_DROP:
+    id: 0x0030
+    type: u32
+    access: ro
+    binding: Plot_Fast_Drop
+    label: FAST Plot Dropped Blocks
+    description: "FAST Plot发送前丢弃的数据块累计数，每块20个采样点；仅用于USB采集完整性检查，不保存。"
+
+  PARAM_PLOT_NORMAL_DROP:
+    id: 0x0031
+    type: u32
+    access: ro
+    binding: Plot_Normal_Drop
+    label: NORMAL Plot Dropped Samples
+    description: "NORMAL Plot发送前丢弃的采样累计数；仅用于USB采集完整性检查，不保存。"
+
   PARAM_MOTOR_PP:
     id: 0x0101
     type: u8
@@ -882,6 +898,40 @@ objects:
     write_state: not_running
     allowed: [0, 1]
 
+  PARAM_CTRL_CURRENT_CONTROLLER:
+    id: 0x0A08
+    type: u8
+    access: rw
+    binding: Current_Controller
+    label: Current Controller
+    description: "在DISABLED状态选择电流控制算法：0为PI(默认)，1为LADRC；LADRC先用于有感三种Servo模式。"
+    write_state: disabled
+    allowed_symbols: [CURRENT_CTRL_PI, CURRENT_CTRL_LADRC]
+
+  PARAM_CTRL_LADRC_BW_HZ:
+    id: 0x0A09
+    type: f32
+    access: rw
+    binding: Control_LADRC_Bw_Hz
+    label: LADRC Current Gain
+    unit: Hz
+    description: "LADRC线性误差反馈增益对应频率，d/q共用；默认500 Hz，仅RAM生效。"
+    write_state: not_running
+    range: { min: 0.0, exclusive_min: true, max: 3000.0 }
+    on_change: CURRENT_SOURCE
+
+  PARAM_CTRL_LADRC_ESO_BW_HZ:
+    id: 0x0A0A
+    type: f32
+    access: rw
+    binding: Control_LADRC_Eso_Bw_Hz
+    label: LADRC LESO Gain
+    unit: Hz
+    description: "LADRC二阶LESO极点配置频率，d/q共用；默认1500 Hz，仅RAM生效。"
+    write_state: not_running
+    range: { min: 0.0, exclusive_min: true, max: 3000.0 }
+    on_change: CURRENT_SOURCE
+
   PARAM_CTRL_SPEED_BW_HZ:
     id: 0x0A10
     type: f32
@@ -1129,7 +1179,7 @@ objects:
     binding: Id_Ctrl.Sig.Ref
     label: Id Ref
     unit: A
-    description: "实际进入d轴电流PI的参考（含信号激励）。"
+    description: "实际进入d轴电流控制器的参考（含信号激励）。"
     plot: { modes: [fast, normal], fast_scale: 0.001 }
 
   PARAM_SIGNAL_ID_PI_OUT:
@@ -1139,7 +1189,7 @@ objects:
     binding: Id_Ctrl.Sig.Out
     label: Id PI Output
     unit: V
-    description: "d轴PI电压输出，未叠加模型前馈、未经过最终dq二维限幅。"
+    description: "当前选中电流控制器的d轴电压输出，未叠加公共dq前馈、未经过最终dq二维限幅；保留原参数ID兼容旧扫频工具。"
     plot: { modes: [fast, normal], fast_scale: 0.001 }
 
   PARAM_SIGNAL_TARGET:
@@ -1168,7 +1218,7 @@ objects:
     binding: Iq_Ctrl.Sig.Ref
     label: Iq Ref
     unit: A
-    description: "实际进入q轴电流PI的参考（含注入）。"
+    description: "实际进入q轴电流控制器的参考（含注入）。"
     plot: { modes: [fast, normal], fast_scale: 0.001 }
 
   PARAM_SIGNAL_IQ_PI_OUT:
@@ -1178,7 +1228,7 @@ objects:
     binding: Iq_Ctrl.Sig.Out
     label: Iq PI Output
     unit: V
-    description: "q轴PI电压输出，未叠加模型前馈、未经过最终dq二维限幅。"
+    description: "当前选中电流控制器的q轴电压输出，未叠加公共dq前馈、未经过最终dq二维限幅；保留原参数ID兼容旧扫频工具。"
     plot: { modes: [fast, normal], fast_scale: 0.001 }
 
   PARAM_SIGNAL_SPEED_REF:

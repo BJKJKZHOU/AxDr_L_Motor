@@ -52,13 +52,22 @@ void Current_Tuning_Update(void)
         Gain.Iq_Kp = Motor_Para.Lq * Wc;
         Gain.Iq_Ki = Motor_Para.Rs * Wc;
     }
-    /* The current ISR must see all four gains from the same tuning update. */
+    float Kc_LADRC = TWO_PI_F * Control_LADRC_Bw_Hz;
+    float Wo_LADRC = TWO_PI_F * Control_LADRC_Eso_Bw_Hz;
+
+    /* Publish PI and LADRC coefficients together outside the fast ISR. */
     Primask = __get_PRIMASK();
     __disable_irq();
     Id_Ctrl.Para.Kp = Gain.Id_Kp;
     Id_Ctrl.Para.Ki = Gain.Id_Ki;
     Iq_Ctrl.Para.Kp = Gain.Iq_Kp;
     Iq_Ctrl.Para.Ki = Gain.Iq_Ki;
+    Id_LADRC.Para.Kp = Kc_LADRC;
+    Iq_LADRC.Para.Kp = Kc_LADRC;
+    Id_LADRC.Para.Wo = Wo_LADRC;
+    Iq_LADRC.Para.Wo = Wo_LADRC;
+    Id_LADRC.Para.B0 = 1.0f / Motor_Para.Ld;
+    Iq_LADRC.Para.B0 = 1.0f / Motor_Para.Lq;
     __set_PRIMASK(Primask);
 }
 
