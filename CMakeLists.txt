@@ -50,6 +50,7 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     User/Fast_Memory.c
     Algo/PID.c
+    Algo/LADRC.c
     Algo/Math.c
     Algo/Sin_LUT.c
     Algo/Voltage_Mod.c
