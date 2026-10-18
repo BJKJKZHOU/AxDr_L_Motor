@@ -55,6 +55,12 @@ typedef enum
     /* Mechanical_ESO.State.Error: Mechanical ESO的单圈角度观测误差，Theta_meas-Theta_hat回绕到[-π,π)。 */
     PARAM_MECH_ESO_ERROR = 0x0025U,
 
+    /* Plot_Fast_Drop: FAST Plot发送前丢弃的数据块累计数，每块20个采样点；仅用于USB采集完整性检查，不保存。 */
+    PARAM_PLOT_FAST_DROP = 0x0030U,
+
+    /* Plot_Normal_Drop: NORMAL Plot发送前丢弃的采样累计数；仅用于USB采集完整性检查，不保存。 */
+    PARAM_PLOT_NORMAL_DROP = 0x0031U,
+
     /* Motor_Para.Pp: 电机极对数。 */
     PARAM_MOTOR_PP = 0x0101U,
 
