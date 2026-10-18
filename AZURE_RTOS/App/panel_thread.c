@@ -14,7 +14,7 @@
 
 /* LCD rendering/HAL nesting plus the Cortex-M4F exception context. */
 #define PANEL_STACK_SIZE  1024U
-#define PANEL_THREAD_PRIO 10U
+#define PANEL_THREAD_PRIO 12U
 #define KEY_SCAN_TICK     5U
 #define KEY_STABLE_CNT    3U
 
