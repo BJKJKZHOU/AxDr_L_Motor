@@ -247,9 +247,13 @@ void Motor_Control(void)
             Wm_Target = ((Motor_State == RUN) && !Stop_Pending) ?
                         Motor_User_To_Internal(Motor_Cmd.Wm_Target) : 0.0f;
             Limit_Value(&Wm_Target, -Lim.Wm_Max, Lim.Wm_Max);
-            Ramp_Run(&Motion_Ref, Wm_Target, Motion_Config.Wm_Acc, Motion_Config.Wm_Dec, SPD_TS);
-            Wm_Ref = Motion_Ref.Wm;
-            We_Ref = (float)Motor_Para.Pp * Wm_Ref;
+            if (Open_Loop_Method == OPEN_LOOP_IF)
+            {
+                Ramp_Run(&Motion_Ref, Wm_Target, Motion_Config.Wm_Acc, Motion_Config.Wm_Dec, SPD_TS);
+                Wm_Target = Motion_Ref.Wm;
+            }
+            Wm_Ref = Wm_Target;
+            We_Ref = (float)Motor_Para.Pp * Wm_Target;
 
             Current_Ref.Id = 0.0f;
             Current_Ref.Iq = 0.0f;
@@ -534,8 +538,7 @@ Motor_Fast_Mode_e Motor_Fast_Run(float Encoder_Theta_e,
     switch (Motor_Mode)
     {
         case OPEN_LOOP:
-            Open_Loop(We_Ref, Theta_e, Id_Ref, Iq_Ref);
-            return FAST_CURRENT;
+            return Open_Loop(We_Ref, Theta_e, Id_Ref, Iq_Ref, Ualpha, Ubeta);
 
         case IDENT:
             return Identification_Fast_Run(ADC.Ia_A,

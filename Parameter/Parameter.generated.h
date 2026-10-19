@@ -175,6 +175,9 @@ typedef enum
     /* Motor_Mode: 当前选择的电机控制模式；与TORQUE/SPEED/POSITION/OPEN_LOOP/IDENT/SENSORLESS_SPEED/PHASE_SEARCH对应。 */
     PARAM_MOTOR_MODE = 0x0701U,
 
+    /* Open_Loop_Method: 开环运行方法：IF或VF；在Disabled下选择，IF为默认。 */
+    PARAM_OPEN_LOOP_METHOD = 0x0705U,
+
     /* Motor_Cmd.Te_Target: Torque模式的用户机械转矩目标。 */
     PARAM_TARGET_TORQUE = 0x0702U,
 

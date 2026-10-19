@@ -91,7 +91,7 @@ void VF_Run(VF_T *VF,
     VF->State.We = Slew_F(VF->State.We, We_Target, We_Step);
     VF->State.U = Slew_F(VF->State.U, U_Target_V, U_Step);
 
-    Uq = Sign_F(We_Target) * VF->State.U;
+    Uq = Sign_F(VF->State.We) * VF->State.U;
     SinCos(VF->State.Theta_e, &Sin, &Cos);
     *Ualpha_V = -Uq * Sin;
     *Ubeta_V = Uq * Cos;
