@@ -60,8 +60,8 @@ Motor_Fast_Mode_e Open_Loop(float We_Ref, float *Theta_e,
         VF.Para.U_Max_V = ADC.Vbus_V * INV_SQRT3_F * VOLT_MOD_MAX;
         VF.Para.U_Slew_V_S = 30.0f;
         VF.Para.We_Acc = (float)Motor_Para.Pp * Motion_Config.Wm_Acc;
-        VF_Run(&VF, We_Ref, U_Target, Ualpha, Ubeta, CUR_TS);
         *Theta_e = VF.State.Theta_e;
+        VF_Run(&VF, We_Ref, U_Target, Ualpha, Ubeta, CUR_TS);
         return FAST_VOLTAGE;
     }
 
