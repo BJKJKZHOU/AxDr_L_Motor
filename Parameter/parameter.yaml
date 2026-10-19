@@ -468,6 +468,68 @@ objects:
       readback: [PARAM_ENCODER_READY, PARAM_ENCODER_VALID, PARAM_ENCODER_FAULT]
 
 
+  PARAM_ENCODER_THETA_NATIVE:
+    id: 0x0311
+    type: f32
+    access: ro
+    binding: Encoder.Theta_Native
+    label: Encoder Native Angle
+    unit: rad
+    description: "方向和谐波补偿之前的原生机械角度。"
+    plot: { modes: [fast, normal], fast_scale: 0.0002 }
+
+  PARAM_ENCODER_HARMONIC_C1:
+    id: 0x0312
+    type: f32
+    access: rw
+    persistent: true
+    binding: Encoder_Harmonic.C1
+    label: Encoder Harmonic C1
+    unit: rad
+    description: "原生机械角度Cos 1谐波误差系数；写入使电角零位失效。"
+    write_state: disabled
+    range: { min: -0.05, max: 0.05 }
+    on_change: ENCODER_HARMONIC
+
+  PARAM_ENCODER_HARMONIC_S1:
+    id: 0x0313
+    type: f32
+    access: rw
+    persistent: true
+    binding: Encoder_Harmonic.S1
+    label: Encoder Harmonic S1
+    unit: rad
+    description: "原生机械角度Sin 1谐波误差系数；写入使电角零位失效。"
+    write_state: disabled
+    range: { min: -0.05, max: 0.05 }
+    on_change: ENCODER_HARMONIC
+
+  PARAM_ENCODER_HARMONIC_C2:
+    id: 0x0314
+    type: f32
+    access: rw
+    persistent: true
+    binding: Encoder_Harmonic.C2
+    label: Encoder Harmonic C2
+    unit: rad
+    description: "原生机械角度Cos 2谐波误差系数；写入使电角零位失效。"
+    write_state: disabled
+    range: { min: -0.05, max: 0.05 }
+    on_change: ENCODER_HARMONIC
+
+  PARAM_ENCODER_HARMONIC_S2:
+    id: 0x0315
+    type: f32
+    access: rw
+    persistent: true
+    binding: Encoder_Harmonic.S2
+    label: Encoder Harmonic S2
+    unit: rad
+    description: "原生机械角度Sin 2谐波误差系数；写入使电角零位失效。"
+    write_state: disabled
+    range: { min: -0.05, max: 0.05 }
+    on_change: ENCODER_HARMONIC
+
   PARAM_PHASE_I_SEARCH:
     id: 0x0401
     type: f32

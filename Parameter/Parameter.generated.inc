@@ -42,6 +42,11 @@
 { PARAM_ENCODER_VALID, PARAM_U8, &Encoder.Valid, 0.0f, 1.0f, 0U },
 { PARAM_ENCODER_FAULT, PARAM_U8, &Encoder.Fault, 0.0f, 1.0f, 0U },
 { PARAM_ENCODER_SPI_TYPE, PARAM_U8, &Encoder_Config.SPI_Type, (float)ENC_SPI_MT6816, (float)ENC_SPI_MT6835, PARAM_FLAG_HOST_WRITE | PARAM_FLAG_DISABLED_ONLY | PARAM_FLAG_PERSISTENT },
+{ PARAM_ENCODER_THETA_NATIVE, PARAM_FLOAT, &Encoder.Theta_Native, -INFINITY, INFINITY, 0U },
+{ PARAM_ENCODER_HARMONIC_C1, PARAM_FLOAT, &Encoder_Harmonic.C1, -0.05f, 0.05f, PARAM_FLAG_HOST_WRITE | PARAM_FLAG_DISABLED_ONLY | PARAM_FLAG_PERSISTENT },
+{ PARAM_ENCODER_HARMONIC_S1, PARAM_FLOAT, &Encoder_Harmonic.S1, -0.05f, 0.05f, PARAM_FLAG_HOST_WRITE | PARAM_FLAG_DISABLED_ONLY | PARAM_FLAG_PERSISTENT },
+{ PARAM_ENCODER_HARMONIC_C2, PARAM_FLOAT, &Encoder_Harmonic.C2, -0.05f, 0.05f, PARAM_FLAG_HOST_WRITE | PARAM_FLAG_DISABLED_ONLY | PARAM_FLAG_PERSISTENT },
+{ PARAM_ENCODER_HARMONIC_S2, PARAM_FLOAT, &Encoder_Harmonic.S2, -0.05f, 0.05f, PARAM_FLAG_HOST_WRITE | PARAM_FLAG_DISABLED_ONLY | PARAM_FLAG_PERSISTENT },
 { PARAM_PHASE_I_SEARCH, PARAM_FLOAT, &Servo_Phase_Config.I_Search_A, 0.0f, INFINITY, PARAM_FLAG_HOST_WRITE | PARAM_FLAG_DISABLED_ONLY },
 { PARAM_CAL_VALID, PARAM_U8, &Motor_Cal.Valid, 0.0f, 1.0f, PARAM_FLAG_PERSISTENT },
 { PARAM_CAL_ENC_DIR, PARAM_I8, &Motor_Cal.Enc_Dir, -1.0f, 1.0f, PARAM_FLAG_PERSISTENT },
@@ -113,13 +118,6 @@
 { PARAM_SIGNAL_SPEED_INJ, PARAM_FLOAT, &Motor_Frf_Speed.Inj, -INFINITY, INFINITY, 0U },
 
 #elif defined(PARAM_GENERATE_VALIDATE)
-case PARAM_OPEN_LOOP_METHOD:
-    if ((Value.U8 != (uint8_t)OPEN_LOOP_IF) && (Value.U8 != (uint8_t)OPEN_LOOP_VF))
-    {
-        return PARAM_ERR_VALUE;
-    }
-    break;
-
 case PARAM_MOTOR_RS:
     if ((Number <= 0.0f))
     {
@@ -257,6 +255,13 @@ case PARAM_MOTOR_MODE:
     }
     break;
 
+case PARAM_OPEN_LOOP_METHOD:
+    if ((Value.U8 != (uint8_t)OPEN_LOOP_IF) && (Value.U8 != (uint8_t)OPEN_LOOP_VF))
+    {
+        return PARAM_ERR_VALUE;
+    }
+    break;
+
 case PARAM_MOTOR_STATE:
     if ((Value.U8 != (uint8_t)DISABLED) && (Value.U8 != (uint8_t)ENABLED) && (Value.U8 != (uint8_t)RUN))
     {
@@ -374,6 +379,13 @@ case PARAM_SIGNAL_SPEED_AMP:
 case PARAM_ENCODER_PROTOCOL:
 case PARAM_ENCODER_SPI_TYPE:
     Encoder_Config_Changed();
+    break;
+
+case PARAM_ENCODER_HARMONIC_C1:
+case PARAM_ENCODER_HARMONIC_S1:
+case PARAM_ENCODER_HARMONIC_C2:
+case PARAM_ENCODER_HARMONIC_S2:
+    Motor_Cal_Invalidate();
     break;
 
 case PARAM_CTRL_CURRENT_BW_HZ:
@@ -625,6 +637,10 @@ case PARAM_MECH_ESO_TD:
 case PARAM_MECH_ESO_ERROR:
     *Scale = 0.0002f;
     return &Mechanical_ESO.State.Error;
+
+case PARAM_ENCODER_THETA_NATIVE:
+    *Scale = 0.0002f;
+    return &Encoder.Theta_Native;
 
 case PARAM_SIGNAL_OUT:
     *Scale = 0.001f;

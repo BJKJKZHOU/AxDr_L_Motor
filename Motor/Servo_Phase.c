@@ -241,7 +241,7 @@ Motor_Fast_Mode_e Servo_Phase_Fast_Run(float *Theta_e,
 
             if (Angle_Stable(Encoder.Theta_Native, &Theta_Native_Stable))
             {
-                Phase.Theta_Native_Align = Theta_Native_Stable;
+                Phase.Theta_Native_Align = Encoder_Angle_Correct(Theta_Native_Stable);
                 Phase.Theta_Native_Pre = Encoder.Theta_Native;
                 Phase.Native_Delta = 0.0f;
                 Phase.State = PHASE_RUN;
@@ -289,6 +289,7 @@ Motor_Fast_Mode_e Servo_Phase_Fast_Run(float *Theta_e,
 
             if (Angle_Stable(Encoder.Theta_Native, &Theta_Native_Stable))
             {
+                Theta_Native_Stable = Encoder_Angle_Correct(Theta_Native_Stable);
                 Offset_Initial = Angle_Wrap(-(float)Motor_Para.Pp *
                                             (float)Phase.Enc_Dir * Phase.Theta_Native_Align);
                 Offset_Final = Angle_Wrap(-(float)Motor_Para.Pp *

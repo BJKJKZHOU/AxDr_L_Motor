@@ -8,6 +8,7 @@
 #include "MT6816.h"
 #include "MT6835.h"
 #include "Math.h"
+#include "Sin_LUT.h"
 #include "Mechanical_ESO.h"
 #include "Motor_Cal.h"
 #include "Motor_Type.h"
@@ -21,6 +22,26 @@
 
 Encoder_Config_T Encoder_Config = ENCODER_CONFIG_DEFAULT;
 volatile Encoder_T Encoder = { 0 };
+Encoder_Harmonic_T Encoder_Harmonic = { 0 };
+
+FAST_CODE float Encoder_Angle_Correct(float Theta_Native)
+{
+    float Sin;
+    float Cos;
+    float Error;
+
+    if ((Encoder_Harmonic.C1 == 0.0f) && (Encoder_Harmonic.S1 == 0.0f) &&
+        (Encoder_Harmonic.C2 == 0.0f) && (Encoder_Harmonic.S2 == 0.0f))
+    {
+        return Theta_Native;
+    }
+
+    SinCos(Theta_Native, &Sin, &Cos);
+    Error = Encoder_Harmonic.C1 * Cos + Encoder_Harmonic.S1 * Sin +
+            Encoder_Harmonic.C2 * (Cos * Cos - Sin * Sin) +
+            Encoder_Harmonic.S2 * (2.0f * Sin * Cos);
+    return Angle_Wrap(Theta_Native - Error);
+}
 
 static float Theta_Pre = 0.0f;
 static uint8_t Pos_Valid = 0U;
@@ -248,6 +269,7 @@ void Encoder_Sample_Update(uint32_t Raw, float Theta)
 
     Encoder.Raw = Raw;
     Encoder.Theta_Native = Theta;
+    Theta = Encoder_Angle_Correct(Theta);
 
     if (Motor_Cal.Enc_Dir < 0)
     {
