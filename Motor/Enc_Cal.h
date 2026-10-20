@@ -11,20 +11,34 @@
 #include "Fast_Memory.h"
 #include "Motor_Type.h"
 
-/* One automatic encoder harmonic calibration; normal user modes are unchanged. */
+typedef enum
+{
+    CAL_IDLE = 0,
+    CAL_SPEED,
+    CAL_VF,
+    CAL_SAMPLE,
+    CAL_DECEL,
+    CAL_PHASE,
+    CAL_DONE,
+    CAL_FAILED,
+
+} Enc_Cal_Step_e;
+
+typedef struct
+{
+    Enc_Cal_Step_e Step;
+    float Wm_Target;
+
+} Enc_Cal_T;
+
+extern volatile Enc_Cal_T Enc_Cal;
+
 bool Enc_Cal_Start(void);
 void Enc_Cal_Run(void);
-bool Enc_Cal_Active(void);
-bool Enc_Cal_Succeeded(void);
-
-/* Used only by the existing 2 kHz speed path and 20 kHz motor fast path. */
-bool Enc_Cal_Sensored(void);
-float Enc_Cal_Wm_Target(void);
 FAST_CODE Motor_Fast_Mode_e Enc_Cal_Fast_Run(float *Theta_e,
                                             float *Id_Ref,
                                             float *Iq_Ref,
                                             float *Ualpha,
                                             float *Ubeta);
-FAST_CODE void Enc_Cal_Sample(float Theta_Native);
 
 #endif /* ENC_CAL_H */

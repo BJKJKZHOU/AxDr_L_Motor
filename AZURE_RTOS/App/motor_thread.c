@@ -132,10 +132,10 @@ static void Motor_Async_Action_Poll(void)
         Phase_Action_Pending = false;
     }
 
-    if (Cal_Action_Pending && !Enc_Cal_Active())
+    if (Cal_Action_Pending && (Motor_Mode_Get() != ENC_CAL))
     {
         Motor_Action_Complete(&Cal_Action_Msg,
-                              Enc_Cal_Succeeded() ? AXDR_OK : AXDR_ERR_CONFIG);
+                              (Enc_Cal.Step == CAL_DONE) ? AXDR_OK : AXDR_ERR_CONFIG);
         Cal_Action_Pending = false;
     }
 }
@@ -193,7 +193,7 @@ static void Motor_Cmd_Run(void)
 
             case MOTOR_CMD_STOP:
                 /* Calibration is one autonomous operation, not a run mode. */
-                if (Enc_Cal_Active())
+                if (Motor_Mode_Get() == ENC_CAL)
                 {
                     Motor_Action_Response(&Msg, AXDR_ERR_STATE);
                 }
@@ -211,7 +211,7 @@ static void Motor_Cmd_Run(void)
                 break;
 
             case MOTOR_CMD_EN_TOGGLE:
-                if (Enc_Cal_Active())
+                if (Motor_Mode_Get() == ENC_CAL)
                 {
                     break;
                 }
@@ -231,7 +231,7 @@ static void Motor_Cmd_Run(void)
                 break;
 
             case MOTOR_CMD_RUN_TOGGLE:
-                if (Enc_Cal_Active())
+                if (Motor_Mode_Get() == ENC_CAL)
                 {
                     break;
                 }

@@ -399,7 +399,9 @@ void Fast_Loop(void)
         Ud_FF = 0.0f;
         Uq_FF = 0.0f;
         if ((Current_FF_Enable != 0U) &&
-            ((Motor_Mode <= POSITION) || ((Motor_Mode == ENC_CAL) && Enc_Cal_Sensored())) &&
+            ((Motor_Mode <= POSITION) ||
+             ((Motor_Mode == ENC_CAL) &&
+              ((Enc_Cal.Step == CAL_SPEED) || (Enc_Cal.Step == CAL_DECEL)))) &&
             Encoder_Park_Valid)
         {
             float We = (float)Motor_Para.Pp * Mechanical_ESO.State.Wm;
@@ -444,11 +446,6 @@ void Fast_Loop(void)
     if (!ADC_Phase_Set(Next_Sample))
     {
         goto finish;
-    }
-
-    if (Motor_Mode == ENC_CAL)
-    {
-        Enc_Cal_Sample(Encoder.Theta_Native);
     }
 
 finish:

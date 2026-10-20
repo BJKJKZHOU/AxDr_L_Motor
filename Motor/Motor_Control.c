@@ -226,12 +226,6 @@ void Motor_Cal_Decel_Begin(void)
     Speed_Loop_Track(We_Ref, We_Ref, Iq, Iq_Min, Iq_Max);
 }
 
-bool Motor_Cal_Decel_Done(void)
-{
-    return (Motion_Ref.Wm == 0.0f) &&
-           ((Motion_Config.Profile == MOTION_TRAPEZOID) || (SCurve.Count == 0U));
-}
-
 static FAST_CODE bool Servo_Mode(void)
 {
     return (Motor_Mode == TORQUE) || (Motor_Mode == SPEED) || (Motor_Mode == POSITION);
@@ -333,7 +327,8 @@ void Motor_Control(void)
         return;
     }
 
-    if ((Motor_Mode == ENC_CAL) && !Enc_Cal_Sensored())
+    if ((Motor_Mode == ENC_CAL) &&
+        (Enc_Cal.Step != CAL_SPEED) && (Enc_Cal.Step != CAL_DECEL))
     {
         return;
     }
@@ -481,7 +476,7 @@ void Motor_Control(void)
 
         case SPEED:
         case ENC_CAL:
-            Wm_Target = (Motor_Mode == ENC_CAL) ? Enc_Cal_Wm_Target() :
+            Wm_Target = (Motor_Mode == ENC_CAL) ? Enc_Cal.Wm_Target :
                         (((Motor_State == RUN) && !Stop_Pending) ?
                          Motor_User_To_Internal(Motor_Cmd.Wm_Target) : 0.0f);
             Limit_Value(&Wm_Target, -Lim.Wm_Max, Lim.Wm_Max);
@@ -643,7 +638,7 @@ Motor_Fast_Mode_e Motor_Fast_Run(float Encoder_Theta_e,
             return Open_Loop(We_Ref, Theta_e, Id_Ref, Iq_Ref, Ualpha, Ubeta);
 
         case ENC_CAL:
-            if (Enc_Cal_Sensored())
+            if ((Enc_Cal.Step == CAL_SPEED) || (Enc_Cal.Step == CAL_DECEL))
             {
                 *Theta_e = Encoder_Park_Valid ? Encoder_Theta_e :
                            Angle_Wrap((float)Motor_Para.Pp * Motor_Run.Theta_m + Motor_Cal.Theta_Off);

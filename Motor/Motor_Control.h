@@ -30,7 +30,6 @@ bool Motor_Encoder_Required(void);
 
 /* Existing speed/current PI handover used by encoder calibration. */
 void Motor_Cal_Decel_Begin(void);
-bool Motor_Cal_Decel_Done(void);
 
 void Motor_Enable(void);
 void Motor_Start(void);

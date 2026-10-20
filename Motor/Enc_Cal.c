@@ -34,21 +34,9 @@
 #define ENC_CAL_STOP_HOLD_CNT  ((uint32_t)(0.3f / SPD_TS + 0.5f))
 #define ENC_CAL_FIT_N          6U
 
-typedef enum
-{
-    CAL_IDLE = 0,
-    CAL_SPEED,
-    CAL_VF,
-    CAL_SAMPLE,
-    CAL_DECEL,
-    CAL_PHASE,
-
-} Enc_Cal_Step_e;
-
-static volatile Enc_Cal_Step_e Step = CAL_IDLE;
+volatile Enc_Cal_T Enc_Cal = { 0 };
 static volatile uint32_t Sample_Cnt = 0U;
 static uint8_t Mode_Pre = TORQUE;
-static bool Success = false;
 static uint32_t Tick = 0U;
 static uint32_t Hold_Cnt = 0U;
 static volatile bool VF_Ready = false;
@@ -61,6 +49,8 @@ static float A[ENC_CAL_FIT_N][ENC_CAL_FIT_N] = { 0 };
 static float B[ENC_CAL_FIT_N] = { 0 };
 static float Y2 = 0.0f;
 
+static FAST_CODE void Enc_Cal_Sample(float Theta_Native);
+
 static void Enc_Cal_Finish(bool Passed)
 {
     if (Motor_State_Get() != DISABLED)
@@ -69,13 +59,13 @@ static void Enc_Cal_Finish(bool Passed)
     }
 
     Motor_Mode = Mode_Pre;
-    Success = Passed;
-    Step = CAL_IDLE;
+    Enc_Cal.Step = Passed ? CAL_DONE : CAL_FAILED;
 }
 
 bool Enc_Cal_Start(void)
 {
-    if ((Step != CAL_IDLE) || (Motor_State_Get() != DISABLED) ||
+    if (((Enc_Cal.Step >= CAL_SPEED) && (Enc_Cal.Step <= CAL_PHASE)) ||
+        (Motor_State_Get() != DISABLED) ||
         (Motor_Wm_Limit_Effective_Get() < ENC_CAL_WM) ||
         (Motion_Config.Wm_Acc <= 0.0f) || (Motion_Config.Wm_Dec <= 0.0f) ||
         (Motor_Para.Flux <= 0.0f))
@@ -84,7 +74,6 @@ bool Enc_Cal_Start(void)
     }
 
     Mode_Pre = Motor_Mode;
-    Success = false;
     Tick = 0U;
     Hold_Cnt = 0U;
     VF_Ready = false;
@@ -103,7 +92,8 @@ bool Enc_Cal_Start(void)
         }
     }
 
-    Step = CAL_SPEED;
+    Enc_Cal.Wm_Target = ENC_CAL_WM;
+    Enc_Cal.Step = CAL_SPEED;
     Motor_Mode = ENC_CAL;
     Motor_Enable();
     if (Motor_State_Get() == ENABLED)
@@ -120,26 +110,6 @@ bool Enc_Cal_Start(void)
     return true;
 }
 
-bool Enc_Cal_Active(void)
-{
-    return Step != CAL_IDLE;
-}
-
-bool Enc_Cal_Succeeded(void)
-{
-    return Success;
-}
-
-bool Enc_Cal_Sensored(void)
-{
-    return (Step == CAL_SPEED) || (Step == CAL_DECEL);
-}
-
-float Enc_Cal_Wm_Target(void)
-{
-    return (Step == CAL_DECEL) ? 0.0f : ENC_CAL_WM;
-}
-
 Motor_Fast_Mode_e Enc_Cal_Fast_Run(float *Theta_e,
                                    float *Id_Ref,
                                    float *Iq_Ref,
@@ -148,12 +118,12 @@ Motor_Fast_Mode_e Enc_Cal_Fast_Run(float *Theta_e,
 {
     float U_Target;
 
-    if (Step == CAL_PHASE)
+    if (Enc_Cal.Step == CAL_PHASE)
     {
         return Servo_Phase_Fast_Run(Theta_e, Id_Ref, Iq_Ref, Ualpha, Ubeta);
     }
 
-    if ((Step != CAL_VF) && (Step != CAL_SAMPLE))
+    if ((Enc_Cal.Step != CAL_VF) && (Enc_Cal.Step != CAL_SAMPLE))
     {
         return FAST_OFF;
     }
@@ -181,10 +151,11 @@ Motor_Fast_Mode_e Enc_Cal_Fast_Run(float *Theta_e,
     *Theta_e = Cal_VF.State.Theta_e;
     VF_Run(&Cal_VF, (float)Motor_Para.Pp * ENC_CAL_WM,
            U_Target, Ualpha, Ubeta, CUR_TS);
+    Enc_Cal_Sample(Encoder.Theta_Native);
     return FAST_VOLTAGE;
 }
 
-void Enc_Cal_Sample(float Theta_Native)
+static FAST_CODE void Enc_Cal_Sample(float Theta_Native)
 {
     float X[ENC_CAL_FIT_N];
     float Delta;
@@ -195,7 +166,7 @@ void Enc_Cal_Sample(float Theta_Native)
     float Sin2;
     float Cos2;
 
-    if ((Step != CAL_SAMPLE) || (Sample_Cnt >= ENC_CAL_SAMPLES))
+    if ((Enc_Cal.Step != CAL_SAMPLE) || (Sample_Cnt >= ENC_CAL_SAMPLES))
     {
         return;
     }
@@ -352,7 +323,7 @@ void Enc_Cal_Run(void)
     uint32_t Primask;
     const uint16_t Valid_Id = PARAM_CAL_VALID;
 
-    if (Step == CAL_IDLE)
+    if ((Enc_Cal.Step == CAL_IDLE) || (Enc_Cal.Step >= CAL_DONE))
     {
         return;
     }
@@ -364,7 +335,7 @@ void Enc_Cal_Run(void)
         return;
     }
 
-    if (Step == CAL_PHASE)
+    if (Enc_Cal.Step == CAL_PHASE)
     {
         if (!Servo_Phase_Active())
         {
@@ -380,7 +351,7 @@ void Enc_Cal_Run(void)
         return;
     }
 
-    if (Step == CAL_SPEED)
+    if (Enc_Cal.Step == CAL_SPEED)
     {
         Wm = Mechanical_ESO_Wm_Get();
         Tick++;
@@ -396,7 +367,7 @@ void Enc_Cal_Run(void)
         if (Hold_Cnt >= ENC_CAL_SPEED_HOLD_CNT)
         {
             Tick = 0U;
-            Step = CAL_VF;
+            Enc_Cal.Step = CAL_VF;
         }
         else if (Tick > (uint32_t)((ENC_CAL_WM / Motion_Config.Wm_Acc + 4.0f) / SPD_TS))
         {
@@ -405,7 +376,7 @@ void Enc_Cal_Run(void)
         return;
     }
 
-    if (Step == CAL_VF)
+    if (Enc_Cal.Step == CAL_VF)
     {
         if (!VF_Ready)
         {
@@ -424,21 +395,22 @@ void Enc_Cal_Run(void)
         }
 
         Div = 0U;
-        Step = CAL_SAMPLE;
+        Enc_Cal.Step = CAL_SAMPLE;
         return;
     }
 
-    if ((Step == CAL_SAMPLE) && (Sample_Cnt == ENC_CAL_SAMPLES))
+    if ((Enc_Cal.Step == CAL_SAMPLE) && (Sample_Cnt == ENC_CAL_SAMPLES))
     {
         /* Re-enter sensored PI at the current VF operating point. */
         Motor_Cal_Decel_Begin();
         Tick = 0U;
         Hold_Cnt = 0U;
-        Step = CAL_DECEL;
+        Enc_Cal.Wm_Target = 0.0f;
+        Enc_Cal.Step = CAL_DECEL;
         return;
     }
 
-    if (Step == CAL_DECEL)
+    if (Enc_Cal.Step == CAL_DECEL)
     {
         if (++Tick > (uint32_t)((1.875f * ENC_CAL_WM / Motion_Config.Wm_Dec +
                                   4.0f) / SPD_TS))
@@ -448,7 +420,7 @@ void Enc_Cal_Run(void)
         }
 
         Wm = Mechanical_ESO_Wm_Get();
-        if (Motor_Cal_Decel_Done() && (__builtin_fabsf(Wm) < ENC_CAL_STOP_WM))
+        if ((Motor_Wm_Ref_Get() == 0.0f) && (__builtin_fabsf(Wm) < ENC_CAL_STOP_WM))
         {
             Hold_Cnt++;
         }
@@ -495,7 +467,7 @@ void Enc_Cal_Run(void)
             return;
         }
 
-        Step = CAL_PHASE;
+        Enc_Cal.Step = CAL_PHASE;
         PWM_Enable();
     }
 }
