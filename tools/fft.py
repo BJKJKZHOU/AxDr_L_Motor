@@ -26,10 +26,12 @@ from parameter_ids_generated import (
     PARAM_SIGNAL_ID_PI_OUT, PARAM_SIGNAL_IQ_PI_OUT,
     PARAM_RUN_WM, PARAM_REF_WM, PARAM_REF_IQ,
     PARAM_PLOT_FAST_DROP, PARAM_PLOT_NORMAL_DROP,
+    PARAM_ENCODER_THETA_NATIVE,
 )
 
 # name: (Parameter ID, physical unit, FAST int16 scale, NORMAL available)
 CHANNELS = {
+    "enc_native": (PARAM_ENCODER_THETA_NATIVE, "rad", .0002, True),
     "ia": (PARAM_ADC_IA, "A", .001, True),
     "ib": (PARAM_ADC_IB, "A", .001, True),
     "ic": (PARAM_ADC_IC, "A", .001, True),

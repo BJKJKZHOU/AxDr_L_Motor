@@ -122,7 +122,10 @@ static bool Calibration_Save(void)
     const uint16_t Valid_Id = PARAM_CAL_VALID;
     const uint16_t Ids[] = {
         PARAM_MOTOR_PP, PARAM_ENCODER_PROTOCOL, PARAM_ENCODER_SPI_TYPE,
-        PARAM_CAL_ENC_DIR, PARAM_CAL_THETA_OFF, PARAM_CAL_VALID,
+        PARAM_CAL_ENC_DIR, PARAM_CAL_THETA_OFF,
+        PARAM_ENCODER_HARMONIC_C1, PARAM_ENCODER_HARMONIC_S1,
+        PARAM_ENCODER_HARMONIC_C2, PARAM_ENCODER_HARMONIC_S2,
+        PARAM_CAL_VALID,
     };
 
     Motor_Cal.Valid = 0U;
@@ -152,6 +155,7 @@ bool Servo_Phase_Start(void)
     Phase = (Servo_Phase_T){ 0 };
     Last_Result = (Servo_Phase_Result_T){ 0 };
     Last_Result.State = SERVO_PHASE_RESULT_RUNNING;
+    Motor_Cal.Valid = 0U;
 
     Phase.I_Search_A = Servo_Phase_Config.I_Search_A;
     Phase.Stable_Theta = Encoder.Theta_Native;
@@ -193,15 +197,13 @@ bool Servo_Phase_Apply(void)
         return false;
     }
 
-    if (!Calibration_Save())
-    {
-        Fail(SERVO_PHASE_FAIL_APPLY);
-        Phase.State = PHASE_IDLE;
-        return false;
-    }
-
     Phase.State = PHASE_IDLE;
     return true;
+}
+
+bool Servo_Phase_Save(void)
+{
+    return (Motor_Cal.Valid != 0U) && Calibration_Save();
 }
 
 const Servo_Phase_Result_T *Servo_Phase_Last_Result_Get(void)
@@ -241,7 +243,7 @@ Motor_Fast_Mode_e Servo_Phase_Fast_Run(float *Theta_e,
 
             if (Angle_Stable(Encoder.Theta_Native, &Theta_Native_Stable))
             {
-                Phase.Theta_Native_Align = Theta_Native_Stable;
+                Phase.Theta_Native_Align = Encoder_Angle_Correct(Theta_Native_Stable);
                 Phase.Theta_Native_Pre = Encoder.Theta_Native;
                 Phase.Native_Delta = 0.0f;
                 Phase.State = PHASE_RUN;
@@ -289,6 +291,7 @@ Motor_Fast_Mode_e Servo_Phase_Fast_Run(float *Theta_e,
 
             if (Angle_Stable(Encoder.Theta_Native, &Theta_Native_Stable))
             {
+                Theta_Native_Stable = Encoder_Angle_Correct(Theta_Native_Stable);
                 Offset_Initial = Angle_Wrap(-(float)Motor_Para.Pp *
                                             (float)Phase.Enc_Dir * Phase.Theta_Native_Align);
                 Offset_Final = Angle_Wrap(-(float)Motor_Para.Pp *

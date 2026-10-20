@@ -127,6 +127,21 @@ typedef enum
     /* Encoder_Config.SPI_Type: SPI协议下选择的编码器芯片协议。 */
     PARAM_ENCODER_SPI_TYPE = 0x0310U,
 
+    /* Encoder.Theta_Native: 方向和谐波补偿之前的原生机械角度。 */
+    PARAM_ENCODER_THETA_NATIVE = 0x0311U,
+
+    /* Encoder_Harmonic.C1: 原生机械角度Cos 1谐波误差系数；写入使电角零位失效。 */
+    PARAM_ENCODER_HARMONIC_C1 = 0x0312U,
+
+    /* Encoder_Harmonic.S1: 原生机械角度Sin 1谐波误差系数；写入使电角零位失效。 */
+    PARAM_ENCODER_HARMONIC_S1 = 0x0313U,
+
+    /* Encoder_Harmonic.C2: 原生机械角度Cos 2谐波误差系数；写入使电角零位失效。 */
+    PARAM_ENCODER_HARMONIC_C2 = 0x0314U,
+
+    /* Encoder_Harmonic.S2: 原生机械角度Sin 2谐波误差系数；写入使电角零位失效。 */
+    PARAM_ENCODER_HARMONIC_S2 = 0x0315U,
+
     /* Servo_Phase_Config.I_Search_A: 伺服寻相两次静态ALIGN的Id电流及方向辨识起转的Iq电流；起转后Iq归零等待500ms。 */
     PARAM_PHASE_I_SEARCH = 0x0401U,
 
@@ -174,6 +189,9 @@ typedef enum
 
     /* Motor_Mode: 当前选择的电机控制模式；与TORQUE/SPEED/POSITION/OPEN_LOOP/IDENT/SENSORLESS_SPEED/PHASE_SEARCH对应。 */
     PARAM_MOTOR_MODE = 0x0701U,
+
+    /* Open_Loop_Method: 开环运行方法：IF或VF；在Disabled下选择，IF为默认。 */
+    PARAM_OPEN_LOOP_METHOD = 0x0705U,
 
     /* Motor_Cmd.Te_Target: Torque模式的用户机械转矩目标。 */
     PARAM_TARGET_TORQUE = 0x0702U,
@@ -369,6 +387,9 @@ typedef enum
 
     /* MOTOR_CMD_SIGNAL_ABORT: 立即取消激励，不改变正常Motor Stop/Disable状态。 */
     ACTION_SIGNAL_ABORT = 0x1302U,
+
+    /* MOTOR_CMD_ENC_CAL_START: 固件自动执行有感升速、VF采样辨识、应用谐波补偿及重新寻相保存。 */
+    ACTION_ENC_CAL_START = 0x1401U,
 
 } Parameter_Id_e;
 

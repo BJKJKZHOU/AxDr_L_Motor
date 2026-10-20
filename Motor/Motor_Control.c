@@ -10,6 +10,7 @@
 #include "Math.h"
 #include "Current_Loop.h"
 #include "Encoder.h"
+#include "Enc_Cal.h"
 #include "Flux.h"
 #include "Mechanical_ESO.h"
 #include "Motor_ADC.h"
@@ -17,6 +18,7 @@
 #include "Motor_Config.h"
 #include "Motor_Para.h"
 #include "Motor_PWM.h"
+#include "motor_work.h"
 #include "Motion_Loop.h"
 #include "Open_Loop.h"
 #include "Ramp.h"
@@ -138,6 +140,35 @@ static void Motion_State_Reset(void)
     Pos_Div = 0U;
 }
 
+/* Resume the speed trajectory from VF feedback. The first DECEL ADC cycle
+ * seeds the current controller from that cycle's voltage and current. */
+void Motor_Cal_Decel_Begin(void)
+{
+    float Wm = Mechanical_ESO_Wm_Get();
+    float Iq = Motor_Run.Iq;
+    float Iq_Min;
+    float Iq_Max;
+    Motor_Limit_T Lim;
+
+    Ramp_Reset(&Motion_Ref, Wm);
+    SCurve = (SCurve_T){ 0 };
+    Wm_Ref = Wm;
+    We_Ref = (float)Motor_Para.Pp * Wm;
+    Current_Ref.Id = Motor_Run.Id;
+    Current_Ref.Iq = Iq;
+
+    Motor_Limit_Get(&Lim);
+    Iq_Limit_Calc(&Iq_Min, &Iq_Max);
+    if (Iq_Min < -Lim.I_Max) Iq_Min = -Lim.I_Max;
+    if (Iq_Max > Lim.I_Max) Iq_Max = Lim.I_Max;
+    if (Iq_Min > Iq_Max)
+    {
+        Iq_Min = 0.0f;
+        Iq_Max = 0.0f;
+    }
+    Speed_Loop_Track(We_Ref, We_Ref, Iq, Iq_Min, Iq_Max);
+}
+
 static FAST_CODE bool Servo_Mode(void)
 {
     return (Motor_Mode == TORQUE) || (Motor_Mode == SPEED) || (Motor_Mode == POSITION);
@@ -209,7 +240,8 @@ void Motor_Control(void)
         return;
     }
 
-    if (Motor_Mode == PHASE_SEARCH)
+    if ((Motor_Mode == PHASE_SEARCH) &&
+        ((Enc_Cal.Step < CAL_SPEED) || (Enc_Cal.Step >= CAL_DONE)))
     {
         if (Motor_State == RUN)
         {
@@ -217,14 +249,18 @@ void Motor_Control(void)
             {
                 /* Phase calibration is applied only while DISABLED. */
                 Disable_Apply();
-                (void)Servo_Phase_Apply();
+                if (Servo_Phase_Apply() && !Motor_Work_Request(MOTOR_WORK_SAVE_CAL))
+                {
+                    Motor_Cal.Valid = 0U;
+                }
             }
         }
 
         return;
     }
 
-    if (Motor_Mode == IDENT)
+    if ((Motor_Mode == IDENT) &&
+        ((Enc_Cal.Step < CAL_SPEED) || (Enc_Cal.Step >= CAL_DONE)))
     {
         if (Motor_State == RUN)
         {
@@ -239,17 +275,37 @@ void Motor_Control(void)
         return;
     }
 
+    if (Enc_Cal.Step == CAL_PHASE)
+    {
+        if (Servo_Phase_Active() && ((TIM1->BDTR & TIM_BDTR_MOE) == 0U))
+        {
+            PWM_Enable();
+        }
+        return;
+    }
+
+    if ((Enc_Cal.Step >= CAL_SPEED) && (Enc_Cal.Step <= CAL_FIT_WAIT) &&
+        (Enc_Cal.Step != CAL_SPEED) && (Enc_Cal.Step != CAL_DECEL))
+    {
+        return;
+    }
+
     Motor_Limit_Get(&Lim);
 
-    switch (Motor_Mode)
+    switch (((Enc_Cal.Step == CAL_SPEED) || (Enc_Cal.Step == CAL_DECEL)) ?
+            SPEED : Motor_Mode)
     {
         case OPEN_LOOP:
             Wm_Target = ((Motor_State == RUN) && !Stop_Pending) ?
                         Motor_User_To_Internal(Motor_Cmd.Wm_Target) : 0.0f;
             Limit_Value(&Wm_Target, -Lim.Wm_Max, Lim.Wm_Max);
-            Ramp_Run(&Motion_Ref, Wm_Target, Motion_Config.Wm_Acc, Motion_Config.Wm_Dec, SPD_TS);
-            Wm_Ref = Motion_Ref.Wm;
-            We_Ref = (float)Motor_Para.Pp * Wm_Ref;
+            if (Open_Loop_Method == OPEN_LOOP_IF)
+            {
+                Ramp_Run(&Motion_Ref, Wm_Target, Motion_Config.Wm_Acc, Motion_Config.Wm_Dec, SPD_TS);
+                Wm_Target = Motion_Ref.Wm;
+            }
+            Wm_Ref = Wm_Target;
+            We_Ref = (float)Motor_Para.Pp * Wm_Target;
 
             Current_Ref.Id = 0.0f;
             Current_Ref.Iq = 0.0f;
@@ -343,7 +399,8 @@ void Motor_Control(void)
 
     We_Fbk = (float)Motor_Para.Pp * Mechanical_ESO_Wm_Get();
 
-    switch (Motor_Mode)
+    switch (((Enc_Cal.Step == CAL_SPEED) || (Enc_Cal.Step == CAL_DECEL)) ?
+            SPEED : Motor_Mode)
     {
         case TORQUE:
             Kt = 1.5f * (float)Motor_Para.Pp * Motor_Para.Flux;
@@ -377,8 +434,10 @@ void Motor_Control(void)
             return;
 
         case SPEED:
-            Wm_Target = ((Motor_State == RUN) && !Stop_Pending) ?
-                        Motor_User_To_Internal(Motor_Cmd.Wm_Target) : 0.0f;
+            Wm_Target = ((Enc_Cal.Step == CAL_SPEED) || (Enc_Cal.Step == CAL_DECEL)) ?
+                        ((Enc_Cal.Step == CAL_DECEL) ? 0.0f : ENC_CAL_WM) :
+                        (((Motor_State == RUN) && !Stop_Pending) ?
+                         Motor_User_To_Internal(Motor_Cmd.Wm_Target) : 0.0f);
             Limit_Value(&Wm_Target, -Lim.Wm_Max, Lim.Wm_Max);
             if (Motion_Config.Profile == MOTION_TRAPEZOID)
             {
@@ -394,8 +453,9 @@ void Motor_Control(void)
 
             /* Speed FRF bypasses the motion ramp, not the current loop. */
             Speed_Inj = 0.0f;
-            if (Signal_Injection.State.Active != 0U &&
-                Signal_Injection.State.Target == SIGNAL_SPEED)
+            if ((Motor_Mode == SPEED) &&
+                (Signal_Injection.State.Active != 0U) &&
+                (Signal_Injection.State.Target == SIGNAL_SPEED))
             {
                 if (((Motor_State == ENABLED) || (Motor_State == RUN)) && !Stop_Pending)
                 {
@@ -408,7 +468,7 @@ void Motor_Control(void)
                 }
             }
 
-            if (Stop_Pending && (Motion_Ref.Wm == 0.0f) &&
+            if ((Motor_Mode == SPEED) && Stop_Pending && (Motion_Ref.Wm == 0.0f) &&
                 ((Motion_Config.Profile == MOTION_TRAPEZOID) || (SCurve.Count == 0U)))
             {
                 Stop_Pending = false;
@@ -514,9 +574,27 @@ Motor_Fast_Mode_e Motor_Fast_Run(float Encoder_Theta_e,
         return FAST_OFF;
     }
 
-    /* Sensored modes retain current control while ENABLED for servo holding. */
-    if (Servo_Mode())
+    /* Calibration supersedes the user mode without modifying Motor_Mode. */
+    if ((Enc_Cal.Step >= CAL_SPEED) && (Enc_Cal.Step <= CAL_PHASE) &&
+        (Motor_State != RUN))
     {
+        return FAST_OFF;
+    }
+
+    /* Sensored modes retain current control while ENABLED for servo holding. */
+    if ((Servo_Mode() &&
+         ((Enc_Cal.Step < CAL_SPEED) || (Enc_Cal.Step >= CAL_DONE))) ||
+        (Enc_Cal.Step == CAL_SPEED) || (Enc_Cal.Step == CAL_DECEL))
+    {
+        if ((Enc_Cal.Step == CAL_DECEL) && Enc_Cal_Handoff_Ready)
+        {
+            Motor_Fast_Mode_e Mode = Enc_Cal_Fast_Run(Theta_e, Id_Ref, Iq_Ref,
+                                                     Ualpha, Ubeta);
+            Current_Ref.Id = *Id_Ref;
+            Current_Ref.Iq = *Iq_Ref;
+            return Mode;
+        }
+
         /* Reuse the angle already calculated for the encoder-frame Park.
          * Retain the original angle path if encoder/ESO feedback is unavailable. */
         *Theta_e = Encoder_Park_Valid ? Encoder_Theta_e :
@@ -531,11 +609,15 @@ Motor_Fast_Mode_e Motor_Fast_Run(float Encoder_Theta_e,
         return FAST_OFF;
     }
 
+    if ((Enc_Cal.Step >= CAL_VF) && (Enc_Cal.Step <= CAL_PHASE))
+    {
+        return Enc_Cal_Fast_Run(Theta_e, Id_Ref, Iq_Ref, Ualpha, Ubeta);
+    }
+
     switch (Motor_Mode)
     {
         case OPEN_LOOP:
-            Open_Loop(We_Ref, Theta_e, Id_Ref, Iq_Ref);
-            return FAST_CURRENT;
+            return Open_Loop(We_Ref, Theta_e, Id_Ref, Iq_Ref, Ualpha, Ubeta);
 
         case IDENT:
             return Identification_Fast_Run(ADC.Ia_A,
@@ -603,14 +685,15 @@ Motor_Position_T Motor_Position_Ref_Get(void)
 
 bool Motor_Encoder_Required(void)
 {
-    return Servo_Mode() || (Motor_Mode == PHASE_SEARCH);
+    return Servo_Mode() || (Motor_Mode == PHASE_SEARCH) ||
+           ((Enc_Cal.Step >= CAL_SPEED) && (Enc_Cal.Step <= CAL_PHASE));
 }
 
 void Motor_Enable(void)
 {
     Stop_Pending = false;
 
-    if (Motor_State != DISABLED)
+    if ((Motor_State != DISABLED) || (Motor_Work_State != MOTOR_WORK_IDLE))
     {
         return;
     }
@@ -620,7 +703,7 @@ void Motor_Enable(void)
         return;
     }
 
-    if (Servo_Mode() && (Motor_Cal.Valid == 0U))
+    if ((Servo_Mode() || ((Enc_Cal.Step >= CAL_SPEED) && (Enc_Cal.Step <= CAL_PHASE))) && (Motor_Cal.Valid == 0U))
     {
         return;
     }
@@ -628,7 +711,7 @@ void Motor_Enable(void)
     Current_Ref.Id = 0.0f;
     Current_Ref.Iq = 0.0f;
 
-    if (Servo_Mode())
+    if (Servo_Mode() || ((Enc_Cal.Step >= CAL_SPEED) && (Enc_Cal.Step <= CAL_PHASE)))
     {
         if (Mechanical_ESO.Para.Valid == 0U)
         {
@@ -644,7 +727,7 @@ void Motor_Enable(void)
     Motor_Run.Ualpha = 0.0f;
     Motor_Run.Ubeta = 0.0f;
 
-    if (Servo_Mode())
+    if (Servo_Mode() || ((Enc_Cal.Step >= CAL_SPEED) && (Enc_Cal.Step <= CAL_PHASE)))
     {
         PWM_Enable();
     }
@@ -661,40 +744,44 @@ void Motor_Start(void)
     Signal_Injection_Stop();
 
     /* Identification is entered only through Motor_Ident_Start(). */
-    if (Motor_Mode == IDENT)
+    if ((Motor_Mode == IDENT) &&
+        ((Enc_Cal.Step < CAL_SPEED) || (Enc_Cal.Step >= CAL_DONE)))
     {
         return;
     }
 
-    if (Motor_Mode == OPEN_LOOP)
+    if ((Enc_Cal.Step < CAL_SPEED) || (Enc_Cal.Step >= CAL_DONE))
     {
-        Current_Loop_State_Reset();
-        Open_Loop_Reset();
-    }
-    else if (Motor_Mode == SENSORLESS_SPEED)
-    {
-        Sensorless_Profile_Active = false;
-        Sensorless_We_Target = 0.0f;
-        Ramp_Reset(&Motion_Ref, 0.0f);
-        Wm_Ref = 0.0f;
-        We_Ref = 0.0f;
-
-        if (!Sensorless_Begin())
+        if (Motor_Mode == OPEN_LOOP)
         {
-            return;
+            Current_Loop_State_Reset();
+            Open_Loop_Reset();
+        }
+        else if (Motor_Mode == SENSORLESS_SPEED)
+        {
+            Sensorless_Profile_Active = false;
+            Sensorless_We_Target = 0.0f;
+            Ramp_Reset(&Motion_Ref, 0.0f);
+            Wm_Ref = 0.0f;
+            We_Ref = 0.0f;
+
+            if (!Sensorless_Begin())
+            {
+                return;
+            }
+        }
+        else if (Motor_Mode == PHASE_SEARCH)
+        {
+            Current_Loop_State_Reset();
+            if (!Servo_Phase_Start())
+            {
+                return;
+            }
         }
     }
-    else if (Motor_Mode == PHASE_SEARCH)
-    {
-        Current_Loop_State_Reset();
 
-        if (!Servo_Phase_Start())
-        {
-            return;
-        }
-    }
-
-    if (!Servo_Mode())
+    if (!Servo_Mode() &&
+        ((Enc_Cal.Step < CAL_SPEED) || (Enc_Cal.Step >= CAL_DONE)))
     {
         PWM_Enable();
     }
@@ -711,6 +798,12 @@ void Motor_Stop(void)
 
     if (Motor_State != RUN)
     {
+        return;
+    }
+
+    if ((Enc_Cal.Step >= CAL_SPEED) && (Enc_Cal.Step <= CAL_PHASE))
+    {
+        NonServo_Enabled_Apply();
         return;
     }
 

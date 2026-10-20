@@ -28,6 +28,9 @@ float Motor_Wm_Ref_Get(void);
 Motor_Position_T Motor_Position_Ref_Get(void);
 bool Motor_Encoder_Required(void);
 
+/* Existing speed/current PI handover used by encoder calibration. */
+void Motor_Cal_Decel_Begin(void);
+
 void Motor_Enable(void);
 void Motor_Start(void);
 void Motor_Stop(void);
