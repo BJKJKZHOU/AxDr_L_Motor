@@ -19,6 +19,7 @@
 #include "Sin_LUT.h"
 #include "VF.h"
 #include "control_params.h"
+#include "main.h"
 
 #define ENC_CAL_WM             (1000.0f * TWO_PI_F / 60.0f)
 #define ENC_CAL_VF_SETTLE_CNT  ((uint32_t)(2.0f / SPD_TS + 0.5f))
@@ -27,6 +28,9 @@
 #define ENC_CAL_SAMPLE_TS      (CUR_TS * (float)ENC_CAL_SAMPLE_DIV)
 #define ENC_CAL_SAMPLES        ((uint32_t)(6.0f / ENC_CAL_SAMPLE_TS + 0.5f))
 #define ENC_CAL_COEF_MAX       0.05f
+#define ENC_CAL_COAST_WM       2.0f
+#define ENC_CAL_COAST_HOLD_CNT ((uint32_t)(0.3f / SPD_TS + 0.5f))
+#define ENC_CAL_COAST_MAX_CNT  ((uint32_t)(30.0f / SPD_TS + 0.5f))
 #define ENC_CAL_FIT_N          6U
 
 typedef enum
@@ -35,6 +39,7 @@ typedef enum
     CAL_SPEED,
     CAL_VF,
     CAL_SAMPLE,
+    CAL_COAST,
     CAL_PHASE,
 
 } Enc_Cal_Step_e;
@@ -353,7 +358,7 @@ void Enc_Cal_Run(void)
         return;
     }
 
-    if (Motor_State_Get() != RUN)
+    if ((Step != CAL_COAST) && (Motor_State_Get() != RUN))
     {
         Enc_Cal_Finish(false);
         return;
@@ -409,8 +414,35 @@ void Enc_Cal_Run(void)
 
     if ((Step == CAL_SAMPLE) && (Sample_Cnt == ENC_CAL_SAMPLES))
     {
-        /* End voltage output before the non-real-time fit and NVS writes. */
+        /* Stop VF before stationary alignment; the rotor may still be at 1000 RPM. */
         Motor_Disable();
+        Tick = 0U;
+        Hold_Cnt = 0U;
+        Step = CAL_COAST;
+        return;
+    }
+
+    if (Step == CAL_COAST)
+    {
+        if (++Tick >= ENC_CAL_COAST_MAX_CNT)
+        {
+            Enc_Cal_Finish(false);
+            return;
+        }
+
+        if (__builtin_fabsf(Mechanical_ESO_Wm_Get()) < ENC_CAL_COAST_WM)
+        {
+            Hold_Cnt++;
+        }
+        else
+        {
+            Hold_Cnt = 0U;
+        }
+        if (Hold_Cnt < ENC_CAL_COAST_HOLD_CNT)
+        {
+            return;
+        }
+
         if (!Enc_Cal_Fit(Coeff))
         {
             Enc_Cal_Finish(false);

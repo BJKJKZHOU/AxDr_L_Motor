@@ -211,6 +211,10 @@ static void Motor_Cmd_Run(void)
                 break;
 
             case MOTOR_CMD_EN_TOGGLE:
+                if (Enc_Cal_Active())
+                {
+                    break;
+                }
                 State = Motor_State_Get();
 
                 if (State == DISABLED)
