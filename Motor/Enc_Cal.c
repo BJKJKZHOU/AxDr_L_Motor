@@ -353,7 +353,12 @@ void Enc_Cal_Run(void)
     {
         if (Motor_State_Get() == DISABLED)
         {
-            Enc_Cal_Finish(Servo_Phase_Result_Valid() && (Motor_Cal.Valid != 0U));
+            bool Passed = Servo_Phase_Result_Valid() && (Motor_Cal.Valid != 0U);
+            if (!Passed)
+            {
+                Motor_Cal.Valid = 0U;
+            }
+            Enc_Cal_Finish(Passed);
         }
         return;
     }
