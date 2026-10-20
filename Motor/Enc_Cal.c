@@ -23,15 +23,13 @@
 #include "control_params.h"
 #include "main.h"
 
-#define ENC_CAL_WM             (1000.0f * TWO_PI_F / 60.0f)
 #define ENC_CAL_VF_SETTLE_CNT  ((uint32_t)(2.0f / SPD_TS + 0.5f))
 #define ENC_CAL_SPEED_HOLD_CNT ((uint32_t)(0.5f / SPD_TS + 0.5f))
 #define ENC_CAL_SAMPLE_DIV     10U
 #define ENC_CAL_SAMPLE_TS      (CUR_TS * (float)ENC_CAL_SAMPLE_DIV)
 #define ENC_CAL_SAMPLES        ((uint32_t)(6.0f / ENC_CAL_SAMPLE_TS + 0.5f))
 #define ENC_CAL_COEF_MAX       0.05f
-#define ENC_CAL_STOP_WM        2.0f
-#define ENC_CAL_STOP_HOLD_CNT  ((uint32_t)(0.3f / SPD_TS + 0.5f))
+#define ENC_CAL_STOP_WAIT_CNT  ((uint32_t)(0.3f / SPD_TS + 0.5f))
 #define ENC_CAL_FIT_N          6U
 
 volatile Enc_Cal_T Enc_Cal = { 0 };
@@ -47,7 +45,6 @@ static float Theta_Pre = 0.0f;
 static float Theta_Sum = 0.0f;
 static float A[ENC_CAL_FIT_N][ENC_CAL_FIT_N] = { 0 };
 static float B[ENC_CAL_FIT_N] = { 0 };
-static float Y2 = 0.0f;
 
 static FAST_CODE void Enc_Cal_Sample(float Theta_Native);
 
@@ -82,7 +79,6 @@ bool Enc_Cal_Start(void)
     Sample_Cnt = 0U;
     Theta_Pre = 0.0f;
     Theta_Sum = 0.0f;
-    Y2 = 0.0f;
     for (uint32_t i = 0U; i < ENC_CAL_FIT_N; i++)
     {
         B[i] = 0.0f;
@@ -92,7 +88,6 @@ bool Enc_Cal_Start(void)
         }
     }
 
-    Enc_Cal.Wm_Target = ENC_CAL_WM;
     Enc_Cal.Step = CAL_SPEED;
     Motor_Mode = ENC_CAL;
     Motor_Enable();
@@ -217,7 +212,6 @@ static FAST_CODE void Enc_Cal_Sample(float Theta_Native)
             A[i][j] += X[i] * X[j];
         }
     }
-    Y2 += Y * Y;
     Sample_Cnt++;
 }
 
@@ -226,7 +220,6 @@ static bool Enc_Cal_Fit(float C[4])
 {
     float M[ENC_CAL_FIT_N][ENC_CAL_FIT_N + 1U];
     float Beta[ENC_CAL_FIT_N];
-    float SSE = Y2;
 
     if ((Sample_Cnt != ENC_CAL_SAMPLES) ||
         (__builtin_fabsf(Theta_Sum) < 10.0f * TWO_PI_F))
@@ -292,15 +285,6 @@ static bool Enc_Cal_Fit(float C[4])
         {
             return false;
         }
-    }
-
-    for (uint32_t i = 0U; i < ENC_CAL_FIT_N; i++)
-    {
-        SSE -= Beta[i] * B[i];
-    }
-    if (!__builtin_isfinite(SSE) || (SSE < -0.01f * (float)ENC_CAL_SAMPLES))
-    {
-        return false;
     }
 
     for (uint32_t i = 0U; i < 4U; i++)
@@ -403,39 +387,26 @@ void Enc_Cal_Run(void)
     {
         /* Re-enter sensored PI at the current VF operating point. */
         Motor_Cal_Decel_Begin();
-        Tick = 0U;
         Hold_Cnt = 0U;
-        Enc_Cal.Wm_Target = 0.0f;
         Enc_Cal.Step = CAL_DECEL;
         return;
     }
 
     if (Enc_Cal.Step == CAL_DECEL)
     {
-        if (++Tick > (uint32_t)((1.875f * ENC_CAL_WM / Motion_Config.Wm_Dec +
-                                  4.0f) / SPD_TS))
-        {
-            Enc_Cal_Finish(false);
-            return;
-        }
-
-        Wm = Mechanical_ESO_Wm_Get();
-        if ((Motor_Wm_Ref_Get() == 0.0f) && (__builtin_fabsf(Wm) < ENC_CAL_STOP_WM))
-        {
-            Hold_Cnt++;
-        }
-        else
+        if (Motor_Wm_Ref_Get() != 0.0f)
         {
             Hold_Cnt = 0U;
+            return;
         }
 
-        if (Hold_Cnt < ENC_CAL_STOP_HOLD_CNT)
+        if (++Hold_Cnt < ENC_CAL_STOP_WAIT_CNT)
         {
             return;
         }
 
-        /* No uncontrolled coast: zero speed has been reached under PI.
-         * PWM may now be released while fitting and saving the invalid marker. */
+        /* The speed trajectory has reached zero and its dwell has elapsed.
+         * Release PWM only for fitting and subsequent stationary phasing. */
         PWM_Disable();
 
         if (!Enc_Cal_Fit(Coeff))

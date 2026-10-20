@@ -30,7 +30,8 @@ extern PID_T Id_Ctrl;
 extern PID_T Iq_Ctrl;
 
 void Current_Loop_State_Reset(void);
-void Current_Loop_Track(float Id, float Iq, float Ud, float Uq);
+void Current_Loop_Track(float Id, float Iq, float Ud, float Uq,
+                        float Ud_FF, float Uq_FF);
 FAST_CODE void Current_Loop(float Id_Ref, float Iq_Ref, float U_Lim,
                             float Ud_FF, float Uq_FF,
                             float *Ud, float *Uq);

@@ -193,13 +193,17 @@ void Motor_Cal_Decel_Begin(void)
     }
 
     U_Lim = ADC.Vbus_V * INV_SQRT3_F * VOLT_MOD_MAX;
+    /* LADRC tracks the actual applied dq voltage; PI tracks the voltage
+     * remaining after the normal shared feedforward. */
+    Motor_Run.Ud = Ud;
+    Motor_Run.Uq = Uq;
     Ud -= Ud_FF;
     Uq -= Uq_FF;
     Limit_Value(&Ud, -U_Lim, U_Lim);
     Limit_Value(&Uq, -U_Lim, U_Lim);
 
     Current_Loop_State_Reset();
-    Current_Loop_Track(Id, Iq, Ud, Uq);
+    Current_Loop_Track(Id, Iq, Ud, Uq, Ud_FF, Uq_FF);
     Current_Ref.Id = Id;
     Current_Ref.Iq = Iq;
 
@@ -476,7 +480,8 @@ void Motor_Control(void)
 
         case SPEED:
         case ENC_CAL:
-            Wm_Target = (Motor_Mode == ENC_CAL) ? Enc_Cal.Wm_Target :
+            Wm_Target = (Motor_Mode == ENC_CAL) ?
+                        ((Enc_Cal.Step == CAL_DECEL) ? 0.0f : ENC_CAL_WM) :
                         (((Motor_State == RUN) && !Stop_Pending) ?
                          Motor_User_To_Internal(Motor_Cmd.Wm_Target) : 0.0f);
             Limit_Value(&Wm_Target, -Lim.Wm_Max, Lim.Wm_Max);

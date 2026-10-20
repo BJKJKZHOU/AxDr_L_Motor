@@ -5,6 +5,8 @@
 
 #include "Current_Loop.h"
 
+#include "Enc_Cal.h"
+
 #include "Motor_Para.h"
 #include "Motor_Type.h"
 #include "control_params.h"
@@ -50,9 +52,10 @@ void Current_Loop_State_Reset(void)
     Iq_LADRC.Sig.Ref_Dot = 0.0f;
 }
 
-/* Track the last VF voltage when the calibration re-enters current PI.
- * The first FOC sample starts from the measured dq current, not stale VF-era PI states. */
-void Current_Loop_Track(float Id, float Iq, float Ud, float Uq)
+/* Follow the last VF voltage with the already selected current controller.
+ * PI needs its integral, LADRC needs the measured state and disturbance. */
+void Current_Loop_Track(float Id, float Iq, float Ud, float Uq,
+                        float Ud_FF, float Uq_FF)
 {
     Id_Ctrl.Sig.Ref = Id;
     Id_Ctrl.Sig.Fbk = Id;
@@ -67,6 +70,15 @@ void Current_Loop_Track(float Id, float Iq, float Ud, float Uq)
     Iq_Ctrl.Sig.Out = Uq;
     Iq_Ctrl.State.Int = Uq;
     Iq_Ctrl.State.Fbk_Pre = Iq;
+
+    Id_LADRC.State.Z1 = Id;
+    Iq_LADRC.State.Z1 = Iq;
+    Id_LADRC.Sig.F0 = (-Motor_Para.Rs * Id - Ud_FF) * Id_LADRC.Para.B0;
+    Iq_LADRC.Sig.F0 = (-Motor_Para.Rs * Iq - Uq_FF) * Iq_LADRC.Para.B0;
+    Id_LADRC.State.Z2 = -(Ud + Ud_FF) * Id_LADRC.Para.B0 - Id_LADRC.Sig.F0;
+    Iq_LADRC.State.Z2 = -(Uq + Uq_FF) * Iq_LADRC.Para.B0 - Iq_LADRC.Sig.F0;
+    Id_LADRC.Sig.Out = Ud + Ud_FF;
+    Iq_LADRC.Sig.Out = Uq + Uq_FF;
 }
 
 void Current_Loop(float Id_Ref, float Iq_Ref, float U_Lim,
@@ -79,7 +91,9 @@ void Current_Loop(float Id_Ref, float Iq_Ref, float U_Lim,
     Iq_Ctrl.Sig.Ref = Iq_Ref;
     Iq_Ctrl.Sig.Fbk = Motor_Run.Iq;
 
-    if ((Current_Controller == CURRENT_CTRL_LADRC) && (Motor_Mode <= POSITION))
+    if ((Current_Controller == CURRENT_CTRL_LADRC) &&
+        ((Motor_Mode <= POSITION) || ((Motor_Mode == ENC_CAL) &&
+          ((Enc_Cal.Step == CAL_SPEED) || (Enc_Cal.Step == CAL_DECEL)))))
     {
         Id_LADRC.Sig.Ref = Id_Ref;
         Id_LADRC.Sig.Fbk = Motor_Run.Id;

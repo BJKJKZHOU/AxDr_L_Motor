@@ -9,10 +9,12 @@
 #include <stdbool.h>
 
 #include "Fast_Memory.h"
+#include "Math.h"
 #include "Motor_Type.h"
 
+#define ENC_CAL_WM (1000.0f * TWO_PI_F / 60.0f)
+
 typedef enum
-{
     CAL_IDLE = 0,
     CAL_SPEED,
     CAL_VF,
@@ -27,7 +29,6 @@ typedef enum
 typedef struct
 {
     Enc_Cal_Step_e Step;
-    float Wm_Target;
 
 } Enc_Cal_T;
 
