@@ -244,7 +244,7 @@ static void Motor_Cmd_Run(void)
 
             case MOTOR_CMD_STOP:
                 /* Calibration is one autonomous operation, not a run mode. */
-                if (Motor_Mode_Get() == ENC_CAL)
+                if ((Enc_Cal.Step >= CAL_SPEED) && (Enc_Cal.Step <= CAL_PHASE))
                 {
                     Motor_Action_Response(&Msg, AXDR_ERR_STATE);
                 }
@@ -262,7 +262,7 @@ static void Motor_Cmd_Run(void)
                 break;
 
             case MOTOR_CMD_EN_TOGGLE:
-                if (Motor_Mode_Get() == ENC_CAL)
+                if ((Enc_Cal.Step >= CAL_SPEED) && (Enc_Cal.Step <= CAL_PHASE))
                 {
                     break;
                 }
@@ -287,7 +287,7 @@ static void Motor_Cmd_Run(void)
                 break;
 
             case MOTOR_CMD_RUN_TOGGLE:
-                if (Motor_Mode_Get() == ENC_CAL)
+                if ((Enc_Cal.Step >= CAL_SPEED) && (Enc_Cal.Step <= CAL_PHASE))
                 {
                     break;
                 }
