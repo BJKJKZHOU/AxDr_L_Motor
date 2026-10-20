@@ -12,11 +12,9 @@
 #include "Motor_ADC.h"
 #include "Motor_Cal.h"
 #include "Motor_Control.h"
+#include "motor_work.h"
 #include "Motor_Para.h"
-#include "Motor_PWM.h"
 #include "Motion_Type.h"
-#include "NVS_Storage.h"
-#include "Parameter.h"
 #include "Servo_Phase.h"
 #include "Sin_LUT.h"
 #include "VF.h"
@@ -34,10 +32,10 @@
 
 volatile Enc_Cal_T Enc_Cal = { 0 };
 static volatile uint32_t Sample_Cnt = 0U;
-static uint8_t Mode_Pre = TORQUE;
 static uint32_t Tick = 0U;
 static uint32_t Hold_Cnt = 0U;
 static volatile bool VF_Ready = false;
+volatile bool Enc_Cal_Handoff_Ready = false;
 static VF_T Cal_VF = { 0 };
 
 static uint8_t Div = 0U;
@@ -55,7 +53,6 @@ static void Enc_Cal_Finish(bool Passed)
         Motor_Disable();
     }
 
-    Motor_Mode = Mode_Pre;
     Enc_Cal.Step = Passed ? CAL_DONE : CAL_FAILED;
 }
 
@@ -70,10 +67,10 @@ bool Enc_Cal_Start(void)
         return false;
     }
 
-    Mode_Pre = Motor_Mode;
     Tick = 0U;
     Hold_Cnt = 0U;
     VF_Ready = false;
+    Enc_Cal_Handoff_Ready = false;
     Cal_VF = (VF_T){ 0 };
     Div = 0U;
     Sample_Cnt = 0U;
@@ -89,7 +86,6 @@ bool Enc_Cal_Start(void)
     }
 
     Enc_Cal.Step = CAL_SPEED;
-    Motor_Mode = ENC_CAL;
     Motor_Enable();
     if (Motor_State_Get() == ENABLED)
     {
@@ -116,6 +112,49 @@ Motor_Fast_Mode_e Enc_Cal_Fast_Run(float *Theta_e,
     if (Enc_Cal.Step == CAL_PHASE)
     {
         return Servo_Phase_Fast_Run(Theta_e, Id_Ref, Iq_Ref, Ualpha, Ubeta);
+    }
+
+    if (Enc_Cal.Step == CAL_HANDOFF)
+    {
+        /* Sample and seed controller state in the same ADC cycle. */
+        if (!Enc_Cal_Handoff_Ready)
+        {
+            float Sin;
+            float Cos;
+            float Ialpha = ADC.Ia_A;
+            float Ibeta = (ADC.Ia_A + 2.0f * ADC.Ib_A) * INV_SQRT3_F;
+            float Theta = Angle_Wrap((float)Motor_Para.Pp * Encoder.Theta_m +
+                                     Motor_Cal.Theta_Off);
+            float We = (float)Motor_Para.Pp * Mechanical_ESO_Wm_Get();
+            float Id;
+            float Iq;
+            float Ud;
+            float Uq;
+            float Ud_FF = 0.0f;
+            float Uq_FF = 0.0f;
+
+            SinCos(Theta, &Sin, &Cos);
+            Id = Ialpha * Cos + Ibeta * Sin;
+            Iq = -Ialpha * Sin + Ibeta * Cos;
+            Ud = Motor_Run.Ualpha * Cos + Motor_Run.Ubeta * Sin;
+            Uq = -Motor_Run.Ualpha * Sin + Motor_Run.Ubeta * Cos;
+            if (Current_FF_Enable != 0U)
+            {
+                Ud_FF = -We * Motor_Para.Lq * Iq;
+                Uq_FF = We * (Motor_Para.Ld * Id + Motor_Para.Flux);
+            }
+
+            Motor_Run.Id = Id;
+            Motor_Run.Iq = Iq;
+            Motor_Run.Ud = Ud;
+            Motor_Run.Uq = Uq;
+            Current_Loop_State_Reset();
+            Current_Loop_Track(Id, Iq, Ud - Ud_FF, Uq - Uq_FF, Ud_FF, Uq_FF);
+            Enc_Cal_Handoff_Ready = true;
+        }
+        *Ualpha = Motor_Run.Ualpha;
+        *Ubeta = Motor_Run.Ubeta;
+        return FAST_VOLTAGE;
     }
 
     if ((Enc_Cal.Step != CAL_VF) && (Enc_Cal.Step != CAL_SAMPLE))
@@ -300,13 +339,38 @@ static bool Enc_Cal_Fit(float C[4])
     return true;
 }
 
+/* The low-priority Motor Work thread calls this only with PWM off.
+ * Fit owns its coefficients; the encoder consumes the published correction. */
+bool Enc_Cal_Fit_Apply(void)
+{
+    float Coeff[4];
+    uint32_t Primask;
+
+    if (!Enc_Cal_Fit(Coeff))
+    {
+        return false;
+    }
+
+    Primask = __get_PRIMASK();
+    __disable_irq();
+    if ((Enc_Cal.Step != CAL_FIT_WAIT) || (Motor_State_Get() != RUN))
+    {
+        __set_PRIMASK(Primask);
+        return false;
+    }
+    Motor_Cal.Valid = 0U;
+    Encoder_Harmonic.C1 = Coeff[0];
+    Encoder_Harmonic.S1 = Coeff[1];
+    Encoder_Harmonic.C2 = Coeff[2];
+    Encoder_Harmonic.S2 = Coeff[3];
+    __set_PRIMASK(Primask);
+    return true;
+}
+
 void Enc_Cal_Run(void)
 {
     float Wm;
-    float Coeff[4];
-    uint32_t Primask;
-    const uint16_t Valid_Id = PARAM_CAL_VALID;
-
+ 
     if ((Enc_Cal.Step == CAL_IDLE) || (Enc_Cal.Step >= CAL_DONE))
     {
         return;
@@ -385,10 +449,18 @@ void Enc_Cal_Run(void)
 
     if ((Enc_Cal.Step == CAL_SAMPLE) && (Sample_Cnt == ENC_CAL_SAMPLES))
     {
-        /* Re-enter sensored PI at the current VF operating point. */
-        Motor_Cal_Decel_Begin();
-        Hold_Cnt = 0U;
-        Enc_Cal.Step = CAL_DECEL;
+        Enc_Cal.Step = CAL_HANDOFF;
+        return;
+    }
+
+    if (Enc_Cal.Step == CAL_HANDOFF)
+    {
+        if (Enc_Cal_Handoff_Ready)
+        {
+            Motor_Cal_Decel_Begin();
+            Hold_Cnt = 0U;
+            Enc_Cal.Step = CAL_DECEL;
+        }
         return;
     }
 
@@ -405,31 +477,37 @@ void Enc_Cal_Run(void)
             return;
         }
 
-        /* The speed trajectory has reached zero and its dwell has elapsed.
-         * Release PWM only for fitting and subsequent stationary phasing. */
-        PWM_Disable();
+        Enc_Cal.Step = CAL_FIT;
+        return;
+    }
 
-        if (!Enc_Cal_Fit(Coeff))
+    if (Enc_Cal.Step == CAL_FIT)
+    {
+        if ((TIM1->BDTR & TIM_BDTR_MOE) == 0U)
+        {
+            if (!Motor_Work_Request(MOTOR_WORK_FIT))
+            {
+                Enc_Cal_Finish(false);
+                return;
+            }
+            Enc_Cal.Step = CAL_FIT_WAIT;
+        }
+        return;
+    }
+
+    if (Enc_Cal.Step == CAL_FIT_WAIT)
+    {
+        if (Motor_Work_State < MOTOR_WORK_DONE)
+        {
+            return;
+        }
+        bool Passed = (Motor_Work_State == MOTOR_WORK_DONE);
+        Motor_Work_Ack();
+        if (!Passed)
         {
             Enc_Cal_Finish(false);
             return;
         }
-
-        /* Invalidate persistent electrical zero before replacing harmonics. */
-        Motor_Cal.Valid = 0U;
-        if (NVS_Storage_Save_Ids(&Valid_Id, 1U) != 0)
-        {
-            Enc_Cal_Finish(false);
-            return;
-        }
-
-        Primask = __get_PRIMASK();
-        __disable_irq();
-        Encoder_Harmonic.C1 = Coeff[0];
-        Encoder_Harmonic.S1 = Coeff[1];
-        Encoder_Harmonic.C2 = Coeff[2];
-        Encoder_Harmonic.S2 = Coeff[3];
-        __set_PRIMASK(Primask);
 
         Current_Loop_State_Reset();
         if (!Servo_Phase_Start())
@@ -439,6 +517,5 @@ void Enc_Cal_Run(void)
         }
 
         Enc_Cal.Step = CAL_PHASE;
-        PWM_Enable();
     }
 }

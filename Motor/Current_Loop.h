@@ -6,6 +6,7 @@
 #ifndef CURRENT_LOOP_H
 #define CURRENT_LOOP_H
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "Fast_Memory.h"
@@ -33,7 +34,7 @@ void Current_Loop_State_Reset(void);
 void Current_Loop_Track(float Id, float Iq, float Ud, float Uq,
                         float Ud_FF, float Uq_FF);
 FAST_CODE void Current_Loop(float Id_Ref, float Iq_Ref, float U_Lim,
-                            float Ud_FF, float Uq_FF,
+                            bool Sensored, float Ud_FF, float Uq_FF,
                             float *Ud, float *Uq);
 
 #endif /* CURRENT_LOOP_H */

@@ -155,6 +155,7 @@ bool Servo_Phase_Start(void)
     Phase = (Servo_Phase_T){ 0 };
     Last_Result = (Servo_Phase_Result_T){ 0 };
     Last_Result.State = SERVO_PHASE_RESULT_RUNNING;
+    Motor_Cal.Valid = 0U;
 
     Phase.I_Search_A = Servo_Phase_Config.I_Search_A;
     Phase.Stable_Theta = Encoder.Theta_Native;
@@ -196,15 +197,13 @@ bool Servo_Phase_Apply(void)
         return false;
     }
 
-    if (!Calibration_Save())
-    {
-        Fail(SERVO_PHASE_FAIL_APPLY);
-        Phase.State = PHASE_IDLE;
-        return false;
-    }
-
     Phase.State = PHASE_IDLE;
     return true;
+}
+
+bool Servo_Phase_Save(void)
+{
+    return (Motor_Cal.Valid != 0U) && Calibration_Save();
 }
 
 const Servo_Phase_Result_T *Servo_Phase_Last_Result_Get(void)

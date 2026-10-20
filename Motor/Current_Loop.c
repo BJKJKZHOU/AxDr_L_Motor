@@ -5,7 +5,6 @@
 
 #include "Current_Loop.h"
 
-#include "Enc_Cal.h"
 
 #include "Motor_Para.h"
 #include "Motor_Type.h"
@@ -57,19 +56,23 @@ void Current_Loop_State_Reset(void)
 void Current_Loop_Track(float Id, float Iq, float Ud, float Uq,
                         float Ud_FF, float Uq_FF)
 {
-    Id_Ctrl.Sig.Ref = Id;
-    Id_Ctrl.Sig.Fbk = Id;
-    Id_Ctrl.Sig.Err = 0.0f;
-    Id_Ctrl.Sig.Out = Ud;
-    Id_Ctrl.State.Int = Ud;
-    Id_Ctrl.State.Fbk_Pre = Id;
+    if (Current_Controller == CURRENT_CTRL_PI)
+    {
+        Id_Ctrl.Sig.Ref = Id;
+        Id_Ctrl.Sig.Fbk = Id;
+        Id_Ctrl.Sig.Err = 0.0f;
+        Id_Ctrl.Sig.Out = Ud;
+        Id_Ctrl.State.Int = Ud;
+        Id_Ctrl.State.Fbk_Pre = Id;
 
-    Iq_Ctrl.Sig.Ref = Iq;
-    Iq_Ctrl.Sig.Fbk = Iq;
-    Iq_Ctrl.Sig.Err = 0.0f;
-    Iq_Ctrl.Sig.Out = Uq;
-    Iq_Ctrl.State.Int = Uq;
-    Iq_Ctrl.State.Fbk_Pre = Iq;
+        Iq_Ctrl.Sig.Ref = Iq;
+        Iq_Ctrl.Sig.Fbk = Iq;
+        Iq_Ctrl.Sig.Err = 0.0f;
+        Iq_Ctrl.Sig.Out = Uq;
+        Iq_Ctrl.State.Int = Uq;
+        Iq_Ctrl.State.Fbk_Pre = Iq;
+        return;
+    }
 
     Id_LADRC.State.Z1 = Id;
     Iq_LADRC.State.Z1 = Iq;
@@ -82,6 +85,7 @@ void Current_Loop_Track(float Id, float Iq, float Ud, float Uq,
 }
 
 void Current_Loop(float Id_Ref, float Iq_Ref, float U_Lim,
+                  bool Sensored,
                   float Ud_FF, float Uq_FF,
                   float *Ud, float *Uq)
 {
@@ -91,9 +95,7 @@ void Current_Loop(float Id_Ref, float Iq_Ref, float U_Lim,
     Iq_Ctrl.Sig.Ref = Iq_Ref;
     Iq_Ctrl.Sig.Fbk = Motor_Run.Iq;
 
-    if ((Current_Controller == CURRENT_CTRL_LADRC) &&
-        ((Motor_Mode <= POSITION) || ((Motor_Mode == ENC_CAL) &&
-          ((Enc_Cal.Step == CAL_SPEED) || (Enc_Cal.Step == CAL_DECEL)))))
+    if ((Current_Controller == CURRENT_CTRL_LADRC) && Sensored)
     {
         Id_LADRC.Sig.Ref = Id_Ref;
         Id_LADRC.Sig.Fbk = Motor_Run.Id;

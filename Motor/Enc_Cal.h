@@ -15,11 +15,15 @@
 #define ENC_CAL_WM (1000.0f * TWO_PI_F / 60.0f)
 
 typedef enum
+{
     CAL_IDLE = 0,
     CAL_SPEED,
     CAL_VF,
     CAL_SAMPLE,
+    CAL_HANDOFF,
     CAL_DECEL,
+    CAL_FIT,
+    CAL_FIT_WAIT,
     CAL_PHASE,
     CAL_DONE,
     CAL_FAILED,
@@ -33,8 +37,10 @@ typedef struct
 } Enc_Cal_T;
 
 extern volatile Enc_Cal_T Enc_Cal;
+extern volatile bool Enc_Cal_Handoff_Ready;
 
 bool Enc_Cal_Start(void);
+bool Enc_Cal_Fit_Apply(void);
 void Enc_Cal_Run(void);
 FAST_CODE Motor_Fast_Mode_e Enc_Cal_Fast_Run(float *Theta_e,
                                             float *Id_Ref,

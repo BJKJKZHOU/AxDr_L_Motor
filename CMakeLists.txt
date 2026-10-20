@@ -90,6 +90,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Parameter/Parameter.c
     Storage/Flash_Storage.c
     Storage/NVS_Storage.c
+    AZURE_RTOS/App/motor_work.c
     BSP/RGB.c
     BSP/ST7789.c
     BSP/LCD_Wave.c
@@ -116,6 +117,7 @@ endif()
 
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
+    AZURE_RTOS/App
     Algo
     BSP
     Comm

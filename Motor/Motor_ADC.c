@@ -229,6 +229,7 @@ void Fast_Loop(void)
     Motor_Fast_Mode_e Fast_Mode;
     bool Current_OK;
     bool Encoder_Park_Valid;
+    bool Sensored;
     float Theta_e;
     float Encoder_Theta_e;
     float Ialpha;
@@ -398,11 +399,10 @@ void Fast_Loop(void)
         U_Lim = ADC.Vbus_V * INV_SQRT3_F * VOLT_MOD_MAX;
         Ud_FF = 0.0f;
         Uq_FF = 0.0f;
-        if ((Current_FF_Enable != 0U) &&
-            ((Motor_Mode <= POSITION) ||
-             ((Motor_Mode == ENC_CAL) &&
-              ((Enc_Cal.Step == CAL_SPEED) || (Enc_Cal.Step == CAL_DECEL)))) &&
-            Encoder_Park_Valid)
+        Sensored = ((Enc_Cal.Step == CAL_SPEED) || (Enc_Cal.Step == CAL_DECEL)) ||
+                   (((Enc_Cal.Step < CAL_SPEED) || (Enc_Cal.Step >= CAL_DONE)) &&
+                    (Motor_Mode <= POSITION));
+        if ((Current_FF_Enable != 0U) && Sensored && Encoder_Park_Valid)
         {
             float We = (float)Motor_Para.Pp * Mechanical_ESO.State.Wm;
 
@@ -410,7 +410,7 @@ void Fast_Loop(void)
             Uq_FF = We * (Motor_Para.Ld * Motor_Run.Id + Motor_Para.Flux);
         }
 
-        Current_Loop(Id_Ref, Iq_Ref, U_Lim, Ud_FF, Uq_FF, &Ud, &Uq);
+        Current_Loop(Id_Ref, Iq_Ref, U_Lim, Sensored, Ud_FF, Uq_FF, &Ud, &Uq);
         /* One shared model feedforward and final voltage-vector limit. */
         Ud += Ud_FF;
         Uq += Uq_FF;
