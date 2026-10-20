@@ -130,7 +130,7 @@ static void Motor_Async_Action_Poll(void)
 
     if (Save_Action_Pending && (Motor_Work_State >= MOTOR_WORK_DONE))
     {
-        Motor_Action_Complete(&Save_Action_Msg,
+        Motor_Action_Response(&Save_Action_Msg,
                               (Motor_Work_State == MOTOR_WORK_DONE) ? AXDR_OK : AXDR_ERR_CONFIG);
         Save_Action_Pending = false;
         Motor_Work_Ack();
@@ -452,22 +452,21 @@ static void Motor_Cmd_Run(void)
                 break;
 
             case MOTOR_CMD_PARAMETER_SAVE:
-                Action_Status = AXDR_OK;
                 if ((Motor_State_Get() != DISABLED) ||
                     (Motor_Work_State != MOTOR_WORK_IDLE))
                 {
-                    Action_Status = AXDR_ERR_STATE;
+                    Motor_Action_Response(&Msg, AXDR_ERR_STATE);
                 }
                 else if (!Motor_Work_Request(MOTOR_WORK_SAVE_ALL))
                 {
-                    Action_Status = AXDR_ERR_CONFIG;
+                    Motor_Action_Response(&Msg, AXDR_ERR_CONFIG);
                 }
                 else
                 {
+                    /* Keep the original final ActionResponse after NVS finishes. */
                     Save_Action_Msg = Msg;
                     Save_Action_Pending = true;
                 }
-                Motor_Action_Response(&Msg, Action_Status);
                 break;
 
             default:
