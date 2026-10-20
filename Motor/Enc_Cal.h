@@ -21,6 +21,8 @@ bool Enc_Cal_Succeeded(void);
 bool Enc_Cal_Sensored(void);
 float Enc_Cal_Wm_Target(void);
 FAST_CODE Motor_Fast_Mode_e Enc_Cal_Fast_Run(float *Theta_e,
+                                            float *Id_Ref,
+                                            float *Iq_Ref,
                                             float *Ualpha,
                                             float *Ubeta);
 FAST_CODE void Enc_Cal_Sample(float Theta_Native);

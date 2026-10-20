@@ -50,6 +50,25 @@ void Current_Loop_State_Reset(void)
     Iq_LADRC.Sig.Ref_Dot = 0.0f;
 }
 
+/* Track the last VF voltage when the calibration re-enters current PI.
+ * The first FOC sample starts from the measured dq current, not stale VF-era PI states. */
+void Current_Loop_Track(float Id, float Iq, float Ud, float Uq)
+{
+    Id_Ctrl.Sig.Ref = Id;
+    Id_Ctrl.Sig.Fbk = Id;
+    Id_Ctrl.Sig.Err = 0.0f;
+    Id_Ctrl.Sig.Out = Ud;
+    Id_Ctrl.State.Int = Ud;
+    Id_Ctrl.State.Fbk_Pre = Id;
+
+    Iq_Ctrl.Sig.Ref = Iq;
+    Iq_Ctrl.Sig.Fbk = Iq;
+    Iq_Ctrl.Sig.Err = 0.0f;
+    Iq_Ctrl.Sig.Out = Uq;
+    Iq_Ctrl.State.Int = Uq;
+    Iq_Ctrl.State.Fbk_Pre = Iq;
+}
+
 void Current_Loop(float Id_Ref, float Iq_Ref, float U_Lim,
                   float Ud_FF, float Uq_FF,
                   float *Ud, float *Uq)

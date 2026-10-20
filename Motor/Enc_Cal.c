@@ -6,12 +6,14 @@
 #include "Enc_Cal.h"
 
 #include "Encoder.h"
+#include "Current_Loop.h"
 #include "Math.h"
 #include "Mechanical_ESO.h"
 #include "Motor_ADC.h"
 #include "Motor_Cal.h"
 #include "Motor_Control.h"
 #include "Motor_Para.h"
+#include "Motor_PWM.h"
 #include "Motion_Type.h"
 #include "NVS_Storage.h"
 #include "Parameter.h"
@@ -28,9 +30,8 @@
 #define ENC_CAL_SAMPLE_TS      (CUR_TS * (float)ENC_CAL_SAMPLE_DIV)
 #define ENC_CAL_SAMPLES        ((uint32_t)(6.0f / ENC_CAL_SAMPLE_TS + 0.5f))
 #define ENC_CAL_COEF_MAX       0.05f
-#define ENC_CAL_COAST_WM       2.0f
-#define ENC_CAL_COAST_HOLD_CNT ((uint32_t)(0.3f / SPD_TS + 0.5f))
-#define ENC_CAL_COAST_MAX_CNT  ((uint32_t)(30.0f / SPD_TS + 0.5f))
+#define ENC_CAL_STOP_WM        2.0f
+#define ENC_CAL_STOP_HOLD_CNT  ((uint32_t)(0.3f / SPD_TS + 0.5f))
 #define ENC_CAL_FIT_N          6U
 
 typedef enum
@@ -39,7 +40,7 @@ typedef enum
     CAL_SPEED,
     CAL_VF,
     CAL_SAMPLE,
-    CAL_COAST,
+    CAL_DECEL,
     CAL_PHASE,
 
 } Enc_Cal_Step_e;
@@ -76,7 +77,7 @@ bool Enc_Cal_Start(void)
 {
     if ((Step != CAL_IDLE) || (Motor_State_Get() != DISABLED) ||
         (Motor_Wm_Limit_Effective_Get() < ENC_CAL_WM) ||
-        (Motion_Config.Wm_Acc <= 0.0f) ||
+        (Motion_Config.Wm_Acc <= 0.0f) || (Motion_Config.Wm_Dec <= 0.0f) ||
         (Motor_Para.Flux <= 0.0f))
     {
         return false;
@@ -131,19 +132,26 @@ bool Enc_Cal_Succeeded(void)
 
 bool Enc_Cal_Sensored(void)
 {
-    return Step == CAL_SPEED;
+    return (Step == CAL_SPEED) || (Step == CAL_DECEL);
 }
 
 float Enc_Cal_Wm_Target(void)
 {
-    return ENC_CAL_WM;
+    return (Step == CAL_DECEL) ? 0.0f : ENC_CAL_WM;
 }
 
 Motor_Fast_Mode_e Enc_Cal_Fast_Run(float *Theta_e,
+                                   float *Id_Ref,
+                                   float *Iq_Ref,
                                    float *Ualpha,
                                    float *Ubeta)
 {
     float U_Target;
+
+    if (Step == CAL_PHASE)
+    {
+        return Servo_Phase_Fast_Run(Theta_e, Id_Ref, Iq_Ref, Ualpha, Ubeta);
+    }
 
     if ((Step != CAL_VF) && (Step != CAL_SAMPLE))
     {
@@ -349,23 +357,26 @@ void Enc_Cal_Run(void)
         return;
     }
 
+    /* A calibration stays RUN until its final disable, including zero-speed phasing. */
+    if (Motor_State_Get() != RUN)
+    {
+        Enc_Cal_Finish(false);
+        return;
+    }
+
     if (Step == CAL_PHASE)
     {
-        if (Motor_State_Get() == DISABLED)
+        if (!Servo_Phase_Active())
         {
-            bool Passed = Servo_Phase_Result_Valid() && (Motor_Cal.Valid != 0U);
+            /* Servo_Phase_Apply() deliberately writes only with PWM disabled. */
+            Motor_Disable();
+            bool Passed = Servo_Phase_Result_Valid() && Servo_Phase_Apply();
             if (!Passed)
             {
                 Motor_Cal.Valid = 0U;
             }
             Enc_Cal_Finish(Passed);
         }
-        return;
-    }
-
-    if ((Step != CAL_COAST) && (Motor_State_Get() != RUN))
-    {
-        Enc_Cal_Finish(false);
         return;
     }
 
@@ -419,23 +430,25 @@ void Enc_Cal_Run(void)
 
     if ((Step == CAL_SAMPLE) && (Sample_Cnt == ENC_CAL_SAMPLES))
     {
-        /* Stop VF before stationary alignment; the rotor may still be at 1000 RPM. */
-        Motor_Disable();
+        /* Re-enter sensored PI at the current VF operating point. */
+        Motor_Cal_Decel_Begin();
         Tick = 0U;
         Hold_Cnt = 0U;
-        Step = CAL_COAST;
+        Step = CAL_DECEL;
         return;
     }
 
-    if (Step == CAL_COAST)
+    if (Step == CAL_DECEL)
     {
-        if (++Tick >= ENC_CAL_COAST_MAX_CNT)
+        if (++Tick > (uint32_t)((1.875f * ENC_CAL_WM / Motion_Config.Wm_Dec +
+                                  4.0f) / SPD_TS))
         {
             Enc_Cal_Finish(false);
             return;
         }
 
-        if (__builtin_fabsf(Mechanical_ESO_Wm_Get()) < ENC_CAL_COAST_WM)
+        Wm = Mechanical_ESO_Wm_Get();
+        if (Motor_Cal_Decel_Done() && (__builtin_fabsf(Wm) < ENC_CAL_STOP_WM))
         {
             Hold_Cnt++;
         }
@@ -443,10 +456,15 @@ void Enc_Cal_Run(void)
         {
             Hold_Cnt = 0U;
         }
-        if (Hold_Cnt < ENC_CAL_COAST_HOLD_CNT)
+
+        if (Hold_Cnt < ENC_CAL_STOP_HOLD_CNT)
         {
             return;
         }
+
+        /* No uncontrolled coast: zero speed has been reached under PI.
+         * PWM may now be released while fitting and saving the invalid marker. */
+        PWM_Disable();
 
         if (!Enc_Cal_Fit(Coeff))
         {
@@ -454,8 +472,7 @@ void Enc_Cal_Run(void)
             return;
         }
 
-        /* Power loss must not recover a new harmonic model with the old
-         * electrical zero. Servo_Phase saves the complete set after alignment. */
+        /* Invalidate persistent electrical zero before replacing harmonics. */
         Motor_Cal.Valid = 0U;
         if (NVS_Storage_Save_Ids(&Valid_Id, 1U) != 0)
         {
@@ -471,17 +488,14 @@ void Enc_Cal_Run(void)
         Encoder_Harmonic.S2 = Coeff[3];
         __set_PRIMASK(Primask);
 
-        Motor_Mode = PHASE_SEARCH;
-        Motor_Enable();
-        if (Motor_State_Get() == ENABLED)
-        {
-            Motor_Start();
-        }
-        if (Motor_State_Get() != RUN)
+        Current_Loop_State_Reset();
+        if (!Servo_Phase_Start())
         {
             Enc_Cal_Finish(false);
             return;
         }
+
         Step = CAL_PHASE;
+        PWM_Enable();
     }
 }

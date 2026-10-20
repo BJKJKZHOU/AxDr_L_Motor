@@ -24,6 +24,7 @@
 #include "SCurve.h"
 #include "Sensorless.h"
 #include "Servo_Phase.h"
+#include "Sin_LUT.h"
 #include "Signal_Injection.h"
 #include "Trapezoid.h"
 #include "control_params.h"
@@ -137,6 +138,98 @@ static void Motion_State_Reset(void)
     Trapezoid_Reset(&Motion_Ref, Turn, Theta, 0.0f);
     SCurve = (SCurve_T){ 0 };
     Pos_Div = 0U;
+}
+
+/* Resume the existing SPEED controller from the live VF voltage/current.
+ * This runs at 2 kHz immediately before Enc_Cal switches its fast-loop path. */
+void Motor_Cal_Decel_Begin(void)
+{
+    float Wm;
+    float Theta_e;
+    float Ia;
+    float Ib;
+    float Ua;
+    float Ub;
+    float Sin;
+    float Cos;
+    float Ialpha;
+    float Ibeta;
+    float Id;
+    float Iq;
+    float Ud;
+    float Uq;
+    float Ud_FF = 0.0f;
+    float Uq_FF = 0.0f;
+    float Iq_Min;
+    float Iq_Max;
+    float U_Lim;
+    uint32_t Primask;
+    Motor_Limit_T Lim;
+
+    /* Snapshot ISR-published feedback and voltage as one control instant. */
+    Primask = __get_PRIMASK();
+    __disable_irq();
+    Wm = Mechanical_ESO.State.Wm;
+    Theta_e = Angle_Wrap((float)Motor_Para.Pp * Encoder.Theta_m + Motor_Cal.Theta_Off);
+    Ia = ADC.Ia_A;
+    Ib = ADC.Ib_A;
+    Ua = Motor_Run.Ualpha;
+    Ub = Motor_Run.Ubeta;
+    __set_PRIMASK(Primask);
+
+    SinCos(Theta_e, &Sin, &Cos);
+    Ialpha = Ia;
+    Ibeta = (Ia + 2.0f * Ib) * INV_SQRT3_F;
+    Id = Ialpha * Cos + Ibeta * Sin;
+    Iq = -Ialpha * Sin + Ibeta * Cos;
+    Ud = Ua * Cos + Ub * Sin;
+    Uq = -Ua * Sin + Ub * Cos;
+
+    if (Current_FF_Enable != 0U)
+    {
+        float We = (float)Motor_Para.Pp * Wm;
+        Ud_FF = -We * Motor_Para.Lq * Iq;
+        Uq_FF = We * (Motor_Para.Ld * Id + Motor_Para.Flux);
+    }
+
+    U_Lim = ADC.Vbus_V * INV_SQRT3_F * VOLT_MOD_MAX;
+    Ud -= Ud_FF;
+    Uq -= Uq_FF;
+    Limit_Value(&Ud, -U_Lim, U_Lim);
+    Limit_Value(&Uq, -U_Lim, U_Lim);
+
+    Current_Loop_State_Reset();
+    Current_Loop_Track(Id, Iq, Ud, Uq);
+    Current_Ref.Id = Id;
+    Current_Ref.Iq = Iq;
+
+    Ramp_Reset(&Motion_Ref, Wm);
+    SCurve = (SCurve_T){ 0 };
+    Wm_Ref = Wm;
+    We_Ref = (float)Motor_Para.Pp * Wm;
+
+    Motor_Limit_Get(&Lim);
+    Iq_Limit_Calc(&Iq_Min, &Iq_Max);
+    if (Iq_Min < -Lim.I_Max)
+    {
+        Iq_Min = -Lim.I_Max;
+    }
+    if (Iq_Max > Lim.I_Max)
+    {
+        Iq_Max = Lim.I_Max;
+    }
+    if (Iq_Min > Iq_Max)
+    {
+        Iq_Min = 0.0f;
+        Iq_Max = 0.0f;
+    }
+    Speed_Loop_Track(We_Ref, We_Ref, Iq, Iq_Min, Iq_Max);
+}
+
+bool Motor_Cal_Decel_Done(void)
+{
+    return (Motion_Ref.Wm == 0.0f) &&
+           ((Motion_Config.Profile == MOTION_TRAPEZOID) || (SCurve.Count == 0U));
 }
 
 static FAST_CODE bool Servo_Mode(void)
@@ -558,7 +651,7 @@ Motor_Fast_Mode_e Motor_Fast_Run(float Encoder_Theta_e,
                 *Iq_Ref = Current_Ref.Iq;
                 return FAST_CURRENT;
             }
-            return Enc_Cal_Fast_Run(Theta_e, Ualpha, Ubeta);
+            return Enc_Cal_Fast_Run(Theta_e, Id_Ref, Iq_Ref, Ualpha, Ubeta);
 
         case IDENT:
             return Identification_Fast_Run(ADC.Ia_A,
