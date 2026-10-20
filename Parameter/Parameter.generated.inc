@@ -569,6 +569,11 @@ case ACTION_SIGNAL_ABORT:
     Msg.Arg = (ULONG)0U;
     break;
 
+case ACTION_ENC_CAL_START:
+    Msg.Cmd = (ULONG)MOTOR_CMD_ENC_CAL_START;
+    Msg.Arg = (ULONG)0U;
+    break;
+
 #elif defined(PARAM_GENERATE_PLOT)
 case PARAM_ADC_IA:
     *Scale = 0.001f;

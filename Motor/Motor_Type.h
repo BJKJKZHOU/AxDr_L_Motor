@@ -25,6 +25,7 @@ typedef enum
     IDENT,
     SENSORLESS_SPEED,
     PHASE_SEARCH,
+    ENC_CAL, /* Internal automatic calibration, not a user-selectable mode. */
 
 } Motor_Mode_e;
 

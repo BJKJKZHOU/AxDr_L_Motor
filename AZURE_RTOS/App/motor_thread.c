@@ -9,6 +9,7 @@
 #include <string.h>
 
 #include "Motor_Control.h"
+#include "Enc_Cal.h"
 #include "NVS_Storage.h"
 #include "Parameter.h"
 #include "Plot.h"
@@ -36,6 +37,8 @@ static bool Ident_Action_Pending = false;
 static Motor_Cmd_Msg_T Ident_Action_Msg = { 0 };
 static bool Phase_Action_Pending = false;
 static Motor_Cmd_Msg_T Phase_Action_Msg = { 0 };
+static bool Cal_Action_Pending = false;
+static Motor_Cmd_Msg_T Cal_Action_Msg = { 0 };
 
 static void Motor_Entry(ULONG thread_input);
 
@@ -128,6 +131,13 @@ static void Motor_Async_Action_Poll(void)
                               Servo_Phase_Result_Valid() ? AXDR_OK : AXDR_ERR_CONFIG);
         Phase_Action_Pending = false;
     }
+
+    if (Cal_Action_Pending && !Enc_Cal_Active())
+    {
+        Motor_Action_Complete(&Cal_Action_Msg,
+                              Enc_Cal_Succeeded() ? AXDR_OK : AXDR_ERR_CONFIG);
+        Cal_Action_Pending = false;
+    }
 }
 
 static void Motor_Cmd_Run(void)
@@ -182,13 +192,16 @@ static void Motor_Cmd_Run(void)
                 break;
 
             case MOTOR_CMD_STOP:
-                /*
-                 * Stop is idempotent at the Action boundary.
-                 * RUN starts the mode-specific stop flow; ENABLED/DISABLED
-                 * already satisfy the requested stopped state.
-                 */
-                Motor_Stop();
-                Motor_Action_Response(&Msg, AXDR_OK);
+                /* Calibration is one autonomous operation, not a run mode. */
+                if (Enc_Cal_Active())
+                {
+                    Motor_Action_Response(&Msg, AXDR_ERR_STATE);
+                }
+                else
+                {
+                    Motor_Stop();
+                    Motor_Action_Response(&Msg, AXDR_OK);
+                }
                 break;
 
             case MOTOR_CMD_DISABLE:
@@ -214,6 +227,10 @@ static void Motor_Cmd_Run(void)
                 break;
 
             case MOTOR_CMD_RUN_TOGGLE:
+                if (Enc_Cal_Active())
+                {
+                    break;
+                }
                 State = Motor_State_Get();
 
                 if (State == ENABLED)
@@ -249,6 +266,24 @@ static void Motor_Cmd_Run(void)
                         continue;
                 }
                 (void)Parameter_Write(PARAM_MOTOR_MODE, PARAM_U8, Parameter_Value);
+                break;
+
+            case MOTOR_CMD_ENC_CAL_START:
+                Action_Status = AXDR_OK;
+                if ((Motor_State_Get() != DISABLED) || !Protection_Enable_Allowed())
+                {
+                    Action_Status = AXDR_ERR_STATE;
+                }
+                else if (!Enc_Cal_Start())
+                {
+                    Action_Status = AXDR_ERR_CONFIG;
+                }
+                else
+                {
+                    Cal_Action_Msg = Msg;
+                    Cal_Action_Pending = true;
+                }
+                Motor_Action_Response(&Msg, Action_Status);
                 break;
 
             case MOTOR_CMD_IDENT_START:
@@ -462,6 +497,7 @@ static void Motor_Entry(ULONG thread_input)
 
             T0 = DWT->CYCCNT;
             Motor_Control();
+            Enc_Cal_Run();
             Cyc = DWT->CYCCNT - T0;
             Motor_Time_Set(Cyc, &Motor_Time.Control_Cyc, &Motor_Time.Control_Max);
 

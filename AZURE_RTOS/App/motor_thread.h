@@ -36,6 +36,7 @@ typedef enum
     MOTOR_CMD_SIGNAL_START,
     MOTOR_CMD_SIGNAL_ABORT,
     MOTOR_CMD_MODE_NEXT,
+    MOTOR_CMD_ENC_CAL_START,
 
 } Motor_Cmd_e;
 

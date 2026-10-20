@@ -10,6 +10,7 @@
 #include "Math.h"
 #include "Current_Loop.h"
 #include "Encoder.h"
+#include "Enc_Cal.h"
 #include "Flux.h"
 #include "Mechanical_ESO.h"
 #include "Motor_ADC.h"
@@ -239,6 +240,11 @@ void Motor_Control(void)
         return;
     }
 
+    if ((Motor_Mode == ENC_CAL) && !Enc_Cal_Sensored())
+    {
+        return;
+    }
+
     Motor_Limit_Get(&Lim);
 
     switch (Motor_Mode)
@@ -381,8 +387,10 @@ void Motor_Control(void)
             return;
 
         case SPEED:
-            Wm_Target = ((Motor_State == RUN) && !Stop_Pending) ?
-                        Motor_User_To_Internal(Motor_Cmd.Wm_Target) : 0.0f;
+        case ENC_CAL:
+            Wm_Target = (Motor_Mode == ENC_CAL) ? Enc_Cal_Wm_Target() :
+                        (((Motor_State == RUN) && !Stop_Pending) ?
+                         Motor_User_To_Internal(Motor_Cmd.Wm_Target) : 0.0f);
             Limit_Value(&Wm_Target, -Lim.Wm_Max, Lim.Wm_Max);
             if (Motion_Config.Profile == MOTION_TRAPEZOID)
             {
@@ -398,8 +406,9 @@ void Motor_Control(void)
 
             /* Speed FRF bypasses the motion ramp, not the current loop. */
             Speed_Inj = 0.0f;
-            if (Signal_Injection.State.Active != 0U &&
-                Signal_Injection.State.Target == SIGNAL_SPEED)
+            if ((Motor_Mode == SPEED) &&
+                (Signal_Injection.State.Active != 0U) &&
+                (Signal_Injection.State.Target == SIGNAL_SPEED))
             {
                 if (((Motor_State == ENABLED) || (Motor_State == RUN)) && !Stop_Pending)
                 {
@@ -412,7 +421,7 @@ void Motor_Control(void)
                 }
             }
 
-            if (Stop_Pending && (Motion_Ref.Wm == 0.0f) &&
+            if ((Motor_Mode == SPEED) && Stop_Pending && (Motion_Ref.Wm == 0.0f) &&
                 ((Motion_Config.Profile == MOTION_TRAPEZOID) || (SCurve.Count == 0U)))
             {
                 Stop_Pending = false;
@@ -540,6 +549,17 @@ Motor_Fast_Mode_e Motor_Fast_Run(float Encoder_Theta_e,
         case OPEN_LOOP:
             return Open_Loop(We_Ref, Theta_e, Id_Ref, Iq_Ref, Ualpha, Ubeta);
 
+        case ENC_CAL:
+            if (Enc_Cal_Sensored())
+            {
+                *Theta_e = Encoder_Park_Valid ? Encoder_Theta_e :
+                           Angle_Wrap((float)Motor_Para.Pp * Motor_Run.Theta_m + Motor_Cal.Theta_Off);
+                *Id_Ref = Current_Ref.Id;
+                *Iq_Ref = Current_Ref.Iq;
+                return FAST_CURRENT;
+            }
+            return Enc_Cal_Fast_Run(Theta_e, Ualpha, Ubeta);
+
         case IDENT:
             return Identification_Fast_Run(ADC.Ia_A,
                                            ADC.Ib_A,
@@ -606,7 +626,7 @@ Motor_Position_T Motor_Position_Ref_Get(void)
 
 bool Motor_Encoder_Required(void)
 {
-    return Servo_Mode() || (Motor_Mode == PHASE_SEARCH);
+    return Servo_Mode() || (Motor_Mode == PHASE_SEARCH) || (Motor_Mode == ENC_CAL);
 }
 
 void Motor_Enable(void)
@@ -623,7 +643,7 @@ void Motor_Enable(void)
         return;
     }
 
-    if (Servo_Mode() && (Motor_Cal.Valid == 0U))
+    if ((Servo_Mode() || (Motor_Mode == ENC_CAL)) && (Motor_Cal.Valid == 0U))
     {
         return;
     }
@@ -631,7 +651,7 @@ void Motor_Enable(void)
     Current_Ref.Id = 0.0f;
     Current_Ref.Iq = 0.0f;
 
-    if (Servo_Mode())
+    if (Servo_Mode() || (Motor_Mode == ENC_CAL))
     {
         if (Mechanical_ESO.Para.Valid == 0U)
         {
@@ -647,7 +667,7 @@ void Motor_Enable(void)
     Motor_Run.Ualpha = 0.0f;
     Motor_Run.Ubeta = 0.0f;
 
-    if (Servo_Mode())
+    if (Servo_Mode() || (Motor_Mode == ENC_CAL))
     {
         PWM_Enable();
     }
@@ -697,7 +717,7 @@ void Motor_Start(void)
         }
     }
 
-    if (!Servo_Mode())
+    if (!Servo_Mode() && (Motor_Mode != ENC_CAL))
     {
         PWM_Enable();
     }

@@ -1359,3 +1359,11 @@ objects:
     command: MOTOR_CMD_SIGNAL_ABORT
     label: Signal Abort
     description: "立即取消激励，不改变正常Motor Stop/Disable状态。"
+
+  ACTION_ENC_CAL_START:
+    id: 0x1401
+    type: action
+    access: wo
+    command: MOTOR_CMD_ENC_CAL_START
+    label: Encoder Calibration
+    description: "固件自动执行有感升速、VF采样辨识、应用谐波补偿及重新寻相保存。"

@@ -84,6 +84,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Sensorless/VF.c
     Sensorless/Open_Loop.c
     Motor/Servo_Phase.c
+    Motor/Enc_Cal.c
     Motor/Motor_PWM.c
     Motor/Motor_Control.c
     Parameter/Parameter.c

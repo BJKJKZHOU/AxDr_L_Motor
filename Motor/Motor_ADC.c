@@ -10,6 +10,7 @@
 #include "Plot.h"
 #include "Current_Loop.h"
 #include "Encoder.h"
+#include "Enc_Cal.h"
 #include "Mechanical_ESO.h"
 #include "Math.h"
 #include "Motor_Control.h"
@@ -397,7 +398,9 @@ void Fast_Loop(void)
         U_Lim = ADC.Vbus_V * INV_SQRT3_F * VOLT_MOD_MAX;
         Ud_FF = 0.0f;
         Uq_FF = 0.0f;
-        if ((Current_FF_Enable != 0U) && (Motor_Mode <= POSITION) && Encoder_Park_Valid)
+        if ((Current_FF_Enable != 0U) &&
+            ((Motor_Mode <= POSITION) || ((Motor_Mode == ENC_CAL) && Enc_Cal_Sensored())) &&
+            Encoder_Park_Valid)
         {
             float We = (float)Motor_Para.Pp * Mechanical_ESO.State.Wm;
 
@@ -441,6 +444,11 @@ void Fast_Loop(void)
     if (!ADC_Phase_Set(Next_Sample))
     {
         goto finish;
+    }
+
+    if (Motor_Mode == ENC_CAL)
+    {
+        Enc_Cal_Sample(Encoder.Theta_Native);
     }
 
 finish:

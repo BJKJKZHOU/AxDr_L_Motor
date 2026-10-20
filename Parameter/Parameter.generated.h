@@ -388,6 +388,9 @@ typedef enum
     /* MOTOR_CMD_SIGNAL_ABORT: 立即取消激励，不改变正常Motor Stop/Disable状态。 */
     ACTION_SIGNAL_ABORT = 0x1302U,
 
+    /* MOTOR_CMD_ENC_CAL_START: 固件自动执行有感升速、VF采样辨识、应用谐波补偿及重新寻相保存。 */
+    ACTION_ENC_CAL_START = 0x1401U,
+
 } Parameter_Id_e;
 
 #endif /* PARAMETER_GENERATED_H */
