@@ -143,14 +143,6 @@ static void Motor_Async_Action_Poll(void)
             Motor_Action_Complete(&Phase_Action_Msg, AXDR_ERR_CONFIG);
             Phase_Action_Pending = false;
         }
-        else if (Motor_Work_State == MOTOR_WORK_IDLE)
-        {
-            if (!Motor_Work_Request(MOTOR_WORK_SAVE_CAL))
-            {
-                Motor_Action_Complete(&Phase_Action_Msg, AXDR_ERR_CONFIG);
-                Phase_Action_Pending = false;
-            }
-        }
         else if (Motor_Work_State >= MOTOR_WORK_DONE)
         {
             Motor_Action_Complete(&Phase_Action_Msg,
@@ -188,7 +180,15 @@ static void Motor_Async_Action_Poll(void)
             Motor_Work_Ack();
         }
     }
+    /* Panel-triggered PHASE_SEARCH has no Action context, but still saves. */
+    if (!Phase_Action_Pending && !Cal_Action_Pending && !Save_Action_Pending &&
+        ((Enc_Cal.Step < CAL_SPEED) || (Enc_Cal.Step >= CAL_DONE)) &&
+        (Motor_Work_State >= MOTOR_WORK_DONE))
+    {
+        Motor_Work_Ack();
+    }
 }
+
 
 static void Motor_Cmd_Run(void)
 {

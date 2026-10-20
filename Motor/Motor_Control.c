@@ -250,7 +250,10 @@ void Motor_Control(void)
             {
                 /* Phase calibration is applied only while DISABLED. */
                 Disable_Apply();
-                (void)Servo_Phase_Apply();
+                if (Servo_Phase_Apply() && !Motor_Work_Request(MOTOR_WORK_SAVE_CAL))
+                {
+                    Motor_Cal.Valid = 0U;
+                }
             }
         }
 
