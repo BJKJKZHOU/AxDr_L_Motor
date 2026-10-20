@@ -468,6 +468,68 @@ objects:
       readback: [PARAM_ENCODER_READY, PARAM_ENCODER_VALID, PARAM_ENCODER_FAULT]
 
 
+  PARAM_ENCODER_THETA_NATIVE:
+    id: 0x0311
+    type: f32
+    access: ro
+    binding: Encoder.Theta_Native
+    label: Encoder Native Angle
+    unit: rad
+    description: "方向和谐波补偿之前的原生机械角度。"
+    plot: { modes: [fast, normal], fast_scale: 0.0002 }
+
+  PARAM_ENCODER_HARMONIC_C1:
+    id: 0x0312
+    type: f32
+    access: rw
+    persistent: true
+    binding: Encoder_Harmonic.C1
+    label: Encoder Harmonic C1
+    unit: rad
+    description: "原生机械角度Cos 1谐波误差系数；写入使电角零位失效。"
+    write_state: disabled
+    range: { min: -0.05, max: 0.05 }
+    on_change: ENCODER_HARMONIC
+
+  PARAM_ENCODER_HARMONIC_S1:
+    id: 0x0313
+    type: f32
+    access: rw
+    persistent: true
+    binding: Encoder_Harmonic.S1
+    label: Encoder Harmonic S1
+    unit: rad
+    description: "原生机械角度Sin 1谐波误差系数；写入使电角零位失效。"
+    write_state: disabled
+    range: { min: -0.05, max: 0.05 }
+    on_change: ENCODER_HARMONIC
+
+  PARAM_ENCODER_HARMONIC_C2:
+    id: 0x0314
+    type: f32
+    access: rw
+    persistent: true
+    binding: Encoder_Harmonic.C2
+    label: Encoder Harmonic C2
+    unit: rad
+    description: "原生机械角度Cos 2谐波误差系数；写入使电角零位失效。"
+    write_state: disabled
+    range: { min: -0.05, max: 0.05 }
+    on_change: ENCODER_HARMONIC
+
+  PARAM_ENCODER_HARMONIC_S2:
+    id: 0x0315
+    type: f32
+    access: rw
+    persistent: true
+    binding: Encoder_Harmonic.S2
+    label: Encoder Harmonic S2
+    unit: rad
+    description: "原生机械角度Sin 2谐波误差系数；写入使电角零位失效。"
+    write_state: disabled
+    range: { min: -0.05, max: 0.05 }
+    on_change: ENCODER_HARMONIC
+
   PARAM_PHASE_I_SEARCH:
     id: 0x0401
     type: f32
@@ -628,6 +690,17 @@ objects:
     description: "当前选择的电机控制模式；与TORQUE/SPEED/POSITION/OPEN_LOOP/IDENT/SENSORLESS_SPEED/PHASE_SEARCH对应。"
     write_state: disabled
     allowed_symbols: [TORQUE, SPEED, POSITION, OPEN_LOOP, IDENT, SENSORLESS_SPEED, PHASE_SEARCH]
+
+  PARAM_OPEN_LOOP_METHOD:
+    id: 0x0705
+    type: u8
+    access: rw
+    persistent: true
+    binding: Open_Loop_Method
+    label: Open-loop Method
+    description: "开环运行方法：IF或VF；在Disabled下选择，IF为默认。"
+    write_state: disabled
+    allowed_symbols: [OPEN_LOOP_IF, OPEN_LOOP_VF]
 
   PARAM_TARGET_TORQUE:
     id: 0x0702
@@ -1286,3 +1359,11 @@ objects:
     command: MOTOR_CMD_SIGNAL_ABORT
     label: Signal Abort
     description: "立即取消激励，不改变正常Motor Stop/Disable状态。"
+
+  ACTION_ENC_CAL_START:
+    id: 0x1401
+    type: action
+    access: wo
+    command: MOTOR_CMD_ENC_CAL_START
+    label: Encoder Calibration
+    description: "固件自动执行有感升速、VF采样辨识、应用谐波补偿及重新寻相保存。"

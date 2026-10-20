@@ -80,15 +80,17 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Motor/Current_Loop.c
     Motor/Signal_Injection.c
     Motor/Motion_Loop.c
-    Motor/Align.c
-    Motor/VF.c
-    Motor/Open_Loop.c
+    Sensorless/Align.c
+    Sensorless/VF.c
+    Sensorless/Open_Loop.c
     Motor/Servo_Phase.c
+    Motor/Enc_Cal.c
     Motor/Motor_PWM.c
     Motor/Motor_Control.c
     Parameter/Parameter.c
     Storage/Flash_Storage.c
     Storage/NVS_Storage.c
+    AZURE_RTOS/App/motor_work.c
     BSP/RGB.c
     BSP/ST7789.c
     BSP/LCD_Wave.c
@@ -115,6 +117,7 @@ endif()
 
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
+    AZURE_RTOS/App
     Algo
     BSP
     Comm

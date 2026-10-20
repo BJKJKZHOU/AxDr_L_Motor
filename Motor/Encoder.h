@@ -60,6 +60,17 @@ typedef struct
 extern Encoder_Config_T Encoder_Config;
 extern volatile Encoder_T Encoder;
 
+typedef struct
+{
+    float C1;
+    float S1;
+    float C2;
+    float S2;
+} Encoder_Harmonic_T;
+
+extern Encoder_Harmonic_T Encoder_Harmonic;
+FAST_CODE float Encoder_Angle_Correct(float Theta_Native);
+
 void Encoder_DMA_Config(void);
 FAST_CODE void Encoder_DMA_IRQHandler(void);
 FAST_CODE void Encoder_Start(void);

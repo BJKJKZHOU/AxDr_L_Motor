@@ -56,6 +56,7 @@ bool Servo_Phase_Start(void);
 void Servo_Phase_Abort(void);
 bool Servo_Phase_Active(void);
 bool Servo_Phase_Apply(void);
+bool Servo_Phase_Save(void);
 const Servo_Phase_Result_T *Servo_Phase_Last_Result_Get(void);
 
 static inline bool Servo_Phase_Result_Valid(void)
