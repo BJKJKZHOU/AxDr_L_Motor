@@ -11,7 +11,6 @@
 #include "Math.h"
 #include "Mechanical_ESO.h"
 #include "Motion_Loop.h"
-#include "Motor_Cal.h"
 #include "control_params.h"
 #include "motor_params.h"
 #include "main.h"
@@ -105,10 +104,6 @@ bool Motor_Para_Update(const Motor_Para_T *Para, float Eso_Bw_Hz)
      * publish its model and coefficients together without touching State. */
     Primask = __get_PRIMASK();
     __disable_irq();
-    if (Para->Pp != Motor_Para.Pp)
-    {
-        Motor_Cal_Invalidate();
-    }
     Motor_Para = *Para;
     Mechanical_ESO_Bw_Hz = Eso_Bw_Hz;
     Mechanical_ESO.Para = Eso;
