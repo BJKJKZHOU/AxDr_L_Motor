@@ -31,22 +31,12 @@ float Handover_Angle_Diff(float A, float B)
 
 void Handover_Reset(Handover_T *Handover)
 {
-    if (Handover == 0)
-    {
-        return;
-    }
-
     Handover_Compare_Reset(Handover);
     Handover->Blend_Cnt = 0U;
 }
 
 void Handover_Compare_Reset(Handover_T *Handover)
 {
-    if (Handover == 0)
-    {
-        return;
-    }
-
     Handover->We_Err_F = 0.0f;
     Handover->We_Err2_F = 0.0f;
     Handover->PLL_Err2_F = 0.0f;
@@ -64,11 +54,6 @@ void Handover_Speed_Compare(Handover_T *Handover,
 {
     float We_Err;
     float PLL_Err2;
-
-    if (Handover == 0)
-    {
-        return;
-    }
 
     We_Err = We_Obs - We_Ref;
     PLL_Err2 = PLL_Err * PLL_Err;
@@ -97,11 +82,6 @@ void Handover_Source_Compare(Handover_T *Handover,
 {
     float Theta_Err;
     float Theta_Ripple;
-
-    if (Handover == 0)
-    {
-        return;
-    }
 
     if (!__builtin_isfinite(Theta_Source) || !__builtin_isfinite(We_Source) ||
         !__builtin_isfinite(Theta_Obs) || !__builtin_isfinite(We_Obs) ||
@@ -137,7 +117,7 @@ bool Handover_Speed_Stable(const Handover_T *Handover,
 {
     float We_Scale;
 
-    if ((Handover == 0) || !Handover->Speed_Valid ||
+    if (!Handover->Speed_Valid ||
         !__builtin_isfinite(Handover->We_Err_F) ||
         !__builtin_isfinite(Handover->We_Err2_F) ||
         !__builtin_isfinite(Handover->PLL_Err2_F))
@@ -176,11 +156,6 @@ bool Handover_Source_Stable(const Handover_T *Handover,
 
 void Handover_Qualification_Accumulate(uint32_t *Count, uint32_t Limit, bool Good)
 {
-    if (Count == 0)
-    {
-        return;
-    }
-
     if (Good)
     {
         if (*Count < Limit)
@@ -196,10 +171,7 @@ void Handover_Qualification_Accumulate(uint32_t *Count, uint32_t Limit, bool Goo
 
 void Handover_Blend_Reset(Handover_T *Handover)
 {
-    if (Handover != 0)
-    {
-        Handover->Blend_Cnt = 0U;
-    }
+    Handover->Blend_Cnt = 0U;
 }
 
 bool Handover_Blend_Run(Handover_T *Handover,
@@ -217,11 +189,6 @@ bool Handover_Blend_Run(Handover_T *Handover,
     float Diff;
     float Sin;
     float Cos;
-
-    if ((Handover == 0) || (Theta_Use == 0) || (Id_Ref == 0) || (Iq_Ref == 0))
-    {
-        return false;
-    }
 
     Blend = (Blend_Limit > 0U) ? (float)(Handover->Blend_Cnt + 1U) / (float)Blend_Limit : 1.0f;
     if (Blend > 1.0f)

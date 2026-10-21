@@ -276,7 +276,6 @@ Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
     {
         return Flux_Fast_Run(Ia_A,
                              Ib_A,
-                             Ic_A,
                              Theta_e,
                              Id_Ref,
                              Iq_Ref,

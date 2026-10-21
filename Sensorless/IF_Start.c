@@ -5,8 +5,6 @@
 
 #include "IF_Start.h"
 
-#include <stddef.h>
-
 #include "Math.h"
 
 /*
@@ -34,16 +32,7 @@ static void IF_Fail(IF_T *IF)
 
 void IF_Init(IF_T *IF, float Theta_Start, float We_Start)
 {
-    IF_Para_T Para;
-
-    if (IF == NULL)
-    {
-        return;
-    }
-
-    Para = IF->Para;
     IF->State = (IF_State_T){ 0 };
-    IF->Para = Para;
     IF->State.Theta_e = Angle_Wrap(Theta_Start);
     IF->State.We = We_Start;
     IF->State.We_Target = We_Start;
@@ -65,15 +54,13 @@ void IF_Init(IF_T *IF, float Theta_Start, float We_Start)
         return;
     }
 
-    IF->State.Iq_Work_A = IF->Para.Iq_Min_A;
     IF->State.Iq = 0.0f;
     IF->State.Mode = IF_HOLD;
 }
 
 void IF_Target_Set(IF_T *IF, float We_Target)
 {
-    if ((IF == NULL) || !__builtin_isfinite(We_Target) ||
-        (IF->State.Mode == IF_FAILED))
+    if (!__builtin_isfinite(We_Target) || (IF->State.Mode == IF_FAILED))
     {
         return;
     }
@@ -83,10 +70,6 @@ void IF_Target_Set(IF_T *IF, float We_Target)
 }
 
 void IF_Run(IF_T *IF,
-            float Id_A,
-            float Iq_A,
-            float Ud_V,
-            float Uq_V,
             float *Theta_e,
             float *Id_Ref,
             float *Iq_Ref,
@@ -95,18 +78,6 @@ void IF_Run(IF_T *IF,
     float Iq_Target;
     float Iq_Step;
     float We_Step;
-
-    /* Standard I/F does not adapt its trajectory from runtime feedback. */
-    (void)Id_A;
-    (void)Iq_A;
-    (void)Ud_V;
-    (void)Uq_V;
-
-    if ((IF == NULL) || (Theta_e == NULL) || (Id_Ref == NULL) || (Iq_Ref == NULL) ||
-        (Ts <= 0.0f) || !__builtin_isfinite(Ts))
-    {
-        return;
-    }
 
     if (!__builtin_isfinite(IF->State.Theta_e) ||
         !__builtin_isfinite(IF->State.We) ||

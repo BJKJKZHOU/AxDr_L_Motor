@@ -201,9 +201,6 @@ bool Sensorless_Begin(void)
     Sensorless_IF.Para.We_Base = We_Obs_Enter;
     Sensorless_IF.Para.Acc = (float)Motor_Para.Pp * Am_IF;
     Sensorless_IF.Para.Iq_Slew_A_S = IF_IQ_SLEW_A_S;
-    Sensorless_IF.Para.Rs_Ohm = Motor_Para.Rs;
-    Sensorless_IF.Para.Ld_H = Motor_Para.Ld;
-    Sensorless_IF.Para.Lq_H = Motor_Para.Lq;
 
     if (!__builtin_isfinite(Sensorless_IF.Para.Acc) ||
         (Sensorless_IF.Para.Acc <= 0.0f))
@@ -338,10 +335,6 @@ void Sensorless_Run(float Ia_A, float Ib_A, float We_Target, float *Theta_e, flo
     {
         IF_Target_Set(&Sensorless_IF, IF_Target(We_Target));
         IF_Run(&Sensorless_IF,
-               Motor_Run.Id,
-               Motor_Run.Iq,
-               Motor_Run.Ud,
-               Motor_Run.Uq,
                &Theta_IF,
                &Id_IF,
                &Iq_IF,

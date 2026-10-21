@@ -17,7 +17,7 @@
 
 #define MOTOR_IF_U_BUDGET_RATIO  0.65f
 #define MOTOR_IF_I_START_A       1.0f
-#define MOTOR_IF_WE_RL_RATIO     0.02f
+#define MOTOR_IF_WE_RL_RATIO     0.15f
 #define MOTOR_IF_WE_MARGIN_RATIO 0.25f
 #define MOTOR_IF_WE_MIN_RAD_S    1.0f
 #define MOTOR_IF_RAMP_TIME_S     6.0f

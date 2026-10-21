@@ -47,20 +47,12 @@ SIGNALS = {
     "handover_we_err_f": ("gdb:'Identification/Flux.c'::Handover.We_Err_F", "f32", "main"),
     "handover_we_err2_f": ("gdb:'Identification/Flux.c'::Handover.We_Err2_F", "f32", "main"),
     "handover_pll_err2_f": ("gdb:'Identification/Flux.c'::Handover.PLL_Err2_F", "f32", "main"),
-    "handover_theta_err_f": ("gdb:'Identification/Flux.c'::Handover.Theta_Err_F", "f32", "main"),
-    "handover_theta_err2_f": ("gdb:'Identification/Flux.c'::Handover.Theta_Err2_F", "f32", "main"),
     "handover_speed_valid": ("gdb:'Identification/Flux.c'::Handover.Speed_Valid", "u8", "main"),
-    "handover_theta_valid": ("gdb:'Identification/Flux.c'::Handover.Theta_Valid", "u8", "main"),
     "est_flux": ("gdb:Flux_Estimator.State.Flux", "f32", "main"),
     "emf_ratio": ("nm:Emf_Ratio_F", "f32", "main"),
     "emf_valid": ("nm:Emf_Valid", "u8", "main"),
     "obs_active": ("nm:Obs_Active", "u8", "main"),
     "pll_active": ("nm:PLL_Active", "u8", "main"),
-    "obs_control": ("nm:Obs_Control", "u8", "main"),
-    "work_reached": ("nm:Work_Point_Reached", "u8", "main"),
-    "motion_armed": ("nm:Motion_Lost_Armed", "u8", "main"),
-    "motion_lost_cnt": ("nm:Motion_Lost_Cnt", "u32", "main"),
-    "handover_ready_cnt": ("nm:Handover_Ready_Cnt", "u32", "main"),
     "blend_cnt": ("gdb:'Identification/Flux.c'::Handover.Blend_Cnt", "u32", "main"),
     "vbus_v": ("gdb:ADC.Vbus_V", "f32", "main"),
     "ia_a": ("gdb:ADC.Ia_A", "f32", "main"),
@@ -326,7 +318,6 @@ def main():
                         f"We_IF={main_values['if_we']:.1f} "
                         f"We_obs={main_values['we_obs']:.1f} "
                         f"EMF={main_values['emf_ratio']:.3f} "
-                        f"lost={main_values['motion_lost_cnt']} "
                         f"plot_drop={aux['plot_fast_drop']}/{aux['plot_normal_drop']}",
                         flush=True,
                     )

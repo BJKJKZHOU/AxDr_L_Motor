@@ -444,9 +444,6 @@ bool JB_Start(float Wm_Target)
     JB_IF.Para.We_Base = Start_Para.We_Base;
     JB_IF.Para.Acc = Abs_Value(We_Startup) / JB_OPEN_ACCEL_S;
     JB_IF.Para.Iq_Slew_A_S = IF_IQ_SLEW_A_S;
-    JB_IF.Para.Rs_Ohm = Motor_Para.Rs;
-    JB_IF.Para.Ld_H = Motor_Para.Ld;
-    JB_IF.Para.Lq_H = Motor_Para.Lq;
 
     Ident_Observer.Para.Rs = Motor_Para.Rs;
     Ident_Observer.Para.Ls = Motor_Para.Ld;
@@ -624,10 +621,6 @@ Motor_Fast_Mode_e JB_Fast_Run(float Ia_A,
         }
 
         IF_Run(&JB_IF,
-               Id_Open,
-               Iq_Open,
-               Ud_Open,
-               Uq_Open,
                &Theta_Open,
                &Id_Open,
                &Iq_Open,
