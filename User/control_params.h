@@ -105,9 +105,6 @@
 #define IDENT_RL_IAC_RATIO 0.35f
 #define IDENT_RL_IAC_MIN_A 0.04f
 
-/* Flux/JB working current in A, independent of the protection limit. */
-#define IDENT_IQ_MAX_A 0.7f
-
 /*
  * Mechanical-speed reference profile.
  * Acc/Dec are positive magnitudes in mechanical rad/s^2. Reversal always

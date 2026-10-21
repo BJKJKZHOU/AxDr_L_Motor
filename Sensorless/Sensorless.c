@@ -21,7 +21,7 @@
 #include "control_params.h"
 
 #define FLUX_OBS_BW_HZ 200.0f
-#define PLL_BW_HZ      50.0f
+#define PLL_BW_HZ      65.0f
 #define PLL_DAMP       0.707f
 #define PLL_WN         (TWO_PI_F * PLL_BW_HZ)
 #define PLL_KP         (2.0f * PLL_DAMP * PLL_WN)
@@ -104,7 +104,7 @@ bool Sensorless_Begin(void)
     Obs_Id_Ref = 0.0f;
     Obs_Iq_Ref = 0.0f;
     Theta_Use_Last = 0.0f;
-    Handover_Reset(&Handover);
+    Handover_Blend_Reset(&Handover);
     Sensorless_IF = (IF_T){ 0 };
 
     Align_Reset();
