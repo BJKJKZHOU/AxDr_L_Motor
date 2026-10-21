@@ -15,9 +15,7 @@
 #include "Sin_LUT.h"
 #include "control_params.h"
 
-#define RS_LS_PROBE_FREQ_HZ       100.0f
-#define RS_LS_PROBE_FREQ_STEP_HZ  100.0f
-#define RS_LS_PROBE_FREQ_MAX_HZ   300.0f
+#define RS_LS_PROBE_FREQ_HZ       300.0f
 #define RS_LS_FREQ_MIN_HZ         20.0f
 #define RS_LS_FREQ_MAX_HZ         500.0f
 #define RS_LS_FREQ_RL_RATIO       0.5f
@@ -67,7 +65,6 @@ static Rs_Ls_Result_T Result;
 static uint32_t Cnt;
 static float Phase;
 static float Phase_Step;
-static float Probe_Freq;
 static uint32_t Sample_Per_Cycle;
 static float U_Hold;
 static float U_DC;
@@ -87,15 +84,11 @@ static uint32_t Coh_Cnt;
 static float Coh_I_Pow;
 
 static float I_Noise;
-static float SNR_Pow;
-static float Coh_Sq;
 
 static float Rs_A;
 static float Ls_A;
 static float Rs_B;
 static float Ls_B;
-static float Rs_C;
-static float Ls_C;
 
 static bool RL_Temporary;
 static bool Align_Pending;
@@ -118,11 +111,6 @@ static void Frequency_Set(float Freq_Target)
     }
 
     Sample_Per_Cycle = (uint32_t)(CUR_FREQ_HZ_DEFAULT / Freq_Target + 0.5f);
-
-    if (Sample_Per_Cycle == 0U)
-    {
-        Sample_Per_Cycle = 1U;
-    }
 
     Phase_Step = TWO_PI_F / (float)Sample_Per_Cycle;
 }
@@ -289,18 +277,13 @@ static float Repeat_Ratio(float A, float B)
         Diff = -Diff;
     }
 
-    return (Ref > 0.0f) ? (Diff / Ref) : 1.0e30f;
-}
-
-static bool Repeat_Valid(float A, float B, float Max_Ratio)
-{
-    return Repeat_Ratio(A, B) <= Max_Ratio;
+    return Diff / Ref;
 }
 
 static bool Pair_Valid(float Rs_1, float Ls_1, float Rs_2, float Ls_2)
 {
-    return Repeat_Valid(Rs_1, Rs_2, RS_LS_RS_REPEAT_MAX) &&
-           Repeat_Valid(Ls_1, Ls_2, RS_LS_LS_REPEAT_MAX);
+    return (Repeat_Ratio(Rs_1, Rs_2) <= RS_LS_RS_REPEAT_MAX) &&
+           (Repeat_Ratio(Ls_1, Ls_2) <= RS_LS_LS_REPEAT_MAX);
 }
 
 static float Pair_Score(float Rs_1, float Ls_1, float Rs_2, float Ls_2)
@@ -314,7 +297,7 @@ static float Pair_Score(float Rs_1, float Ls_1, float Rs_2, float Ls_2)
     return (Rs_Score > Ls_Score) ? Rs_Score : Ls_Score;
 }
 
-static bool Third_Result(float *Rs, float *Ls)
+static bool Third_Result(float Rs_C, float Ls_C, float *Rs, float *Ls)
 {
     bool AC_Valid;
     bool BC_Valid;
@@ -347,32 +330,6 @@ static bool Result_Valid(float Rs, float Ls)
            (Ls > RS_LS_LS_MIN_H) && (Ls < RS_LS_LS_MAX_H);
 }
 
-static bool Probe_Retry(void)
-{
-    if (Probe_Freq >= RS_LS_PROBE_FREQ_MAX_HZ)
-    {
-        return false;
-    }
-
-    Probe_Freq += RS_LS_PROBE_FREQ_STEP_HZ;
-    if (Probe_Freq > RS_LS_PROBE_FREQ_MAX_HZ)
-    {
-        Probe_Freq = RS_LS_PROBE_FREQ_MAX_HZ;
-    }
-
-    Frequency_Set(Probe_Freq);
-    Phase = 0.0f;
-    U_DC = 0.0f;
-    U_AC = 0.0f;
-    I_Noise = 0.0f;
-    SNR_Pow = 0.0f;
-    Coh_Sq = 0.0f;
-    Ramp_Reset();
-    Measure_Reset();
-    State = RS_LS_NOISE;
-    return true;
-}
-
 void Rs_Ls_Start(void)
 {
     Rough_RL_Restore();
@@ -382,18 +339,12 @@ void Rs_Ls_Start(void)
     Result.Valid = false;
 
     Phase = 0.0f;
-    U_Hold = 0.0f;
     U_DC = 0.0f;
     U_AC = 0.0f;
-    I_Noise = 0.0f;
-    SNR_Pow = 0.0f;
-    Coh_Sq = 0.0f;
     Align_Pending = false;
     Freq_Refined = false;
 
-    Probe_Freq = RS_LS_PROBE_FREQ_HZ;
-    Frequency_Set(Probe_Freq);
-    Ramp_Reset();
+    Frequency_Set(RS_LS_PROBE_FREQ_HZ);
     Measure_Reset();
 
     State = RS_LS_NOISE;
@@ -428,6 +379,8 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
     float I_Cyc_Im;
     float Coh_Num;
     float Coh_Den;
+    float SNR_Pow;
+    float Coh_Sq;
     float I_Amp;
     float I_DC_Meas;
     float Rs;
@@ -589,8 +542,7 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
             }
             else
             {
-                if (((U_DC + U_AC) >= (0.999f * Envelope->U_Max)) &&
-                    (!DC_Ready || !AC_Ready))
+                if ((U_DC + U_AC) >= (0.999f * Envelope->U_Max))
                 {
                     Fail();
                     *Ualpha_V = 0.0f;
@@ -692,8 +644,7 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
             AC_Ready = I_Amp >= I_AC_Target;
             if (!DC_Ready || !AC_Ready)
             {
-                if (((U_DC + U_AC) >= (0.999f * Envelope->U_Max)) &&
-                    (!DC_Ready || !AC_Ready))
+                if ((U_DC + U_AC) >= (0.999f * Envelope->U_Max))
                 {
                     Fail();
                     *Ualpha_V = 0.0f;
@@ -719,17 +670,11 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
                 Measure_Reset();
                 State = RS_LS_PROBE_RAMP;
             }
-            else if ((I_Amp < I_Min) || (SNR_Pow < RS_LS_SNR_POWER_MIN) || (Coh_Sq < RS_LS_COH_SQ_MIN))
+            else if ((SNR_Pow < RS_LS_SNR_POWER_MIN) || (Coh_Sq < RS_LS_COH_SQ_MIN))
             {
-                if (!Probe_Retry())
-                {
-                    Fail();
-                    *Ualpha_V = 0.0f;
-                    return FAST_OFF;
-                }
-
+                Fail();
                 *Ualpha_V = 0.0f;
-                return FAST_VOLTAGE;
+                return FAST_OFF;
             }
             else if (!Measure_Calc(Sample_Cnt, I_Min, &I_Amp, &Rs, &Ls))
             {
@@ -737,20 +682,8 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
                 *Ualpha_V = 0.0f;
                 return FAST_OFF;
             }
-            else if ((Rs <= RS_LS_RS_MIN_OHM) || (Rs >= RS_LS_RS_MAX_OHM))
+            else if (!Result_Valid(Rs, Ls))
             {
-                Fail();
-                *Ualpha_V = 0.0f;
-                return FAST_OFF;
-            }
-            else if ((Ls <= RS_LS_LS_MIN_H) || (Ls >= RS_LS_LS_MAX_H))
-            {
-                if (Probe_Retry())
-                {
-                    *Ualpha_V = 0.0f;
-                    return FAST_VOLTAGE;
-                }
-
                 Fail();
                 *Ualpha_V = 0.0f;
                 return FAST_OFF;
@@ -841,14 +774,14 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
             }
             else
             {
-                if (!Measure_Calc(Sample_Cnt, I_Min, &I_Amp, &Rs_C, &Ls_C) || !Result_Valid(Rs_C, Ls_C))
+                if (!Measure_Calc(Sample_Cnt, I_Min, &I_Amp, &Rs, &Ls) || !Result_Valid(Rs, Ls))
                 {
                     Fail();
                     *Ualpha_V = 0.0f;
                     return FAST_OFF;
                 }
 
-                if (Third_Result(&Result.Rs_Ohm, &Result.Ls_H))
+                if (Third_Result(Rs, Ls, &Result.Rs_Ohm, &Result.Ls_H))
                 {
                     Result.Valid = true;
                     State = RS_LS_DONE;

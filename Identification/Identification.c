@@ -43,30 +43,17 @@ static void Envelope_Voltage_Update(void)
 
 bool Identification_Start(Ident_Mode_e Mode, float Wm_Target)
 {
-    Ident_Fail_Reason = IDENT_FAIL_NONE;
-
     if (Identification_Active())
     {
         return false;
     }
 
-    if ((Mode != IDENT_RS_LS) && (Mode != IDENT_FLUX) && (Mode != IDENT_JB))
-    {
-        Ident_Fail_Reason = IDENT_FAIL_START_CONFIG;
-        return false;
-    }
-
-    if (Ident_State != IDENT_IDLE)
-    {
-        Identification_Abort();
-    }
+    /* 新的一次辨识只重置流程；各项结果由对应算法在开始时更新。 */
+    Ident_Mode = IDENT_NONE;
+    Ident_State = IDENT_IDLE;
+    Ident_Fail_Reason = IDENT_FAIL_NONE;
 
     Ident_Envelope.I_Max = (Motor_Lim.I_Max < User_Lim.I_Max) ? Motor_Lim.I_Max : User_Lim.I_Max;
-    if (Ident_Envelope.I_Max < 0.0f)
-    {
-        Ident_Envelope.I_Max = 0.0f;
-    }
-
     Envelope_Voltage_Update();
     if (!__builtin_isfinite(Ident_Envelope.I_Max) ||
         (Ident_Envelope.I_Max <= 0.0f) || (Ident_Envelope.U_Max <= 0.0f))
@@ -108,6 +95,11 @@ bool Identification_Start(Ident_Mode_e Mode, float Wm_Target)
 
 void Identification_Abort(void)
 {
+    if (!Identification_Active())
+    {
+        return;
+    }
+
     if (Ident_Mode == IDENT_RS_LS)
     {
         Rs_Ls_Abort();
@@ -219,43 +211,27 @@ bool Identification_Apply(void)
     if (Ident_Mode == IDENT_RS_LS)
     {
         Rs_Ls_Result = Rs_Ls_Result_Get();
-        if (!Rs_Ls_Result->Valid)
-        {
-            return false;
-        }
-
         Model.Rs = Rs_Ls_Result->Rs_Ohm;
         Model.Ld = Rs_Ls_Result->Ls_H;
         Model.Lq = Rs_Ls_Result->Ls_H;
-        return Motor_Para_Update(&Model, Mechanical_ESO_Bw_Hz);
     }
-
-    if (Ident_Mode == IDENT_FLUX)
+    else if (Ident_Mode == IDENT_FLUX)
     {
         Flux_Result = Flux_Result_Get();
-        if (!Flux_Result->Valid)
-        {
-            return false;
-        }
-
         Model.Flux = Flux_Result->Flux_Wb;
-        return Motor_Para_Update(&Model, Mechanical_ESO_Bw_Hz);
     }
-
-    if (Ident_Mode == IDENT_JB)
+    else if (Ident_Mode == IDENT_JB)
     {
         JB_Result = JB_Result_Get();
-        if (!JB_Result->Valid)
-        {
-            return false;
-        }
-
         Model.J = JB_Result->J_Kgm2;
         Model.B = JB_Result->B_Nms;
-        return Motor_Para_Update(&Model, Mechanical_ESO_Bw_Hz);
+    }
+    else
+    {
+        return false;
     }
 
-    return false;
+    return Motor_Para_Update(&Model, Mechanical_ESO_Bw_Hz);
 }
 
 bool Identification_Active(void)
@@ -265,27 +241,8 @@ bool Identification_Active(void)
 
 bool Identification_Result_Valid(void)
 {
-    if (Ident_State != IDENT_DONE)
-    {
-        return false;
-    }
-
-    if (Ident_Mode == IDENT_RS_LS)
-    {
-        return Rs_Ls_Result_Get()->Valid;
-    }
-
-    if (Ident_Mode == IDENT_FLUX)
-    {
-        return Flux_Result_Get()->Valid;
-    }
-
-    if (Ident_Mode == IDENT_JB)
-    {
-        return JB_Result_Get()->Valid;
-    }
-
-    return false;
+    /* 只有算法结果有效并完成收尾等待，流程才会进入 DONE。 */
+    return Ident_State == IDENT_DONE;
 }
 
 Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
@@ -340,16 +297,6 @@ Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
     }
 
     return FAST_OFF;
-}
-
-Ident_Mode_e Identification_Mode_Get(void)
-{
-    return Ident_Mode;
-}
-
-Ident_State_e Identification_State_Get(void)
-{
-    return Ident_State;
 }
 
 const Ident_Envelope_T *Identification_Envelope_Get(void)

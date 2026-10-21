@@ -80,9 +80,7 @@ Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
                                           float *Ualpha_V,
                                           float *Ubeta_V);
 
-/* Internal lifecycle accessors. These are not Host-visible protocol state. */
-Ident_Mode_e Identification_Mode_Get(void);
-Ident_State_e Identification_State_Get(void);
+/* 辨识共用的电流和电压限制。 */
 const Ident_Envelope_T *Identification_Envelope_Get(void);
 
 /* Stable final-result accessors used by the Parameter layer. */
