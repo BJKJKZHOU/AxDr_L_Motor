@@ -295,6 +295,15 @@ typedef enum
     /* Mechanical_ESO_Bw_Hz: 20 kHz机械ESO设计带宽；写入后按当前J/B/Kt刷新Observer增益。 */
     PARAM_CTRL_MECH_ESO_BW_HZ = 0x0A30U,
 
+    /* Control_Flux_Obs_Bw_Hz: 工程共用磁链观测器校正带宽，默认200 Hz；正常无感、FLUX和JB共用，停止运行后可写，下次启动流程生效。 */
+    PARAM_CTRL_FLUX_OBS_BW_HZ = 0x0A40U,
+
+    /* Control_PLL_Bw_Hz: 工程共用PLL设计频率，默认65 Hz；Wn=2*pi*f，Kp=2*Damp*Wn，Ki=Wn^2；正常无感、FLUX和JB共用，停止运行后可写，下次启动流程生效。 */
+    PARAM_CTRL_PLL_BW_HZ = 0x0A41U,
+
+    /* Control_PLL_Damp: 工程共用PLL阻尼比，默认0.707；正常无感、FLUX和JB共用，停止运行后可写，下次启动流程生效。 */
+    PARAM_CTRL_PLL_DAMP = 0x0A42U,
+
     /* MOTOR_CMD_ENABLE: 使能电机功率级。 */
     ACTION_MOTOR_ENABLE = 0x1001U,
 

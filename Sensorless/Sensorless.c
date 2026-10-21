@@ -20,13 +20,6 @@
 #include "PLL.h"
 #include "control_params.h"
 
-#define FLUX_OBS_BW_HZ 200.0f
-#define PLL_BW_HZ      65.0f
-#define PLL_DAMP       0.707f
-#define PLL_WN         (TWO_PI_F * PLL_BW_HZ)
-#define PLL_KP         (2.0f * PLL_DAMP * PLL_WN)
-#define PLL_KI         (PLL_WN * PLL_WN)
-
 #define BLEND_S      0.15f
 #define BLEND_CNT    ((uint32_t)(BLEND_S / CUR_TS + 0.5f))
 #define ID_RAMP_A_S  5.0f
@@ -95,6 +88,7 @@ bool Sensorless_Begin(void)
 {
     float Kt;
     float Am_IF;
+    float Pll_Wn;
 
     State = SL_IDLE;
     To_Obs_State = TO_OBS_BLEND;
@@ -163,10 +157,11 @@ bool Sensorless_Begin(void)
     Sensorless_Observer.Para.Rs = Motor_Para.Rs;
     Sensorless_Observer.Para.Ls = Motor_Para.Ld;
     Sensorless_Observer.Para.Flux = Motor_Para.Flux;
-    Sensorless_Observer.Para.BW_Hz = FLUX_OBS_BW_HZ;
+    Sensorless_Observer.Para.BW_Hz = Control_Flux_Obs_Bw_Hz;
 
-    Sensorless_PLL.Para.Kp = PLL_KP;
-    Sensorless_PLL.Para.Ki = PLL_KI;
+    Pll_Wn = TWO_PI_F * Control_PLL_Bw_Hz;
+    Sensorless_PLL.Para.Kp = 2.0f * Control_PLL_Damp * Pll_Wn;
+    Sensorless_PLL.Para.Ki = Pll_Wn * Pll_Wn;
 
     State = SL_ALIGN;
     return true;

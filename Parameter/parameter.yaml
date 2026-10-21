@@ -1083,6 +1083,41 @@ objects:
     write_state: not_running
     range: { min: 1.0, max: 2000.0 }
 
+  PARAM_CTRL_FLUX_OBS_BW_HZ:
+    id: 0x0A40
+    type: f32
+    access: rw
+    persistent: true
+    binding: Control_Flux_Obs_Bw_Hz
+    label: Flux Observer Bandwidth
+    unit: Hz
+    description: "工程共用磁链观测器校正带宽，默认200 Hz；正常无感、FLUX和JB共用，停止运行后可写，下次启动流程生效。"
+    write_state: not_running
+    range: { min: 0.0, exclusive_min: true }
+
+  PARAM_CTRL_PLL_BW_HZ:
+    id: 0x0A41
+    type: f32
+    access: rw
+    persistent: true
+    binding: Control_PLL_Bw_Hz
+    label: PLL Design Frequency
+    unit: Hz
+    description: "工程共用PLL设计频率，默认65 Hz；Wn=2*pi*f，Kp=2*Damp*Wn，Ki=Wn^2；正常无感、FLUX和JB共用，停止运行后可写，下次启动流程生效。"
+    write_state: not_running
+    range: { min: 0.0, exclusive_min: true }
+
+  PARAM_CTRL_PLL_DAMP:
+    id: 0x0A42
+    type: f32
+    access: rw
+    persistent: true
+    binding: Control_PLL_Damp
+    label: PLL Damping Ratio
+    description: "工程共用PLL阻尼比，默认0.707；正常无感、FLUX和JB共用，停止运行后可写，下次启动流程生效。"
+    write_state: not_running
+    range: { min: 0.0, exclusive_min: true }
+
   ACTION_MOTOR_ENABLE:
     id: 0x1001
     type: action

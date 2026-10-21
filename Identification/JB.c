@@ -27,12 +27,6 @@
 #include "main.h"
 
 #define JB_OPEN_ACCEL_S        6.0f
-#define JB_OBSERVER_BW_HZ      200.0f
-#define JB_PLL_BW_HZ           65.0f
-#define JB_PLL_DAMP            0.707f
-#define JB_PLL_WN              (TWO_PI_F * JB_PLL_BW_HZ)
-#define JB_PLL_KP              (2.0f * JB_PLL_DAMP * JB_PLL_WN)
-#define JB_PLL_KI              (JB_PLL_WN * JB_PLL_WN)
 
 #define JB_HANDOVER_BLEND_CNT  ((uint32_t)(0.15f / CUR_TS + 0.5f))
 #define JB_HANDOVER_ID_STEP    (5.0f * CUR_TS)
@@ -222,6 +216,7 @@ bool JB_Start(float Wm_Target)
     const Ident_Envelope_T *Envelope;
     float We_Max;
     float We_Work_Max;
+    float Pll_Wn;
 
     (void)Wm_Target;
 
@@ -288,9 +283,10 @@ bool JB_Start(float Wm_Target)
     Ident_Observer.Para.Rs = Motor_Para.Rs;
     Ident_Observer.Para.Ls = Motor_Para.Ld;
     Ident_Observer.Para.Flux = Motor_Para.Flux;
-    Ident_Observer.Para.BW_Hz = JB_OBSERVER_BW_HZ;
-    Ident_PLL.Para.Kp = JB_PLL_KP;
-    Ident_PLL.Para.Ki = JB_PLL_KI;
+    Ident_Observer.Para.BW_Hz = Control_Flux_Obs_Bw_Hz;
+    Pll_Wn = TWO_PI_F * Control_PLL_Bw_Hz;
+    Ident_PLL.Para.Kp = 2.0f * Control_PLL_Damp * Pll_Wn;
+    Ident_PLL.Para.Ki = Pll_Wn * Pll_Wn;
 
     Samples_Per_Cycle = (uint32_t)(1.0f / (JB_EXCITE_HZ * SPD_TS) + 0.5f);
     if (Samples_Per_Cycle == 0U)

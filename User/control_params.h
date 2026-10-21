@@ -89,6 +89,11 @@
     },                                 \
 }
 
+/* Shared flux-observer and PLL tuning for sensorless control and identification. */
+#define FLUX_OBS_BW_HZ_DEFAULT 200.0f
+#define PLL_BW_HZ_DEFAULT      65.0f
+#define PLL_DAMP_DEFAULT       0.707f
+
 /* Open-loop current strategy. Speed comes from the signed mechanical command. */
 #define OPEN_ALIGN_ID_A   0.2f
 #define OPEN_ALIGN_TIME_S 0.5f

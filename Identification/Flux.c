@@ -56,9 +56,6 @@ typedef struct
     {
         float Work_Ratio;
         float Work_U_Search_Ratio;
-        float BW_Hz;
-        float Pll_Kp;
-        float Pll_Ki;
         float We_Alpha;
         float Emf_Alpha;
     } Observer;
@@ -93,9 +90,6 @@ static const Flux_Config_T Flux_Config = {
     .Observer = {
         .Work_Ratio = 0.30f,
         .Work_U_Search_Ratio = 0.90f,
-        .BW_Hz = 200.0f,
-        .Pll_Kp = 2.0f * 0.707f * (TWO_PI_F * 65.0f),
-        .Pll_Ki = (TWO_PI_F * 65.0f) * (TWO_PI_F * 65.0f),
         .We_Alpha = CUR_TS / (0.020f + CUR_TS),
         .Emf_Alpha = SPD_TS / (0.020f + SPD_TS),
     },
@@ -242,7 +236,7 @@ static void Obs_Para_Update(void)
     Para = Ident_Observer.Para;
     Calc = Ident_Observer.Calc;
     Para.Flux = Flux;
-    Para.BW_Hz = Flux_Config.Observer.BW_Hz;
+    Para.BW_Hz = Control_Flux_Obs_Bw_Hz;
     (void)Flux_Observer_Calc_Update(&Para, &Calc);
 
     /* Publish matching flux and gain only if the sampling stage is unchanged. */
@@ -585,14 +579,16 @@ static void Flux_Coarse_Control_Run(const Flux_Slow_Snapshot_T *Snapshot)
 
     if (!Obs_Active)
     {
+        float Pll_Wn = TWO_PI_F * Control_PLL_Bw_Hz;
+
         Theta_Rough = Angle_Wrap(Snapshot->Theta_Open +
                                  __builtin_atan2f(Flux_Estimator.State.Psi_q,
                                                   Flux_Estimator.State.Psi_d));
         Ident_Observer.Para.Rs = Motor_Para.Rs;
         Ident_Observer.Para.Ls = Motor_Para.Ld;
         Obs_Para_Update();
-        Ident_PLL.Para.Kp = Flux_Config.Observer.Pll_Kp;
-        Ident_PLL.Para.Ki = Flux_Config.Observer.Pll_Ki;
+        Ident_PLL.Para.Kp = 2.0f * Control_PLL_Damp * Pll_Wn;
+        Ident_PLL.Para.Ki = Pll_Wn * Pll_Wn;
         Flux_Observer_Reset(&Ident_Observer, Theta_Rough, Snapshot->Ialpha, Snapshot->Ibeta);
         PLL_Reset(&Ident_PLL, Theta_Rough, Snapshot->We_Open);
         We_Obs_F = Snapshot->We_Open;
