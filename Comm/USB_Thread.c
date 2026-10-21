@@ -15,6 +15,7 @@
 
 #define USB_TX_STACK_SIZE   1024U
 #define USB_TX_THREAD_PRIO  11U
+#define USB_TX_READY        1UL
 #define USB_RX_READ_SIZE    64U
 #define USB_RX_STREAM_SIZE  160U
 #define USB_FRAME_HEAD_SIZE 7U
@@ -24,6 +25,7 @@ static TX_THREAD USB_Tx_Thread_Obj;
 static TX_EVENT_FLAGS_GROUP USB_Tx_Event;
 static UX_SLAVE_CLASS_CDC_ACM *volatile Cdc_Acm = UX_NULL;
 
+/* 接收缓冲区和长度只由接收线程修改。 */
 static uint8_t USB_Rx_Stream[USB_RX_STREAM_SIZE];
 static uint16_t USB_Rx_Len = 0U;
 static volatile ULONG USB_Tx_Pending = 0U;
@@ -35,13 +37,12 @@ static uint16_t USB_Frame_Pack(uint8_t *Buf, const AxDr_Msg_T *Msg);
 void USB_Activate(void *Cdc)
 {
     Cdc_Acm = (UX_SLAVE_CLASS_CDC_ACM *)Cdc;
-    USB_Tx_Wake(USB_TX_ALL);
+    USB_Tx_Wake();
 }
 
 void USB_Deactivate(void)
 {
     Cdc_Acm = UX_NULL;
-    USB_Rx_Len = 0U;
 }
 
 UINT USB_Tx_Thread_Init(TX_BYTE_POOL *Byte_Pool)
@@ -88,6 +89,7 @@ void USB_Rx_Thread(void)
 
         if (Cdc == UX_NULL)
         {
+            USB_Rx_Len = 0U;
             tx_thread_sleep(10U);
             continue;
         }
@@ -101,24 +103,25 @@ void USB_Rx_Thread(void)
         }
         else if (Status != UX_SUCCESS)
         {
+            USB_Rx_Len = 0U;
             tx_thread_sleep(1U);
         }
     }
 }
 
-void USB_Tx_Wake(ULONG Flag)
+void USB_Tx_Wake(void)
 {
     uint32_t Primask;
 
     if (__get_IPSR() == 0U)
     {
-        (void)tx_event_flags_set(&USB_Tx_Event, Flag, TX_OR);
+        (void)tx_event_flags_set(&USB_Tx_Event, USB_TX_READY, TX_OR);
         return;
     }
 
     Primask = __get_PRIMASK();
     __disable_irq();
-    USB_Tx_Pending |= Flag;
+    USB_Tx_Pending = USB_TX_READY;
     __set_PRIMASK(Primask);
 }
 
@@ -153,7 +156,7 @@ static VOID USB_Tx_Entry(ULONG thread_input)
 
     while (1)
     {
-        if (tx_event_flags_get(&USB_Tx_Event, USB_TX_ALL, TX_OR_CLEAR, &Flags, TX_WAIT_FOREVER) != TX_SUCCESS)
+        if (tx_event_flags_get(&USB_Tx_Event, USB_TX_READY, TX_OR_CLEAR, &Flags, TX_WAIT_FOREVER) != TX_SUCCESS)
         {
             continue;
         }
@@ -227,7 +230,7 @@ static uint16_t USB_Frame_Pack(uint8_t *Buf, const AxDr_Msg_T *Msg)
 
 static void USB_Rx_Data(const uint8_t *Data, uint16_t Len)
 {
-    uint16_t Magic;
+    uint16_t Pos = 0U;
     uint16_t Can_ID;
     uint16_t Frame_Len;
     uint8_t Data_Len;
@@ -240,66 +243,45 @@ static void USB_Rx_Data(const uint8_t *Data, uint16_t Len)
     memcpy(&USB_Rx_Stream[USB_Rx_Len], Data, Len);
     USB_Rx_Len = (uint16_t)(USB_Rx_Len + Len);
 
-    while (USB_Rx_Len >= 4U)
+    while ((Pos + 4U) <= USB_Rx_Len)
     {
-        Magic = 0U;
+        const uint8_t *Frame = &USB_Rx_Stream[Pos];
 
-        while ((Magic + 4U) <= USB_Rx_Len)
+        if (memcmp(Frame, "AXDR", 4U) != 0)
         {
-            if ((USB_Rx_Stream[Magic] == 'A') && (USB_Rx_Stream[Magic + 1U] == 'X') &&
-                (USB_Rx_Stream[Magic + 2U] == 'D') && (USB_Rx_Stream[Magic + 3U] == 'R'))
-            {
-                break;
-            }
-
-            Magic++;
+            Pos++;
+            continue;
         }
 
-        if ((Magic + 4U) > USB_Rx_Len)
+        if ((Pos + USB_FRAME_HEAD_SIZE) > USB_Rx_Len)
         {
-            if (USB_Rx_Len > 3U)
-            {
-                memmove(USB_Rx_Stream, &USB_Rx_Stream[USB_Rx_Len - 3U], 3U);
-                USB_Rx_Len = 3U;
-            }
-            return;
+            break;
         }
 
-        if (Magic != 0U)
-        {
-            memmove(USB_Rx_Stream, &USB_Rx_Stream[Magic], USB_Rx_Len - Magic);
-            USB_Rx_Len = (uint16_t)(USB_Rx_Len - Magic);
-        }
-
-        if (USB_Rx_Len < USB_FRAME_HEAD_SIZE)
-        {
-            return;
-        }
-
-        Can_ID = (uint16_t)USB_Rx_Stream[4] | ((uint16_t)USB_Rx_Stream[5] << 8);
-        Data_Len = USB_Rx_Stream[6];
+        Can_ID = (uint16_t)Frame[4] | ((uint16_t)Frame[5] << 8);
+        Data_Len = Frame[6];
 
         if ((Can_ID > 0x07FFU) || !AxDr_CANFD_Length_Valid(Data_Len))
         {
-            memmove(USB_Rx_Stream, &USB_Rx_Stream[1], USB_Rx_Len - 1U);
-            USB_Rx_Len--;
+            Pos++;
             continue;
         }
 
         Frame_Len = (uint16_t)(USB_FRAME_HEAD_SIZE + Data_Len);
 
-        if (USB_Rx_Len < Frame_Len)
+        if ((Pos + Frame_Len) > USB_Rx_Len)
         {
-            return;
+            break;
         }
 
-        Protocol_Rx(Can_ID, &USB_Rx_Stream[USB_FRAME_HEAD_SIZE], Data_Len);
+        Protocol_Rx(Can_ID, &Frame[USB_FRAME_HEAD_SIZE], Data_Len);
+        Pos = (uint16_t)(Pos + Frame_Len);
+    }
 
-        USB_Rx_Len = (uint16_t)(USB_Rx_Len - Frame_Len);
-
-        if (USB_Rx_Len != 0U)
-        {
-            memmove(USB_Rx_Stream, &USB_Rx_Stream[Frame_Len], USB_Rx_Len);
-        }
+    /* 未收完整的帧或帧头留到下次，已处理的数据只在此处移除。 */
+    if (Pos != 0U)
+    {
+        USB_Rx_Len = (uint16_t)(USB_Rx_Len - Pos);
+        memmove(USB_Rx_Stream, &USB_Rx_Stream[Pos], USB_Rx_Len);
     }
 }
