@@ -302,26 +302,17 @@ void Protocol_Parameter_Write_Response(uint8_t Txn,
                                        uint16_t Parameter_Id,
                                        Parameter_Status_e Status)
 {
-    uint8_t Resp[2];
-
-    Resp[0] = (uint8_t)Parameter_Id;
-    Resp[1] = (uint8_t)(Parameter_Id >> 8);
-    Response(Txn,
-             AXDR_MSG_PARAMETER,
-             AXDR_PARAM_WRITE,
-             Parameter_Status_Map(Status),
-             Resp,
-             sizeof(Resp));
+    Protocol_Write_Response(Txn, Parameter_Id, Parameter_Status_Map(Status));
 }
 
-void Protocol_Action_Response(uint8_t Txn,
-                              uint16_t Action_Id,
-                              AxDr_Status_e Status)
+void Protocol_Write_Response(uint8_t Txn,
+                             uint16_t Id,
+                             AxDr_Status_e Status)
 {
     uint8_t Resp[2];
 
-    Resp[0] = (uint8_t)Action_Id;
-    Resp[1] = (uint8_t)(Action_Id >> 8);
+    Resp[0] = (uint8_t)Id;
+    Resp[1] = (uint8_t)(Id >> 8);
     Response(Txn,
              AXDR_MSG_PARAMETER,
              AXDR_PARAM_WRITE,

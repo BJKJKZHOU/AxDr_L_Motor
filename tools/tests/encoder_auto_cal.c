@@ -6,6 +6,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include "Enc_Cal.c"
+#include "Enc_Control.h"
+#include "Servo_Phase.c"
+#include "Current_Loop.h"
 #include "Motor_Config.h"
 #include "Motor_PWM.h"
 #include "Motion_Loop.h"
@@ -14,6 +17,7 @@
 #include "Signal_Injection.h"
 #include "motor_thread.h"
 #include "Protocol.h"
+#include "Protection.h"
 
 TIM_TypeDef Test_TIM;
 Motor_Para_T Motor_Para;
@@ -23,17 +27,24 @@ Encoder_Harmonic_T Encoder_Harmonic;
 Mechanical_ESO_T Mechanical_ESO;
 uint8_t Current_FF_Enable;
 uint8_t Open_Loop_Method;
+volatile float Motor_Plot_Iq_Ref;
 volatile Motor_Work_State_e Motor_Work_State;
-static bool Phase_Active;
-static Servo_Phase_Result_T Phase_Result;
 static int Fit_Requests;
 static int Save_Requests;
+static bool Work_Reject;
+static Motor_Work_Job_e Work_Job;
+static uint16_t Saved_Ids[10];
+static uint16_t Saved_Count;
+static uint8_t Saved_Valid;
+static int Storage_Error;
+static bool Enable_Allowed = true;
+static unsigned PWM_Starts;
 TX_QUEUE Motor_Cmd_Q;
 static Motor_Cmd_Msg_T Queue[8];
 static unsigned Wr, Rd;
 static struct
 {
-    unsigned Kind, Id, Status;
+    unsigned Kind, Id, Status, Txn;
 } Log[16];
 static unsigned Log_Cnt;
 
@@ -46,17 +57,17 @@ static UINT tx_queue_receive(TX_QUEUE *Q, void *Msg, ULONG Wait)
     *(Motor_Cmd_Msg_T *)Msg = Queue[Rd++];
     return TX_SUCCESS;
 }
-void Protocol_Action_Response(uint8_t Txn, uint16_t Id, AxDr_Status_e Status)
+void Protocol_Write_Response(uint8_t Txn, uint16_t Id, AxDr_Status_e Status)
 {
-    (void)Txn;
     assert(Log_Cnt < 16);
+    Log[Log_Cnt].Txn = Txn;
     Log[Log_Cnt].Kind = 0;
     Log[Log_Cnt].Id = Id;
     Log[Log_Cnt++].Status = Status;
 }
 void Protocol_Action_Complete(uint8_t Txn, uint16_t Id, AxDr_Status_e Status)
 {
-    Protocol_Action_Response(Txn, Id, Status);
+    Protocol_Write_Response(Txn, Id, Status);
     Log[Log_Cnt - 1].Kind = 1;
 }
 void Protocol_Parameter_Write_Response(uint8_t Txn, uint16_t Id, Parameter_Status_e Status)
@@ -75,7 +86,7 @@ Parameter_Status_e Parameter_Write(uint16_t Id, Parameter_Type_e Type, Parameter
 }
 bool Protection_Enable_Allowed(void)
 {
-    return true;
+    return Enable_Allowed;
 }
 bool Protection_Clear(void)
 {
@@ -90,6 +101,9 @@ void Encoder_Position_Read(int32_t *Turn, float *Theta)
 }
 void PWM_Enable(void)
 {
+    if (Enc_Step == ENC_PHASE_RUN)
+        assert(Motor_State_Get() == ENABLED && Servo_Phase_Active());
+    PWM_Starts++;
     TIM1->BDTR = TIM_BDTR_MOE;
 }
 void PWM_Disable(void)
@@ -100,13 +114,30 @@ float Mechanical_ESO_Wm_Get(void)
 {
     return Mechanical_ESO.State.Wm;
 }
+void Mechanical_ESO_Run(float Theta, bool Valid, float Iq)
+{
+    (void)Theta;
+    (void)Valid;
+    (void)Iq;
+}
+bool Protection_Current_Fast(float Ia, float Ib, float Ic)
+{
+    (void)Ia;
+    (void)Ib;
+    (void)Ic;
+    return true;
+}
 bool Motor_Work_Request(Motor_Work_Job_e Job)
 {
     assert(Motor_Work_State == MOTOR_WORK_IDLE);
+    assert(Motor_State_Get() == DISABLED && (TIM1->BDTR & TIM_BDTR_MOE) == 0);
     if (Job == MOTOR_WORK_FIT)
         Fit_Requests++;
     else
         Save_Requests++;
+    if (Work_Reject)
+        return false;
+    Work_Job = Job;
     Motor_Work_State = MOTOR_WORK_BUSY;
     return true;
 }
@@ -114,30 +145,36 @@ void Motor_Work_Ack(void)
 {
     Motor_Work_State = MOTOR_WORK_IDLE;
 }
-bool Servo_Phase_Start(void)
+void Encoder_DMA_Config(void)
 {
-    Phase_Active = true;
-    Motor_Cal.Valid = 0;
-    return true;
+    /* Hardware rebinding is outside this host fixture. */
 }
-void Servo_Phase_Abort(void)
+#include "encoder_angle.inc"
+
+int NVS_Storage_Save_Ids(const uint16_t *Ids, uint16_t Count)
 {
-    Phase_Active = false;
-    Phase_Result.State = SERVO_PHASE_RESULT_FAIL;
+    assert(Motor_State_Get() == DISABLED && TIM1->BDTR == 0);
+    assert(Count <= 10);
+    memcpy(Saved_Ids, Ids, Count * sizeof(*Ids));
+    Saved_Count = Count;
+    Saved_Valid = Motor_Cal.Valid;
+    return Storage_Error;
 }
-bool Servo_Phase_Active(void)
+
+static void Worker_Run(void)
 {
-    return Phase_Active;
-}
-bool Servo_Phase_Apply(void)
-{
+    assert(Motor_Work_State == MOTOR_WORK_BUSY);
     assert(Motor_State_Get() == DISABLED);
-    Motor_Cal.Valid = 1;
-    return true;
-}
-const Servo_Phase_Result_T *Servo_Phase_Last_Result_Get(void)
-{
-    return &Phase_Result;
+    bool Passed = false;
+    if (Work_Job == MOTOR_WORK_FIT)
+        Passed = Enc_Cal_Fit_Apply();
+    else if (Work_Job == MOTOR_WORK_SAVE_ENC)
+        Passed = Enc_Cal_Save();
+    else if (Work_Job == MOTOR_WORK_SAVE_PHASE)
+        Passed = Servo_Phase_Save();
+    else
+        abort();
+    Motor_Work_State = Passed ? MOTOR_WORK_DONE : MOTOR_WORK_FAILED;
 }
 
 /* Unrelated run modes must not execute during calibration from any user mode. */
@@ -176,10 +213,6 @@ void Sensorless_Control(float We, float Min, float Max)
 void Sensorless_Run(float Ia, float Ib, float We, float *Theta, float *Id, float *Iq)
 {
     abort();
-}
-Motor_Fast_Mode_e Servo_Phase_Fast_Run(float *Theta, float *Id, float *Iq, float *Ua, float *Ub)
-{
-    return FAST_CURRENT;
 }
 void Open_Loop_Reset(void)
 {
@@ -226,14 +259,19 @@ Motor_Fast_Mode_e Identification_Fast_Run(float Ia, float Ib, float Ic, float *T
 static void Setup(int Mode)
 {
     Motor_Disable();
+    Enc_Step = ENC_IDLE;
     Enc_Cal.Step = CAL_IDLE;
     Motor_Work_State = MOTOR_WORK_IDLE;
-    Phase_Active = false;
-    Phase_Result = (Servo_Phase_Result_T){0};
+    Servo_Phase_Abort();
     Fit_Requests = 0;
     Save_Requests = 0;
+    Work_Reject = false;
+    Storage_Error = 0;
+    Saved_Count = 0;
+    Enable_Allowed = true;
+    PWM_Starts = 0;
     Wr = Rd = Log_Cnt = 0;
-    Cal_Action_Pending = Phase_Action_Pending = Ident_Action_Pending = Save_Action_Pending = false;
+    Enc_Action_Pending = Ident_Action_Pending = Save_Action_Pending = false;
     Motor_Mode = Mode;
     Motor_Para = (Motor_Para_T){
         .Pp = 7, .Rs = .28252554f, .Ld = .0000713822f, .Lq = .0000713822f, .Flux = .002281195f};
@@ -256,24 +294,20 @@ static void Setup(int Mode)
     Id_LADRC = (LADRC_T){.Para.B0 = 14009.0f, .Para.Kp = 4700.0f, .Para.Wo = 18000.0f};
     Iq_LADRC = Id_LADRC;
     Current_Controller = CURRENT_CTRL_PI;
-    assert(Enc_Cal_Start());
+    assert(Motor_Enc_Cal_Start() == MOTOR_OK);
     assert(Motor_Mode == Mode && Motor_State_Get() == RUN);
 }
 
 static Motor_Fast_Mode_e Fast(float *Theta, float *Id, float *Iq, float *Ua, float *Ub)
 {
-    float Angle = Angle_Wrap(7.0f * Encoder.Theta_m + Motor_Cal.Theta_Off);
-    Motor_Fast_Mode_e Mode = Motor_Fast_Run(Angle, true, Theta, Id, Iq, Ua, Ub);
-    if (Mode == FAST_VOLTAGE)
-    {
-        Motor_Run.Ualpha = *Ua;
-        Motor_Run.Ubeta = *Ub;
-    }
-    else if (Mode == FAST_OFF)
-    {
-        PWM_Disable();
-    }
-    return Mode;
+#include "adc_control.inc"
+finish:
+    *Theta = Theta_e;
+    *Id = Id_Ref;
+    *Iq = Iq_Ref;
+    *Ua = Motor_Run.Ualpha;
+    *Ub = Motor_Run.Ubeta;
+    return Fast_Mode;
 }
 
 static void Modes(void)
@@ -299,16 +333,18 @@ static void Modes(void)
     }
     Motor_Disable();
     Motor_Cal.Valid = 0;
-    assert(!Enc_Cal_Start());
+    Motor_Control();
+    assert(Motor_Enc_Cal_Start() == MOTOR_ERR_CONFIG);
     assert(Motor_State_Get() == DISABLED && TIM1->BDTR == 0);
 }
 
 static void Transfer(void)
 {
-    for (int Ctrl = 0; Ctrl < 2; Ctrl++)
+    for (int Mode = TORQUE; Mode <= PHASE_SEARCH; Mode++)
+      for (int Ctrl = 0; Ctrl < 2; Ctrl++)
         for (int FF = 0; FF < 2; FF++)
         {
-            Setup(TORQUE);
+            Setup(Mode);
             Current_Controller = Ctrl;
             Current_FF_Enable = FF;
             Mechanical_ESO.State.Wm = ENC_CAL_WM;
@@ -340,25 +376,31 @@ static void Transfer(void)
                 assert(fabsf(remainderf(Phase - Prev, TWO_PI_F) - Delta) < .0062f);
                 Prev = Phase;
             }
-            Enc_Cal_Run();
+            Motor_Control();
             assert(Enc_Cal.Step == CAL_DECEL);
+            assert(fabsf(Motor_Wm_Ref_Get() + ENC_CAL_WM) < .0001f);
             Encoder.Theta_m = Angle_Wrap(Encoder.Theta_m + ENC_CAL_WM * CUR_TS);
             ADC.Ia_A = .35f;
             ADC.Ib_A = -.15f;
+            float S, C;
+            SinCos(Cal_VF.State.Theta_e, &S, &C);
+            float ExpectedA = -Mag * S;
+            float ExpectedB = Mag * C;
             assert(Fast(&Theta, &Id, &Iq, &Ua, &Ub) == FAST_CURRENT);
             assert(!Enc_Cal_Handoff_Ready);
-            float UdFF = 0, UqFF = 0, Ud, Uq, S, C;
-            if (FF)
-            {
-                UdFF = -7 * ENC_CAL_WM * Motor_Para.Lq * Iq;
-                UqFF = 7 * ENC_CAL_WM * (Motor_Para.Ld * Id + Motor_Para.Flux);
-            }
-            Current_Loop(Id, Iq, 13, true, UdFF, UqFF, &Ud, &Uq);
             SinCos(Theta, &S, &C);
-            float OutA = (Ud + UdFF) * C - (Uq + UqFF) * S;
-            float OutB = (Ud + UdFF) * S + (Uq + UqFF) * C;
-            assert(fabsf(OutA - Ua) < .00005f && fabsf(OutB - Ub) < .00005f);
-            assert(fabsf(remainderf(atan2f(OutB, OutA) - Prev, TWO_PI_F) - Delta) < .0062f);
+            assert(fabsf(Id - (ADC.Ia_A * C + (ADC.Ia_A + 2 * ADC.Ib_A) * INV_SQRT3_F * S)) < .00001f);
+            assert(fabsf(Iq - (-ADC.Ia_A * S + (ADC.Ia_A + 2 * ADC.Ib_A) * INV_SQRT3_F * C)) < .00001f);
+            assert(fabsf(Ua - ExpectedA) < .00005f && fabsf(Ub - ExpectedB) < .00005f);
+            assert(fabsf(remainderf(atan2f(Ub, Ua) - Prev, TWO_PI_F) - Delta) < .0062f);
+            /* Reference holds until the slow loop runs; a second ADC sample
+             * must not track the measured current again. */
+            float Id_Hold = Id, Iq_Hold = Iq;
+            float VF_Theta = Cal_VF.State.Theta_e;
+            ADC.Ia_A += .2f;
+            assert(Fast(&Theta, &Id, &Iq, &Ua, &Ub) == FAST_CURRENT);
+            assert(Id == Id_Hold && Iq == Iq_Hold);
+            assert(Cal_VF.State.Theta_e == VF_Theta);
         }
 }
 
@@ -383,6 +425,19 @@ static void Capture(int Dir, float Noise)
     assert(Sample_Cnt == ENC_CAL_SAMPLES);
 }
 
+static void Phase_Complete(void)
+{
+    assert(Enc_Step == ENC_PHASE_RUN && Motor_State_Get() == RUN);
+    for (unsigned n = 0; n < 16000; n++)
+    {
+        float T, D, Q, A, B;
+        Encoder.Theta_Native = (n < 2100) ? 1.0f : 1.02f;
+        (void)Fast(&T, &D, &Q, &A, &B);
+    }
+    assert(!Servo_Phase_Active());
+    Motor_Control();
+}
+
 static void Fit(void)
 {
     for (int Dir = -1; Dir <= 1; Dir += 2)
@@ -395,17 +450,39 @@ static void Fit(void)
         for (int i = 0; i < 4; i++)
             assert(fabsf(C[i] - Expected[i]) < .00002f);
         Enc_Cal.Step = CAL_FIT_WAIT;
+        /* PWM off alone must no longer authorize applying new coefficients. */
         PWM_Disable();
-        assert(Enc_Cal_Fit_Apply());
+        assert(!Enc_Cal_Fit_Apply());
+        Enc_Cal.Step = CAL_FIT;
+        Motor_Control();
+        assert(Enc_Cal.Step == CAL_FIT_WAIT && Motor_State_Get() == DISABLED);
+        assert(Motor_Work_State == MOTOR_WORK_BUSY && Work_Job == MOTOR_WORK_FIT);
+        Worker_Run();
         assert(Motor_Cal.Valid == 0 && fabsf(Encoder_Harmonic.C2 - C[2]) < 1e-9f);
-        Motor_Work_State = MOTOR_WORK_DONE;
-        Enc_Cal_Run();
-        assert(Enc_Cal.Step == CAL_PHASE && Phase_Active);
-        Phase_Active = false;
-        Phase_Result.State = SERVO_PHASE_RESULT_PASS;
-        Enc_Cal_Run();
-        assert(Enc_Cal.Step == CAL_DONE && Motor_Cal.Valid == 1);
-        assert(Motor_State_Get() == DISABLED);
+        Motor_Control();
+        assert(Enc_Cal.Step == CAL_SAVE_WAIT && Work_Job == MOTOR_WORK_SAVE_ENC);
+        assert(Motor_State_Get() == DISABLED && !Servo_Phase_Active() && TIM1->BDTR == 0);
+        Worker_Run();
+        const uint16_t Enc_Ids[] = {PARAM_CAL_VALID, PARAM_ENCODER_HARMONIC_C1,
+                                   PARAM_ENCODER_HARMONIC_S1, PARAM_ENCODER_HARMONIC_C2,
+                                   PARAM_ENCODER_HARMONIC_S2};
+        assert(Saved_Count == 5 && !memcmp(Saved_Ids, Enc_Ids, sizeof Enc_Ids));
+        assert(Saved_Valid == 0);
+        Motor_Control();
+        assert(Enc_Cal.Step == CAL_DONE && Enc_Step == ENC_PHASE_RUN);
+        assert(Servo_Phase_Active() && Motor_State_Get() == RUN && PWM_Starts == 2);
+        Phase_Complete();
+        assert(Enc_Step == ENC_PHASE_SAVE && Motor_Cal.Valid == 1);
+        assert(Motor_Work_State == MOTOR_WORK_BUSY);
+        assert(!Enc_Action_Pending && Save_Requests == 2);
+        Worker_Run();
+        const uint16_t Phase_Ids[] = {PARAM_CAL_ENC_DIR, PARAM_CAL_THETA_OFF, PARAM_CAL_VALID};
+        assert(Saved_Count == 3 && !memcmp(Saved_Ids, Phase_Ids, sizeof Phase_Ids));
+        assert(Saved_Valid == 1);
+        Motor_Control();
+        assert(Enc_Step == ENC_DONE && Motor_Work_State == MOTOR_WORK_IDLE);
+        assert(Motor_State_Get() == DISABLED && TIM1->BDTR == 0);
+        assert(fabsf(Encoder_Harmonic.C2 - C[2]) < 1e-9f);
     }
     Capture(-1, .02f);
     float C[4];
@@ -416,6 +493,97 @@ static void Fit(void)
     assert(!Enc_Cal_Fit(C));
 }
 
+/* Known coefficients and residual energy, with correlated columns. Construct
+ * moments independently of the sampler and solver to test acceptance limits. */
+static void Moments(const double Beta[6], double Rms)
+{
+    double Energy = ENC_CAL_SAMPLES * Rms * Rms;
+    Sample_Cnt = ENC_CAL_SAMPLES;
+    for (unsigned i = 0; i < ENC_CAL_FIT_N; i++)
+    {
+        double Sum = 0;
+        for (unsigned j = 0; j < ENC_CAL_FIT_N; j++)
+        {
+            double Gram = ENC_CAL_SAMPLES * pow(.2, abs((int)i - (int)j));
+            if (j >= i)
+                A[i][j] = (float)Gram;
+            Sum += Gram * Beta[j];
+        }
+        B[i] = (float)Sum;
+        Energy += Beta[i] * Sum;
+    }
+    Y2 = (float)Energy;
+}
+
+static void Fit_Bounds(void)
+{
+    double Beta[6] = {.02, .001, .001, -.002, .003, -.004};
+    float C[4];
+    Moments(Beta, ENC_CAL_RMS_MAX * .999);
+    assert(Enc_Cal_Fit(C));
+    for (unsigned i = 0; i < 4; i++)
+        assert(fabs(C[i] - Beta[i + 2]) < 1e-7);
+    Moments(Beta, ENC_CAL_RMS_MAX * 1.001);
+    assert(!Enc_Cal_Fit(C));
+
+    for (unsigned k = 1; k < ENC_CAL_FIT_N; k++)
+        for (int Sign = -1; Sign <= 1; Sign += 2)
+        {
+            double Edge[6] = {0};
+            double Limit = (k == 1) ? .1f * ENC_CAL_WM : ENC_CAL_COEF_MAX;
+            Edge[k] = Sign * Limit * .999;
+            Moments(Edge, 0);
+            assert(Enc_Cal_Fit(C));
+            Edge[k] = Sign * Limit * 1.001;
+            Moments(Edge, 0);
+            assert(!Enc_Cal_Fit(C));
+        }
+
+    for (unsigned i = 0; i < ENC_CAL_FIT_N; i++)
+    {
+        Moments(Beta, 0);
+        A[i][i] = NAN;
+        assert(!Enc_Cal_Fit(C));
+        A[i][i] = INFINITY;
+        assert(!Enc_Cal_Fit(C));
+        Moments(Beta, 0);
+        B[i] = NAN;
+        assert(!Enc_Cal_Fit(C));
+    }
+    Moments(Beta, 0);
+    Y2 = INFINITY;
+    assert(!Enc_Cal_Fit(C));
+    Y2 = -1;
+    assert(!Enc_Cal_Fit(C));
+    memset(A, 0, sizeof A);
+    memset(B, 0, sizeof B);
+    Y2 = 0;
+    for (unsigned i = 0; i < ENC_CAL_FIT_N; i++)
+        A[i][i] = ENC_CAL_SAMPLES;
+    A[5][5] = .000099f * ENC_CAL_SAMPLES;
+    assert(!Enc_Cal_Fit(C));
+    A[5][5] = .000101f * ENC_CAL_SAMPLES;
+    assert(Enc_Cal_Fit(C));
+}
+
+static void Fit_Capture_Quality(void)
+{
+    float C[4];
+    for (int Dir = -1; Dir <= 1; Dir += 2)
+    {
+        Capture(Dir, sqrtf(2) * ENC_CAL_RMS_MAX * .99f);
+        assert(Enc_Cal_Fit(C));
+        Capture(Dir, sqrtf(2) * ENC_CAL_RMS_MAX * 1.01f);
+        assert(!Enc_Cal_Fit(C));
+    }
+    /* A full-length but stationary capture has no independent harmonic basis. */
+    Setup(SPEED);
+    Enc_Cal.Step = CAL_SAMPLE;
+    for (unsigned n = 0; n < ENC_CAL_SAMPLES * ENC_CAL_SAMPLE_DIV; n++)
+        Enc_Cal_Sample(.2f);
+    assert(Sample_Cnt == ENC_CAL_SAMPLES && !Enc_Cal_Fit(C));
+}
+
 static void Quality(void)
 {
     Setup(SPEED);
@@ -424,19 +592,19 @@ static void Quality(void)
     Enc_Cal_Sample(.2f);
     Encoder.Valid = 1;
     assert(Sample_Cnt > ENC_CAL_SAMPLES);
-    Enc_Cal_Run();
+    Motor_Control();
     assert(Enc_Cal.Step == CAL_FAILED && Motor_State_Get() == DISABLED);
     Setup(SPEED);
     Enc_Cal.Step = CAL_SAMPLE;
     Mechanical_ESO.State.Wm = .7f * ENC_CAL_WM;
-    Enc_Cal_Run();
+    Motor_Control();
     assert(Enc_Cal.Step == CAL_FAILED);
     Setup(SPEED);
     Enc_Cal.Step = CAL_VF;
     VF_Ready = true;
     Mechanical_ESO.State.Wm = NAN;
     for (unsigned n = 0; n < ENC_CAL_VF_SETTLE_CNT; n++)
-        Enc_Cal_Run();
+        Motor_Control();
     assert(Enc_Cal.Step == CAL_FAILED);
 }
 
@@ -446,39 +614,39 @@ static void Decel(void)
     Enc_Cal.Step = CAL_DECEL;
     Mechanical_ESO.State.Wm = 20 * ENC_CAL_STOP_WM;
     for (unsigned n = 0; n < ENC_CAL_STOP_WAIT_CNT + 10; n++)
-        Enc_Cal_Run();
+        Motor_Control();
     assert(Enc_Cal.Step == CAL_DECEL && Fit_Requests == 0);
     Mechanical_ESO.State.Wm = 0;
     for (unsigned n = 0; n < ENC_CAL_STOP_WAIT_CNT; n++)
-        Enc_Cal_Run();
+        Motor_Control();
     assert(Enc_Cal.Step == CAL_FIT);
     float T, D, Q, A, B;
     assert(Fast(&T, &D, &Q, &A, &B) == FAST_OFF);
-    Enc_Cal_Run();
+    Motor_Control();
     assert(Enc_Cal.Step == CAL_FIT_WAIT && Fit_Requests == 1);
     Setup(SPEED);
     Enc_Cal.Step = CAL_DECEL;
     Mechanical_ESO.State.Wm = 50;
     for (int n = 0; n < 20000 && Enc_Cal.Step == CAL_DECEL; n++)
-        Enc_Cal_Run();
+        Motor_Control();
     assert(Enc_Cal.Step == CAL_FAILED && Fit_Requests == 0);
 }
 
 static void Abort(void)
 {
-    for (int Step = CAL_SPEED; Step <= CAL_PHASE; Step++)
+    for (int Step = CAL_SPEED; Step <= CAL_SAVE_WAIT; Step++)
         for (int Disable = 0; Disable < 2; Disable++)
         {
             Setup(TORQUE);
             Enc_Cal.Step = Step;
-            Phase_Active = (Step == CAL_PHASE);
             if (Disable)
                 Motor_Disable();
             else
                 Motor_Stop();
-            Enc_Cal_Run();
+            Motor_Control();
+            assert(TIM1->BDTR == 0);
             assert(Motor_State_Get() == DISABLED && Enc_Cal.Step == CAL_FAILED);
-            assert(!Phase_Active && Fit_Requests == 0 && TIM1->BDTR == 0);
+            assert(!Servo_Phase_Active() && Fit_Requests == 0 && TIM1->BDTR == 0);
             assert(!Enc_Cal_Fit_Apply());
         }
 }
@@ -511,46 +679,166 @@ static void Commands(void)
     const Motor_Cmd_e Cancel[] = {MOTOR_CMD_STOP, MOTOR_CMD_DISABLE, MOTOR_CMD_EN_TOGGLE,
                                   MOTOR_CMD_RUN_TOGGLE};
     for (unsigned k = 0; k < 4; k++)
-        for (int Step = CAL_SPEED; Step <= CAL_PHASE; Step++)
+        for (int Step = CAL_SPEED; Step <= CAL_SAVE_WAIT; Step++)
         {
             Setup(TORQUE);
             Motor_Disable();
-            Enc_Cal.Step = CAL_IDLE;
+            Motor_Control();
             Enqueue(MOTOR_CMD_ENC_CAL_START, ACTION_ENC_CAL_START);
             Motor_Cmd_Run();
-            assert(Cal_Action_Pending && Log_Cnt == 1 && Log[0].Status == AXDR_OK);
+            assert(Enc_Action_Pending && Log_Cnt == 1 && Log[0].Status == AXDR_OK);
             Enc_Cal.Step = Step;
-            Phase_Active = (Step == CAL_PHASE);
+            if (Step >= CAL_FIT_WAIT)
+                Motor_Work_State = MOTOR_WORK_BUSY;
             Enqueue(Cancel[k], 0x1000);
             Enqueue(MOTOR_CMD_RUN, 0x1001);
             Enqueue(MOTOR_CMD_ENABLE, 0x1002);
             Motor_Cmd_Run();
-            assert(Motor_State_Get() != RUN);
+            assert(Motor_State_Get() == DISABLED);
             if (k < 2)
                 assert(Log[1].Status == AXDR_OK);
             assert(Log[Log_Cnt - 1].Status == AXDR_ERR_STATE);
-            Enc_Cal_Run();
+            Motor_Control();
+            assert(TIM1->BDTR == 0);
+            if (Step >= CAL_FIT_WAIT)
+            {
+                Motor_Async_Action_Poll();
+                assert(Enc_Action_Pending && Enc_Step == ENC_STOP_WAIT);
+                assert(!Enc_Cal_Fit_Apply());
+                Motor_Work_State = MOTOR_WORK_FAILED;
+                Motor_Control();
+            }
             Motor_Async_Action_Poll();
-            assert(!Cal_Action_Pending && Motor_State_Get() == DISABLED && !Phase_Active);
+            assert(!Enc_Action_Pending && !Enc_Control_Active() && !Servo_Phase_Active());
             assert(Log[Log_Cnt - 1].Kind == 1 && Log[Log_Cnt - 1].Id == ACTION_ENC_CAL_START);
             assert(Log[Log_Cnt - 1].Status == AXDR_ERR_CONFIG && Save_Requests == 0);
         }
-    for (int Passed = 0; Passed < 2; Passed++)
+    for (int Passed = -1; Passed < 2; Passed++)
     {
         Setup(SPEED);
-        Cal_Action_Pending = true;
-        Cal_Action_Msg = (Motor_Cmd_Msg_T){.Reserved = ACTION_ENC_CAL_START};
-        Motor_Disable();
+        Enc_Action_Pending = true;
+        Enc_Action = ACTION_ENC_CAL_START | (0xA5U << MOTOR_ACTION_TXN_SHIFT);
         Enc_Cal.Step = CAL_DONE;
+        Encoder_Harmonic.C1 = .001f;
+        Motor_Control();
+        Work_Reject = (Passed < 0);
+        Phase_Complete();
+        assert(Motor_State_Get() == DISABLED && Save_Requests == 1 && Log_Cnt == 0);
+        assert(Motor_Cal.Valid == 1 && Encoder_Harmonic.C1 == .001f);
+        if (!Work_Reject)
+        {
+            Motor_Async_Action_Poll();
+            assert(Log_Cnt == 0 && Enc_Action_Pending);
+            Storage_Error = Passed ? 0 : -1;
+            Worker_Run();
+            Motor_Control();
+        }
         Motor_Async_Action_Poll();
-        assert(Save_Requests == 1 && Log_Cnt == 0);
-        assert(Cal_Action_Pending && Motor_Work_State == MOTOR_WORK_BUSY);
-        Motor_Work_State = Passed ? MOTOR_WORK_DONE : MOTOR_WORK_FAILED;
-        Motor_Async_Action_Poll();
-        assert(!Cal_Action_Pending && Log_Cnt == 1 && Log[0].Kind == 1);
-        assert(Log[0].Status == (Passed ? AXDR_OK : AXDR_ERR_CONFIG));
+        assert(!Enc_Action_Pending && Log_Cnt == 1 && Log[0].Kind == 1);
+        assert(Log[0].Id == ACTION_ENC_CAL_START && Log[0].Txn == 0xA5);
+        assert(Log[0].Status == ((Passed == 1) ? AXDR_OK : AXDR_ERR_CONFIG));
         Motor_Async_Action_Poll();
         assert(Log_Cnt == 1 && Motor_Work_State == MOTOR_WORK_IDLE);
+        assert(Save_Requests == 1 && Motor_Cal.Valid == 1 && Encoder_Harmonic.C1 == .001f);
+    }
+}
+
+static void Phase_Sequence(void)
+{
+    for (int Mode = TORQUE; Mode <= PHASE_SEARCH; Mode++)
+    {
+        Setup(Mode);
+        /* The encoder scheduler owns disable and restart without an outer
+         * Motor_Control phase-transition branch. */
+        Enc_Cal.Step = CAL_FIT;
+        Enc_Control_Run();
+        assert(Motor_State_Get() == DISABLED);
+        Motor_Work_State = MOTOR_WORK_DONE;
+        Enc_Control_Run();
+        assert(Enc_Cal.Step == CAL_SAVE_WAIT && Motor_State_Get() == DISABLED);
+        Motor_Work_State = MOTOR_WORK_DONE;
+        Enc_Control_Run();
+        assert(Enc_Step == ENC_PHASE_RUN && Servo_Phase_Active());
+        assert(Motor_State_Get() == RUN && Motor_Mode == Mode);
+        assert(Motor_Cmd.Wm_Target == 30 && Motor_Cmd.Te_Target == .05f);
+        Phase_Complete();
+        Worker_Run();
+        Enc_Control_Run();
+        assert(Enc_Step == ENC_DONE && Motor_State_Get() == DISABLED);
+        assert(Motor_Mode == Mode && TIM1->BDTR == 0);
+    }
+    for (unsigned k = 0; k < 2; k++)
+    {
+        Setup(TORQUE);
+        Motor_Disable();
+        Motor_Control();
+        Motor_Mode = PHASE_SEARCH;
+        Motor_Cal.Valid = 0;
+        Encoder_Harmonic = (Encoder_Harmonic_T){.C1 = .001f, .S1 = -.002f};
+        assert(Motor_Enable() == MOTOR_OK);
+        assert(Motor_Start() == MOTOR_OK);
+        assert(Enc_Step == ENC_PHASE_RUN && Motor_State_Get() == RUN);
+        unsigned Starts = PWM_Starts;
+        if (k == 0)
+        {
+            Phase_Complete();
+            Worker_Run();
+            assert(Saved_Count == 3 && Save_Requests == 1 && Fit_Requests == 0);
+            Motor_Control();
+            assert(Enc_Step == ENC_DONE);
+        }
+        else
+        {
+            Motor_Stop();
+            Motor_Control();
+            assert(Enc_Step == ENC_FAILED && PWM_Starts == Starts);
+            assert(Save_Requests == 0);
+        }
+        assert(Motor_State_Get() == DISABLED && TIM1->BDTR == 0);
+        assert(Encoder_Harmonic.C1 == .001f && Encoder_Harmonic.S1 == -.002f);
+    }
+}
+
+static void Failures(void)
+{
+    /* Fit, save submission, Flash write, re-enable and phasing failures. */
+    for (unsigned Failure = 0; Failure < 5; Failure++)
+    {
+        Capture(-1, 0);
+        Enc_Action_Pending = true;
+        Enc_Action = ACTION_ENC_CAL_START;
+        Enc_Cal.Step = CAL_FIT;
+        Motor_Control();
+        if (Failure == 0)
+            Y2 = INFINITY;
+        Worker_Run();
+        Work_Reject = (Failure == 1);
+        Motor_Control();
+        if (Failure >= 2)
+        {
+            assert(Work_Job == MOTOR_WORK_SAVE_ENC && Motor_State_Get() == DISABLED);
+            Storage_Error = (Failure == 2) ? -1 : 0;
+            Worker_Run();
+            Enable_Allowed = (Failure != 3);
+            Motor_Control();
+            if (Failure == 4)
+            {
+                float T, D, Q, A, B;
+                assert(Enc_Step == ENC_PHASE_RUN);
+                Encoder.Fault = 1;
+                assert(Fast(&T, &D, &Q, &A, &B) == FAST_OFF);
+                Motor_Control();
+            }
+        }
+        Motor_Control();
+        Motor_Async_Action_Poll();
+        assert(Enc_Step == ENC_FAILED && Motor_State_Get() == DISABLED && TIM1->BDTR == 0);
+        assert(Motor_Work_State == MOTOR_WORK_IDLE && !Enc_Action_Pending);
+        assert(Log_Cnt == 1 && Log[0].Kind == 1 && Log[0].Status == AXDR_ERR_CONFIG);
+        assert(Motor_Cal.Valid == (Failure == 0));
+        assert(Save_Requests <= 1 && Saved_Count != 3);
+        if (Failure != 0)
+            assert(fabsf(Encoder_Harmonic.C2) > .0009f);
     }
 }
 
@@ -561,7 +849,9 @@ static void Normal(void)
     {
         Setup(TORQUE);
         Motor_Disable();
+        Motor_Control();
         Enc_Cal.Step = Steps[k];
+        Motor_Cal.Valid = 1;
         Motor_Enable();
         Motor_Start();
         Motor_Control();
@@ -593,6 +883,10 @@ int main(int argc, char **argv)
         Transfer();
     else if (!strcmp(argv[1], "fit"))
         Fit();
+    else if (!strcmp(argv[1], "fit-bounds"))
+        Fit_Bounds();
+    else if (!strcmp(argv[1], "fit-capture-quality"))
+        Fit_Capture_Quality();
     else if (!strcmp(argv[1], "quality"))
         Quality();
     else if (!strcmp(argv[1], "decel"))
@@ -601,6 +895,10 @@ int main(int argc, char **argv)
         Abort();
     else if (!strcmp(argv[1], "commands"))
         Commands();
+    else if (!strcmp(argv[1], "phase-sequence"))
+        Phase_Sequence();
+    else if (!strcmp(argv[1], "failures"))
+        Failures();
     else if (!strcmp(argv[1], "normal"))
         Normal();
     else if (!strcmp(argv[1], "replay-forward"))

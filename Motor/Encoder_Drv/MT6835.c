@@ -14,8 +14,6 @@
 #define MT6835_CPR            2097152.0f
 #define MT6835_RAW_TO_RAD     (TWO_PI_F / MT6835_CPR)
 
-#define MT6835_STATUS_OVERSPEED 0x01U
-#define MT6835_STATUS_WEAKFIELD 0x02U
 #define MT6835_STATUS_UNDERVOLT 0x04U
 
 #define ENC_UNDERVOLT_FAULT_MS  2U
@@ -78,9 +76,6 @@ void MT6835_Config(void)
     MT6835_State.CRC_Err = 0U;
     MT6835_State.Under_Voltage_Cnt = 0U;
     MT6835_State.Status = 0U;
-    MT6835_State.Over_Speed = 0U;
-    MT6835_State.Weak_Field = 0U;
-    MT6835_State.Under_Voltage = 0U;
 
     /* Channel 3 supplies the complete burst; only RX channel 5 interrupts.
      * Keep halfword transfers so MT6816 can share the same SPI data format. */
@@ -176,9 +171,7 @@ void MT6835_IRQHandler(void)
 
     Data_H = Rx[1];
     Data_L = Rx[2];
-    Raw = ((uint32_t)(Data_H >> 8) << 13) |
-          ((uint32_t)(Data_H & 0x00FFU) << 5) |
-          ((uint32_t)(Data_L >> 11) & 0x1FU);
+    Raw = ((uint32_t)Data_H << 5) | (uint32_t)(Data_L >> 11);
     Status = (uint8_t)((Data_L >> 8) & 0x07U);
     Crc_Recv = (uint8_t)(Data_L & 0x00FFU);
 
@@ -198,11 +191,8 @@ void MT6835_IRQHandler(void)
     }
 
     MT6835_State.Status = Status;
-    MT6835_State.Over_Speed = (Status & MT6835_STATUS_OVERSPEED) ? 1U : 0U;
-    MT6835_State.Weak_Field = (Status & MT6835_STATUS_WEAKFIELD) ? 1U : 0U;
-    MT6835_State.Under_Voltage = (Status & MT6835_STATUS_UNDERVOLT) ? 1U : 0U;
 
-    if (MT6835_State.Under_Voltage != 0U)
+    if ((Status & MT6835_STATUS_UNDERVOLT) != 0U)
     {
         Encoder_Sample_Reject();
 

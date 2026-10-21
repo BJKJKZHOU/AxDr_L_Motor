@@ -91,14 +91,14 @@ typedef struct
  * Theta_Off must be calibrated after Enc_Dir / phase order are established:
  * Theta_e = wrap(Pp * Theta_m + Theta_Off).
  *
- * Valid is set only after a complete servo phase calibration result is
- * accepted. Changing encoder type or pole-pair count invalidates the result.
+ * Valid 表示当前寻相结果可用；重新寻相或用户修改极对数、编码器类型时清零。
+ * 上电按参数表恢复保存值。
  */
 typedef struct
 {
-    int8_t Enc_Dir; /* +1 / -1, calibration result */
-    float Theta_Off; /* rad, calibration result */
-    uint8_t Valid; /* 1 only when Enc_Dir / Theta_Off match current encoder and Pp */
+    int8_t Enc_Dir; /* 寻相得到的方向，+1 / -1。 */
+    float Theta_Off; /* 寻相得到的电角度偏置，rad。 */
+    uint8_t Valid; /* 寻相有效标记，对应参数 0x0402。 */
 
 } Motor_Cal_T;
 

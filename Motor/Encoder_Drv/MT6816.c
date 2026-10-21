@@ -129,6 +129,7 @@ void MT6816_IRQHandler(void)
 {
     float Theta;
     uint16_t Data;
+    uint32_t Raw;
     uint32_t T0;
     uint32_t Wait_T0;
     uint32_t Flags;
@@ -256,9 +257,9 @@ void MT6816_IRQHandler(void)
     MT6816_State.No_Mag = 0U;
     MT6816_State.No_Mag_Cnt = 0U;
 
-    Encoder.Raw = Data >> 2;
-    Theta = (float)Encoder.Raw * RAW_TO_RAD;
-    Encoder_Sample_Update(Encoder.Raw, Theta);
+    Raw = Data >> 2;
+    Theta = (float)Raw * RAW_TO_RAD;
+    Encoder_Sample_Update(Raw, Theta);
     Fast_Time.Enc_Cyc = DWT->CYCCNT - Fast_Time.T0;
 
     Step = 0U;
