@@ -29,15 +29,7 @@
 #define OBS_EXIT_BEMF_RATIO  0.05f
 #define IF_ACC_TORQUE_RATIO   0.05f
 
-typedef enum
-{
-    TO_OBS_BLEND = 0,
-    TO_OBS_I_TRANS,
-
-} To_Obs_State_e;
-
 static volatile Sensorless_State_e State = SL_IDLE;
-static volatile To_Obs_State_e To_Obs_State = TO_OBS_BLEND;
 static bool Stop_Requested = false;
 
 static Flux_Observer_T Sensorless_Observer = { 0 };
@@ -172,15 +164,9 @@ void Sensorless_Stop(void)
     State = SL_IDLE;
 }
 
-bool Sensorless_Active(void)
-{
-    return (State != SL_IDLE) && (State != SL_FAILED);
-}
-
 bool Sensorless_Speed_Control_Active(void)
 {
-    return (State == SL_OBS) ||
-           ((State == SL_IF_TO_OBS) && (To_Obs_State == TO_OBS_I_TRANS));
+    return (State == SL_OBS) || (State == SL_IF_TO_OBS_CURRENT);
 }
 
 float Sensorless_Wm_Get(void)
@@ -200,7 +186,7 @@ float Sensorless_Wm_Get(void)
 
 void Sensorless_Control(float We_Ref, float Iq_Min, float Iq_Max)
 {
-    if ((State == SL_OBS) || ((State == SL_IF_TO_OBS) && (To_Obs_State == TO_OBS_I_TRANS)))
+    if ((State == SL_OBS) || (State == SL_IF_TO_OBS_CURRENT))
     {
         Obs_Iq_Ref = Speed_Loop(We_Ref, Sensorless_PLL.State.We, Iq_Min, Iq_Max);
     }
@@ -222,7 +208,7 @@ void Sensorless_Run(float Ia_A, float Ib_A, float We_Target, float *Theta_e, flo
     int8_t Dir;
     bool Obs_Valid = false;
 
-    if (!Sensorless_Active())
+    if ((State == SL_IDLE) || (State == SL_FAILED))
     {
         *Theta_e = Theta_Use_Last;
         *Id_Ref = 0.0f;
@@ -306,46 +292,42 @@ void Sensorless_Run(float Ia_A, float Ib_A, float We_Target, float *Theta_e, flo
             (Abs_F(Sensorless_IF.State.We) >= We_Obs_Enter))
         {
             Handover_Blend_Reset(&Handover);
-            To_Obs_State = TO_OBS_BLEND;
             State = SL_IF_TO_OBS;
         }
     }
     else if (State == SL_IF_TO_OBS)
     {
-        if (To_Obs_State == TO_OBS_BLEND)
+        if (Handover_Blend_Run(&Handover,
+                               BLEND_CNT,
+                               Theta_IF,
+                               Theta_Obs,
+                               Id_IF,
+                               Iq_IF,
+                               &Theta_Use,
+                               Id_Ref,
+                               Iq_Ref))
         {
-            if (Handover_Blend_Run(&Handover,
-                                   BLEND_CNT,
-                                   Theta_IF,
-                                   Theta_Obs,
-                                   Id_IF,
-                                   Iq_IF,
-                                   &Theta_Use,
-                                   Id_Ref,
-                                   Iq_Ref))
-            {
-                Obs_Id_Ref = *Id_Ref;
-                Obs_Iq_Ref = *Iq_Ref;
-                I_Max = Current_Limit_Get();
-                Speed_Loop_Track(Sensorless_PLL.State.We,
-                                 Sensorless_PLL.State.We,
-                                 Obs_Iq_Ref,
-                                 -I_Max,
-                                 I_Max);
-                To_Obs_State = TO_OBS_I_TRANS;
-            }
+            Obs_Id_Ref = *Id_Ref;
+            Obs_Iq_Ref = *Iq_Ref;
+            I_Max = Current_Limit_Get();
+            Speed_Loop_Track(Sensorless_PLL.State.We,
+                             Sensorless_PLL.State.We,
+                             Obs_Iq_Ref,
+                             -I_Max,
+                             I_Max);
+            State = SL_IF_TO_OBS_CURRENT;
         }
-        else
-        {
-            Theta_Use = Theta_Obs;
-            Obs_Id_Ref = Handover_Ramp_Zero(Obs_Id_Ref, ID_RAMP_STEP);
-            *Id_Ref = Obs_Id_Ref;
-            *Iq_Ref = Obs_Iq_Ref;
+    }
+    else if (State == SL_IF_TO_OBS_CURRENT)
+    {
+        Theta_Use = Theta_Obs;
+        Obs_Id_Ref = Handover_Ramp_Zero(Obs_Id_Ref, ID_RAMP_STEP);
+        *Id_Ref = Obs_Id_Ref;
+        *Iq_Ref = Obs_Iq_Ref;
 
-            if (Obs_Id_Ref == 0.0f)
-            {
-                State = SL_OBS;
-            }
+        if (Obs_Id_Ref == 0.0f)
+        {
+            State = SL_OBS;
         }
     }
     else if (State == SL_OBS)

@@ -190,10 +190,6 @@ void Sensorless_Stop_Request(void)
 void Sensorless_Stop(void)
 {
 }
-bool Sensorless_Active(void)
-{
-    return false;
-}
 bool Sensorless_Speed_Control_Active(void)
 {
     abort();

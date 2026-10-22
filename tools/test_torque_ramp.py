@@ -74,7 +74,6 @@ float Mechanical_ESO_Wm_Get(void) { return Mechanical_ESO.State.Wm; }
 bool Sensorless_Begin(void) { abort(); }
 void Sensorless_Stop_Request(void) { abort(); }
 void Sensorless_Stop(void) { abort(); }
-bool Sensorless_Active(void) { abort(); }
 bool Sensorless_Speed_Control_Active(void) { abort(); }
 float Sensorless_Wm_Get(void) { abort(); }
 Sensorless_State_e Sensorless_State_Get(void) { abort(); }
