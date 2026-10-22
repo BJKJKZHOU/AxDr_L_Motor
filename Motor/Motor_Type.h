@@ -85,7 +85,7 @@ typedef struct
  *
  * Enc_Dir maps the encoder native angle direction into the internal motor
  * coordinate. Only +1 / -1 are valid and direction calibration may only be
- * changed while DISABLED. After direction correction, Motor_Run Theta_m
+ * changed while DISABLED. After direction correction, Motor_Run.Theta_m
  * and Turn belong to the internal motor coordinate, as does the ESO speed.
  *
  * Theta_Off must be calibrated after Enc_Dir / phase order are established:
@@ -139,8 +139,9 @@ typedef struct
 
 typedef struct
 {
-    int32_t
-        Turn; /* Internal mechanical turns; +1 on positive 2pi->0 wrap, -1 on negative 0->2pi wrap; starts at 0 after power-up and is not retained across power loss */
+    /* Internal mechanical position; Turn starts at zero and is not persisted. */
+    int32_t Turn;
+    float Theta_m; /* rad, [0, 2pi), paired with Turn */
 
     float Theta_e; /* rad, [0, 2pi), internal electrical angle currently used by FOC */
 

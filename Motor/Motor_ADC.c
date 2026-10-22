@@ -314,7 +314,7 @@ void Fast_Loop(void)
     if ((Encoder.Ready != 0U) && (Encoder.Fault == 0U) &&
         (Mechanical_ESO.Para.Valid != 0U))
     {
-        float Theta_m = Encoder.Theta_m;
+        float Theta_m = Motor_Run.Theta_m;
 
         if (Motor_Cal.Valid != 0U)
         {
@@ -345,7 +345,7 @@ void Fast_Loop(void)
     {
         if (!Encoder_Park_Valid)
         {
-            Encoder_Theta_e = Angle_Wrap((float)Motor_Para.Pp * Encoder.Theta_m + Motor_Cal.Theta_Off);
+            Encoder_Theta_e = Angle_Wrap((float)Motor_Para.Pp * Motor_Run.Theta_m + Motor_Cal.Theta_Off);
             SinCos(Encoder_Theta_e, &Sin, &Cos);
             Iq_Encoder = -Ialpha * Sin + Ibeta * Cos;
         }

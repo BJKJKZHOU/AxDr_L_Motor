@@ -132,7 +132,8 @@ static void Motion_State_Reset(void)
     int32_t Turn;
     float Theta;
 
-    Speed_Loop_State_Reset((float)Motor_Para.Pp * Mechanical_ESO.State.Wm);
+    Speed_Ctrl.State.Int = 0.0f;
+    Speed_Ctrl.State.Fbk_Pre = (float)Motor_Para.Pp * Mechanical_ESO.State.Wm;
     Wm_Ref = 0.0f;
     We_Ref = 0.0f;
     Encoder_Position_Read(&Turn, &Theta);
@@ -585,7 +586,7 @@ Motor_Fast_Mode_e Motor_Fast_Run(float Encoder_Theta_e,
          * Retain the original angle path if encoder/ESO feedback is unavailable. */
         *Theta_e = (Encoder_Park_Valid ||
                     ((Enc_Cal.Step == CAL_DECEL) && Enc_Cal_Handoff_Ready)) ? Encoder_Theta_e :
-                   Angle_Wrap((float)Motor_Para.Pp * Encoder.Theta_m + Motor_Cal.Theta_Off);
+                   Angle_Wrap((float)Motor_Para.Pp * Motor_Run.Theta_m + Motor_Cal.Theta_Off);
         *Id_Ref = Current_Ref.Id;
         *Iq_Ref = Current_Ref.Iq;
         return FAST_CURRENT;
@@ -631,18 +632,16 @@ Motor_Mode_e Motor_Mode_Get(void)
 
 float Motor_I_Limit_Effective_Get(void)
 {
-    Motor_Limit_T Lim;
+    float I_Max = (Motor_Lim.I_Max < User_Lim.I_Max) ? Motor_Lim.I_Max : User_Lim.I_Max;
 
-    Motor_Limit_Get(&Lim);
-    return Lim.I_Max;
+    return (I_Max < 0.0f) ? 0.0f : I_Max;
 }
 
 float Motor_Wm_Limit_Effective_Get(void)
 {
-    Motor_Limit_T Lim;
+    float Wm_Max = (Motor_Lim.Wm_Max < User_Lim.Wm_Max) ? Motor_Lim.Wm_Max : User_Lim.Wm_Max;
 
-    Motor_Limit_Get(&Lim);
-    return Lim.Wm_Max;
+    return (Wm_Max < 0.0f) ? 0.0f : Wm_Max;
 }
 
 float Motor_Wm_Ref_Get(void)

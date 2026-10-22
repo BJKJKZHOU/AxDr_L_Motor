@@ -117,7 +117,6 @@ static void Feedback_Reset(void)
 
     Encoder.Raw = 0U;
     Encoder.Theta_Native = 0.0f;
-    Encoder.Theta_m = 0.0f;
     Encoder.Err_Cnt = 0U;
     Encoder.Miss_Cnt = 0U;
     Encoder.Startup_Cnt = 0U;
@@ -127,6 +126,7 @@ static void Feedback_Reset(void)
     Encoder.Fault = 0U;
 
     Motor_Run.Turn = 0;
+    Motor_Run.Theta_m = 0.0f;
     Mechanical_ESO.State = (Mechanical_ESO_State_T){ 0 };
 }
 
@@ -193,7 +193,7 @@ void Encoder_Position_Read(int32_t *Turn, float *Theta)
     Primask = __get_PRIMASK();
     __disable_irq();
     *Turn = Motor_Run.Turn;
-    *Theta = Encoder.Theta_m;
+    *Theta = Motor_Run.Theta_m;
     __set_PRIMASK(Primask);
 }
 
@@ -258,7 +258,7 @@ void Encoder_Sample_Update(uint32_t Raw, float Theta)
     if (Pos_Valid != 0U)
     {
         /* 更新前的单圈角度就是上一拍角度，用于判断是否跨圈。 */
-        Delta = Theta - Encoder.Theta_m;
+        Delta = Theta - Motor_Run.Theta_m;
 
         if (Delta < -PI_F)
         {
@@ -274,7 +274,7 @@ void Encoder_Sample_Update(uint32_t Raw, float Theta)
         Pos_Valid = 1U;
     }
 
-    Encoder.Theta_m = Theta;
+    Motor_Run.Theta_m = Theta;
     Encoder.Lost_Cnt = 0U;
     Encoder.Valid = 1U;
 
