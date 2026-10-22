@@ -11,17 +11,6 @@
 
 #include "Motor_Type.h"
 
-typedef struct
-{
-    float Iq_Start_A;
-    float Iq_Max_A;
-    float We_Base;
-    float Acc;
-    float U_Budget_V;
-    bool Valid;
-
-} Motor_IF_Para_T;
-
 typedef enum
 {
     CTRL_TUNE_BANDWIDTH = 0,
@@ -63,6 +52,6 @@ void Speed_Tuning_Update(void);
  * On failure, active parameters, coefficients and observer state are unchanged. */
 bool Motor_Para_Update(const Motor_Para_T *Para, float Eso_Bw_Hz);
 
-bool Motor_IF_Para_Build(float Vbus_V, float I_Max_A, Motor_IF_Para_T *Para);
+bool Motor_IF_We_Base_Calc(float Vbus_V, float I_Max_A, float *We_Base);
 
 #endif /* MOTOR_PARA_H */

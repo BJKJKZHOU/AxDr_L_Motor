@@ -63,14 +63,12 @@ typedef struct
 
 static volatile JB_State_e State = JB_IDLE;
 JB_Result_T JB_Result = { 0 };
-static Motor_IF_Para_T Start_Para = { 0 };
 static IF_T JB_IF = { 0 };
 static Align_T JB_Align = { .Para.Hold_Cnt = IF_ALIGN_CNT };
 static Handover_T Handover = { 0 };
 static Motion_Ref_T JB_Speed_Ref = { 0 };
 static JB_DFT_T DFT = { 0 };
 
-static float We_Startup = 0.0f;
 static float Wm_Bias = 0.0f;
 static float Wm_Amp = 0.0f;
 static volatile float Obs_Id_Ref = 0.0f;
@@ -216,7 +214,6 @@ bool JB_Start(void)
     float We_Target;
 
     JB_Result = (JB_Result_T){ 0 };
-    Start_Para = (Motor_IF_Para_T){ 0 };
     JB_IF = (IF_T){ 0 };
 
     Envelope = &Ident_Envelope;
@@ -230,7 +227,7 @@ bool JB_Start(void)
         !__builtin_isfinite(Ident_JB_Excite_Hz) || (Ident_JB_Excite_Hz <= 0.0f) ||
         !__builtin_isfinite(We_Max) || (We_Max <= 0.0f) ||
         !__builtin_isfinite(Envelope->U_Available) || (Envelope->U_Available <= 0.0f) ||
-        !Motor_IF_Para_Build(ADC.Vbus_V, Motor_Config.IF_Current_A, &Start_Para) ||
+        !Motor_IF_We_Base_Calc(ADC.Vbus_V, Motor_Config.IF_Current_A, &JB_IF.Para.We_Base) ||
         !__builtin_isfinite(Motor_Config.Align_Current_A) ||
         (Motor_Config.Align_Current_A <= 0.0f) ||
         (Motor_Config.Align_Current_A > Envelope->I_Max) ||
@@ -246,29 +243,27 @@ bool JB_Start(void)
      * available phase voltage. Leave headroom for the sinusoidal speed swing. */
     We_Target = JB_WORK_RATIO * Envelope->U_Available / Motor_Para.Flux;
     We_Work_Max = We_Max / (1.0f + JB_WM_EXCITE_RATIO);
-    if (We_Target < Start_Para.We_Base)
+    if (We_Target < JB_IF.Para.We_Base)
     {
-        We_Target = Start_Para.We_Base;
+        We_Target = JB_IF.Para.We_Base;
     }
     if (We_Target > We_Work_Max)
     {
         We_Target = We_Work_Max;
     }
     if (!__builtin_isfinite(We_Target) ||
-        (We_Target < Start_Para.We_Base) ||
+        (We_Target < JB_IF.Para.We_Base) ||
         (We_Target <= 0.0f))
     {
         return false;
     }
 
-    We_Startup = Start_Para.We_Base;
     Wm_Bias = We_Target / (float)Motor_Para.Pp;
     Wm_Amp = JB_WM_EXCITE_RATIO * Wm_Bias;
 
     JB_IF.Para.Iq_Min_A = Motor_Config.IF_Current_A;
-    JB_IF.Para.Iq_Max_A = Start_Para.Iq_Max_A;
-    JB_IF.Para.We_Base = Start_Para.We_Base;
-    JB_IF.Para.Acc = Abs_Value(We_Startup) / JB_OPEN_ACCEL_S;
+    JB_IF.Para.Iq_Max_A = Motor_Config.IF_Current_A;
+    JB_IF.Para.Acc = Abs_Value(JB_IF.Para.We_Base) / JB_OPEN_ACCEL_S;
     JB_IF.Para.Iq_Slew_A_S = IF_IQ_SLEW_A_S;
 
     Ident_Observer.Para.Rs = Motor_Para.Rs;
@@ -366,7 +361,7 @@ Motor_Fast_Mode_e JB_Fast_Run(float Ia_A,
             Current_Loop_State_Reset();
             IF_Init(&JB_IF, -0.5f * PI_F, 0.0f);
             JB_IF.State.Iq = Motor_Config.IF_Current_A;
-            IF_Target_Set(&JB_IF, We_Startup);
+            IF_Target_Set(&JB_IF, JB_IF.Para.We_Base);
             if (JB_IF.State.Mode == IF_FAILED)
             {
                 JB_Fail();
@@ -395,8 +390,8 @@ Motor_Fast_Mode_e JB_Fast_Run(float Ia_A,
     {
         if (State == JB_IF_RUN)
         {
-            JB_IF.Para.Acc = Abs_Value(We_Startup) / JB_OPEN_ACCEL_S *
-                             ((Abs_Value(JB_IF.State.We) < 0.50f * Start_Para.We_Base) ?
+            JB_IF.Para.Acc = Abs_Value(JB_IF.Para.We_Base) / JB_OPEN_ACCEL_S *
+                             ((Abs_Value(JB_IF.State.We) < 0.50f * JB_IF.Para.We_Base) ?
                                   3.0f : 0.60f);
         }
 

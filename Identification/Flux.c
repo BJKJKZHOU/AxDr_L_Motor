@@ -141,7 +141,6 @@ typedef struct
 
 static volatile Flux_State_e State = FLUX_IDLE;
 Flux_Result_T Flux_Result = { 0 };
-static Motor_IF_Para_T Start_Para = { 0 };
 static IF_T Flux_IF = { 0 };
 static Align_T Flux_Align = { .Para.Hold_Cnt = IF_ALIGN_CNT };
 static Flux_Estimator_T Flux_Estimator = { 0 };
@@ -290,9 +289,9 @@ static void Flux_Target_Update(void)
             We_Req = We_U_Max;
         }
     }
-    if (We_Req < Start_Para.We_Base)
+    if (We_Req < Flux_IF.Para.We_Base)
     {
-        We_Req = Start_Para.We_Base;
+        We_Req = Flux_IF.Para.We_Base;
     }
     if (We_Req > We_Max)
     {
@@ -484,7 +483,7 @@ static bool Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
         /* 6d26e0a preset: reach half base speed in 1 s, then base speed in
          * another 5 s. Only the initial ramp uses this fixed profile. */
         Flux_IF.Para.Acc = IF_Acc_Command *
-                           ((Abs_Value(Flux_IF.State.We) < 0.50f * Start_Para.We_Base) ? 3.0f : 0.60f);
+                           ((Abs_Value(Flux_IF.State.We) < 0.50f * Flux_IF.Para.We_Base) ? 3.0f : 0.60f);
     }
 
     IF_Run(&Flux_IF,
@@ -628,7 +627,7 @@ bool Flux_Start(float Wm_Target)
     Envelope = &Ident_Envelope;
     We_Max = (float)Motor_Para.Pp * Motor_Wm_Limit_Effective_Get();
     if (!__builtin_isfinite(We_Max) || (We_Max <= 0.0f) ||
-        !Motor_IF_Para_Build(ADC.Vbus_V, Motor_Config.IF_Current_A, &Start_Para) ||
+        !Motor_IF_We_Base_Calc(ADC.Vbus_V, Motor_Config.IF_Current_A, &Flux_IF.Para.We_Base) ||
         !__builtin_isfinite(Motor_Config.Align_Current_A) ||
         (Motor_Config.Align_Current_A <= 0.0f) ||
         (Motor_Config.Align_Current_A > Envelope->I_Max) ||
@@ -640,11 +639,10 @@ bool Flux_Start(float Wm_Target)
     }
 
     Sign = (Wm_Target < 0.0f) ? -1.0f : 1.0f;
-    We_Target = Sign * ((Start_Para.We_Base < We_Max) ? Start_Para.We_Base : We_Max);
+    We_Target = Sign * ((Flux_IF.Para.We_Base < We_Max) ? Flux_IF.Para.We_Base : We_Max);
 
     Flux_IF.Para.Iq_Min_A = Motor_Config.IF_Current_A;
-    Flux_IF.Para.Iq_Max_A = Start_Para.Iq_Max_A;
-    Flux_IF.Para.We_Base = Start_Para.We_Base;
+    Flux_IF.Para.Iq_Max_A = Motor_Config.IF_Current_A;
     IF_Acc_Command = Abs_Value(We_Target) / Flux_Config.Workflow.Open_Accel_S;
     Flux_IF.Para.Acc = IF_Acc_Command;
     Flux_IF.Para.Iq_Slew_A_S = IF_IQ_SLEW_A_S;
@@ -654,7 +652,7 @@ bool Flux_Start(float Wm_Target)
     Flux_Estimator.Para.Lq = Motor_Para.Lq;
     Flux_Estimator.Para.I_BW_Hz = Flux_Config.Coarse.I_BW_Hz;
     Flux_Estimator.Para.Est_BW_Hz = Flux_Config.Coarse.Est_BW_Hz;
-    Flux_Estimator.Para.We_Min = Flux_Config.Coarse.We_Min_Ratio * Start_Para.We_Base;
+    Flux_Estimator.Para.We_Min = Flux_Config.Coarse.We_Min_Ratio * Flux_IF.Para.We_Base;
     Flux_Estimator.Para.Window_Update_Ratio = 0.0f;
     Flux_Estimator.Para.Window_Samples = 0U;
 
