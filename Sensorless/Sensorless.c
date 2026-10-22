@@ -91,14 +91,8 @@ bool Sensorless_Begin(void)
     float Pll_Wn;
 
     State = SL_IDLE;
-    To_Obs_State = TO_OBS_BLEND;
     Stop_Requested = false;
-    Flux_Obs_U_Valid = false;
-    Blend_Cnt = 0U;
-    Obs_Id_Ref = 0.0f;
-    Obs_Iq_Ref = 0.0f;
     Theta_Use_Last = 0.0f;
-    Handover_Blend_Reset(&Handover);
     Sensorless_IF = (IF_T){ 0 };
 
     Align_Reset();

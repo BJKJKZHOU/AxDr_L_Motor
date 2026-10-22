@@ -60,7 +60,6 @@ typedef struct
     float Iq_Sin;
     float Wm_Cos;
     float Wm_Sin;
-    uint32_t Samples;
 
 } JB_DFT_T;
 
@@ -72,7 +71,6 @@ static Handover_T Handover = { 0 };
 static Motion_Ref_T JB_Speed_Ref = { 0 };
 static JB_DFT_T DFT = { 0 };
 
-static float We_Target = 0.0f;
 static float We_Startup = 0.0f;
 static float Wm_Bias = 0.0f;
 static float Wm_Amp = 0.0f;
@@ -182,7 +180,6 @@ static void Excitation_Run(bool Measure)
         DFT.Iq_Sin += Motor_Run.Iq * Sin;
         DFT.Wm_Cos += Wm * Cos;
         DFT.Wm_Sin += Wm * Sin;
-        DFT.Samples++;
     }
 
     Excite_Phase += Excite_Phase_Step;
@@ -217,14 +214,13 @@ bool JB_Start(float Wm_Target)
     float We_Max;
     float We_Work_Max;
     float Pll_Wn;
+    float We_Target;
 
     (void)Wm_Target;
 
     Result = (JB_Result_T){ 0 };
     Start_Para = (Motor_IF_Para_T){ 0 };
     JB_IF = (IF_T){ 0 };
-    Handover_Blend_Reset(&Handover);
-    DFT_Reset();
 
     Envelope = Identification_Envelope_Get();
     We_Max = (float)Motor_Para.Pp * Motor_Wm_Limit_Effective_Get();
@@ -298,12 +294,6 @@ bool JB_Start(float Wm_Target)
     Excite_Phase_Step = TWO_PI_F / (float)Samples_Per_Cycle;
 
     State = JB_ALIGN;
-    Settle_Cnt = 0U;
-    Model_U_Valid = false;
-    Obs_Id_Ref = 0.0f;
-    Obs_Iq_Ref = 0.0f;
-    Excite_Phase = 0.0f;
-    Phase_Samples = 0U;
 
     Align_Reset();
     Current_Loop_State_Reset();
@@ -374,7 +364,6 @@ Motor_Fast_Mode_e JB_Fast_Run(float Ia_A,
     float Id_Open;
     float Iq_Open;
     float I_Max;
-    int8_t Dir;
     bool Obs_Valid;
 
     (void)Ic_A;
@@ -391,15 +380,14 @@ Motor_Fast_Mode_e JB_Fast_Run(float Ia_A,
 
     Ialpha = Ia_A;
     Ibeta = (Ia_A + 2.0f * Ib_A) * INV_SQRT3_F;
-    Dir = (We_Target < 0.0f) ? -1 : 1;
 
     if (State == JB_ALIGN)
     {
         if (Align_Current(Motor_Config.Align_Current_A, IF_ALIGN_CNT, Id_Ref, Iq_Ref))
         {
             Current_Loop_State_Reset();
-            IF_Init(&JB_IF, -0.5f * PI_F * (float)Dir, 0.0f);
-            JB_IF.State.Iq = (float)Dir * Motor_Config.IF_Current_A;
+            IF_Init(&JB_IF, -0.5f * PI_F, 0.0f);
+            JB_IF.State.Iq = Motor_Config.IF_Current_A;
             IF_Target_Set(&JB_IF, We_Startup);
             if (JB_IF.State.Mode == IF_FAILED)
             {

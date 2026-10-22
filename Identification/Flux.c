@@ -617,7 +617,6 @@ bool Flux_Start(float Wm_Target)
     Obs_Active = false;
     PLL_Active = false;
     Flux_Estimator.State = (Flux_Estimator_State_T){ 0 };
-    Handover_Blend_Reset(&Handover);
 
     Envelope = Identification_Envelope_Get();
     We_Max = (float)Motor_Para.Pp * Motor_Wm_Limit_Effective_Get();
@@ -725,8 +724,6 @@ void Flux_Control(void)
         case FLUX_HANDOVER_CURRENT:
             if (Obs_Id_Ref == 0.0f)
             {
-                Cnt = 0U;
-                Fine_Flux_Pre = 0.0f;
                 Ramp_Reset(&Flux_Speed_Ref, We_Target / (float)Motor_Para.Pp);
                 Next_State = FLUX_OBS_ACCEL;
             }
