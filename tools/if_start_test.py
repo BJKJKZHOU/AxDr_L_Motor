@@ -122,10 +122,6 @@ class IFStartClient(base.IdentificationClient):
         finally:
             self.ident_active = False
             try:
-                self.parameter_action(base.ACTION_IDENT_ABORT)
-            except (TimeoutError, RuntimeError):
-                pass
-            try:
                 self.parameter_action(base.ACTION_MOTOR_DISABLE)
             except (TimeoutError, RuntimeError) as exc:
                 if error is None:

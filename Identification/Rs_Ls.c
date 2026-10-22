@@ -54,8 +54,6 @@ typedef enum
     RS_LS_MEASURE_A,
     RS_LS_MEASURE_B,
     RS_LS_MEASURE_C,
-    RS_LS_DONE,
-    RS_LS_FAILED,
 
 } Rs_Ls_State_e;
 
@@ -228,7 +226,7 @@ static void Fail(void)
     Rough_RL_Restore();
     Align_Pending = false;
     Rs_Ls_Result.Valid = false;
-    State = RS_LS_FAILED;
+    Identification_Report(false);
 }
 
 static bool Measure_Calc(uint32_t Sample_Cnt, float I_Min, float *I_Amp, float *Rs, float *Ls)
@@ -350,17 +348,12 @@ void Rs_Ls_Start(void)
     State = RS_LS_NOISE;
 }
 
-void Rs_Ls_Abort(void)
+void Rs_Ls_Stop(void)
 {
     Rough_RL_Restore();
     Align_Pending = false;
     Rs_Ls_Result.Valid = false;
     State = RS_LS_IDLE;
-}
-
-bool Rs_Ls_Active(void)
-{
-    return (State != RS_LS_IDLE) && (State != RS_LS_DONE) && (State != RS_LS_FAILED);
 }
 
 Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
@@ -405,12 +398,12 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
     *Ualpha_V = 0.0f;
     *Ubeta_V = 0.0f;
 
-    if ((State == RS_LS_IDLE) || (State == RS_LS_DONE) || (State == RS_LS_FAILED))
+    if (State == RS_LS_IDLE)
     {
         return FAST_OFF;
     }
 
-    Envelope = Identification_Envelope_Get();
+    Envelope = &Ident_Envelope;
     if ((Envelope->I_Max <= 0.0f) || (Envelope->U_Max <= 0.0f))
     {
         Fail();
@@ -764,7 +757,7 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
                     Rs_Ls_Result.Rs_Ohm = 0.5f * (Rs_A + Rs_B);
                     Rs_Ls_Result.Ls_H = 0.5f * (Ls_A + Ls_B);
                     Rs_Ls_Result.Valid = true;
-                    State = RS_LS_DONE;
+                    Identification_Report(true);
                     *Ualpha_V = 0.0f;
                     return FAST_OFF;
                 }
@@ -784,7 +777,7 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
                 if (Third_Result(Rs, Ls, &Rs_Ls_Result.Rs_Ohm, &Rs_Ls_Result.Ls_H))
                 {
                     Rs_Ls_Result.Valid = true;
-                    State = RS_LS_DONE;
+                    Identification_Report(true);
                 }
                 else
                 {

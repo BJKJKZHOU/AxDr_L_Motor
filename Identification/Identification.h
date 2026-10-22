@@ -64,14 +64,15 @@ extern PLL_T Ident_PLL;
 extern volatile float Ident_JB_Excite_Ratio;
 extern volatile float Ident_JB_Excite_Hz;
 extern volatile uint8_t Ident_Fail_Reason;
+extern volatile Ident_State_e Ident_State; /* Updated by Identification only. */
+extern Ident_Envelope_T Ident_Envelope;
 
 bool Identification_Start(Ident_Mode_e Mode, float Wm_Target);
-void Identification_Abort(void);
+void Identification_Stop(void);
+void Identification_Report(bool Valid);
 void Identification_Control(void);
 bool Identification_Apply(void);
 
-bool Identification_Active(void);
-bool Identification_Result_Valid(void);
 Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
                                           float Ib_A,
                                           float Ic_A,
@@ -80,9 +81,5 @@ Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
                                           float *Iq_Ref,
                                           float *Ualpha_V,
                                           float *Ubeta_V);
-
-/* 辨识共用的电流和电压限制。 */
-const Ident_Envelope_T *Identification_Envelope_Get(void);
-
 
 #endif /* IDENTIFICATION_H */

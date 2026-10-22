@@ -22,8 +22,7 @@ typedef struct
 extern Rs_Ls_Result_T Rs_Ls_Result;
 
 void Rs_Ls_Start(void);
-void Rs_Ls_Abort(void);
-bool Rs_Ls_Active(void);
+void Rs_Ls_Stop(void);
 Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
                             float *Theta_e,
                             float *Id_Ref,

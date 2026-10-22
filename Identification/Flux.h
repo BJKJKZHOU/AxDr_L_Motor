@@ -21,7 +21,6 @@ typedef struct
 extern Flux_Result_T Flux_Result;
 
 bool Flux_Start(float Wm_Target);
-bool Flux_Active(void);
 void Flux_Control(void);
 Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A,
                                 float Ib_A,

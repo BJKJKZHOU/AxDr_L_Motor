@@ -518,11 +518,6 @@ case ACTION_IDENT_FLUX_START:
     Msg.Arg = (ULONG)IDENT_FLUX;
     break;
 
-case ACTION_IDENT_ABORT:
-    Msg.Cmd = (ULONG)MOTOR_CMD_IDENT_ABORT;
-    Msg.Arg = (ULONG)0U;
-    break;
-
 case ACTION_IDENT_APPLY:
     Msg.Cmd = (ULONG)MOTOR_CMD_IDENT_APPLY;
     Msg.Arg = (ULONG)0U;

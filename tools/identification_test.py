@@ -127,7 +127,6 @@ OBJECT_NAME = {
     ACTION_IDENT_RS_LS_START: "ACTION_IDENT_RS_LS_START",
     ACTION_IDENT_FLUX_START: "ACTION_IDENT_FLUX_START",
     ACTION_IDENT_JB_START: "ACTION_IDENT_JB_START",
-    ACTION_IDENT_ABORT: "ACTION_IDENT_ABORT",
     ACTION_IDENT_APPLY: "ACTION_IDENT_APPLY",
     ACTION_PROTECTION_CLEAR: "ACTION_PROTECTION_CLEAR",
 }
@@ -845,11 +844,6 @@ class IdentificationClient:
             failure = exc
         finally:
             self.ident_active = False
-            if failure is not None:
-                try:
-                    self.parameter_action(ACTION_IDENT_ABORT)
-                except (TimeoutError, RuntimeError):
-                    pass
             try:
                 self.parameter_action(ACTION_MOTOR_DISABLE)
             except (TimeoutError, RuntimeError) as exc:
@@ -1336,13 +1330,6 @@ def parse_args():
     return args
 
 
-def abort(client):
-    try:
-        client.parameter_action(ACTION_IDENT_ABORT)
-    except (TimeoutError, RuntimeError):
-        pass
-
-
 def main():
     args = parse_args()
     if args.output:
@@ -1550,8 +1537,6 @@ def main():
 
                 record["status"] = "completed"
             finally:
-                if record["status"] != "completed":
-                    abort(client)
                 client.stop_all()
 
     except KeyboardInterrupt:

@@ -1168,14 +1168,6 @@ objects:
     label: Flux
     description: "启动Flux辨识。"
 
-  ACTION_IDENT_ABORT:
-    id: 0x1103
-    type: action
-    access: wo
-    command: MOTOR_CMD_IDENT_ABORT
-    label: Abort
-    description: "中止当前辨识。"
-
   ACTION_IDENT_APPLY:
     id: 0x1104
     type: action

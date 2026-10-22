@@ -264,7 +264,7 @@ void Motor_Control(void)
         {
             Identification_Control();
 
-            if (!Identification_Active())
+            if ((Ident_State != IDENT_RUNNING) && (Ident_State != IDENT_FINISH))
             {
                 NonServo_Enabled_Apply();
             }
@@ -846,14 +846,8 @@ void Motor_Stop(void)
 
     if (Motor_Mode == IDENT)
     {
-        if (Identification_Active())
-        {
-            (void)Motor_Ident_Abort();
-        }
-        else
-        {
-            NonServo_Enabled_Apply();
-        }
+        Identification_Stop();
+        NonServo_Enabled_Apply();
         return;
     }
 
@@ -891,23 +885,9 @@ Motor_Status_e Motor_Ident_Start(Ident_Mode_e Mode)
     return MOTOR_OK;
 }
 
-bool Motor_Ident_Abort(void)
-{
-    if ((Motor_State != RUN) ||
-        (Motor_Mode != IDENT) ||
-        !Identification_Active())
-    {
-        return false;
-    }
-
-    Identification_Abort();
-    NonServo_Enabled_Apply();
-    return true;
-}
-
 Motor_Status_e Motor_Ident_Apply(void)
 {
-    if ((Motor_State == RUN) || (Motor_Mode != IDENT) || !Identification_Result_Valid())
+    if ((Motor_State == RUN) || (Motor_Mode != IDENT) || (Ident_State != IDENT_DONE))
     {
         return MOTOR_ERR_STATE;
     }

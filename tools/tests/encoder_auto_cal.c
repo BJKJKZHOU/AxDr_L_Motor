@@ -226,8 +226,14 @@ bool Identification_Start(Ident_Mode_e Mode, float Wm)
 {
     abort();
 }
-void Identification_Abort(void)
+volatile Ident_State_e Ident_State = IDENT_IDLE;
+void Identification_Stop(void)
 {
+    abort();
+}
+void Identification_Report(bool Valid)
+{
+    (void)Valid;
     abort();
 }
 void Identification_Control(void)
@@ -237,18 +243,6 @@ void Identification_Control(void)
 bool Identification_Apply(void)
 {
     abort();
-}
-bool Identification_Active(void)
-{
-    return false;
-}
-bool Identification_Result_Valid(void)
-{
-    abort();
-}
-Ident_State_e Identification_State_Get(void)
-{
-    return IDENT_IDLE;
 }
 Motor_Fast_Mode_e Identification_Fast_Run(float Ia, float Ib, float Ic, float *Theta, float *Id,
                                           float *Iq, float *Ua, float *Ub)

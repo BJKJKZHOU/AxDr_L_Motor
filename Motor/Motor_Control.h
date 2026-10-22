@@ -51,7 +51,6 @@ void Motor_Disable(void);
 void Motor_Disable_Apply(void);
 
 Motor_Status_e Motor_Ident_Start(Ident_Mode_e Mode);
-bool Motor_Ident_Abort(void);
 Motor_Status_e Motor_Ident_Apply(void);
 
 /* User mechanical coordinate feedback. Internal FOC state remains in Motor_Run. */

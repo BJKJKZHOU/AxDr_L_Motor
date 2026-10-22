@@ -322,9 +322,6 @@ typedef enum
     /* MOTOR_CMD_IDENT_START: 启动Flux辨识。 */
     ACTION_IDENT_FLUX_START = 0x1102U,
 
-    /* MOTOR_CMD_IDENT_ABORT: 中止当前辨识。 */
-    ACTION_IDENT_ABORT = 0x1103U,
-
     /* MOTOR_CMD_IDENT_APPLY: 将最近一次有效辨识结果应用到Motor参数。 */
     ACTION_IDENT_APPLY = 0x1104U,
 

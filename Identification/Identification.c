@@ -24,9 +24,9 @@ volatile float Ident_JB_Excite_Ratio = 0.20f;
 volatile float Ident_JB_Excite_Hz = 3.0f;
 
 static volatile Ident_Mode_e Ident_Mode = IDENT_NONE;
-static volatile Ident_State_e Ident_State = IDENT_IDLE;
+volatile Ident_State_e Ident_State = IDENT_IDLE;
 volatile uint8_t Ident_Fail_Reason = IDENT_FAIL_NONE;
-static Ident_Envelope_T Ident_Envelope = { 0 };
+Ident_Envelope_T Ident_Envelope = { 0 };
 static uint32_t Finish_Cyc = 0U;
 
 static void Envelope_Voltage_Update(void)
@@ -43,7 +43,7 @@ static void Envelope_Voltage_Update(void)
 
 bool Identification_Start(Ident_Mode_e Mode, float Wm_Target)
 {
-    if (Identification_Active())
+    if ((Ident_State == IDENT_RUNNING) || (Ident_State == IDENT_FINISH))
     {
         return false;
     }
@@ -82,7 +82,7 @@ bool Identification_Start(Ident_Mode_e Mode, float Wm_Target)
             return false;
         }
     }
-    else if (!JB_Start(Wm_Target))
+    else if (!JB_Start())
     {
         Ident_Fail_Reason = IDENT_FAIL_START_CONFIG;
         return false;
@@ -93,24 +93,55 @@ bool Identification_Start(Ident_Mode_e Mode, float Wm_Target)
     return true;
 }
 
-void Identification_Abort(void)
+void Identification_Stop(void)
 {
-    if (!Identification_Active())
+    if ((Ident_State == IDENT_RUNNING) || (Ident_State == IDENT_FINISH))
     {
-        return;
-    }
-
-    if (Ident_Mode == IDENT_RS_LS)
-    {
-        Rs_Ls_Abort();
-    }
-    else if (Ident_Mode == IDENT_JB)
-    {
-        JB_Abort();
+        if (Ident_Mode == IDENT_RS_LS)
+        {
+            Rs_Ls_Stop();
+        }
+        else if (Ident_Mode == IDENT_FLUX)
+        {
+            Flux_Result.Valid = false;
+        }
+        else if (Ident_Mode == IDENT_JB)
+        {
+            JB_Result.Valid = false;
+        }
     }
 
     Ident_Mode = IDENT_NONE;
     Ident_State = IDENT_IDLE;
+}
+
+void Identification_Report(bool Valid)
+{
+    if (Ident_State != IDENT_RUNNING)
+    {
+        return;
+    }
+
+    if (Valid)
+    {
+        Finish_Cyc = DWT->CYCCNT;
+        Ident_State = IDENT_FINISH;
+    }
+    else
+    {
+        if (Ident_Fail_Reason == IDENT_FAIL_NONE)
+        {
+            if (Ident_Mode == IDENT_FLUX)
+            {
+                Ident_Fail_Reason = IDENT_FAIL_FLUX_INTERNAL;
+            }
+            else if (Ident_Mode == IDENT_JB)
+            {
+                Ident_Fail_Reason = IDENT_FAIL_JB_INTERNAL;
+            }
+        }
+        Ident_State = IDENT_FAILED;
+    }
 }
 
 void Identification_Control(void)
@@ -129,63 +160,13 @@ void Identification_Control(void)
         return;
     }
 
-    if (Ident_Mode == IDENT_RS_LS)
-    {
-        if (Rs_Ls_Active())
-        {
-            return;
-        }
-
-        Ident_State = Rs_Ls_Result.Valid ? IDENT_FINISH : IDENT_FAILED;
-    }
-    else if (Ident_Mode == IDENT_FLUX)
+    if (Ident_Mode == IDENT_FLUX)
     {
         Flux_Control();
-
-        if (Flux_Active())
-        {
-            return;
-        }
-
-        if (Flux_Result.Valid)
-        {
-            Ident_State = IDENT_FINISH;
-        }
-        else
-        {
-            if (Ident_Fail_Reason == IDENT_FAIL_NONE)
-            {
-                Ident_Fail_Reason = IDENT_FAIL_FLUX_INTERNAL;
-            }
-            Ident_State = IDENT_FAILED;
-        }
     }
     else if (Ident_Mode == IDENT_JB)
     {
         JB_Control();
-
-        if (JB_Active())
-        {
-            return;
-        }
-
-        if (JB_Result.Valid)
-        {
-            Ident_State = IDENT_FINISH;
-        }
-        else
-        {
-            if (Ident_Fail_Reason == IDENT_FAIL_NONE)
-            {
-                Ident_Fail_Reason = IDENT_FAIL_JB_INTERNAL;
-            }
-            Ident_State = IDENT_FAILED;
-        }
-    }
-
-    if (Ident_State == IDENT_FINISH)
-    {
-        Finish_Cyc = DWT->CYCCNT;
     }
 }
 
@@ -218,17 +199,6 @@ bool Identification_Apply(void)
     }
 
     return Motor_Para_Update(&Model, Mechanical_ESO_Bw_Hz);
-}
-
-bool Identification_Active(void)
-{
-    return (Ident_State == IDENT_RUNNING) || (Ident_State == IDENT_FINISH);
-}
-
-bool Identification_Result_Valid(void)
-{
-    /* 只有算法结果有效并完成收尾等待，流程才会进入 DONE。 */
-    return Ident_State == IDENT_DONE;
 }
 
 Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
@@ -282,10 +252,5 @@ Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
     }
 
     return FAST_OFF;
-}
-
-const Ident_Envelope_T *Identification_Envelope_Get(void)
-{
-    return &Ident_Envelope;
 }
 

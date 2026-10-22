@@ -90,12 +90,11 @@ Motor_Fast_Mode_e Servo_Phase_Fast_Run(float *Theta, float *Id, float *Iq,
 void Open_Loop_Reset(void) { abort(); }
 void Open_Loop(float We, float *Theta, float *Id, float *Iq) { abort(); }
 bool Identification_Start(Ident_Mode_e Mode, float Wm) { abort(); }
-void Identification_Abort(void) { abort(); }
+volatile Ident_State_e Ident_State = IDENT_IDLE;
+void Identification_Stop(void) { abort(); }
+void Identification_Report(bool Valid) { abort(); }
 void Identification_Control(void) { abort(); }
 bool Identification_Apply(void) { abort(); }
-bool Identification_Active(void) { abort(); }
-bool Identification_Result_Valid(void) { abort(); }
-Ident_State_e Identification_State_Get(void) { abort(); }
 Motor_Fast_Mode_e Identification_Fast_Run(float Ia, float Ib, float Ic,
                                          float *Theta, float *Id, float *Iq,
                                          float *Ua, float *Ub) { abort(); }

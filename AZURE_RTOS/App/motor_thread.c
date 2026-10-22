@@ -121,10 +121,10 @@ static void Motor_Action_Complete(ULONG Action, AxDr_Status_e Status)
 
 static void Motor_Async_Action_Poll(void)
 {
-    if (Ident_Action_Pending && !Identification_Active())
+    if (Ident_Action_Pending && (Ident_State != IDENT_RUNNING) && (Ident_State != IDENT_FINISH))
     {
         Motor_Action_Complete(Ident_Action,
-                              Identification_Result_Valid() ? AXDR_OK : AXDR_ERR_CONFIG);
+                              (Ident_State == IDENT_DONE) ? AXDR_OK : AXDR_ERR_CONFIG);
         Ident_Action_Pending = false;
     }
 
@@ -284,11 +284,6 @@ static void Motor_Cmd_Run(void)
                     Ident_Action = Msg.Reserved;
                     Ident_Action_Pending = true;
                 }
-                Motor_Action_Response(Msg.Reserved, Action_Status);
-                break;
-
-            case MOTOR_CMD_IDENT_ABORT:
-                Action_Status = Motor_Ident_Abort() ? AXDR_OK : AXDR_ERR_STATE;
                 Motor_Action_Response(Msg.Reserved, Action_Status);
                 break;
 

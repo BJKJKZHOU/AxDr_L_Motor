@@ -49,8 +49,6 @@ typedef enum
     JB_EXCITE,
     JB_MEASURE,
     JB_FINISH,
-    JB_DONE,
-    JB_FAILED,
 
 } JB_State_e;
 
@@ -91,7 +89,7 @@ static float Abs_Value(float Value)
 static void JB_Fail(void)
 {
     JB_Result.Valid = false;
-    State = JB_FAILED;
+    Identification_Report(false);
 }
 
 static void DFT_Reset(void)
@@ -144,7 +142,7 @@ static void Speed_Control_Run(float We_Ref)
 {
     float I_Max;
 
-    I_Max = Identification_Envelope_Get()->I_Max;
+    I_Max = (&Ident_Envelope)->I_Max;
     if (I_Max <= 0.0f)
     {
         return;
@@ -208,7 +206,7 @@ static void Excitation_Run(bool Measure)
     }
 }
 
-bool JB_Start(float Wm_Target)
+bool JB_Start(void)
 {
     const Ident_Envelope_T *Envelope;
     float We_Max;
@@ -216,13 +214,11 @@ bool JB_Start(float Wm_Target)
     float Pll_Wn;
     float We_Target;
 
-    (void)Wm_Target;
-
     JB_Result = (JB_Result_T){ 0 };
     Start_Para = (Motor_IF_Para_T){ 0 };
     JB_IF = (IF_T){ 0 };
 
-    Envelope = Identification_Envelope_Get();
+    Envelope = (&Ident_Envelope);
     We_Max = (float)Motor_Para.Pp * Motor_Wm_Limit_Effective_Get();
 
     if ((Motor_Para.Pp == 0U) ||
@@ -241,7 +237,6 @@ bool JB_Start(float Wm_Target)
         (Motor_Config.IF_Current_A <= 0.0f) ||
         (Motor_Config.IF_Current_A > Envelope->I_Max))
     {
-        State = JB_FAILED;
         return false;
     }
 
@@ -262,7 +257,6 @@ bool JB_Start(float Wm_Target)
         (We_Target < Start_Para.We_Base) ||
         (We_Target <= 0.0f))
     {
-        State = JB_FAILED;
         return false;
     }
 
@@ -287,7 +281,6 @@ bool JB_Start(float Wm_Target)
     Samples_Per_Cycle = (uint32_t)(1.0f / (JB_EXCITE_HZ * SPD_TS) + 0.5f);
     if (Samples_Per_Cycle == 0U)
     {
-        State = JB_FAILED;
         return false;
     }
 
@@ -300,24 +293,8 @@ bool JB_Start(float Wm_Target)
     return true;
 }
 
-void JB_Abort(void)
-{
-    JB_Result.Valid = false;
-    State = JB_IDLE;
-}
-
-bool JB_Active(void)
-{
-    return (State != JB_IDLE) && (State != JB_DONE) && (State != JB_FAILED);
-}
-
 void JB_Control(void)
 {
-    if (!JB_Active())
-    {
-        return;
-    }
-
     if (State == JB_HANDOVER_CURRENT)
     {
         if (Obs_Id_Ref == 0.0f)
@@ -372,11 +349,6 @@ Motor_Fast_Mode_e JB_Fast_Run(float Ia_A,
     *Iq_Ref = 0.0f;
     *Ualpha_V = 0.0f;
     *Ubeta_V = 0.0f;
-
-    if (!JB_Active())
-    {
-        return FAST_OFF;
-    }
 
     Ialpha = Ia_A;
     Ibeta = (Ia_A + 2.0f * Ib_A) * INV_SQRT3_F;
@@ -462,7 +434,7 @@ Motor_Fast_Mode_e JB_Fast_Run(float Ia_A,
             {
                 Obs_Id_Ref = *Id_Ref;
                 Obs_Iq_Ref = *Iq_Ref;
-                I_Max = Identification_Envelope_Get()->I_Max;
+                I_Max = (&Ident_Envelope)->I_Max;
                 Speed_Loop_Track(Ident_PLL.State.We,
                                  Ident_PLL.State.We,
                                  Obs_Iq_Ref,
@@ -495,7 +467,7 @@ Motor_Fast_Mode_e JB_Fast_Run(float Ia_A,
         *Iq_Ref = Obs_Iq_Ref;
         if (Obs_Iq_Ref == 0.0f)
         {
-            State = JB_Result.Valid ? JB_DONE : JB_FAILED;
+            Identification_Report(JB_Result.Valid != 0U);
             return FAST_OFF;
         }
         return FAST_CURRENT;
