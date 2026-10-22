@@ -22,9 +22,10 @@ import struct
 import sys
 import time
 
-import sensorless_test as base
+import motor_usb as base
 
 
+MODE_SENSORLESS_SPEED = 5
 IF_WE_RAD_S = 120.0
 FAST_CONFIG_ID = 11
 NORMAL_CONFIG_ID = 12
@@ -82,7 +83,7 @@ class StopRequest:
             print("\nImmediate stop requested.")
 
 
-class SensorlessRun(base.SensorlessTest):
+class SensorlessRun(base.MotorUSB):
     def __init__(self, ser, args, stop):
         super().__init__(ser, args)
         self.stop_request = stop
@@ -157,7 +158,8 @@ class SensorlessRun(base.SensorlessTest):
         seq, = struct.unpack_from("<H", payload, 0)
         sample_count = payload[3]
         count = len(FAST_VARS)
-        if len(payload) != 4 + sample_count * count * 2:
+        payload = base.canfd_payload(payload, 4 + sample_count * count * 2)
+        if payload is None:
             return
 
         if self.fast_last is not None:
@@ -458,7 +460,7 @@ class SensorlessRun(base.SensorlessTest):
         self.parameter_write(
             base.PARAM_MOTOR_MODE,
             base.PARAM_U8,
-            base.MODE_SENSORLESS_SPEED,
+            MODE_SENSORLESS_SPEED,
         )
         self.speed_set(wm_if)
         self.parameter_action(base.ACTION_MOTOR_ENABLE)
