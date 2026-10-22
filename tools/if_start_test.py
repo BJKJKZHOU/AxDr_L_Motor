@@ -84,7 +84,6 @@ class IFStartClient(base.IdentificationClient):
         self.run_peak = 0.0
         self.run_trip = False
         self.run_trip_reason = None
-        self.run_over_count = 0
         self.theta_samples = []
 
         fast_lost_start = self.fast_lost
@@ -217,7 +216,6 @@ def parse_args():
     if args.max_lost < 0:
         parser.error("--max-lost must be non-negative")
 
-    args.ident_current_limit = base.HOST_CURRENT_GUARD_RATIO * args.current_limit
     return args
 
 

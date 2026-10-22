@@ -91,11 +91,6 @@ static void JB_Fail(void)
     Identification_Report(false);
 }
 
-static void DFT_Reset(void)
-{
-    DFT = (JB_DFT_T){ 0 };
-}
-
 static void Result_Calculate(void)
 {
     float Kt;
@@ -195,7 +190,7 @@ static void Excitation_Run(bool Measure)
     Phase_Samples = 0U;
     if (!Measure)
     {
-        DFT_Reset();
+        DFT = (JB_DFT_T){ 0 };
         State = JB_MEASURE;
     }
     else
@@ -323,7 +318,6 @@ void JB_Control(void)
 
 Motor_Fast_Mode_e JB_Fast_Run(float Ia_A,
                               float Ib_A,
-                              float Ic_A,
                               float *Theta_e,
                               float *Id_Ref,
                               float *Iq_Ref,
@@ -339,7 +333,6 @@ Motor_Fast_Mode_e JB_Fast_Run(float Ia_A,
     float I_Max;
     bool Obs_Valid;
 
-    (void)Ic_A;
     *Theta_e = 0.0f;
     *Id_Ref = 0.0f;
     *Iq_Ref = 0.0f;
@@ -421,34 +414,31 @@ Motor_Fast_Mode_e JB_Fast_Run(float Ia_A,
             return FAST_CURRENT;
         }
 
-        if (State == JB_HANDOVER_BLEND)
+        if (Handover_Blend_Run(&Handover,
+                               JB_HANDOVER_BLEND_CNT,
+                               Theta_Open,
+                               Theta_Obs,
+                               Id_Open,
+                               Iq_Open,
+                               Theta_e,
+                               Id_Ref,
+                               Iq_Ref))
         {
-            if (Handover_Blend_Run(&Handover,
-                                   JB_HANDOVER_BLEND_CNT,
-                                   Theta_Open,
-                                   Theta_Obs,
-                                   Id_Open,
-                                   Iq_Open,
-                                   Theta_e,
-                                   Id_Ref,
-                                   Iq_Ref))
-            {
-                Obs_Id_Ref = *Id_Ref;
-                Obs_Iq_Ref = *Iq_Ref;
-                I_Max = Ident_Envelope.I_Max;
-                Speed_Loop_Track(Ident_PLL.State.We,
-                                 Ident_PLL.State.We,
-                                 Obs_Iq_Ref,
-                                 -I_Max,
-                                 I_Max);
-                /* Start the work-point ramp at the observer speed, not at
-                 * the final excitation bias, while Id transfers to Iq. */
-                Ramp_Reset(&JB_Speed_Ref, Ident_PLL.State.We / (float)Motor_Para.Pp);
-                Settle_Cnt = 0U;
-                State = JB_HANDOVER_CURRENT;
-            }
-            return FAST_CURRENT;
+            Obs_Id_Ref = *Id_Ref;
+            Obs_Iq_Ref = *Iq_Ref;
+            I_Max = Ident_Envelope.I_Max;
+            Speed_Loop_Track(Ident_PLL.State.We,
+                             Ident_PLL.State.We,
+                             Obs_Iq_Ref,
+                             -I_Max,
+                             I_Max);
+            /* Start the work-point ramp at the observer speed, not at
+             * the final excitation bias, while Id transfers to Iq. */
+            Ramp_Reset(&JB_Speed_Ref, Ident_PLL.State.We / (float)Motor_Para.Pp);
+            Settle_Cnt = 0U;
+            State = JB_HANDOVER_CURRENT;
         }
+        return FAST_CURRENT;
     }
 
     if (State == JB_HANDOVER_CURRENT)

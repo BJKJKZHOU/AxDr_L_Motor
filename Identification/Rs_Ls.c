@@ -15,14 +15,19 @@
 #include "Sin_LUT.h"
 #include "control_params.h"
 
-#define RS_LS_PROBE_FREQ_HZ       300.0f
+#define RS_LS_PROBE_FREQ_HZ       150.0f
+#define RS_LS_PROBE_RETRY_FREQ_HZ 300.0f
 #define RS_LS_FREQ_MIN_HZ         20.0f
 #define RS_LS_FREQ_MAX_HZ         500.0f
 #define RS_LS_FREQ_RL_RATIO       0.5f
 #define RS_LS_U_RAMP_TIME_S       0.20f
-#define RS_LS_NOISE_CYCLE         20U
-#define RS_LS_PROBE_MEASURE_CYCLE 5U
-#define RS_LS_MEASURE_CYCLE       10U
+#define RS_LS_U_STEP_RATIO_MAX    1.20f
+#define RS_LS_NOISE_CYCLE         30U
+#define RS_LS_RAMP_CYCLE          2U
+#define RS_LS_PROBE_MEASURE_CYCLE 10U
+#define RS_LS_UD_MEAN_CYCLE       5U
+#define RS_LS_MEASURE_CYCLE       100U
+#define RS_LS_MEASURE_SKIP_CYCLE  5U
 
 /* Rs/Ls working point is defined in the current domain. */
 #define RS_LS_I_DC_SHARE          0.65f
@@ -90,7 +95,6 @@ static float Rs_B;
 static float Ls_B;
 
 static bool RL_Temporary;
-static bool Align_Pending;
 static bool Freq_Refined;
 
 static float Abs_Value(float Value)
@@ -142,6 +146,7 @@ static float Voltage_Target_Update(float U,
 {
     float I_Next;
     float I_Step;
+    float U_Ratio;
     float U_Step;
 
     if ((I_Target <= 0.0f) || (U_Max <= 0.0f))
@@ -159,7 +164,13 @@ static float Voltage_Target_Update(float U,
             I_Next = I_Target;
         }
 
-        U *= I_Next / I_Meas;
+        /* Near-zero current must not produce a large voltage step. */
+        U_Ratio = I_Next / I_Meas;
+        if (U_Ratio > RS_LS_U_STEP_RATIO_MAX)
+        {
+            U_Ratio = RS_LS_U_STEP_RATIO_MAX;
+        }
+        U *= U_Ratio;
     }
     else
     {
@@ -225,7 +236,6 @@ static void Rough_RL_Restore(void)
 static void Fail(void)
 {
     Rough_RL_Restore();
-    Align_Pending = false;
     Rs_Ls_Result.Valid = false;
     Identification_Report(false);
 }
@@ -329,6 +339,23 @@ static bool Result_Valid(float Rs, float Ls)
            (Ls > RS_LS_LS_MIN_H) && (Ls < RS_LS_LS_MAX_H);
 }
 
+static bool Probe_Retry(void)
+{
+    /* Only the rough probe retries; its injection period identifies the step. */
+    if (Sample_Per_Cycle <= (uint32_t)(CUR_FREQ_HZ_DEFAULT / RS_LS_PROBE_RETRY_FREQ_HZ + 0.5f))
+    {
+        return false;
+    }
+
+    Frequency_Set(RS_LS_PROBE_RETRY_FREQ_HZ);
+    Phase = 0.0f;
+    U_DC = 0.0f;
+    U_AC = 0.0f;
+    Measure_Reset();
+    State = RS_LS_NOISE;
+    return true;
+}
+
 void Rs_Ls_Start(void)
 {
     Rough_RL_Restore();
@@ -340,7 +367,6 @@ void Rs_Ls_Start(void)
     Phase = 0.0f;
     U_DC = 0.0f;
     U_AC = 0.0f;
-    Align_Pending = false;
     Freq_Refined = false;
 
     Frequency_Set(RS_LS_PROBE_FREQ_HZ);
@@ -352,7 +378,6 @@ void Rs_Ls_Start(void)
 void Rs_Ls_Stop(void)
 {
     Rough_RL_Restore();
-    Align_Pending = false;
     Rs_Ls_Result.Valid = false;
     State = RS_LS_IDLE;
 }
@@ -423,7 +448,7 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
 
     if (State == RS_LS_ALIGN)
     {
-        if (!Align_Pending)
+        if (Rs_Ls_Align.State.Cnt < Rs_Ls_Align.Para.Hold_Cnt)
         {
             Rs_Ls_Align.Para.Id_A = I_DC_Target;
             Align_Done = Align_Run(&Rs_Ls_Align);
@@ -432,7 +457,6 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
 
             if (Align_Done)
             {
-                Align_Pending = true;
                 Cnt = 0U;
                 U_Hold = 0.0f;
             }
@@ -440,14 +464,13 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
             return FAST_CURRENT;
         }
 
-        /* Average the completed FAST_CURRENT Ud over one injection cycle. */
+        /* Keep current control active while averaging Ud over five injection cycles. */
         U_Hold += Motor_Run.Ud;
         Cnt++;
 
-        if (Cnt < Sample_Per_Cycle)
+        if (Cnt < Sample_Per_Cycle * RS_LS_UD_MEAN_CYCLE)
         {
             *Id_Ref = I_DC_Target;
-            *Iq_Ref = 0.0f;
             return FAST_CURRENT;
         }
 
@@ -455,7 +478,6 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
         Rough_RL_Restore();
         Phase = 0.0f;
         Ramp_Reset();
-        Align_Pending = false;
         State = RS_LS_RAMP;
     }
 
@@ -523,10 +545,11 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
         Ramp_I_Im -= Ialpha_A * Sin;
         Ramp_Cnt++;
 
-        if (Ramp_Cnt >= Sample_Per_Cycle)
+        Sample_Cnt = Sample_Per_Cycle * RS_LS_RAMP_CYCLE;
+        if (Ramp_Cnt >= Sample_Cnt)
         {
-            I_DC_Meas = I_DC_Sum / (float)Sample_Per_Cycle;
-            I_Amp = (2.0f / (float)Sample_Per_Cycle) *
+            I_DC_Meas = I_DC_Sum / (float)Sample_Cnt;
+            I_Amp = (2.0f / (float)Sample_Cnt) *
                     __builtin_sqrtf(Ramp_I_Re * Ramp_I_Re + Ramp_I_Im * Ramp_I_Im);
             DC_Ready = I_DC_Meas >= I_DC_Target;
             AC_Ready = I_Amp >= I_AC_Target;
@@ -546,7 +569,7 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
                     return FAST_OFF;
                 }
 
-                Window_S = (float)Sample_Per_Cycle * CUR_TS;
+                Window_S = (float)Sample_Cnt * CUR_TS;
 
                 if (!DC_Ready)
                 {
@@ -572,9 +595,10 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
         Ramp_I_Im -= Ialpha_A * Sin;
         Ramp_Cnt++;
 
-        if (Ramp_Cnt >= Sample_Per_Cycle)
+        Sample_Cnt = Sample_Per_Cycle * RS_LS_RAMP_CYCLE;
+        if (Ramp_Cnt >= Sample_Cnt)
         {
-            Ramp_I_Amp = (2.0f / (float)Sample_Per_Cycle) *
+            Ramp_I_Amp = (2.0f / (float)Sample_Cnt) *
                          __builtin_sqrtf(Ramp_I_Re * Ramp_I_Re + Ramp_I_Im * Ramp_I_Im);
             Ramp_Reset();
 
@@ -595,7 +619,7 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
                     return FAST_OFF;
                 }
 
-                Window_S = (float)Sample_Per_Cycle * CUR_TS;
+                Window_S = (float)Sample_Cnt * CUR_TS;
                 U_AC = Voltage_Target_Update(U_AC, Ramp_I_Amp, I_AC_Target,
                                              U_AC_Max, 1.0f, Window_S);
             }
@@ -669,18 +693,31 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
             }
             else if ((SNR_Pow < RS_LS_SNR_POWER_MIN) || (Coh_Sq < RS_LS_COH_SQ_MIN))
             {
+                if (Probe_Retry())
+                {
+                    *Ualpha_V = 0.0f;
+                    return FAST_VOLTAGE;
+                }
+
                 Fail();
                 *Ualpha_V = 0.0f;
                 return FAST_OFF;
             }
-            else if (!Measure_Calc(Sample_Cnt, I_Min, &I_Amp, &Rs, &Ls))
+            else if (!Measure_Calc(Sample_Cnt, I_Min, &I_Amp, &Rs, &Ls) ||
+                     !(Rs > RS_LS_RS_MIN_OHM && Rs < RS_LS_RS_MAX_OHM))
             {
                 Fail();
                 *Ualpha_V = 0.0f;
                 return FAST_OFF;
             }
-            else if (!Result_Valid(Rs, Ls))
+            else if (!(Ls > RS_LS_LS_MIN_H && Ls < RS_LS_LS_MAX_H))
             {
+                if (Probe_Retry())
+                {
+                    *Ualpha_V = 0.0f;
+                    return FAST_VOLTAGE;
+                }
+
                 Fail();
                 *Ualpha_V = 0.0f;
                 return FAST_OFF;
@@ -694,7 +731,6 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
                 U_AC = I_AC_Target * __builtin_sqrtf(Rs * Rs + Xs * Xs);
                 Rough_RL_Apply(Rs, Ls);
                 Rs_Ls_Align.State.Cnt = 0U;
-                Align_Pending = false;
                 State = RS_LS_ALIGN;
                 *Ualpha_V = 0.0f;
                 return FAST_VOLTAGE;
@@ -713,15 +749,20 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
     }
     else
     {
-        U_Re += *Ualpha_V * Cos;
-        U_Im -= *Ualpha_V * Sin;
-        I_Re += Ialpha_A * Cos;
-        I_Im -= Ialpha_A * Sin;
+        /* Each 100-cycle window discards its first five complete cycles. */
+        if (Cnt >= Sample_Per_Cycle * RS_LS_MEASURE_SKIP_CYCLE)
+        {
+            U_Re += *Ualpha_V * Cos;
+            U_Im -= *Ualpha_V * Sin;
+            I_Re += Ialpha_A * Cos;
+            I_Im -= Ialpha_A * Sin;
+        }
         Cnt++;
 
         Sample_Cnt = Sample_Per_Cycle * RS_LS_MEASURE_CYCLE;
         if (Cnt >= Sample_Cnt)
         {
+            Sample_Cnt -= Sample_Per_Cycle * RS_LS_MEASURE_SKIP_CYCLE;
             if (State == RS_LS_MEASURE_A)
             {
                 if (!Measure_Calc(Sample_Cnt, I_Min, &I_Amp, &Rs_A, &Ls_A) || !Result_Valid(Rs_A, Ls_A))

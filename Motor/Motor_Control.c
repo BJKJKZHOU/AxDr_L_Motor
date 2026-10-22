@@ -604,7 +604,6 @@ Motor_Fast_Mode_e Motor_Fast_Run(float Encoder_Theta_e,
         case IDENT:
             return Identification_Fast_Run(ADC.Ia_A,
                                            ADC.Ib_A,
-                                           ADC.Ic_A,
                                            Theta_e,
                                            Id_Ref,
                                            Iq_Ref,

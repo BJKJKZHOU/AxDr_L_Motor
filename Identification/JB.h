@@ -25,7 +25,6 @@ bool JB_Start(void);
 void JB_Control(void);
 Motor_Fast_Mode_e JB_Fast_Run(float Ia_A,
                               float Ib_A,
-                              float Ic_A,
                               float *Theta_e,
                               float *Id_Ref,
                               float *Iq_Ref,

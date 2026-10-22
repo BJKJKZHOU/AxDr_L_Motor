@@ -236,7 +236,7 @@ bool Identification_Apply(void)
 {
     abort();
 }
-Motor_Fast_Mode_e Identification_Fast_Run(float Ia, float Ib, float Ic, float *Theta, float *Id,
+Motor_Fast_Mode_e Identification_Fast_Run(float Ia, float Ib, float *Theta, float *Id,
                                           float *Iq, float *Ua, float *Ub)
 {
     abort();

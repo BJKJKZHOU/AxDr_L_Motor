@@ -203,7 +203,6 @@ bool Identification_Apply(void)
 
 Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
                                           float Ib_A,
-                                          float Ic_A,
                                           float *Theta_e,
                                           float *Id_Ref,
                                           float *Iq_Ref,
@@ -243,7 +242,6 @@ Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
     {
         return JB_Fast_Run(Ia_A,
                            Ib_A,
-                           Ic_A,
                            Theta_e,
                            Id_Ref,
                            Iq_Ref,

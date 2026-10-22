@@ -143,9 +143,7 @@ PROTECTION_NAME = {
     1 << 8: "DRIVER",
 }
 
-HOST_CURRENT_GUARD_RATIO = 1.10
 HOST_CURRENT_HARD_LIMIT_A = 5.0
-HOST_CURRENT_OVER_COUNT = 5
 IF_WE_RAD_S = 120.0
 
 CANFD_LENGTHS = tuple(range(9)) + (12, 16, 20, 24, 32, 48, 64)
@@ -293,7 +291,6 @@ class IdentificationClient:
         self.run_peak = 0.0
         self.run_trip = False
         self.run_trip_reason = None
-        self.run_over_count = 0
         self.vbus = []
 
         self.fast_last = None
@@ -424,17 +421,6 @@ class IdentificationClient:
                     "identification phase current exceeded host hard limit "
                     f"{HOST_CURRENT_HARD_LIMIT_A:.3f} A"
                 )
-            elif peak > self.args.ident_current_limit:
-                self.run_over_count += 1
-                if self.run_over_count >= HOST_CURRENT_OVER_COUNT:
-                    self.run_trip = True
-                    self.run_trip_reason = (
-                        "identification phase current exceeded host guard "
-                        f"{self.args.ident_current_limit:.3f} A for "
-                        f"{HOST_CURRENT_OVER_COUNT} consecutive samples"
-                    )
-            else:
-                self.run_over_count = 0
 
     def process_normal(self, payload):
         count = len(self.normal_vars)
@@ -623,8 +609,6 @@ class IdentificationClient:
         )
         print(
             f"Commission current limit={self.args.current_limit:.3f} A; "
-            f"host guard={self.args.ident_current_limit:.3f} A for "
-            f"{HOST_CURRENT_OVER_COUNT} samples; "
             f"hard limit={HOST_CURRENT_HARD_LIMIT_A:.3f} A"
         )
 
@@ -774,7 +758,6 @@ class IdentificationClient:
         self.run_peak = 0.0
         self.run_trip = False
         self.run_trip_reason = None
-        self.run_over_count = 0
         fast_lost_start = self.fast_lost
         normal_lost_start = self.normal_lost
         fast_samples_start = self.fast_samples
@@ -1082,11 +1065,16 @@ def run_group(client, mode, count, args, results, direction=None, run_offset=0):
             if result.get("current_binary"):
                 print(f"  Current binary: {result['current_binary']}")
                 print(f"  State binary: {result['state_binary']}")
-            if args.stop_on_error:
-                return False
         else:
             results.append(result)
             result_print(name, index, count, mode, result)
+
+        run_log = Path(args.output).with_suffix(".runs.jsonl")
+        run_log.parent.mkdir(parents=True, exist_ok=True)
+        with run_log.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps({"mode": mode, **result}) + "\n")
+        if args.stop_on_error and not result.get("valid", False):
+            return False
 
         if args.interval > 0.0 and index < count:
             time.sleep(args.interval)
@@ -1324,9 +1312,6 @@ def parse_args():
     if args.max_lost < 0:
         parser.error("--max-lost must be non-negative")
 
-    args.ident_current_limit = (
-        HOST_CURRENT_GUARD_RATIO * args.current_limit
-    )
     return args
 
 
@@ -1350,8 +1335,6 @@ def main():
             "pole_pairs": args.pole_pairs,
             "current_limit_a": args.current_limit,
             "if_current_a": args.if_current,
-            "host_current_guard_a": args.ident_current_limit,
-            "host_current_guard_samples": HOST_CURRENT_OVER_COUNT,
             "host_current_hard_limit_a": HOST_CURRENT_HARD_LIMIT_A,
             "rs_ls_count": args.rs_ls_count,
             "flux_forward_count": args.flux_forward_count,
