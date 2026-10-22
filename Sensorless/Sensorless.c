@@ -37,6 +37,7 @@ PLL_T Sensorless_PLL = { 0 };
 
 static Handover_T Handover = { 0 };
 static IF_T Sensorless_IF = { 0 };
+static Align_T Sensorless_Align = { .Para.Hold_Cnt = IF_ALIGN_CNT };
 static bool Flux_Obs_U_Valid = false;
 static float We_Obs_Enter = 0.0f;
 static float We_Obs_Exit = 0.0f;
@@ -87,7 +88,7 @@ bool Sensorless_Begin(void)
     Theta_Use_Last = 0.0f;
     Sensorless_IF = (IF_T){ 0 };
 
-    Align_Reset();
+    Sensorless_Align.State.Cnt = 0U;
     Current_Loop_State_Reset();
 
     Sensorless_IF.Para.Iq_Max_A = Current_Limit_Get();
@@ -227,7 +228,12 @@ void Sensorless_Run(float Ia_A, float Ib_A, float We_Target, float *Theta_e, flo
         *Theta_e = 0.0f;
         Theta_Use_Last = 0.0f;
 
-        if (Align_Current(Motor_Config.Align_Current_A, IF_ALIGN_CNT, Id_Ref, Iq_Ref))
+        Sensorless_Align.Para.Id_A = Motor_Config.Align_Current_A;
+        bool Done = Align_Run(&Sensorless_Align);
+        *Id_Ref = Sensorless_Align.Sig.Id_Ref;
+        *Iq_Ref = Sensorless_Align.Sig.Iq_Ref;
+
+        if (Done)
         {
             Current_Loop_State_Reset();
 

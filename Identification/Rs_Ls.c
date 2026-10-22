@@ -58,6 +58,7 @@ typedef enum
 } Rs_Ls_State_e;
 
 static Rs_Ls_State_e State;
+static Align_T Rs_Ls_Align = { .Para.Hold_Cnt = RS_LS_ALIGN_CNT };
 Rs_Ls_Result_T Rs_Ls_Result;
 
 static uint32_t Cnt;
@@ -424,7 +425,10 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
     {
         if (!Align_Pending)
         {
-            Align_Done = Align_Current(I_DC_Target, RS_LS_ALIGN_CNT, Id_Ref, Iq_Ref);
+            Rs_Ls_Align.Para.Id_A = I_DC_Target;
+            Align_Done = Align_Run(&Rs_Ls_Align);
+            *Id_Ref = Rs_Ls_Align.Sig.Id_Ref;
+            *Iq_Ref = Rs_Ls_Align.Sig.Iq_Ref;
 
             if (Align_Done)
             {
@@ -689,7 +693,7 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
                 Xs = TWO_PI_F * Freq * Ls;
                 U_AC = I_AC_Target * __builtin_sqrtf(Rs * Rs + Xs * Xs);
                 Rough_RL_Apply(Rs, Ls);
-                Align_Reset();
+                Rs_Ls_Align.State.Cnt = 0U;
                 Align_Pending = false;
                 State = RS_LS_ALIGN;
                 *Ualpha_V = 0.0f;

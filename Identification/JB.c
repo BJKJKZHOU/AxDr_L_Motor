@@ -65,6 +65,7 @@ static volatile JB_State_e State = JB_IDLE;
 JB_Result_T JB_Result = { 0 };
 static Motor_IF_Para_T Start_Para = { 0 };
 static IF_T JB_IF = { 0 };
+static Align_T JB_Align = { .Para.Hold_Cnt = IF_ALIGN_CNT };
 static Handover_T Handover = { 0 };
 static Motion_Ref_T JB_Speed_Ref = { 0 };
 static JB_DFT_T DFT = { 0 };
@@ -288,7 +289,7 @@ bool JB_Start(void)
 
     State = JB_ALIGN;
 
-    Align_Reset();
+    JB_Align.State.Cnt = 0U;
     Current_Loop_State_Reset();
     return true;
 }
@@ -355,7 +356,12 @@ Motor_Fast_Mode_e JB_Fast_Run(float Ia_A,
 
     if (State == JB_ALIGN)
     {
-        if (Align_Current(Motor_Config.Align_Current_A, IF_ALIGN_CNT, Id_Ref, Iq_Ref))
+        JB_Align.Para.Id_A = Motor_Config.Align_Current_A;
+        bool Done = Align_Run(&JB_Align);
+        *Id_Ref = JB_Align.Sig.Id_Ref;
+        *Iq_Ref = JB_Align.Sig.Iq_Ref;
+
+        if (Done)
         {
             Current_Loop_State_Reset();
             IF_Init(&JB_IF, -0.5f * PI_F, 0.0f);

@@ -143,6 +143,7 @@ static volatile Flux_State_e State = FLUX_IDLE;
 Flux_Result_T Flux_Result = { 0 };
 static Motor_IF_Para_T Start_Para = { 0 };
 static IF_T Flux_IF = { 0 };
+static Align_T Flux_Align = { .Para.Hold_Cnt = IF_ALIGN_CNT };
 static Flux_Estimator_T Flux_Estimator = { 0 };
 static Handover_T Handover = { 0 };
 static Motion_Ref_T Flux_Speed_Ref = { 0 };
@@ -427,7 +428,12 @@ static void Flux_Observer_Runtime_Run(Flux_Fast_Context_T *Context)
 
 static Motor_Fast_Mode_e Flux_Align_Run(int8_t Dir, float *Id_Ref, float *Iq_Ref)
 {
-    if (Align_Current(Motor_Config.Align_Current_A, IF_ALIGN_CNT, Id_Ref, Iq_Ref))
+    Flux_Align.Para.Id_A = Motor_Config.Align_Current_A;
+    bool Done = Align_Run(&Flux_Align);
+    *Id_Ref = Flux_Align.Sig.Id_Ref;
+    *Iq_Ref = Flux_Align.Sig.Iq_Ref;
+
+    if (Done)
     {
         Current_Loop_State_Reset();
         IF_Init(&Flux_IF, -0.5f * PI_F * (float)Dir, 0.0f);
@@ -652,7 +658,7 @@ bool Flux_Start(float Wm_Target)
     Flux_Estimator.Para.Window_Update_Ratio = 0.0f;
     Flux_Estimator.Para.Window_Samples = 0U;
 
-    Align_Reset();
+    Flux_Align.State.Cnt = 0U;
     Current_Loop_State_Reset();
     State = FLUX_ALIGN;
     return true;
