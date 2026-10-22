@@ -142,7 +142,7 @@ static void Speed_Control_Run(float We_Ref)
 {
     float I_Max;
 
-    I_Max = (&Ident_Envelope)->I_Max;
+    I_Max = Ident_Envelope.I_Max;
     if (I_Max <= 0.0f)
     {
         return;
@@ -218,7 +218,7 @@ bool JB_Start(void)
     Start_Para = (Motor_IF_Para_T){ 0 };
     JB_IF = (IF_T){ 0 };
 
-    Envelope = (&Ident_Envelope);
+    Envelope = &Ident_Envelope;
     We_Max = (float)Motor_Para.Pp * Motor_Wm_Limit_Effective_Get();
 
     if ((Motor_Para.Pp == 0U) ||
@@ -434,7 +434,7 @@ Motor_Fast_Mode_e JB_Fast_Run(float Ia_A,
             {
                 Obs_Id_Ref = *Id_Ref;
                 Obs_Iq_Ref = *Iq_Ref;
-                I_Max = (&Ident_Envelope)->I_Max;
+                I_Max = Ident_Envelope.I_Max;
                 Speed_Loop_Track(Ident_PLL.State.We,
                                  Ident_PLL.State.We,
                                  Obs_Iq_Ref,

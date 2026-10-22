@@ -65,6 +65,7 @@ extern volatile float Ident_JB_Excite_Ratio;
 extern volatile float Ident_JB_Excite_Hz;
 extern volatile uint8_t Ident_Fail_Reason;
 extern volatile Ident_State_e Ident_State; /* Updated by Identification only. */
+/* Limits written by Identification; identification algorithms only read them. */
 extern Ident_Envelope_T Ident_Envelope;
 
 bool Identification_Start(Ident_Mode_e Mode, float Wm_Target);

@@ -110,6 +110,7 @@ typedef enum
     FLUX_REFINE_SETTLE,
     FLUX_REFINE_MEASURE,
     FLUX_FINISH,
+    FLUX_FAILED,
 
 } Flux_State_e;
 
@@ -178,6 +179,7 @@ static float Abs_Value(float Value)
 static Motor_Fast_Mode_e Flux_Fail_Off(void)
 {
     Flux_Result.Valid = false;
+    State = FLUX_FAILED;
     Identification_Report(false);
     return FAST_OFF;
 }
@@ -187,7 +189,7 @@ static bool Emf_Update(float Yd, float Yq)
     const Ident_Envelope_T *Envelope;
     float Ratio;
 
-    Envelope = (&Ident_Envelope);
+    Envelope = &Ident_Envelope;
     if ((Envelope->U_Available <= 0.0f) || !__builtin_isfinite(Yd) || !__builtin_isfinite(Yq))
     {
         return false;
@@ -260,7 +262,7 @@ static void Flux_Target_Update(void)
     float We_Req;
     float Flux;
 
-    Envelope = (&Ident_Envelope);
+    Envelope = &Ident_Envelope;
     We_Max = (float)Motor_Para.Pp * Motor_Wm_Limit_Effective_Get();
     if ((Envelope->U_Available <= 0.0f) || (Envelope->U_Max <= 0.0f) ||
         !__builtin_isfinite(We_Max) || (We_Max <= 0.0f))
@@ -522,7 +524,7 @@ static Motor_Fast_Mode_e Flux_Handover_Blend_Run(Flux_Fast_Context_T *Context,
                                                   float *Id_Ref,
                                                   float *Iq_Ref)
 {
-    float I_Max = (&Ident_Envelope)->I_Max;
+    float I_Max = Ident_Envelope.I_Max;
 
     if (Handover_Blend_Run(&Handover,
                            Flux_Config.Handover.Blend_Cnt,
@@ -566,6 +568,7 @@ static void Flux_Coarse_Control_Run(const Flux_Slow_Snapshot_T *Snapshot)
     if (!__builtin_isfinite(Flux_Estimator.State.Psi_d) ||
         !__builtin_isfinite(Flux_Estimator.State.Psi_q))
     {
+        State = FLUX_FAILED;
         Identification_Report(false);
         return;
     }
@@ -616,7 +619,7 @@ bool Flux_Start(float Wm_Target)
     PLL_Active = false;
     Flux_Estimator.State = (Flux_Estimator_State_T){ 0 };
 
-    Envelope = (&Ident_Envelope);
+    Envelope = &Ident_Envelope;
     We_Max = (float)Motor_Para.Pp * Motor_Wm_Limit_Effective_Get();
     if (!__builtin_isfinite(We_Max) || (We_Max <= 0.0f) ||
         !Motor_IF_Para_Build(ADC.Vbus_V, Motor_Config.IF_Current_A, &Start_Para) ||
@@ -657,7 +660,7 @@ bool Flux_Start(float Wm_Target)
 
 void Flux_Control(void)
 {
-    const Ident_Envelope_T *Envelope = (&Ident_Envelope);
+    const Ident_Envelope_T *Envelope = &Ident_Envelope;
     Flux_State_e State_Local;
     Flux_State_e Next_State;
     Flux_Slow_Snapshot_T Snapshot;
@@ -796,6 +799,11 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A,
     *Iq_Ref = 0.0f;
     *Ualpha_V = 0.0f;
     *Ubeta_V = 0.0f;
+    if (State == FLUX_FAILED)
+    {
+        return FAST_OFF;
+    }
+
     Context.Ialpha = Ia_A;
     Context.Ibeta = (Ia_A + 2.0f * Ib_A) * INV_SQRT3_F;
     Context.Theta_Obs = Ident_PLL.State.Theta;
@@ -806,13 +814,17 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A,
     }
 
     Flux_Observer_Runtime_Run(&Context);
+    if (State == FLUX_FAILED)
+    {
+        return FAST_OFF;
+    }
 
     if (State == FLUX_FINISH)
     {
         return Flux_Finish_Run(&Context, Theta_e, Id_Ref, Iq_Ref);
     }
 
-    if ((&Ident_Envelope)->U_Max <= 0.0f)
+    if (Ident_Envelope.U_Max <= 0.0f)
     {
         return Flux_Fail_Off();
     }
