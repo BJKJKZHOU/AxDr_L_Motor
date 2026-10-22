@@ -297,7 +297,7 @@ void Sensorless_Run(float Ia_A, float Ib_A, float We_Target, float *Theta_e, flo
             (Abs_F(We_Target) > We_Obs_Enter) &&
             (Abs_F(Sensorless_IF.State.We) >= We_Obs_Enter))
         {
-            Handover_Blend_Reset(&Handover);
+            Handover.Blend_Cnt = 0U;
             State = SL_IF_TO_OBS;
         }
     }

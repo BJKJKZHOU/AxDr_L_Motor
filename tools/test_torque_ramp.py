@@ -67,7 +67,6 @@ void Encoder_Position_Read(int32_t *Turn, float *Theta)
 void PWM_Enable(void) { Pwm_On = 1; }
 void PWM_Disable(void) { Pwm_On = 0; }
 void Current_Loop_State_Reset(void) {}
-float Mechanical_ESO_Wm_Get(void) { return Mechanical_ESO.State.Wm; }
 
 /* These modes must never execute in a sensored control regression. */
 #pragma GCC diagnostic ignored "-Wunused-parameter"

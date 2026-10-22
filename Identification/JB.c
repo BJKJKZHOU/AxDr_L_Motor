@@ -411,7 +411,7 @@ Motor_Fast_Mode_e JB_Fast_Run(float Ia_A,
         {
             if ((JB_IF.State.Mode == IF_HOLD) && Obs_Valid)
             {
-                Handover_Blend_Reset(&Handover);
+                Handover.Blend_Cnt = 0U;
                 State = JB_HANDOVER_BLEND;
             }
 

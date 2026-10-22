@@ -54,7 +54,6 @@ void IF_Init(IF_T *IF, float Theta_Start, float We_Start)
         return;
     }
 
-    IF->State.Iq = 0.0f;
     IF->State.Mode = IF_HOLD;
 }
 

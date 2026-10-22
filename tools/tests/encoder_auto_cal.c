@@ -110,10 +110,6 @@ void PWM_Disable(void)
 {
     TIM1->BDTR = 0;
 }
-float Mechanical_ESO_Wm_Get(void)
-{
-    return Mechanical_ESO.State.Wm;
-}
 void Mechanical_ESO_Run(float Theta, bool Valid, float Iq)
 {
     (void)Theta;

@@ -8,7 +8,7 @@
 #include "Math.h"
 #include "Sin_LUT.h"
 
-float Handover_Angle_Diff(float A, float B)
+static FAST_CODE float Handover_Angle_Diff(float A, float B)
 {
     float Diff;
 
@@ -22,11 +22,6 @@ float Handover_Angle_Diff(float A, float B)
         Diff += TWO_PI_F;
     }
     return Diff;
-}
-
-void Handover_Blend_Reset(Handover_T *Handover)
-{
-    Handover->Blend_Cnt = 0U;
 }
 
 bool Handover_Blend_Run(Handover_T *Handover,

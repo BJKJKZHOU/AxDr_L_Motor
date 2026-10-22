@@ -95,7 +95,7 @@ static void Iq_Limit_Calc(float *Iq_Min, float *Iq_Max)
     float D;
     float Sqrt_D;
 
-    We = (float)Motor_Para.Pp * Mechanical_ESO_Wm_Get();
+    We = (float)Motor_Para.Pp * Mechanical_ESO.State.Wm;
     U_Lim = ADC.Vbus_V * INV_SQRT3_F * VOLT_MOD_MAX;
 
     Wlq = We * Motor_Para.Lq;
@@ -132,7 +132,7 @@ static void Motion_State_Reset(void)
     int32_t Turn;
     float Theta;
 
-    Speed_Loop_State_Reset((float)Motor_Para.Pp * Mechanical_ESO_Wm_Get());
+    Speed_Loop_State_Reset((float)Motor_Para.Pp * Mechanical_ESO.State.Wm);
     Wm_Ref = 0.0f;
     We_Ref = 0.0f;
     Encoder_Position_Read(&Turn, &Theta);
@@ -145,7 +145,7 @@ static void Motion_State_Reset(void)
  * seeds the current controller from that cycle's voltage and current. */
 void Motor_Cal_Decel_Begin(void)
 {
-    float Wm = Mechanical_ESO_Wm_Get();
+    float Wm = Mechanical_ESO.State.Wm;
     float Iq = Motor_Run.Iq;
     float Iq_Min;
     float Iq_Max;
@@ -378,7 +378,7 @@ void Motor_Control(void)
         Iq_Max = 0.0f;
     }
 
-    We_Fbk = (float)Motor_Para.Pp * Mechanical_ESO_Wm_Get();
+    We_Fbk = (float)Motor_Para.Pp * Mechanical_ESO.State.Wm;
 
     switch (Mode)
     {
@@ -904,7 +904,7 @@ float Motor_Wm_Get(void)
     if ((Encoder.Ready != 0U) && (Encoder.Fault == 0U) &&
         (Mechanical_ESO.Para.Valid != 0U))
     {
-        return Motor_Internal_To_User(Mechanical_ESO_Wm_Get());
+        return Motor_Internal_To_User(Mechanical_ESO.State.Wm);
     }
 
     return 0.0f;

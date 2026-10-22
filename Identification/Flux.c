@@ -504,7 +504,7 @@ static bool Flux_Open_Loop_Run(Flux_Fast_Context_T *Context,
     /* A recovered PLL must complete one fast update before a new blend. */
     if ((State == FLUX_IF) && (Flux_IF.State.Mode == IF_HOLD) && PLL_Active)
     {
-        Handover_Blend_Reset(&Handover);
+        Handover.Blend_Cnt = 0U;
         State = FLUX_HANDOVER_BLEND;
     }
 

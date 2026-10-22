@@ -17,7 +17,6 @@ typedef struct
 
 } Handover_T;
 
-void Handover_Blend_Reset(Handover_T *Handover);
 FAST_CODE bool Handover_Blend_Run(Handover_T *Handover,
                         uint32_t Blend_Limit,
                         float Theta_Source,
@@ -29,6 +28,5 @@ FAST_CODE bool Handover_Blend_Run(Handover_T *Handover,
                         float *Iq_Ref);
 
 FAST_CODE float Handover_Ramp_Zero(float Value, float Step);
-FAST_CODE float Handover_Angle_Diff(float A, float B);
 
 #endif /* HANDOVER_H */
