@@ -64,7 +64,7 @@ typedef struct
 } JB_DFT_T;
 
 static volatile JB_State_e State = JB_IDLE;
-static JB_Result_T Result = { 0 };
+JB_Result_T JB_Result = { 0 };
 static Motor_IF_Para_T Start_Para = { 0 };
 static IF_T JB_IF = { 0 };
 static Handover_T Handover = { 0 };
@@ -90,7 +90,7 @@ static float Abs_Value(float Value)
 
 static void JB_Fail(void)
 {
-    Result.Valid = false;
+    JB_Result.Valid = false;
     State = JB_FAILED;
 }
 
@@ -111,7 +111,7 @@ static void Result_Calculate(void)
     float J;
     float B;
 
-    Result = (JB_Result_T){ 0 };
+    JB_Result = (JB_Result_T){ 0 };
     Kt = 1.5f * (float)Motor_Para.Pp * Motor_Para.Flux;
     Omega = TWO_PI_F * JB_EXCITE_HZ;
 
@@ -135,9 +135,9 @@ static void Result_Calculate(void)
         return;
     }
 
-    Result.J_Kgm2 = J;
-    Result.B_Nms = B;
-    Result.Valid = true;
+    JB_Result.J_Kgm2 = J;
+    JB_Result.B_Nms = B;
+    JB_Result.Valid = true;
 }
 
 static void Speed_Control_Run(float We_Ref)
@@ -218,7 +218,7 @@ bool JB_Start(float Wm_Target)
 
     (void)Wm_Target;
 
-    Result = (JB_Result_T){ 0 };
+    JB_Result = (JB_Result_T){ 0 };
     Start_Para = (Motor_IF_Para_T){ 0 };
     JB_IF = (IF_T){ 0 };
 
@@ -302,7 +302,7 @@ bool JB_Start(float Wm_Target)
 
 void JB_Abort(void)
 {
-    Result.Valid = false;
+    JB_Result.Valid = false;
     State = JB_IDLE;
 }
 
@@ -495,7 +495,7 @@ Motor_Fast_Mode_e JB_Fast_Run(float Ia_A,
         *Iq_Ref = Obs_Iq_Ref;
         if (Obs_Iq_Ref == 0.0f)
         {
-            State = Result.Valid ? JB_DONE : JB_FAILED;
+            State = JB_Result.Valid ? JB_DONE : JB_FAILED;
             return FAST_OFF;
         }
         return FAST_CURRENT;
@@ -513,7 +513,3 @@ Motor_Fast_Mode_e JB_Fast_Run(float Ia_A,
     return FAST_OFF;
 }
 
-const JB_Result_T *JB_Result_Get(void)
-{
-    return &Result;
-}

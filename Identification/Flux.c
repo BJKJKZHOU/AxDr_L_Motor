@@ -141,7 +141,7 @@ typedef struct
 } Flux_Slow_Snapshot_T;
 
 static volatile Flux_State_e State = FLUX_IDLE;
-static Flux_Result_T Result = { 0 };
+Flux_Result_T Flux_Result = { 0 };
 static Motor_IF_Para_T Start_Para = { 0 };
 static IF_T Flux_IF = { 0 };
 static Flux_Estimator_T Flux_Estimator = { 0 };
@@ -179,7 +179,7 @@ static float Abs_Value(float Value)
 
 static Motor_Fast_Mode_e Flux_Fail_Off(void)
 {
-    Result.Valid = false;
+    Flux_Result.Valid = false;
     State = FLUX_FAILED;
     return FAST_OFF;
 }
@@ -609,7 +609,7 @@ bool Flux_Start(float Wm_Target)
     float Sign;
     float We_Max;
 
-    Result = (Flux_Result_T){ 0 };
+    Flux_Result = (Flux_Result_T){ 0 };
     We_Obs_F = 0.0f;
     Emf_Ratio_F = 0.0f;
     Model_U_Valid = false;
@@ -779,8 +779,8 @@ void Flux_Control(void)
         {
             if (Next_State == FLUX_FINISH)
             {
-                Result.Flux_Wb = Flux_Value;
-                Result.Valid = true;
+                Flux_Result.Flux_Wb = Flux_Value;
+                Flux_Result.Valid = true;
                 Cnt = 0U;
                 Finish_Iq = Obs_Iq_Ref;
             }
@@ -866,7 +866,3 @@ Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A,
     }
 }
 
-const Flux_Result_T *Flux_Result_Get(void)
-{
-    return &Result;
-}

@@ -122,15 +122,7 @@ const Servo_Phase_Result_T *Servo_Phase_Last_Result_Get(void)
     static const Servo_Phase_Result_T Result;
     return &Result;
 }
-uint8_t Identification_Rs_Ls_Valid_Get(void) { return 0; }
-uint8_t Identification_Flux_Valid_Get(void) { return 0; }
-uint8_t Identification_JB_Valid_Get(void) { return 0; }
-uint8_t Identification_Fail_Reason_Get(void) { return 0; }
-float Identification_Rs_Get(void) { return 0; }
-float Identification_Ls_Get(void) { return 0; }
-float Identification_Flux_Get(void) { return 0; }
-float Identification_J_Get(void) { return 0; }
-float Identification_B_Get(void) { return 0; }
+volatile uint8_t Ident_Fail_Reason;
 
 /* Records model the documented nvs_read/write return values, including errors
  * and oversized records. This does not emulate Flash wear or power loss. */
@@ -252,18 +244,15 @@ void Test_Rough(float Rs, float Ls) { Rough_RL_Apply(Rs, Ls); }
 void Test_Rough_Restore(void) { Rough_RL_Restore(); }
 static Ident_State_e Ident_State;
 static Ident_Mode_e Ident_Mode;
-static Rs_Ls_Result_T RL_Result;
-static Flux_Result_T Flux_Result;
-static JB_Result_T JB_Result;
-const Rs_Ls_Result_T *Rs_Ls_Result_Get(void) { return &RL_Result; }
-const Flux_Result_T *Flux_Result_Get(void) { return &Flux_Result; }
-const JB_Result_T *JB_Result_Get(void) { return &JB_Result; }
+Rs_Ls_Result_T Rs_Ls_Result;
+Flux_Result_T Flux_Result;
+JB_Result_T JB_Result;
 ''' + apply + '''
 bool Test_Ident_Apply(int Mode, float First, float Second, bool Valid)
 {
     Ident_State = IDENT_DONE;
     Ident_Mode = (Ident_Mode_e)Mode;
-    RL_Result = (Rs_Ls_Result_T){ First, Second, Valid };
+    Rs_Ls_Result = (Rs_Ls_Result_T){ First, Second, Valid };
     Flux_Result = (Flux_Result_T){ First, Valid };
     JB_Result = (JB_Result_T){ First, Second, Valid };
     return Identification_Apply();
@@ -618,6 +607,21 @@ bool Test_Calibration_Save(void)
         self.assertAlmostEqual(self.lib.Test_Read(p.PARAM_MOTOR_FLUX), .002)
         self.assertTrue(self.lib.Test_Ident_Apply(1, .1, .0001, True))
         self.assertAlmostEqual(self.lib.Test_Read(p.PARAM_MOTOR_RS), .1)
+
+    def test_identification_results_read_from_parameter_bindings(self):
+        self.assertTrue(self.lib.Test_Ident_Apply(1, 0.12, 0.00008, True))
+        self.assertEqual(self.lib.Test_Read(p.PARAM_IDENT_RS_LS_VALID), 1)
+        self.assertAlmostEqual(self.lib.Test_Read(p.PARAM_IDENT_RS_RESULT), 0.12, places=6)
+        self.assertAlmostEqual(self.lib.Test_Read(p.PARAM_IDENT_LS_RESULT), 0.00008, places=8)
+
+        self.assertTrue(self.lib.Test_Ident_Apply(2, 0.002, 0, True))
+        self.assertEqual(self.lib.Test_Read(p.PARAM_IDENT_FLUX_VALID), 1)
+        self.assertAlmostEqual(self.lib.Test_Read(p.PARAM_IDENT_FLUX_RESULT), 0.002, places=7)
+
+        self.assertTrue(self.lib.Test_Ident_Apply(3, 0.00001, 0.00001, True))
+        self.assertEqual(self.lib.Test_Read(p.PARAM_IDENT_JB_VALID), 1)
+        self.assertAlmostEqual(self.lib.Test_Read(p.PARAM_IDENT_J_RESULT), 0.00001, places=9)
+        self.assertAlmostEqual(self.lib.Test_Read(p.PARAM_IDENT_B_RESULT), 0.00001, places=9)
 
     def save_ids(self, ids=()):
         data = (ct.c_uint16 * len(ids))(*ids) if ids else None

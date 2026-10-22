@@ -71,15 +71,15 @@
 { PARAM_EVENT_WARNING, PARAM_U32, &Protection.Warning, -INFINITY, INFINITY, 0U },
 { PARAM_EVENT_ERROR, PARAM_U32, &Protection.Fault, -INFINITY, INFINITY, 0U },
 { PARAM_EVENT_TRIP, PARAM_U32, &Protection.Trip, -INFINITY, INFINITY, 0U },
-{ PARAM_IDENT_RS_LS_VALID, PARAM_U8, NULL, 0.0f, 1.0f, 0U },
-{ PARAM_IDENT_RS_RESULT, PARAM_FLOAT, NULL, -INFINITY, INFINITY, 0U },
-{ PARAM_IDENT_LS_RESULT, PARAM_FLOAT, NULL, -INFINITY, INFINITY, 0U },
-{ PARAM_IDENT_FLUX_VALID, PARAM_U8, NULL, 0.0f, 1.0f, 0U },
-{ PARAM_IDENT_FLUX_RESULT, PARAM_FLOAT, NULL, -INFINITY, INFINITY, 0U },
-{ PARAM_IDENT_FAIL_REASON, PARAM_U8, NULL, 0.0f, 4.0f, 0U },
-{ PARAM_IDENT_JB_VALID, PARAM_U8, NULL, 0.0f, 1.0f, 0U },
-{ PARAM_IDENT_J_RESULT, PARAM_FLOAT, NULL, -INFINITY, INFINITY, 0U },
-{ PARAM_IDENT_B_RESULT, PARAM_FLOAT, NULL, -INFINITY, INFINITY, 0U },
+{ PARAM_IDENT_RS_LS_VALID, PARAM_U8, &Rs_Ls_Result.Valid, 0.0f, 1.0f, 0U },
+{ PARAM_IDENT_RS_RESULT, PARAM_FLOAT, &Rs_Ls_Result.Rs_Ohm, -INFINITY, INFINITY, 0U },
+{ PARAM_IDENT_LS_RESULT, PARAM_FLOAT, &Rs_Ls_Result.Ls_H, -INFINITY, INFINITY, 0U },
+{ PARAM_IDENT_FLUX_VALID, PARAM_U8, &Flux_Result.Valid, 0.0f, 1.0f, 0U },
+{ PARAM_IDENT_FLUX_RESULT, PARAM_FLOAT, &Flux_Result.Flux_Wb, -INFINITY, INFINITY, 0U },
+{ PARAM_IDENT_FAIL_REASON, PARAM_U8, &Ident_Fail_Reason, 0.0f, 4.0f, 0U },
+{ PARAM_IDENT_JB_VALID, PARAM_U8, &JB_Result.Valid, 0.0f, 1.0f, 0U },
+{ PARAM_IDENT_J_RESULT, PARAM_FLOAT, &JB_Result.J_Kgm2, -INFINITY, INFINITY, 0U },
+{ PARAM_IDENT_B_RESULT, PARAM_FLOAT, &JB_Result.B_Nms, -INFINITY, INFINITY, 0U },
 { PARAM_IDENT_JB_EXCITE_RATIO, PARAM_FLOAT, &Ident_JB_Excite_Ratio, 0.0f, 1.0f, PARAM_FLAG_HOST_WRITE | PARAM_FLAG_DISABLED_ONLY },
 { PARAM_IDENT_JB_EXCITE_HZ, PARAM_FLOAT, &Ident_JB_Excite_Hz, 0.0f, INFINITY, PARAM_FLAG_HOST_WRITE | PARAM_FLAG_DISABLED_ONLY },
 { PARAM_CTRL_CURRENT_BW_HZ, PARAM_FLOAT, &Control_Current_Bw_Hz, 0.0f, 5000.0f, PARAM_FLAG_HOST_WRITE | PARAM_FLAG_NOT_RUNNING | PARAM_FLAG_PERSISTENT },
@@ -485,42 +485,6 @@ case PARAM_REF_POSITION:
 
 case PARAM_MOTOR_STATE:
     Value->U8 = (uint8_t)Motor_State_Get();
-    return PARAM_OK;
-
-case PARAM_IDENT_RS_LS_VALID:
-    Value->U8 = (uint8_t)Identification_Rs_Ls_Valid_Get();
-    return PARAM_OK;
-
-case PARAM_IDENT_RS_RESULT:
-    Value->F32 = (float)Identification_Rs_Get();
-    return PARAM_OK;
-
-case PARAM_IDENT_LS_RESULT:
-    Value->F32 = (float)Identification_Ls_Get();
-    return PARAM_OK;
-
-case PARAM_IDENT_FLUX_VALID:
-    Value->U8 = (uint8_t)Identification_Flux_Valid_Get();
-    return PARAM_OK;
-
-case PARAM_IDENT_FLUX_RESULT:
-    Value->F32 = (float)Identification_Flux_Get();
-    return PARAM_OK;
-
-case PARAM_IDENT_FAIL_REASON:
-    Value->U8 = (uint8_t)Identification_Fail_Reason_Get();
-    return PARAM_OK;
-
-case PARAM_IDENT_JB_VALID:
-    Value->U8 = (uint8_t)Identification_JB_Valid_Get();
-    return PARAM_OK;
-
-case PARAM_IDENT_J_RESULT:
-    Value->F32 = (float)Identification_J_Get();
-    return PARAM_OK;
-
-case PARAM_IDENT_B_RESULT:
-    Value->F32 = (float)Identification_B_Get();
     return PARAM_OK;
 
 #elif defined(PARAM_GENERATE_ACTION)

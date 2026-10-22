@@ -63,6 +63,7 @@ extern PLL_T Ident_PLL;
  * internal automatic policy derived from the validated Flux 0.30 ratio. */
 extern volatile float Ident_JB_Excite_Ratio;
 extern volatile float Ident_JB_Excite_Hz;
+extern volatile uint8_t Ident_Fail_Reason;
 
 bool Identification_Start(Ident_Mode_e Mode, float Wm_Target);
 void Identification_Abort(void);
@@ -83,15 +84,5 @@ Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
 /* 辨识共用的电流和电压限制。 */
 const Ident_Envelope_T *Identification_Envelope_Get(void);
 
-/* Stable final-result accessors used by the Parameter layer. */
-uint8_t Identification_Rs_Ls_Valid_Get(void);
-float Identification_Rs_Get(void);
-float Identification_Ls_Get(void);
-uint8_t Identification_Flux_Valid_Get(void);
-float Identification_Flux_Get(void);
-uint8_t Identification_JB_Valid_Get(void);
-float Identification_J_Get(void);
-float Identification_B_Get(void);
-uint8_t Identification_Fail_Reason_Get(void);
 
 #endif /* IDENTIFICATION_H */

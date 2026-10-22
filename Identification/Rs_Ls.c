@@ -60,7 +60,7 @@ typedef enum
 } Rs_Ls_State_e;
 
 static Rs_Ls_State_e State;
-static Rs_Ls_Result_T Result;
+Rs_Ls_Result_T Rs_Ls_Result;
 
 static uint32_t Cnt;
 static float Phase;
@@ -227,7 +227,7 @@ static void Fail(void)
 {
     Rough_RL_Restore();
     Align_Pending = false;
-    Result.Valid = false;
+    Rs_Ls_Result.Valid = false;
     State = RS_LS_FAILED;
 }
 
@@ -334,9 +334,9 @@ void Rs_Ls_Start(void)
 {
     Rough_RL_Restore();
 
-    Result.Rs_Ohm = 0.0f;
-    Result.Ls_H = 0.0f;
-    Result.Valid = false;
+    Rs_Ls_Result.Rs_Ohm = 0.0f;
+    Rs_Ls_Result.Ls_H = 0.0f;
+    Rs_Ls_Result.Valid = false;
 
     Phase = 0.0f;
     U_DC = 0.0f;
@@ -354,7 +354,7 @@ void Rs_Ls_Abort(void)
 {
     Rough_RL_Restore();
     Align_Pending = false;
-    Result.Valid = false;
+    Rs_Ls_Result.Valid = false;
     State = RS_LS_IDLE;
 }
 
@@ -761,9 +761,9 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
 
                 if (Pair_Valid(Rs_A, Ls_A, Rs_B, Ls_B))
                 {
-                    Result.Rs_Ohm = 0.5f * (Rs_A + Rs_B);
-                    Result.Ls_H = 0.5f * (Ls_A + Ls_B);
-                    Result.Valid = true;
+                    Rs_Ls_Result.Rs_Ohm = 0.5f * (Rs_A + Rs_B);
+                    Rs_Ls_Result.Ls_H = 0.5f * (Ls_A + Ls_B);
+                    Rs_Ls_Result.Valid = true;
                     State = RS_LS_DONE;
                     *Ualpha_V = 0.0f;
                     return FAST_OFF;
@@ -781,9 +781,9 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
                     return FAST_OFF;
                 }
 
-                if (Third_Result(Rs, Ls, &Result.Rs_Ohm, &Result.Ls_H))
+                if (Third_Result(Rs, Ls, &Rs_Ls_Result.Rs_Ohm, &Rs_Ls_Result.Ls_H))
                 {
-                    Result.Valid = true;
+                    Rs_Ls_Result.Valid = true;
                     State = RS_LS_DONE;
                 }
                 else
@@ -807,7 +807,3 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
     return FAST_VOLTAGE;
 }
 
-const Rs_Ls_Result_T *Rs_Ls_Result_Get(void)
-{
-    return &Result;
-}
