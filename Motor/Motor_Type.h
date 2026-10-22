@@ -142,8 +142,6 @@ typedef struct
     int32_t
         Turn; /* Internal mechanical turns; +1 on positive 2pi->0 wrap, -1 on negative 0->2pi wrap; starts at 0 after power-up and is not retained across power loss */
 
-    float Theta_m; /* rad, [0, 2pi), internal mechanical coordinate */
-
     float Theta_e; /* rad, [0, 2pi), internal electrical angle currently used by FOC */
 
     float Id; /* A, internal dq coordinate */

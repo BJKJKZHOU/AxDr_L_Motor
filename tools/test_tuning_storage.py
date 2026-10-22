@@ -117,11 +117,7 @@ void Encoder_Config_Changed(void)
     Mechanical_ESO.State = (Mechanical_ESO_State_T){0};
 }
 void Motor_Cal_Invalidate(void) { Motor_Cal.Valid = 0; }
-const Servo_Phase_Result_T *Servo_Phase_Last_Result_Get(void)
-{
-    static const Servo_Phase_Result_T Result;
-    return &Result;
-}
+float Servo_Phase_Theta_Off_Error_Get(void) { return 0.0f; }
 volatile uint8_t Ident_Fail_Reason;
 
 /* Records model the documented nvs_read/write return values, including errors

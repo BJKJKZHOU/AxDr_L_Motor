@@ -127,7 +127,6 @@ static void Feedback_Reset(void)
     Encoder.Fault = 0U;
 
     Motor_Run.Turn = 0;
-    Motor_Run.Theta_m = 0.0f;
     Mechanical_ESO.State = (Mechanical_ESO_State_T){ 0 };
 }
 
@@ -194,7 +193,7 @@ void Encoder_Position_Read(int32_t *Turn, float *Theta)
     Primask = __get_PRIMASK();
     __disable_irq();
     *Turn = Motor_Run.Turn;
-    *Theta = Motor_Run.Theta_m;
+    *Theta = Encoder.Theta_m;
     __set_PRIMASK(Primask);
 }
 
@@ -278,7 +277,6 @@ void Encoder_Sample_Update(uint32_t Raw, float Theta)
     Encoder.Theta_m = Theta;
     Encoder.Lost_Cnt = 0U;
     Encoder.Valid = 1U;
-    Motor_Run.Theta_m = Theta;
 
     if ((Encoder.Ready == 0U) && (Encoder.Fault == 0U))
     {

@@ -61,7 +61,7 @@ void Encoder_Position_Read(int32_t *Turn, float *Theta)
 {
     Encoder_Position_Read_Cnt++;
     *Turn = Motor_Run.Turn;
-    *Theta = Motor_Run.Theta_m;
+    *Theta = Encoder.Theta_m;
 }
 
 void PWM_Enable(void) { Pwm_On = 1; }
@@ -113,6 +113,7 @@ void Test_Setup(int Mode, float Kt, int Dir, float Rate)
     ADC.Vbus_V = 24.0f;
     Encoder.Ready = 1;
     Encoder.Fault = 0;
+    Encoder.Theta_m = 0.0f;
     Motor_Cal.Valid = 1;
     Mechanical_ESO = (Mechanical_ESO_T){ .Para.Valid = 1 };
     Motion_Config = (Motion_Config_T){ .Wm_Acc = 100.0f, .Wm_Dec = 100.0f,

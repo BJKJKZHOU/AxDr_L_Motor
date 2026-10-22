@@ -175,6 +175,18 @@ static FAST_CODE bool Servo_Mode(void)
     return (Motor_Mode == TORQUE) || (Motor_Mode == SPEED) || (Motor_Mode == POSITION);
 }
 
+/* References shared by the non-servo stop and power-stage Disable paths. */
+static void Motor_Refs_Clear(void)
+{
+    Current_Ref.Id = 0.0f;
+    Current_Ref.Iq = 0.0f;
+    Wm_Ref = 0.0f;
+    We_Ref = 0.0f;
+    Sensorless_We_Target = 0.0f;
+    Sensorless_Profile_Active = false;
+    Sensorless_Stop_Delay_Cnt = 0U;
+}
+
 static void NonServo_Enabled_Apply(void)
 {
     if (Motor_Mode == SENSORLESS_SPEED)
@@ -183,13 +195,7 @@ static void NonServo_Enabled_Apply(void)
     }
 
     Stop_Pending = false;
-    Current_Ref.Id = 0.0f;
-    Current_Ref.Iq = 0.0f;
-    Wm_Ref = 0.0f;
-    We_Ref = 0.0f;
-    Sensorless_We_Target = 0.0f;
-    Sensorless_Profile_Active = false;
-    Sensorless_Stop_Delay_Cnt = 0U;
+    Motor_Refs_Clear();
     Motor_Run.Ud = 0.0f;
     Motor_Run.Uq = 0.0f;
     Motor_Run.Ualpha = 0.0f;
@@ -201,20 +207,13 @@ static void NonServo_Enabled_Apply(void)
 void Motor_Disable_Apply(void)
 {
     Stop_Pending = false;
-
     if (Motor_Mode == SENSORLESS_SPEED)
     {
         Sensorless_Stop();
     }
 
     PWM_Disable();
-    Current_Ref.Id = 0.0f;
-    Current_Ref.Iq = 0.0f;
-    Wm_Ref = 0.0f;
-    We_Ref = 0.0f;
-    Sensorless_We_Target = 0.0f;
-    Sensorless_Profile_Active = false;
-    Sensorless_Stop_Delay_Cnt = 0U;
+    Motor_Refs_Clear();
     Motor_State = DISABLED;
 }
 
@@ -586,7 +585,7 @@ Motor_Fast_Mode_e Motor_Fast_Run(float Encoder_Theta_e,
          * Retain the original angle path if encoder/ESO feedback is unavailable. */
         *Theta_e = (Encoder_Park_Valid ||
                     ((Enc_Cal.Step == CAL_DECEL) && Enc_Cal_Handoff_Ready)) ? Encoder_Theta_e :
-                   Angle_Wrap((float)Motor_Para.Pp * Motor_Run.Theta_m + Motor_Cal.Theta_Off);
+                   Angle_Wrap((float)Motor_Para.Pp * Encoder.Theta_m + Motor_Cal.Theta_Off);
         *Id_Ref = Current_Ref.Id;
         *Iq_Ref = Current_Ref.Iq;
         return FAST_CURRENT;
