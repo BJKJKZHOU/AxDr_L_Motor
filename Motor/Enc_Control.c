@@ -63,6 +63,9 @@ void Enc_Control_Abort(void)
 
 void Enc_Control_Run(void)
 {
+    Enc_Step_e Step_Before = Enc_Step;
+    Enc_Cal_Step_e Cal_Before = Enc_Cal.Step;
+
     switch (Enc_Step)
     {
         case ENC_CAL_RUN:
@@ -128,21 +131,9 @@ void Enc_Control_Run(void)
     {
         Motor_Disable_Apply();
     }
+    if ((Enc_Step != Step_Before) || (Enc_Cal.Step != Cal_Before))
+    {
+        Motor_Fast_Select();
+    }
 }
 
-Motor_Fast_Mode_e Enc_Control_Fast_Run(float *Theta_e,
-                                        float *Id_Ref,
-                                        float *Iq_Ref,
-                                        float *Ualpha,
-                                        float *Ubeta)
-{
-    if (Enc_Step == ENC_PHASE_RUN)
-    {
-        return Servo_Phase_Fast_Run(Theta_e, Id_Ref, Iq_Ref, Ualpha, Ubeta);
-    }
-    if (Enc_Step == ENC_CAL_RUN)
-    {
-        return Enc_Cal_Fast_Run(Theta_e, Ualpha, Ubeta);
-    }
-    return FAST_OFF;
-}

@@ -386,11 +386,9 @@ void Fast_Loop(void)
         goto finish;
     }
 
-    if (Fast_Mode == FAST_CURRENT)
+    if ((Fast_Mode == FAST_CURRENT) || (Fast_Mode == FAST_SENSORED_CURRENT))
     {
-        Sensored = ((Enc_Step == ENC_CAL_RUN) &&
-                    ((Enc_Cal.Step == CAL_SPEED) || (Enc_Cal.Step == CAL_DECEL))) ||
-                   (!Enc_Control_Active() && (Motor_Mode <= POSITION));
+        Sensored = (Fast_Mode == FAST_SENSORED_CURRENT);
         /* Motor_Fast_Run may use the previous-cycle dq values (IF/ident).
          * Publish this sample only after it has selected the FOC angle. */
         if (!Cal_Handoff)

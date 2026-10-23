@@ -12,6 +12,8 @@
 #include "Identification.h"
 
 void Motor_Control(void);
+/* Upper layer publishes the selected fast execution entry on state transitions. */
+void Motor_Fast_Select(void);
 FAST_CODE Motor_Fast_Mode_e Motor_Fast_Run(float Encoder_Theta_e,
                                           bool Encoder_Park_Valid,
                                           float *Theta_e,

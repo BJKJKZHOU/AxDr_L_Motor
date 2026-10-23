@@ -33,6 +33,7 @@ typedef enum
     FAST_OFF = 0,
     FAST_CURRENT,
     FAST_VOLTAGE,
+    FAST_SENSORED_CURRENT,
 
 } Motor_Fast_Mode_e;
 

@@ -36,12 +36,6 @@ extern volatile Enc_Step_e Enc_Step;
 bool Enc_Control_Start(Enc_Mode_e Mode);
 void Enc_Control_Abort(void);
 void Enc_Control_Run(void);
-FAST_CODE Motor_Fast_Mode_e Enc_Control_Fast_Run(float *Theta_e,
-                                                 float *Id_Ref,
-                                                 float *Iq_Ref,
-                                                 float *Ualpha,
-                                                 float *Ubeta);
-
 static inline bool Enc_Control_Active(void)
 {
     return (Enc_Step > ENC_IDLE) && (Enc_Step < ENC_DONE);

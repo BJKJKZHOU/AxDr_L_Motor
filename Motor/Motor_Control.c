@@ -26,6 +26,7 @@
 #include "Ramp.h"
 #include "SCurve.h"
 #include "Sensorless.h"
+#include "Servo_Phase.h"
 #include "Signal_Injection.h"
 #include "Trapezoid.h"
 #include "control_params.h"
@@ -193,6 +194,7 @@ static void NonServo_Enabled_Apply(void)
     Motor_Run.Ubeta = 0.0f;
     PWM_Disable();
     Motor_State = ENABLED;
+    Motor_Fast_Select();
 }
 
 void Motor_Disable_Apply(void)
@@ -206,6 +208,7 @@ void Motor_Disable_Apply(void)
     PWM_Disable();
     Motor_Refs_Clear();
     Motor_State = DISABLED;
+    Motor_Fast_Select();
 }
 
 void Motor_Control(void)
@@ -532,6 +535,118 @@ void Motor_Control(void)
     }
 }
 
+/* The upper layer publishes one active execution entry on state transitions. */
+typedef Motor_Fast_Mode_e (*Fast_Exec_T)(float, bool, float *, float *, float *,
+                                        float *, float *);
+
+static FAST_CODE Motor_Fast_Mode_e Fast_Servo(float Theta_Enc, bool Park_Valid, float *Theta, float *Id, float *Iq, float *Ua, float *Ub)
+{
+    (void)Ua;
+    (void)Ub;
+    if ((Enc_Cal.Step == CAL_DECEL) && Enc_Cal_Handoff_Ready)
+    {
+        (void)Enc_Cal_Fast_Run(Theta, Ua, Ub);
+        Current_Ref.Id = Motor_Run.Id;
+        Current_Ref.Iq = Motor_Run.Iq;
+    }
+    *Theta = (Park_Valid ||
+              ((Enc_Cal.Step == CAL_DECEL) && Enc_Cal_Handoff_Ready)) ? Theta_Enc :
+             Angle_Wrap((float)Motor_Para.Pp * Motor_Run.Theta_m + Motor_Cal.Theta_Off);
+    *Id = Current_Ref.Id;
+    *Iq = Current_Ref.Iq;
+    return FAST_SENSORED_CURRENT;
+}
+
+static FAST_CODE Motor_Fast_Mode_e Fast_Phase(float Theta_Enc, bool Park_Valid, float *Theta, float *Id, float *Iq, float *Ua, float *Ub)
+{
+    (void)Theta_Enc;
+    (void)Park_Valid;
+    return Servo_Phase_Fast_Run(Theta, Id, Iq, Ua, Ub);
+}
+
+static FAST_CODE Motor_Fast_Mode_e Fast_Cal_VF(float Theta_Enc, bool Park_Valid, float *Theta, float *Id, float *Iq, float *Ua, float *Ub)
+{
+    (void)Theta_Enc;
+    (void)Park_Valid;
+    (void)Id;
+    (void)Iq;
+    return Enc_Cal_Fast_Run(Theta, Ua, Ub);
+}
+
+static FAST_CODE Motor_Fast_Mode_e Fast_Open_Loop(float Theta_Enc, bool Park_Valid, float *Theta, float *Id, float *Iq, float *Ua, float *Ub)
+{
+    (void)Theta_Enc;
+    (void)Park_Valid;
+    return Open_Loop(We_Ref, Theta, Id, Iq, Ua, Ub);
+}
+
+static FAST_CODE Motor_Fast_Mode_e Fast_Identification(float Theta_Enc, bool Park_Valid, float *Theta, float *Id, float *Iq, float *Ua, float *Ub)
+{
+    (void)Theta_Enc;
+    (void)Park_Valid;
+    return Identification_Fast_Run(ADC.Ia_A, ADC.Ib_A, Theta, Id, Iq, Ua, Ub);
+}
+
+static FAST_CODE Motor_Fast_Mode_e Fast_Sensorless(float Theta_Enc, bool Park_Valid, float *Theta, float *Id, float *Iq, float *Ua, float *Ub)
+{
+    (void)Theta_Enc;
+    (void)Park_Valid;
+    (void)Ua;
+    (void)Ub;
+    Sensorless_Run(ADC.Ia_A, ADC.Ib_A, Sensorless_We_Target, Theta, Id, Iq);
+    return FAST_CURRENT;
+}
+
+static Fast_Exec_T volatile Fast_Exec = NULL;
+
+/* Called only by the 2 kHz owner or the motor command transitions. */
+void Motor_Fast_Select(void)
+{
+    Fast_Exec_T Next = NULL;
+
+    if (Motor_State != DISABLED)
+    {
+        if (Enc_Control_Active())
+        {
+            if (Motor_State == RUN)
+            {
+                if (Enc_Step == ENC_PHASE_RUN)
+                {
+                    Next = Fast_Phase;
+                }
+                else if (Enc_Step == ENC_CAL_RUN)
+                {
+                    if ((Enc_Cal.Step == CAL_SPEED) || (Enc_Cal.Step == CAL_DECEL))
+                    {
+                        Next = Fast_Servo;
+                    }
+                    else if ((Enc_Cal.Step == CAL_VF) || (Enc_Cal.Step == CAL_SAMPLE) ||
+                             (Enc_Cal.Step == CAL_HANDOFF))
+                    {
+                        Next = Fast_Cal_VF;
+                    }
+                }
+            }
+        }
+        else if (Servo_Mode())
+        {
+            Next = Fast_Servo; /* ENABLED retains zero-current servo hold. */
+        }
+        else if (Motor_State == RUN)
+        {
+            switch (Motor_Mode)
+            {
+                case OPEN_LOOP:        Next = Fast_Open_Loop; break;
+                case IDENT:            Next = Fast_Identification; break;
+                case SENSORLESS_SPEED: Next = Fast_Sensorless; break;
+                default:               break;
+            }
+        }
+    }
+
+    Fast_Exec = Next;
+}
+
 Motor_Fast_Mode_e Motor_Fast_Run(float Encoder_Theta_e,
                                  bool Encoder_Park_Valid,
                                  float *Theta_e,
@@ -540,8 +655,7 @@ Motor_Fast_Mode_e Motor_Fast_Run(float Encoder_Theta_e,
                                  float *Ualpha,
                                  float *Ubeta)
 {
-    bool Enc = Enc_Control_Active();
-    bool Cal = (Enc_Step == ENC_CAL_RUN);
+    Fast_Exec_T Exec = Fast_Exec;
 
     *Theta_e = 0.0f;
     *Id_Ref = 0.0f;
@@ -549,65 +663,8 @@ Motor_Fast_Mode_e Motor_Fast_Run(float Encoder_Theta_e,
     *Ualpha = 0.0f;
     *Ubeta = 0.0f;
 
-    if ((Motor_State == DISABLED) || (Enc && (Motor_State != RUN)))
-    {
-        return FAST_OFF;
-    }
-
-    /* Calibration supersedes the user mode without modifying Motor_Mode. */
-    if (Enc && (!Cal || ((Enc_Cal.Step != CAL_SPEED) && (Enc_Cal.Step != CAL_DECEL))))
-    {
-        return Enc_Control_Fast_Run(Theta_e, Id_Ref, Iq_Ref, Ualpha, Ubeta);
-    }
-
-    /* Sensored modes retain current control while ENABLED for servo holding. */
-    if (Cal || Servo_Mode())
-    {
-        if ((Enc_Cal.Step == CAL_DECEL) && Enc_Cal_Handoff_Ready)
-        {
-            /* ADC has published this sample in the encoder frame. Keep VF
-             * rotating once more; ADC tracks that voltage before running FOC. */
-            (void)Enc_Cal_Fast_Run(Theta_e, Ualpha, Ubeta);
-            Current_Ref.Id = Motor_Run.Id;
-            Current_Ref.Iq = Motor_Run.Iq;
-        }
-
-        /* Reuse the angle already calculated for the encoder-frame Park.
-         * Retain the original angle path if encoder/ESO feedback is unavailable. */
-        *Theta_e = (Encoder_Park_Valid ||
-                    ((Enc_Cal.Step == CAL_DECEL) && Enc_Cal_Handoff_Ready)) ? Encoder_Theta_e :
-                   Angle_Wrap((float)Motor_Para.Pp * Motor_Run.Theta_m + Motor_Cal.Theta_Off);
-        *Id_Ref = Current_Ref.Id;
-        *Iq_Ref = Current_Ref.Iq;
-        return FAST_CURRENT;
-    }
-
-    if (Motor_State != RUN)
-    {
-        return FAST_OFF;
-    }
-
-    switch (Motor_Mode)
-    {
-        case OPEN_LOOP:
-            return Open_Loop(We_Ref, Theta_e, Id_Ref, Iq_Ref, Ualpha, Ubeta);
-
-        case IDENT:
-            return Identification_Fast_Run(ADC.Ia_A,
-                                           ADC.Ib_A,
-                                           Theta_e,
-                                           Id_Ref,
-                                           Iq_Ref,
-                                           Ualpha,
-                                           Ubeta);
-
-        case SENSORLESS_SPEED:
-            Sensorless_Run(ADC.Ia_A, ADC.Ib_A, Sensorless_We_Target, Theta_e, Id_Ref, Iq_Ref);
-            return FAST_CURRENT;
-
-        default:
-            return FAST_OFF;
-    }
+    return (Exec != NULL) ? Exec(Encoder_Theta_e, Encoder_Park_Valid,
+                                 Theta_e, Id_Ref, Iq_Ref, Ualpha, Ubeta) : FAST_OFF;
 }
 
 Motor_State_e Motor_State_Get(void)
@@ -655,6 +712,7 @@ Motor_Status_e Motor_Enable(void)
 {
     bool Servo = (Enc_Step == ENC_CAL_RUN) ||
                  (!Enc_Control_Active() && Servo_Mode());
+    uint32_t Primask;
 
     if ((Motor_State != DISABLED) || !Protection_Enable_Allowed() ||
         (Motor_Work_State != MOTOR_WORK_IDLE) ||
@@ -699,14 +757,20 @@ Motor_Status_e Motor_Enable(void)
     {
         PWM_Enable();
     }
+    Primask = __get_PRIMASK();
+    __disable_irq();
     Motor_State = ENABLED;
+    Motor_Fast_Select();
+    __set_PRIMASK(Primask);
     return MOTOR_OK;
 }
+
 
 Motor_Status_e Motor_Start(void)
 {
     bool Enc = Enc_Control_Active();
     bool Cal = (Enc_Step == ENC_CAL_RUN);
+    uint32_t Primask;
 
     if (Motor_State != ENABLED)
     {
@@ -758,9 +822,14 @@ Motor_Status_e Motor_Start(void)
 
     Stop_Pending = false;
     Sensorless_Stop_Delay_Cnt = 0U;
+    Primask = __get_PRIMASK();
+    __disable_irq();
     Motor_State = RUN;
+    Motor_Fast_Select();
+    __set_PRIMASK(Primask);
     return MOTOR_OK;
 }
+
 
 Motor_Status_e Motor_Enc_Cal_Start(void)
 {
@@ -846,6 +915,7 @@ void Motor_Disable(void)
 
 Motor_Status_e Motor_Ident_Start(Ident_Mode_e Mode)
 {
+    uint32_t Primask;
     if ((Motor_State != ENABLED) ||
         (Motor_Mode != IDENT) || !Protection_Enable_Allowed())
     {
@@ -863,9 +933,14 @@ Motor_Status_e Motor_Ident_Start(Ident_Mode_e Mode)
     }
 
     PWM_Enable();
+    Primask = __get_PRIMASK();
+    __disable_irq();
     Motor_State = RUN;
+    Motor_Fast_Select();
+    __set_PRIMASK(Primask);
     return MOTOR_OK;
 }
+
 
 Motor_Status_e Motor_Ident_Apply(void)
 {
