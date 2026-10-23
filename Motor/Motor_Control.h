@@ -21,7 +21,6 @@ FAST_CODE Motor_Fast_Mode_e Motor_Fast_Run(float Encoder_Theta_e,
                                           float *Ubeta);
 
 FAST_CODE Motor_State_e Motor_State_Get(void);
-Motor_Mode_e Motor_Mode_Get(void);
 FAST_CODE float Motor_I_Limit_Effective_Get(void);
 float Motor_Wm_Limit_Effective_Get(void);
 float Motor_Wm_Ref_Get(void);

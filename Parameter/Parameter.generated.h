@@ -163,7 +163,7 @@ typedef enum
     /* Motor_Wm_Get(): 当前用户机械坐标下的机械角速度反馈。 */
     PARAM_RUN_WM = 0x0502U,
 
-    /* Motor_Iq_Ref_Get(): 最近一次快环实际使用的q轴电流参考。 */
+    /* Motor_Plot_Iq_Ref: 最近一次快环实际使用的q轴电流参考。 */
     PARAM_REF_IQ = 0x0510U,
 
     /* Motor_Wm_Ref_Get(): 当前速度控制实际使用的用户机械速度参考。 */

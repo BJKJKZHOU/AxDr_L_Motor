@@ -69,18 +69,8 @@ static uint32_t Sensorless_Stop_Delay_Cnt = 0U;
 
 static FAST_CODE void Motor_Limit_Get(Motor_Limit_T *Lim)
 {
-    Lim->I_Max = (Motor_Lim.I_Max < User_Lim.I_Max) ? Motor_Lim.I_Max : User_Lim.I_Max;
-    Lim->Wm_Max = (Motor_Lim.Wm_Max < User_Lim.Wm_Max) ? Motor_Lim.Wm_Max : User_Lim.Wm_Max;
-
-    if (Lim->I_Max < 0.0f)
-    {
-        Lim->I_Max = 0.0f;
-    }
-
-    if (Lim->Wm_Max < 0.0f)
-    {
-        Lim->Wm_Max = 0.0f;
-    }
+    Lim->I_Max = Motor_I_Limit_Effective_Get();
+    Lim->Wm_Max = Motor_Wm_Limit_Effective_Get();
 }
 
 static void Iq_Limit_Calc(float *Iq_Min, float *Iq_Max)
@@ -623,11 +613,6 @@ Motor_Fast_Mode_e Motor_Fast_Run(float Encoder_Theta_e,
 Motor_State_e Motor_State_Get(void)
 {
     return Motor_State;
-}
-
-Motor_Mode_e Motor_Mode_Get(void)
-{
-    return (Motor_Mode_e)Motor_Mode;
 }
 
 float Motor_I_Limit_Effective_Get(void)

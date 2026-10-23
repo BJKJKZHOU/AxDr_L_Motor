@@ -606,7 +606,7 @@ objects:
     id: 0x0510
     type: f32
     access: ro
-    getter: Motor_Iq_Ref_Get
+    binding: Motor_Plot_Iq_Ref
     label: Iq Ref
     unit: A
     description: "最近一次快环实际使用的q轴电流参考。"

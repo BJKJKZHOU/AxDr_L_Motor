@@ -492,7 +492,3 @@ finish:
     }
 }
 
-float Motor_Iq_Ref_Get(void)
-{
-    return Motor_Plot_Iq_Ref;
-}
