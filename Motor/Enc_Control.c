@@ -63,9 +63,6 @@ void Enc_Control_Abort(void)
 
 void Enc_Control_Run(void)
 {
-    Enc_Step_e Step_Before = Enc_Step;
-    Enc_Cal_Step_e Cal_Before = Enc_Cal.Step;
-
     switch (Enc_Step)
     {
         case ENC_CAL_RUN:
@@ -130,10 +127,6 @@ void Enc_Control_Run(void)
     if (!Enc_Control_Active() || (Enc_Step == ENC_STOP_WAIT))
     {
         Motor_Disable_Apply();
-    }
-    if ((Enc_Step != Step_Before) || (Enc_Cal.Step != Cal_Before))
-    {
-        Motor_Fast_Select();
     }
 }
 
