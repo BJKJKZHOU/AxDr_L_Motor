@@ -406,24 +406,18 @@ void Fast_Loop(void)
         }
         Motor_Run.Theta_e = Theta_e;
 
-        /* Current FRF is injected into the actual PI reference before limits. */
+        /* The Action owner checks TORQUE/ENABLED before starting current FRF.
+         * Stop, Disable and Run cancel it; only the per-sample target remains here. */
         if ((Signal_Injection.State.Active != 0U) &&
             (Signal_Injection.State.Target != SIGNAL_SPEED))
         {
-            if ((Motor_Mode == TORQUE) && (Motor_State_Get() == ENABLED))
+            if (Signal_Injection.State.Target == SIGNAL_ID)
             {
-                if (Signal_Injection.State.Target == SIGNAL_ID)
-                {
-                    Id_Ref += Signal_Injection_Run();
-                }
-                else
-                {
-                    Iq_Ref += Signal_Injection_Run();
-                }
+                Id_Ref += Signal_Injection_Run();
             }
             else
             {
-                Signal_Injection_Stop();
+                Iq_Ref += Signal_Injection_Run();
             }
         }
 

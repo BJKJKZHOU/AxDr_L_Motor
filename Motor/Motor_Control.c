@@ -425,21 +425,14 @@ void Motor_Control(void)
             Wm_Ref = Motion_Ref.Wm;
             We_Ref = (float)Motor_Para.Pp * Wm_Ref;
 
-            /* Speed FRF bypasses the motion ramp, not the current loop. */
+            /* Speed FRF starts only in SPEED and ends on Stop/Disable/Run.
+             * The 2 kHz path only advances the active speed injection. */
             Speed_Inj = 0.0f;
-            if ((Motor_Mode == SPEED) &&
-                (Signal_Injection.State.Active != 0U) &&
+            if ((Signal_Injection.State.Active != 0U) &&
                 (Signal_Injection.State.Target == SIGNAL_SPEED))
             {
-                if (((Motor_State == ENABLED) || (Motor_State == RUN)) && !Stop_Pending)
-                {
-                    Speed_Inj = (float)Motor_Para.Pp * Signal_Injection_Run();
-                    We_Ref += Speed_Inj;
-                }
-                else
-                {
-                    Signal_Injection_Stop();
-                }
+                Speed_Inj = (float)Motor_Para.Pp * Signal_Injection_Run();
+                We_Ref += Speed_Inj;
             }
 
             if ((Motor_Mode == SPEED) && Stop_Pending && (Motion_Ref.Wm == 0.0f) &&
