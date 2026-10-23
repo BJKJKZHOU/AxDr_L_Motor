@@ -336,6 +336,20 @@ void Fast_Loop(void)
         goto finish;
     }
 
+    /* A latched encoder fault must also turn off an ENABLED servo hold.
+     * The 2 kHz protection task performs the final Disable transition. */
+    if ((Encoder.Fault != 0U) && (Motor_State_Get() != DISABLED) &&
+        Motor_Encoder_Required())
+    {
+        PWM_Disable();
+        Motor_Run.Ud = 0.0f;
+        Motor_Run.Uq = 0.0f;
+        Motor_Run.Ualpha = 0.0f;
+        Motor_Run.Ubeta = 0.0f;
+        Motor_Plot_Iq_Ref = 0.0f;
+        goto finish;
+    }
+
     /* The slow speed-loop handoff and the first FOC cycle both need fresh
      * encoder-frame currents, while VF still owns the output voltage. */
     Cal_Handoff = (Motor_State_Get() == RUN) && (Enc_Step == ENC_CAL_RUN) &&
