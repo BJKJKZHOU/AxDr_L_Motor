@@ -15,8 +15,6 @@
 #include "Motor_Config.h"
 #include "Motor_Control.h"
 #include "Motor_Type.h"
-#include "main.h"
-#include "tx_api.h"
 
 #define LCD_SAMPLE_TICKS 10U /* 100 Hz, ThreadX tick = 1 ms */
 #define LCD_FRAME_TICKS  33U /* ~30 FPS */
@@ -60,10 +58,6 @@ static bool Flush_Active = false;
 static uint8_t Flush_Row = 0U;
 static uint32_t Sample_Tick = 0U;
 static uint32_t Frame_Tick = 0U;
-static uint32_t Frame_Bytes = 0U;
-
-volatile LCD_Time_T LCD_Time = { 0 };
-volatile uint32_t LCD_Test = 0U;
 
 /* 5x7 glyphs, columns with least-significant bit at the top. */
 static const char Font_Chars[] = " 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ./-+:";
@@ -129,7 +123,7 @@ static void LCD_Pixel(uint16_t X, uint16_t Y, uint8_t Signal)
 }
 
 static void LCD_Text(uint16_t X, uint16_t Y, const char *Text,
-                     uint8_t Scale, uint8_t Signal)
+                     uint8_t Signal)
 {
     uint16_t Cursor = X;
 
@@ -155,19 +149,11 @@ static void LCD_Text(uint16_t X, uint16_t Y, const char *Text,
                     continue;
                 }
 
-                for (uint8_t sx = 0U; sx < Scale; sx++)
-                {
-                    for (uint8_t sy = 0U; sy < Scale; sy++)
-                    {
-                        LCD_Pixel(Cursor + (uint16_t)dx * Scale + sx,
-                                  Y + (uint16_t)dy * Scale + sy,
-                                  Signal);
-                    }
-                }
+                LCD_Pixel(Cursor + dx, Y + dy, Signal);
             }
         }
 
-        Cursor += (uint16_t)6U * Scale;
+        Cursor += 6U;
         Text++;
     }
 }
@@ -272,7 +258,7 @@ static bool LCD_Feedback_Valid(void)
 
 static void LCD_Sample(void)
 {
-    Motor_Mode_e Mode = Motor_Mode_Get();
+    Motor_Mode_e Mode = (Motor_Mode_e)Motor_Mode;
     float Ref;
     float Fbk;
 
@@ -492,8 +478,8 @@ static void LCD_Render(void)
     Motor_State_e State = Motor_State_Get();
     float Ref = __builtin_nanf("");
     float Fbk = __builtin_nanf("");
-    float Prev_Ref = 0.0f;
-    float Prev_Fbk = 0.0f;
+    uint16_t Ref_Y_Pre = 0U;
+    uint16_t Fbk_Y_Pre = 0U;
     bool Ref_Valid_Pre = false;
     bool Fbk_Valid_Pre = false;
     char Ref_Text[16];
@@ -512,13 +498,13 @@ static void LCD_Render(void)
     LCD_Number(Ref, Decimals, Ref_Text);
     LCD_Number(Fbk, Decimals, Fbk_Text);
 
-    LCD_Text(6U, 4U, Title, 1U, LCD_REF);
-    LCD_Text(120U, 4U, LCD_Mode_Unit(Display_Mode), 1U, LCD_REF);
-    LCD_Text(192U, 4U, LCD_State_Name(State), 1U, LCD_FBK);
-    LCD_Text(6U, 18U, "REF", 1U, LCD_REF);
-    LCD_Text(30U, 18U, Ref_Text, 1U, LCD_REF);
-    LCD_Text(130U, 18U, "FBK", 1U, LCD_FBK);
-    LCD_Text(154U, 18U, Fbk_Text, 1U, LCD_FBK);
+    LCD_Text(6U, 4U, Title, LCD_REF);
+    LCD_Text(120U, 4U, LCD_Mode_Unit(Display_Mode), LCD_REF);
+    LCD_Text(192U, 4U, LCD_State_Name(State), LCD_FBK);
+    LCD_Text(6U, 18U, "REF", LCD_REF);
+    LCD_Text(30U, 18U, Ref_Text, LCD_REF);
+    LCD_Text(130U, 18U, "FBK", LCD_FBK);
+    LCD_Text(154U, 18U, Fbk_Text, LCD_FBK);
 
     for (uint16_t x = 0U; x < ST7789_WIDTH; x++)
     {
@@ -537,34 +523,36 @@ static void LCD_Render(void)
 
         if (__builtin_isfinite(Cur_Ref))
         {
+            uint16_t Y = LCD_Graph_Y(Cur_Ref);
+
             if (Ref_Valid_Pre)
             {
-                LCD_Line(x - 1U, LCD_Graph_Y(Prev_Ref),
-                         x, LCD_Graph_Y(Cur_Ref), LCD_REF);
+                LCD_Line(x - 1U, Ref_Y_Pre, x, Y, LCD_REF);
             }
             else
             {
-                LCD_Pixel(x, LCD_Graph_Y(Cur_Ref), LCD_REF);
+                LCD_Pixel(x, Y, LCD_REF);
             }
+            Ref_Y_Pre = Y;
         }
 
         if (__builtin_isfinite(Cur_Fbk))
         {
+            uint16_t Y = LCD_Graph_Y(Cur_Fbk);
+
             if (Fbk_Valid_Pre)
             {
-                LCD_Line(x - 1U, LCD_Graph_Y(Prev_Fbk),
-                         x, LCD_Graph_Y(Cur_Fbk), LCD_FBK);
+                LCD_Line(x - 1U, Fbk_Y_Pre, x, Y, LCD_FBK);
             }
             else
             {
-                LCD_Pixel(x, LCD_Graph_Y(Cur_Fbk), LCD_FBK);
+                LCD_Pixel(x, Y, LCD_FBK);
             }
+            Fbk_Y_Pre = Y;
         }
 
         Ref_Valid_Pre = __builtin_isfinite(Cur_Ref);
         Fbk_Valid_Pre = __builtin_isfinite(Cur_Fbk);
-        Prev_Ref = Cur_Ref;
-        Prev_Fbk = Cur_Fbk;
     }
 }
 
@@ -599,7 +587,7 @@ static void LCD_Dirty_Calc(void)
 
         for (uint16_t tx = 0U; tx < LCD_TILE_COLS; tx++)
         {
-            bool Changed = !Frame_Valid || (LCD_Test == 2U);
+            bool Changed = !Frame_Valid;
 
             if (!Changed)
             {
@@ -625,7 +613,6 @@ static void LCD_Dirty_Calc(void)
         Dirty[ty] = Mask;
     }
     Flush_Row = 0U;
-    Frame_Bytes = 0U;
     Flush_Active = true;
 }
 
@@ -687,34 +674,22 @@ static void LCD_Flush_Pump(void)
             }
 
             Dirty[ty] &= (uint16_t)~Sent_Mask;
-            Frame_Bytes += Pixels;
             Flush_Row = (uint8_t)ty;
             return;
         }
     }
 
-    /* ST7789_Ready above also confirms completion of the final rectangle. */
-    if (Frame_Bytes != 0U)
-    {
-        LCD_Time.Byte_Cnt += Frame_Bytes;
-        LCD_Time.Flush_Ticks = (uint32_t)tx_time_get() - Frame_Tick;
-        if (LCD_Time.Flush_Ticks > LCD_Time.Flush_Max)
-        {
-            LCD_Time.Flush_Max = LCD_Time.Flush_Ticks;
-        }
-        LCD_Time.Frame_Cnt++;
-    }
+    /* 最后一块发送完成后，才将新画面作为下次比较的旧画面。 */
     memcpy(Frame_Old, Frame_New, sizeof(Frame_Old));
     Frame_Valid = true;
     Flush_Active = false;
 }
 
-bool LCD_Wave_Init(uint32_t Tick)
+void LCD_Wave_Init(uint32_t Tick)
 {
     LCD_Active = ST7789_Init();
     Sample_Tick = Tick - LCD_SAMPLE_TICKS;
     Frame_Tick = Tick - LCD_FRAME_TICKS;
-    return LCD_Active;
 }
 
 void LCD_Wave_Run(uint32_t Tick)
@@ -739,38 +714,10 @@ void LCD_Wave_Run(uint32_t Tick)
         }
     }
 
-    if (LCD_Test == 1U)
-    {
-        return;
-    }
-
     if ((uint32_t)(Tick - Frame_Tick) >= LCD_FRAME_TICKS)
     {
-        uint32_t T0 = DWT->CYCCNT;
-
         Frame_Tick = Tick;
-        if (LCD_Test == 3U)
-        {
-            memset(Frame_New, 0, sizeof(Frame_New));
-            LCD_Line(0U, 0U, ST7789_WIDTH - 1U, 0U, LCD_REF);
-            LCD_Line(0U, ST7789_HEIGHT - 1U, ST7789_WIDTH - 1U, ST7789_HEIGHT - 1U, LCD_FBK);
-            LCD_Line(0U, 0U, 0U, ST7789_HEIGHT - 1U, LCD_REF);
-            LCD_Line(ST7789_WIDTH - 1U, 0U, ST7789_WIDTH - 1U, ST7789_HEIGHT - 1U, LCD_FBK);
-            LCD_Text(4U, 4U, "TL", 1U, LCD_REF);
-            LCD_Text(ST7789_WIDTH - 16U, 4U, "TR", 1U, LCD_FBK);
-            LCD_Text(4U, ST7789_HEIGHT - 11U, "BL", 1U, LCD_REF);
-            LCD_Text(ST7789_WIDTH - 16U, ST7789_HEIGHT - 11U, "BR", 1U, LCD_FBK);
-            LCD_Text(76U, 60U, "240X135", 2U, LCD_REF);
-        }
-        else
-        {
-            LCD_Render();
-        }
-        LCD_Time.Render_Cyc = DWT->CYCCNT - T0;
-        if (LCD_Time.Render_Cyc > LCD_Time.Render_Max)
-        {
-            LCD_Time.Render_Max = LCD_Time.Render_Cyc;
-        }
+        LCD_Render();
         LCD_Dirty_Calc();
         LCD_Flush_Pump();
     }

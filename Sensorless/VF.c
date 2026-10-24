@@ -5,8 +5,6 @@
 
 #include "VF.h"
 
-#include <stddef.h>
-
 #include "Math.h"
 #include "Sin_LUT.h"
 
@@ -54,12 +52,6 @@ void VF_Run(VF_T *VF,
     float Uq;
     float We_Step;
     float U_Step;
-
-    if ((VF == NULL) || (Ualpha_V == NULL) || (Ubeta_V == NULL) ||
-        (Ts <= 0.0f) || !__builtin_isfinite(Ts))
-    {
-        return;
-    }
 
     *Ualpha_V = 0.0f;
     *Ubeta_V = 0.0f;

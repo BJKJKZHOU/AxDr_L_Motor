@@ -548,7 +548,7 @@ objects:
     persistent: true
     binding: Motor_Cal.Valid
     label: Calibration Valid
-    description: "当前伺服相位/编码器校准结果是否有效。"
+    description: "当前寻相结果是否有效；重新寻相或用户修改极对数、编码器协议、SPI类型时清零，结果应用成功时置位，上电按保存值恢复。"
     range: { min: 0, max: 1 }
 
   PARAM_CAL_ENC_DIR:
@@ -580,14 +580,8 @@ objects:
     unit: rad
     description: "两次静态ALIGN计算得到的电角零位偏差，单位rad；最后一次成功计算后更新。"
 
-  PARAM_PHASE_VERIFY_MOVE:
-    id: 0x0411
-    type: f32
-    access: ro
-    getter: Servo_Phase_Verify_Move_Get
-    label: Phase Verify Move (retired)
-    unit: rad
-    description: "已停用的寻相诊断字段；简化寻相不再执行正Iq验证，此值恒为0。"
+  # 0x0411 PARAM_PHASE_VERIFY_MOVE 已停用：寻相不再执行正 Iq 移动验证。
+  # 保留名称和 ID 供查阅，不再提供读写，也不重新分配此 ID。
 
   PARAM_RUN_POSITION:
     id: 0x0501
@@ -612,7 +606,7 @@ objects:
     id: 0x0510
     type: f32
     access: ro
-    getter: Motor_Iq_Ref_Get
+    binding: Motor_Plot_Iq_Ref
     label: Iq Ref
     unit: A
     description: "最近一次快环实际使用的q轴电流参考。"
@@ -774,7 +768,7 @@ objects:
     id: 0x0901
     type: u8
     access: ro
-    getter: Identification_Rs_Ls_Valid_Get
+    binding: Rs_Ls_Result.Valid
     label: Rs/Ls Valid
     description: "最近一次Rs/Ls辨识结果是否有效。"
     range: { min: 0, max: 1 }
@@ -783,7 +777,7 @@ objects:
     id: 0x0902
     type: f32
     access: ro
-    getter: Identification_Rs_Get
+    binding: Rs_Ls_Result.Rs_Ohm
     label: Rs Result
     unit: ohm
     description: "最近一次Rs/Ls辨识得到的相电阻结果。"
@@ -792,7 +786,7 @@ objects:
     id: 0x0903
     type: f32
     access: ro
-    getter: Identification_Ls_Get
+    binding: Rs_Ls_Result.Ls_H
     label: Ls Result
     unit: H
     description: "最近一次Rs/Ls辨识得到的等效相电感结果。"
@@ -801,7 +795,7 @@ objects:
     id: 0x0910
     type: u8
     access: ro
-    getter: Identification_Flux_Valid_Get
+    binding: Flux_Result.Valid
     label: Flux Valid
     description: "最近一次Flux辨识结果是否有效。"
     range: { min: 0, max: 1 }
@@ -810,7 +804,7 @@ objects:
     id: 0x0911
     type: f32
     access: ro
-    getter: Identification_Flux_Get
+    binding: Flux_Result.Flux_Wb
     label: λm Result
     unit: Wb
     description: "最近一次Flux辨识得到的永磁磁链结果。"
@@ -819,7 +813,7 @@ objects:
     id: 0x0912
     type: u8
     access: ro
-    getter: Identification_Fail_Reason_Get
+    binding: Ident_Fail_Reason
     label: Identification Failure
     description: "最近一次辨识失败原因；0表示无失败，非零仅用于最终诊断。"
     range: { min: 0, max: 4 }
@@ -828,7 +822,7 @@ objects:
     id: 0x0920
     type: u8
     access: ro
-    getter: Identification_JB_Valid_Get
+    binding: JB_Result.Valid
     label: J/B Valid
     description: "最近一次J/B辨识结果是否有效。"
     range: { min: 0, max: 1 }
@@ -837,7 +831,7 @@ objects:
     id: 0x0921
     type: f32
     access: ro
-    getter: Identification_J_Get
+    binding: JB_Result.J_Kgm2
     label: J Result
     unit: kg*m^2
     description: "最近一次J/B辨识得到的转动惯量J。"
@@ -846,7 +840,7 @@ objects:
     id: 0x0922
     type: f32
     access: ro
-    getter: Identification_B_Get
+    binding: JB_Result.B_Nms
     label: B Result
     unit: N*m*s/rad
     description: "最近一次J/B辨识得到的粘性阻尼B。"
@@ -1089,6 +1083,41 @@ objects:
     write_state: not_running
     range: { min: 1.0, max: 2000.0 }
 
+  PARAM_CTRL_FLUX_OBS_BW_HZ:
+    id: 0x0A40
+    type: f32
+    access: rw
+    persistent: true
+    binding: Control_Flux_Obs_Bw_Hz
+    label: Flux Observer Bandwidth
+    unit: Hz
+    description: "工程共用磁链观测器校正带宽，默认200 Hz；正常无感、FLUX和JB共用，停止运行后可写，下次启动流程生效。"
+    write_state: not_running
+    range: { min: 0.0, exclusive_min: true }
+
+  PARAM_CTRL_PLL_BW_HZ:
+    id: 0x0A41
+    type: f32
+    access: rw
+    persistent: true
+    binding: Control_PLL_Bw_Hz
+    label: PLL Design Frequency
+    unit: Hz
+    description: "工程共用PLL设计频率，默认65 Hz；Wn=2*pi*f，Kp=2*Damp*Wn，Ki=Wn^2；正常无感、FLUX和JB共用，停止运行后可写，下次启动流程生效。"
+    write_state: not_running
+    range: { min: 0.0, exclusive_min: true }
+
+  PARAM_CTRL_PLL_DAMP:
+    id: 0x0A42
+    type: f32
+    access: rw
+    persistent: true
+    binding: Control_PLL_Damp
+    label: PLL Damping Ratio
+    description: "工程共用PLL阻尼比，默认0.707；正常无感、FLUX和JB共用，停止运行后可写，下次启动流程生效。"
+    write_state: not_running
+    range: { min: 0.0, exclusive_min: true }
+
   ACTION_MOTOR_ENABLE:
     id: 0x1001
     type: action
@@ -1138,14 +1167,6 @@ objects:
     arg: IDENT_FLUX
     label: Flux
     description: "启动Flux辨识。"
-
-  ACTION_IDENT_ABORT:
-    id: 0x1103
-    type: action
-    access: wo
-    command: MOTOR_CMD_IDENT_ABORT
-    label: Abort
-    description: "中止当前辨识。"
 
   ACTION_IDENT_APPLY:
     id: 0x1104

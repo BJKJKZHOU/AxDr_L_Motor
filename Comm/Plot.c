@@ -21,7 +21,6 @@
 
 #define PLOT_BUF_NONE 0xFFU
 #define PLOT_DEBUG_IDENT_THETA_ID 0xF001U
-#define PLOT_TUNING_CAP_COUNT     5U
 
 typedef struct
 {
@@ -31,14 +30,8 @@ typedef struct
 
 typedef struct
 {
-    const volatile float *Data;
-} Normal_Var_T;
-
-typedef struct
-{
     uint8_t Config_ID;
     uint8_t Count;
-    uint16_t Var[AXDR_FAST_MAX_CH];
     Fast_Var_T Data[AXDR_FAST_MAX_CH];
     uint8_t Valid;
 } Fast_Config_T;
@@ -47,8 +40,7 @@ typedef struct
 {
     uint8_t Config_ID;
     uint8_t Count;
-    uint16_t Var[AXDR_NORMAL_MAX_CH];
-    Normal_Var_T Data[AXDR_NORMAL_MAX_CH];
+    const volatile float *Data[AXDR_NORMAL_MAX_CH];
     uint8_t Valid;
 } Normal_Config_T;
 
@@ -60,9 +52,14 @@ typedef struct
 
 static const Plot_Cap_T Plot_Capability[] = {
 #include "Plot.generated.inc"
+    { PARAM_REF_IQ, AXDR_PLOT_CAP_FAST | AXDR_PLOT_CAP_NORMAL, 0.001f, &Motor_Plot_Iq_Ref },
+    { PARAM_RUN_WM, AXDR_PLOT_CAP_NORMAL, 0.0f, &Motor_Plot_Wm },
+    { PARAM_REF_WM, AXDR_PLOT_CAP_NORMAL, 0.0f, &Motor_Plot_Wm_Ref },
+    { PARAM_RUN_POSITION, AXDR_PLOT_CAP_NORMAL, 0.0f, &Motor_Plot_Position },
+    { PARAM_REF_POSITION, AXDR_PLOT_CAP_NORMAL, 0.0f, &Motor_Plot_Position_Ref },
 };
 
-static Plot_Group_T Plot_Group[2] = { 0 };
+static volatile uint8_t Plot_Run[2] = { 0 };
 
 static Fast_Config_T Fast_Config[2] = { 0 };
 static Normal_Config_T Normal_Config[2] = { 0 };
@@ -131,34 +128,6 @@ static void Plot_Normal_Flush(void)
     Normal_Ready = PLOT_BUF_NONE;
 }
 
-static FAST_CODE void Plot_Fast_Group_Sync(void)
-{
-    const Fast_Config_T *Config = &Fast_Config[Fast_Active];
-
-    Plot_Group[AXDR_PLOT_FAST].Config_ID = Config->Config_ID;
-    Plot_Group[AXDR_PLOT_FAST].Count = Config->Count;
-    Plot_Group[AXDR_PLOT_FAST].Valid = Config->Valid;
-
-    for (uint8_t n = 0U; n < Config->Count; n++)
-    {
-        Plot_Group[AXDR_PLOT_FAST].Var[n] = Config->Var[n];
-    }
-}
-
-static void Plot_Normal_Group_Sync(void)
-{
-    const Normal_Config_T *Config = &Normal_Config[Normal_Active];
-
-    Plot_Group[AXDR_PLOT_NORMAL].Config_ID = Config->Config_ID;
-    Plot_Group[AXDR_PLOT_NORMAL].Count = Config->Count;
-    Plot_Group[AXDR_PLOT_NORMAL].Valid = Config->Valid;
-
-    for (uint8_t n = 0U; n < Config->Count; n++)
-    {
-        Plot_Group[AXDR_PLOT_NORMAL].Var[n] = Config->Var[n];
-    }
-}
-
 static FAST_CODE void Plot_Fast_Apply_Pending(void)
 {
     if (Fast_Pending == 0U)
@@ -168,7 +137,6 @@ static FAST_CODE void Plot_Fast_Apply_Pending(void)
 
     Fast_Active ^= 1U;
     Fast_Pending = 0U;
-    Plot_Fast_Group_Sync();
 }
 
 static void Plot_Normal_Apply_Pending(void)
@@ -180,119 +148,35 @@ static void Plot_Normal_Apply_Pending(void)
 
     Normal_Active ^= 1U;
     Normal_Pending = 0U;
-    Plot_Normal_Group_Sync();
-}
-
-static uint8_t Plot_Generated_Capability_Count(void)
-{
-    return (uint8_t)(sizeof(Plot_Capability) / sizeof(Plot_Capability[0]));
-}
-
-static bool Plot_Tuning_Capability_Get(uint8_t Index, Plot_Cap_T *Cap)
-{
-    if (Cap == 0)
-    {
-        return false;
-    }
-
-    switch (Index)
-    {
-        case 0U:
-            Cap->Id = PARAM_REF_IQ;
-            Cap->Modes = AXDR_PLOT_CAP_FAST | AXDR_PLOT_CAP_NORMAL;
-            Cap->Fast_Scale = 0.001f;
-            Cap->Data = &Motor_Plot_Iq_Ref;
-            return true;
-
-        case 1U:
-            Cap->Id = PARAM_RUN_WM;
-            Cap->Modes = AXDR_PLOT_CAP_NORMAL;
-            Cap->Fast_Scale = 0.0f;
-            Cap->Data = &Motor_Plot_Wm;
-            return true;
-
-        case 2U:
-            Cap->Id = PARAM_REF_WM;
-            Cap->Modes = AXDR_PLOT_CAP_NORMAL;
-            Cap->Fast_Scale = 0.0f;
-            Cap->Data = &Motor_Plot_Wm_Ref;
-            return true;
-
-        case 3U:
-            Cap->Id = PARAM_RUN_POSITION;
-            Cap->Modes = AXDR_PLOT_CAP_NORMAL;
-            Cap->Fast_Scale = 0.0f;
-            Cap->Data = &Motor_Plot_Position;
-            return true;
-
-        case 4U:
-            Cap->Id = PARAM_REF_POSITION;
-            Cap->Modes = AXDR_PLOT_CAP_NORMAL;
-            Cap->Fast_Scale = 0.0f;
-            Cap->Data = &Motor_Plot_Position_Ref;
-            return true;
-
-        default:
-            return false;
-    }
 }
 
 uint8_t Plot_Capability_Count(void)
 {
-    return (uint8_t)(Plot_Generated_Capability_Count() + PLOT_TUNING_CAP_COUNT);
+    return (uint8_t)(sizeof(Plot_Capability) / sizeof(Plot_Capability[0]));
 }
 
 bool Plot_Capability_Get(uint8_t Index, Plot_Cap_T *Cap)
 {
-    uint8_t Generated_Count;
-
     if ((Cap == 0) || (Index >= Plot_Capability_Count()))
     {
         return false;
     }
 
-    Generated_Count = Plot_Generated_Capability_Count();
-    if (Index < Generated_Count)
-    {
-        *Cap = Plot_Capability[Index];
-        return true;
-    }
-
-    return Plot_Tuning_Capability_Get((uint8_t)(Index - Generated_Count), Cap);
+    *Cap = Plot_Capability[Index];
+    return true;
 }
 
-bool Plot_Capability_Find(uint16_t Id, Plot_Cap_T *Cap)
+static bool Plot_Capability_Resolve(uint16_t Id, Plot_Cap_T *Cap)
 {
     uint8_t Count;
-    Plot_Cap_T Candidate;
 
     if (Cap == 0)
     {
         return false;
     }
 
-    Count = Plot_Capability_Count();
-    for (uint8_t n = 0U; n < Count; n++)
-    {
-        if (Plot_Capability_Get(n, &Candidate) && (Candidate.Id == Id))
-        {
-            *Cap = Candidate;
-            return true;
-        }
-    }
-
-    return false;
-}
-
-static bool Plot_Capability_Resolve(uint16_t Id, Plot_Cap_T *Cap)
-{
     if (Id == PLOT_DEBUG_IDENT_THETA_ID)
     {
-        if (Cap == 0)
-        {
-            return false;
-        }
-
         Cap->Id = PLOT_DEBUG_IDENT_THETA_ID;
         Cap->Modes = AXDR_PLOT_CAP_FAST | AXDR_PLOT_CAP_NORMAL;
         Cap->Fast_Scale = 0.0002f;
@@ -300,7 +184,17 @@ static bool Plot_Capability_Resolve(uint16_t Id, Plot_Cap_T *Cap)
         return true;
     }
 
-    return Plot_Capability_Find(Id, Cap);
+    Count = Plot_Capability_Count();
+    for (uint8_t n = 0U; n < Count; n++)
+    {
+        if (Plot_Capability[n].Id == Id)
+        {
+            *Cap = Plot_Capability[n];
+            return true;
+        }
+    }
+
+    return false;
 }
 
 uint32_t Plot_Fast_Rate_Hz(void)
@@ -335,7 +229,7 @@ AxDr_Status_e Plot_Config(uint8_t Group, uint8_t Config_ID, const uint16_t *Var,
             return AXDR_ERR_CONFIG;
         }
 
-        if ((Plot_Group[AXDR_PLOT_FAST].Run != 0U) && (Fast_Pending != 0U))
+        if ((Plot_Run[AXDR_PLOT_FAST] != 0U) && (Fast_Pending != 0U))
         {
             return AXDR_ERR_STATE;
         }
@@ -355,21 +249,19 @@ AxDr_Status_e Plot_Config(uint8_t Group, uint8_t Config_ID, const uint16_t *Var,
                 return AXDR_ERR_VAR_ID;
             }
 
-            Config->Var[n] = Var[n];
             Config->Data[n].Data = Cap.Data;
             Config->Data[n].Scale = Cap.Fast_Scale;
         }
 
         Config->Valid = 1U;
 
-        if (Plot_Group[AXDR_PLOT_FAST].Run != 0U)
+        if (Plot_Run[AXDR_PLOT_FAST] != 0U)
         {
             Fast_Pending = 1U;
         }
         else
         {
             Fast_Active = Target;
-            Plot_Fast_Group_Sync();
             Plot_Fast_Flush();
         }
 
@@ -385,7 +277,7 @@ AxDr_Status_e Plot_Config(uint8_t Group, uint8_t Config_ID, const uint16_t *Var,
             return AXDR_ERR_CONFIG;
         }
 
-        if ((Plot_Group[AXDR_PLOT_NORMAL].Run != 0U) && (Normal_Pending != 0U))
+        if ((Plot_Run[AXDR_PLOT_NORMAL] != 0U) && (Normal_Pending != 0U))
         {
             return AXDR_ERR_STATE;
         }
@@ -403,20 +295,18 @@ AxDr_Status_e Plot_Config(uint8_t Group, uint8_t Config_ID, const uint16_t *Var,
                 return AXDR_ERR_VAR_ID;
             }
 
-            Config->Var[n] = Var[n];
-            Config->Data[n].Data = Cap.Data;
+            Config->Data[n] = Cap.Data;
         }
 
         Config->Valid = 1U;
 
-        if (Plot_Group[AXDR_PLOT_NORMAL].Run != 0U)
+        if (Plot_Run[AXDR_PLOT_NORMAL] != 0U)
         {
             Normal_Pending = 1U;
         }
         else
         {
             Normal_Active = Target;
-            Plot_Normal_Group_Sync();
             Plot_Normal_Flush();
         }
 
@@ -431,12 +321,12 @@ AxDr_Status_e Plot_Start(uint8_t Group_Mask)
         return AXDR_ERR_CONFIG;
     }
 
-    if (((Group_Mask & AXDR_PLOT_FAST_MASK) != 0U) && (Plot_Group[AXDR_PLOT_FAST].Valid == 0U))
+    if (((Group_Mask & AXDR_PLOT_FAST_MASK) != 0U) && (Fast_Config[Fast_Active].Valid == 0U))
     {
         return AXDR_ERR_CONFIG;
     }
 
-    if (((Group_Mask & AXDR_PLOT_NORMAL_MASK) != 0U) && (Plot_Group[AXDR_PLOT_NORMAL].Valid == 0U))
+    if (((Group_Mask & AXDR_PLOT_NORMAL_MASK) != 0U) && (Normal_Config[Normal_Active].Valid == 0U))
     {
         return AXDR_ERR_CONFIG;
     }
@@ -444,13 +334,13 @@ AxDr_Status_e Plot_Start(uint8_t Group_Mask)
     if ((Group_Mask & AXDR_PLOT_FAST_MASK) != 0U)
     {
         Plot_Fast_Flush();
-        Plot_Group[AXDR_PLOT_FAST].Run = 1U;
+        Plot_Run[AXDR_PLOT_FAST] = 1U;
     }
 
     if ((Group_Mask & AXDR_PLOT_NORMAL_MASK) != 0U)
     {
         Plot_Normal_Flush();
-        Plot_Group[AXDR_PLOT_NORMAL].Run = 1U;
+        Plot_Run[AXDR_PLOT_NORMAL] = 1U;
     }
 
     return AXDR_OK;
@@ -465,29 +355,19 @@ AxDr_Status_e Plot_Stop(uint8_t Group_Mask)
 
     if ((Group_Mask & AXDR_PLOT_FAST_MASK) != 0U)
     {
-        Plot_Group[AXDR_PLOT_FAST].Run = 0U;
+        Plot_Run[AXDR_PLOT_FAST] = 0U;
         Plot_Fast_Apply_Pending();
         Plot_Fast_Flush();
     }
 
     if ((Group_Mask & AXDR_PLOT_NORMAL_MASK) != 0U)
     {
-        Plot_Group[AXDR_PLOT_NORMAL].Run = 0U;
+        Plot_Run[AXDR_PLOT_NORMAL] = 0U;
         Plot_Normal_Apply_Pending();
         Plot_Normal_Flush();
     }
 
     return AXDR_OK;
-}
-
-const Plot_Group_T *Plot_Group_Get(uint8_t Group)
-{
-    if (Group > AXDR_PLOT_NORMAL)
-    {
-        return 0;
-    }
-
-    return &Plot_Group[Group];
 }
 
 void Plot_Fast_Sample(void)
@@ -497,7 +377,7 @@ void Plot_Fast_Sample(void)
     uint8_t Fill;
     const Fast_Config_T *Config;
 
-    if ((Plot_Group[AXDR_PLOT_FAST].Run == 0U) || (Plot_Group[AXDR_PLOT_FAST].Valid == 0U))
+    if ((Plot_Run[AXDR_PLOT_FAST] == 0U) || (Fast_Config[Fast_Active].Valid == 0U))
     {
         return;
     }
@@ -531,7 +411,7 @@ void Plot_Fast_Sample(void)
     {
         Fast_Ready = Fill;
         Fast_Fill ^= 1U;
-        USB_Tx_Wake(USB_TX_FAST);
+        USB_Tx_Wake();
     }
 
     Plot_Fast_Apply_Pending();
@@ -542,7 +422,7 @@ void Plot_Normal_Sample(void)
     uint8_t Fill;
     const Normal_Config_T *Config;
 
-    if ((Plot_Group[AXDR_PLOT_NORMAL].Run == 0U) || (Plot_Group[AXDR_PLOT_NORMAL].Valid == 0U))
+    if ((Plot_Run[AXDR_PLOT_NORMAL] == 0U) || (Normal_Config[Normal_Active].Valid == 0U))
     {
         return;
     }
@@ -560,14 +440,14 @@ void Plot_Normal_Sample(void)
 
     for (uint8_t n = 0U; n < Config->Count; n++)
     {
-        Normal_Buf[Fill][n] = *Config->Data[n].Data;
+        Normal_Buf[Fill][n] = *Config->Data[n];
     }
 
     Normal_Meta[Fill].Config_ID = Config->Config_ID;
     Normal_Meta[Fill].Count = Config->Count;
     Normal_Ready = Fill;
     Normal_Fill ^= 1U;
-    USB_Tx_Wake(USB_TX_NORMAL);
+    USB_Tx_Wake();
 
     Plot_Normal_Apply_Pending();
 }

@@ -24,7 +24,6 @@
 
 static bool LCD_Online = false;
 static bool LCD_Tx_Active = false;
-static bool LCD_Done_Valid = false;
 static TX_SEMAPHORE LCD_Done;
 static uint8_t LCD_Black_Line[ST7789_WIDTH * 2U] = { 0 };
 
@@ -121,7 +120,6 @@ bool ST7789_Init(void)
     {
         return false;
     }
-    LCD_Done_Valid = true;
 
     HAL_GPIO_WritePin(LCD_RES_GPIO_Port, LCD_RES_Pin, GPIO_PIN_RESET);
     HAL_Delay(20U);
@@ -217,16 +215,16 @@ bool ST7789_Write(uint16_t X, uint16_t Y, uint16_t Width, uint16_t Height,
 
 void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *Spi)
 {
-    if ((Spi->Instance == SPI3) && LCD_Done_Valid)
+    if ((Spi->Instance == SPI3) && LCD_Online)
     {
         (void)tx_semaphore_put(&LCD_Done);
     }
 }
 
-/* Wake on DMA completion, but check panel timers at least once per tick. */
+/* DMA 完成时唤醒，最长等待一个 tick，以便及时扫描按键和刷新画面。 */
 void ST7789_Wait(void)
 {
-    if (LCD_Online && LCD_Done_Valid)
+    if (LCD_Online)
     {
         (void)tx_semaphore_get(&LCD_Done, 1U);
     }

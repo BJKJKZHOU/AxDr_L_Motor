@@ -12,12 +12,6 @@
 PID_T Pos_Ctrl = POSITION_CTRL_DEFAULT;
 PID_T Speed_Ctrl = SPEED_CTRL_DEFAULT;
 
-void Speed_Loop_State_Reset(float We_Fbk)
-{
-    Speed_Ctrl.State.Int = 0.0f;
-    Speed_Ctrl.State.Fbk_Pre = We_Fbk;
-}
-
 void Speed_Loop_Track(float We_Ref, float We_Fbk, float Iq, float Iq_Min, float Iq_Max)
 {
     float Err;

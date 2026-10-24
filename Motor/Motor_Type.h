@@ -85,20 +85,20 @@ typedef struct
  *
  * Enc_Dir maps the encoder native angle direction into the internal motor
  * coordinate. Only +1 / -1 are valid and direction calibration may only be
- * changed while DISABLED. After direction correction, Motor_Run Theta_m
+ * changed while DISABLED. After direction correction, Motor_Run.Theta_m
  * and Turn belong to the internal motor coordinate, as does the ESO speed.
  *
  * Theta_Off must be calibrated after Enc_Dir / phase order are established:
  * Theta_e = wrap(Pp * Theta_m + Theta_Off).
  *
- * Valid is set only after a complete servo phase calibration result is
- * accepted. Changing encoder type or pole-pair count invalidates the result.
+ * Valid 表示当前寻相结果可用；重新寻相或用户修改极对数、编码器类型时清零。
+ * 上电按参数表恢复保存值。
  */
 typedef struct
 {
-    int8_t Enc_Dir; /* +1 / -1, calibration result */
-    float Theta_Off; /* rad, calibration result */
-    uint8_t Valid; /* 1 only when Enc_Dir / Theta_Off match current encoder and Pp */
+    int8_t Enc_Dir; /* 寻相得到的方向，+1 / -1。 */
+    float Theta_Off; /* 寻相得到的电角度偏置，rad。 */
+    uint8_t Valid; /* 寻相有效标记，对应参数 0x0402。 */
 
 } Motor_Cal_T;
 
@@ -139,10 +139,9 @@ typedef struct
 
 typedef struct
 {
-    int32_t
-        Turn; /* Internal mechanical turns; +1 on positive 2pi->0 wrap, -1 on negative 0->2pi wrap; starts at 0 after power-up and is not retained across power loss */
-
-    float Theta_m; /* rad, [0, 2pi), internal mechanical coordinate */
+    /* Internal mechanical position; Turn starts at zero and is not persisted. */
+    int32_t Turn;
+    float Theta_m; /* rad, [0, 2pi), paired with Turn */
 
     float Theta_e; /* rad, [0, 2pi), internal electrical angle currently used by FOC */
 

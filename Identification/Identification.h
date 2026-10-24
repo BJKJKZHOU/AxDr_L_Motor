@@ -63,37 +63,23 @@ extern PLL_T Ident_PLL;
  * internal automatic policy derived from the validated Flux 0.30 ratio. */
 extern volatile float Ident_JB_Excite_Ratio;
 extern volatile float Ident_JB_Excite_Hz;
+extern volatile uint8_t Ident_Fail_Reason;
+extern volatile Ident_State_e Ident_State; /* Updated by Identification only. */
+/* Limits written by Identification; identification algorithms only read them. */
+extern Ident_Envelope_T Ident_Envelope;
 
 bool Identification_Start(Ident_Mode_e Mode, float Wm_Target);
-void Identification_Abort(void);
+void Identification_Stop(void);
+void Identification_Report(bool Valid);
 void Identification_Control(void);
 bool Identification_Apply(void);
 
-bool Identification_Active(void);
-bool Identification_Result_Valid(void);
 Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
                                           float Ib_A,
-                                          float Ic_A,
                                           float *Theta_e,
                                           float *Id_Ref,
                                           float *Iq_Ref,
                                           float *Ualpha_V,
                                           float *Ubeta_V);
-
-/* Internal lifecycle accessors. These are not Host-visible protocol state. */
-Ident_Mode_e Identification_Mode_Get(void);
-Ident_State_e Identification_State_Get(void);
-const Ident_Envelope_T *Identification_Envelope_Get(void);
-
-/* Stable final-result accessors used by the Parameter layer. */
-uint8_t Identification_Rs_Ls_Valid_Get(void);
-float Identification_Rs_Get(void);
-float Identification_Ls_Get(void);
-uint8_t Identification_Flux_Valid_Get(void);
-float Identification_Flux_Get(void);
-uint8_t Identification_JB_Valid_Get(void);
-float Identification_J_Get(void);
-float Identification_B_Get(void);
-uint8_t Identification_Fail_Reason_Get(void);
 
 #endif /* IDENTIFICATION_H */

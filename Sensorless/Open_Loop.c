@@ -25,13 +25,14 @@ uint8_t Open_Loop_Method = OPEN_LOOP_IF;
 static Open_State_e Open_State = OPEN_ALIGN;
 static float Theta_Open = 0.0f;
 static VF_T VF = { 0 };
+static Align_T Open_Align = { .Para = { .Id_A = OPEN_ALIGN_ID_A, .Hold_Cnt = OPEN_ALIGN_CNT } };
 
 void Open_Loop_Reset(void)
 {
     Open_State = OPEN_ALIGN;
     Theta_Open = 0.0f;
     VF = (VF_T){ 0 };
-    Align_Reset();
+    Open_Align.State.Cnt = 0U;
 }
 
 Motor_Fast_Mode_e Open_Loop(float We_Ref, float *Theta_e,
@@ -40,7 +41,11 @@ Motor_Fast_Mode_e Open_Loop(float We_Ref, float *Theta_e,
 {
     if (Open_State == OPEN_ALIGN)
     {
-        if (Align_Current(OPEN_ALIGN_ID_A, OPEN_ALIGN_CNT, Id_Ref, Iq_Ref))
+        bool Done = Align_Run(&Open_Align);
+        *Id_Ref = Open_Align.Sig.Id_Ref;
+        *Iq_Ref = Open_Align.Sig.Iq_Ref;
+
+        if (Done)
         {
             Open_State = OPEN_RUN;
             /* VF outputs q-axis voltage. Start with its voltage vector aligned

@@ -21,7 +21,6 @@ FAST_CODE Motor_Fast_Mode_e Motor_Fast_Run(float Encoder_Theta_e,
                                           float *Ubeta);
 
 FAST_CODE Motor_State_e Motor_State_Get(void);
-Motor_Mode_e Motor_Mode_Get(void);
 FAST_CODE float Motor_I_Limit_Effective_Get(void);
 float Motor_Wm_Limit_Effective_Get(void);
 float Motor_Wm_Ref_Get(void);
@@ -31,14 +30,28 @@ bool Motor_Encoder_Required(void);
 /* Existing speed/current PI handover used by encoder calibration. */
 void Motor_Cal_Decel_Begin(void);
 
-void Motor_Enable(void);
-void Motor_Start(void);
+/* 动作执行结果，由命令入口转换为通信应答。 */
+typedef enum
+{
+    MOTOR_OK = 0,
+    MOTOR_ERR_STATE,
+    MOTOR_ERR_CONFIG,
+
+} Motor_Status_e;
+
+Motor_Status_e Motor_Enable(void);
+Motor_Status_e Motor_Start(void);
+Motor_Status_e Motor_Enc_Cal_Start(void);
 void Motor_Stop(void);
 void Motor_Disable(void);
 
-bool Motor_Ident_Start(Ident_Mode_e Mode);
-bool Motor_Ident_Abort(void);
-bool Motor_Ident_Apply(void);
+/* Internal output/state transition; keep the encoder sequence active.
+ * User disable and protection must use Motor_Disable() to cancel it. */
+void Motor_Disable_Apply(void);
+
+Motor_Status_e Motor_Ident_Start(Ident_Mode_e Mode);
+Motor_Status_e Motor_Ident_Apply(void);
+Motor_Status_e Motor_Signal_Start(void);
 
 /* User mechanical coordinate feedback. Internal FOC state remains in Motor_Run. */
 float Motor_Wm_Get(void);

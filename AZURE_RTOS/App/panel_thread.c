@@ -20,7 +20,6 @@
 
 typedef struct
 {
-    GPIO_PinState Sample;
     GPIO_PinState State;
     uint8_t Cnt;
 
@@ -34,18 +33,13 @@ static uint32_t Key_Press(Key_T *Key, GPIO_TypeDef *Port, uint16_t Pin)
 
     Sample = HAL_GPIO_ReadPin(Port, Pin);
 
-    if (Sample != Key->Sample)
+    if (Sample == Key->State)
     {
-        Key->Sample = Sample;
-        Key->Cnt = 1U;
+        Key->Cnt = 0U;
     }
-    else if (Key->Cnt < KEY_STABLE_CNT)
+    else if (++Key->Cnt == KEY_STABLE_CNT)
     {
-        Key->Cnt++;
-    }
-
-    if ((Key->Cnt == KEY_STABLE_CNT) && (Sample != Key->State))
-    {
+        Key->Cnt = 0U;
         Key->State = Sample;
         return (Sample == GPIO_PIN_RESET) ? 1U : 0U;
     }
@@ -77,9 +71,9 @@ static void Panel_LED(Motor_State_e State)
 
 static void Panel_Entry(ULONG thread_input)
 {
-    Key_T Key1 = { GPIO_PIN_SET, GPIO_PIN_SET, 0U };
-    Key_T Key2 = { GPIO_PIN_SET, GPIO_PIN_SET, 0U };
-    Key_T Key3 = { GPIO_PIN_SET, GPIO_PIN_SET, 0U };
+    Key_T Key1 = { GPIO_PIN_SET, 0U };
+    Key_T Key2 = { GPIO_PIN_SET, 0U };
+    Key_T Key3 = { GPIO_PIN_SET, 0U };
     Motor_State_e State;
     Motor_State_e State_Pre;
     Motor_Cmd_Msg_T Msg = { 0 };
@@ -94,7 +88,7 @@ static void Panel_Entry(ULONG thread_input)
     State_Pre = Motor_State_Get();
     Panel_LED(State_Pre);
 
-    (void)LCD_Wave_Init((uint32_t)tx_time_get());
+    LCD_Wave_Init((uint32_t)tx_time_get());
     Key_Tick = (uint32_t)tx_time_get() - KEY_SCAN_TICK;
 
     while (1)
@@ -108,22 +102,22 @@ static void Panel_Entry(ULONG thread_input)
             Key2_Press = Key_Press(&Key2, KEY2_GPIO_Port, KEY2_Pin);
             Key3_Press = Key_Press(&Key3, KEY3_GPIO_Port, KEY3_Pin);
 
-            if (Key1_Press != 0U)
+            if ((Key1_Press != 0U) || (Key2_Press != 0U) ||
+                ((Key3_Press != 0U) && (Motor_State_Get() == DISABLED)))
             {
-                Msg.Cmd = (ULONG)MOTOR_CMD_EN_TOGGLE;
-                Msg.Arg = 0U;
-                (void)tx_queue_send(&Motor_Cmd_Q, &Msg, TX_NO_WAIT);
-            }
-            else if (Key2_Press != 0U)
-            {
-                Msg.Cmd = (ULONG)MOTOR_CMD_RUN_TOGGLE;
-                Msg.Arg = 0U;
-                (void)tx_queue_send(&Motor_Cmd_Q, &Msg, TX_NO_WAIT);
-            }
-            else if ((Key3_Press != 0U) && (Motor_State_Get() == DISABLED))
-            {
-                Msg.Cmd = (ULONG)MOTOR_CMD_MODE_NEXT;
-                Msg.Arg = 0U;
+                if (Key1_Press != 0U)
+                {
+                    Msg.Cmd = (ULONG)MOTOR_CMD_EN_TOGGLE;
+                }
+                else if (Key2_Press != 0U)
+                {
+                    Msg.Cmd = (ULONG)MOTOR_CMD_RUN_TOGGLE;
+                }
+                else
+                {
+                    Msg.Cmd = (ULONG)MOTOR_CMD_MODE_NEXT;
+                }
+
                 (void)tx_queue_send(&Motor_Cmd_Q, &Msg, TX_NO_WAIT);
             }
 

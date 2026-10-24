@@ -16,13 +16,6 @@ typedef enum
 
 } Flux_Estimator_Mode_e;
 
-typedef enum
-{
-    FLUX_EST_HOLD = 0,
-    FLUX_EST_UPDATE,
-
-} Flux_Estimator_Action_e;
-
 typedef struct
 {
     float Rs;
@@ -65,7 +58,6 @@ typedef struct
 
 bool Flux_Estimator_Run(Flux_Estimator_T *Est,
                         Flux_Estimator_Mode_e Mode,
-                        Flux_Estimator_Action_e Action,
                         bool Measure,
                         float Ud,
                         float Uq,

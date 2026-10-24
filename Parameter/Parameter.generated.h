@@ -145,7 +145,7 @@ typedef enum
     /* Servo_Phase_Config.I_Search_A: 伺服寻相两次静态ALIGN的Id电流及方向辨识起转的Iq电流；起转后Iq归零等待500ms。 */
     PARAM_PHASE_I_SEARCH = 0x0401U,
 
-    /* Motor_Cal.Valid: 当前伺服相位/编码器校准结果是否有效。 */
+    /* Motor_Cal.Valid: 当前寻相结果是否有效；重新寻相或用户修改极对数、编码器协议、SPI类型时清零，结果应用成功时置位，上电按保存值恢复。 */
     PARAM_CAL_VALID = 0x0402U,
 
     /* Motor_Cal.Enc_Dir: 寻相得到的编码器方向符号，按工程约定用于机械方向对齐。 */
@@ -157,16 +157,13 @@ typedef enum
     /* Servo_Phase_Theta_Off_Error_Get(): 两次静态ALIGN计算得到的电角零位偏差，单位rad；最后一次成功计算后更新。 */
     PARAM_PHASE_THETA_OFF_ERROR = 0x0410U,
 
-    /* Servo_Phase_Verify_Move_Get(): 已停用的寻相诊断字段；简化寻相不再执行正Iq验证，此值恒为0。 */
-    PARAM_PHASE_VERIFY_MOVE = 0x0411U,
-
     /* Parameter_Run_Position_Get(): 当前用户机械坐标下的位置反馈。 */
     PARAM_RUN_POSITION = 0x0501U,
 
     /* Motor_Wm_Get(): 当前用户机械坐标下的机械角速度反馈。 */
     PARAM_RUN_WM = 0x0502U,
 
-    /* Motor_Iq_Ref_Get(): 最近一次快环实际使用的q轴电流参考。 */
+    /* Motor_Plot_Iq_Ref: 最近一次快环实际使用的q轴电流参考。 */
     PARAM_REF_IQ = 0x0510U,
 
     /* Motor_Wm_Ref_Get(): 当前速度控制实际使用的用户机械速度参考。 */
@@ -217,31 +214,31 @@ typedef enum
     /* Protection.Trip: 当前硬件快速关断级事件位图。 */
     PARAM_EVENT_TRIP = 0x0804U,
 
-    /* Identification_Rs_Ls_Valid_Get(): 最近一次Rs/Ls辨识结果是否有效。 */
+    /* Rs_Ls_Result.Valid: 最近一次Rs/Ls辨识结果是否有效。 */
     PARAM_IDENT_RS_LS_VALID = 0x0901U,
 
-    /* Identification_Rs_Get(): 最近一次Rs/Ls辨识得到的相电阻结果。 */
+    /* Rs_Ls_Result.Rs_Ohm: 最近一次Rs/Ls辨识得到的相电阻结果。 */
     PARAM_IDENT_RS_RESULT = 0x0902U,
 
-    /* Identification_Ls_Get(): 最近一次Rs/Ls辨识得到的等效相电感结果。 */
+    /* Rs_Ls_Result.Ls_H: 最近一次Rs/Ls辨识得到的等效相电感结果。 */
     PARAM_IDENT_LS_RESULT = 0x0903U,
 
-    /* Identification_Flux_Valid_Get(): 最近一次Flux辨识结果是否有效。 */
+    /* Flux_Result.Valid: 最近一次Flux辨识结果是否有效。 */
     PARAM_IDENT_FLUX_VALID = 0x0910U,
 
-    /* Identification_Flux_Get(): 最近一次Flux辨识得到的永磁磁链结果。 */
+    /* Flux_Result.Flux_Wb: 最近一次Flux辨识得到的永磁磁链结果。 */
     PARAM_IDENT_FLUX_RESULT = 0x0911U,
 
-    /* Identification_Fail_Reason_Get(): 最近一次辨识失败原因；0表示无失败，非零仅用于最终诊断。 */
+    /* Ident_Fail_Reason: 最近一次辨识失败原因；0表示无失败，非零仅用于最终诊断。 */
     PARAM_IDENT_FAIL_REASON = 0x0912U,
 
-    /* Identification_JB_Valid_Get(): 最近一次J/B辨识结果是否有效。 */
+    /* JB_Result.Valid: 最近一次J/B辨识结果是否有效。 */
     PARAM_IDENT_JB_VALID = 0x0920U,
 
-    /* Identification_J_Get(): 最近一次J/B辨识得到的转动惯量J。 */
+    /* JB_Result.J_Kgm2: 最近一次J/B辨识得到的转动惯量J。 */
     PARAM_IDENT_J_RESULT = 0x0921U,
 
-    /* Identification_B_Get(): 最近一次J/B辨识得到的粘性阻尼B。 */
+    /* JB_Result.B_Nms: 最近一次J/B辨识得到的粘性阻尼B。 */
     PARAM_IDENT_B_RESULT = 0x0922U,
 
     /* Ident_JB_Excite_Ratio: J/B辨识正弦机械速度激励幅值相对自动工作点速度的比例；默认0.20。 */
@@ -298,6 +295,15 @@ typedef enum
     /* Mechanical_ESO_Bw_Hz: 20 kHz机械ESO设计带宽；写入后按当前J/B/Kt刷新Observer增益。 */
     PARAM_CTRL_MECH_ESO_BW_HZ = 0x0A30U,
 
+    /* Control_Flux_Obs_Bw_Hz: 工程共用磁链观测器校正带宽，默认200 Hz；正常无感、FLUX和JB共用，停止运行后可写，下次启动流程生效。 */
+    PARAM_CTRL_FLUX_OBS_BW_HZ = 0x0A40U,
+
+    /* Control_PLL_Bw_Hz: 工程共用PLL设计频率，默认65 Hz；Wn=2*pi*f，Kp=2*Damp*Wn，Ki=Wn^2；正常无感、FLUX和JB共用，停止运行后可写，下次启动流程生效。 */
+    PARAM_CTRL_PLL_BW_HZ = 0x0A41U,
+
+    /* Control_PLL_Damp: 工程共用PLL阻尼比，默认0.707；正常无感、FLUX和JB共用，停止运行后可写，下次启动流程生效。 */
+    PARAM_CTRL_PLL_DAMP = 0x0A42U,
+
     /* MOTOR_CMD_ENABLE: 使能电机功率级。 */
     ACTION_MOTOR_ENABLE = 0x1001U,
 
@@ -315,9 +321,6 @@ typedef enum
 
     /* MOTOR_CMD_IDENT_START: 启动Flux辨识。 */
     ACTION_IDENT_FLUX_START = 0x1102U,
-
-    /* MOTOR_CMD_IDENT_ABORT: 中止当前辨识。 */
-    ACTION_IDENT_ABORT = 0x1103U,
 
     /* MOTOR_CMD_IDENT_APPLY: 将最近一次有效辨识结果应用到Motor参数。 */
     ACTION_IDENT_APPLY = 0x1104U,

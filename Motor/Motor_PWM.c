@@ -63,7 +63,7 @@ void PWM_Update(float DutyA, float DutyB, float DutyC)
     TIM1->CCR3 = (uint32_t)(DutyC * Arr);
 }
 
-void PWM_Enable(void)
+bool PWM_Enable(void)
 {
     uint32_t Half;
 
@@ -81,9 +81,15 @@ void PWM_Enable(void)
 
     while ((TIM1->BDTR & TIM_BDTR_MOE) == 0U)
     {
+        /* A fast fault clears AOE as well as MOE, cancelling this request. */
+        if ((TIM1->BDTR & TIM_BDTR_AOE) == 0U)
+        {
+            return false;
+        }
     }
 
     CLEAR_BIT(TIM1->BDTR, TIM_BDTR_AOE);
+    return (TIM1->BDTR & TIM_BDTR_MOE) != 0U;
 }
 
 void PWM_Disable(void)

@@ -36,7 +36,7 @@ import sys
 import time
 
 import sensorless_run
-import sensorless_test as base
+import motor_usb as base
 
 IDENT_RS_LS = 0x01
 IDENT_FLUX = 0x02
@@ -68,7 +68,7 @@ class IdentificationFailed(RuntimeError):
         self.result = result
 
 
-class Commission(base.SensorlessTest):
+class Commission(base.MotorUSB):
     def __init__(self, ser, args):
         super().__init__(ser, args)
         self.plot_started = False
@@ -87,7 +87,8 @@ class Commission(base.SensorlessTest):
         seq, = struct.unpack_from("<H", payload, 0)
         sample_count = payload[3]
         count = len(FAST_VARS)
-        if len(payload) != 4 + sample_count * count * 2:
+        payload = base.canfd_payload(payload, 4 + sample_count * count * 2)
+        if payload is None:
             return
 
         if self.fast_last is not None:
@@ -248,7 +249,7 @@ class Commission(base.SensorlessTest):
     def run_ident(self, mode, run_number, direction=None):
         if direction is not None:
             sign = 1.0 if direction == "forward" else -1.0
-            wm_test = sign * base.IF_WE_RAD_S / self.args.pole_pairs
+            wm_test = sign * sensorless_run.IF_WE_RAD_S / self.args.pole_pairs
             self.speed_set(wm_test)
 
         start_action = (base.ACTION_IDENT_RS_LS_START
@@ -317,11 +318,6 @@ class Commission(base.SensorlessTest):
             failure = exc
         finally:
             self.ident_active = False
-            if failure is not None:
-                try:
-                    self.parameter_action(base.ACTION_IDENT_ABORT)
-                except (TimeoutError, RuntimeError):
-                    pass
             try:
                 self.parameter_action(base.ACTION_MOTOR_DISABLE)
             except (TimeoutError, RuntimeError) as exc:

@@ -35,6 +35,5 @@ extern volatile float Motor_Plot_Iq_Ref;
 
 void ADC_Calib(void);
 FAST_CODE void Fast_Loop(void);
-float Motor_Iq_Ref_Get(void);
 
 #endif /* MOTOR_ADC_H */

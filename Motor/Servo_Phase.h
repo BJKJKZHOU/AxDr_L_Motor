@@ -11,44 +11,11 @@
 
 #include "Motor_Type.h"
 
-typedef enum
-{
-    SERVO_PHASE_RESULT_NONE = 0,
-    SERVO_PHASE_RESULT_RUNNING,
-    SERVO_PHASE_RESULT_PASS,
-    SERVO_PHASE_RESULT_FAIL,
-
-} Servo_Phase_Result_State_e;
-
-typedef enum
-{
-    SERVO_PHASE_FAIL_NONE = 0,
-    SERVO_PHASE_FAIL_ENCODER,
-    SERVO_PHASE_FAIL_ABORTED,
-    SERVO_PHASE_FAIL_APPLY,
-
-} Servo_Phase_Fail_e;
-
 typedef struct
 {
     float I_Search_A;
 
 } Servo_Phase_Config_T;
-
-typedef struct
-{
-    Servo_Phase_Result_State_e State;
-    Servo_Phase_Fail_e Fail;
-
-    int8_t Enc_Dir;
-    float Theta_Off;
-    float Theta_Off_Error;
-
-    float Pos_Move;
-
-    float I_Search_A;
-
-} Servo_Phase_Result_T;
 
 extern Servo_Phase_Config_T Servo_Phase_Config;
 
@@ -57,33 +24,8 @@ void Servo_Phase_Abort(void);
 bool Servo_Phase_Active(void);
 bool Servo_Phase_Apply(void);
 bool Servo_Phase_Save(void);
-const Servo_Phase_Result_T *Servo_Phase_Last_Result_Get(void);
-
-static inline bool Servo_Phase_Result_Valid(void)
-{
-    return Servo_Phase_Last_Result_Get()->State == SERVO_PHASE_RESULT_PASS;
-}
-
 /* Difference between static zero measurements at the two ALIGN positions. */
-static inline float Servo_Phase_Theta_Off_Error_Get(void)
-{
-    return Servo_Phase_Last_Result_Get()->Theta_Off_Error;
-}
-
-static inline float Servo_Phase_Pos_Move_Get(void)
-{
-    return Servo_Phase_Last_Result_Get()->Pos_Move;
-}
-
-static inline float Servo_Phase_Neg_Move_Get(void)
-{
-    return 0.0f;
-}
-
-static inline float Servo_Phase_Verify_Move_Get(void)
-{
-    return 0.0f;
-}
+float Servo_Phase_Theta_Off_Error_Get(void);
 
 Motor_Fast_Mode_e Servo_Phase_Fast_Run(float *Theta_e,
                                        float *Id_Ref,

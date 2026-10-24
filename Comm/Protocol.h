@@ -71,9 +71,9 @@ void Protocol_Rx(uint16_t Id, const uint8_t *Data, uint8_t Len);
 void Protocol_Parameter_Write_Response(uint8_t Txn,
                                        uint16_t Parameter_Id,
                                        Parameter_Status_e Status);
-void Protocol_Action_Response(uint8_t Txn,
-                              uint16_t Action_Id,
-                              AxDr_Status_e Status);
+void Protocol_Write_Response(uint8_t Txn,
+                             uint16_t Id,
+                             AxDr_Status_e Status);
 void Protocol_Action_Complete(uint8_t Txn,
                               uint16_t Action_Id,
                               AxDr_Status_e Status);

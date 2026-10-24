@@ -34,9 +34,13 @@ static void Work_Entry(ULONG Input)
         {
             Result = Enc_Cal_Fit_Apply() ? 0 : -1;
         }
-        else if (Job == MOTOR_WORK_SAVE_CAL)
+        else if (Job == MOTOR_WORK_SAVE_PHASE)
         {
             Result = Servo_Phase_Save() ? 0 : -1;
+        }
+        else if (Job == MOTOR_WORK_SAVE_ENC)
+        {
+            Result = Enc_Cal_Save() ? 0 : -1;
         }
         else
         {

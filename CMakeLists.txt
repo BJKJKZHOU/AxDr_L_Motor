@@ -71,6 +71,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Motion/SCurve.c
     Motor/Motor_ADC.c
     Motor/Encoder.c
+    Motor/Enc_Control.c
     Motor/Encoder_Drv/MT6816.c
     Motor/Encoder_Drv/MT6835.c
     Motor/Protection.c

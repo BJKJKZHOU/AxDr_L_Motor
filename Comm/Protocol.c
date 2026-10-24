@@ -69,7 +69,7 @@ uint8_t AxDr_CANFD_Length(uint8_t Required)
 
 bool AxDr_CANFD_Length_Valid(uint8_t Len)
 {
-    return AxDr_CANFD_Length(Len) == Len;
+    return (Len <= AXDR_MAX_DATA_LEN) && (AxDr_CANFD_Length(Len) == Len);
 }
 
 bool AxDr_CANFD_Padding_Zero(const uint8_t *Data, uint8_t Required, uint8_t Len)
@@ -106,7 +106,7 @@ static bool Response_Push(const AxDr_Msg_T *Msg)
     Resp_Wr = Next;
     TX_RESTORE
 
-    USB_Tx_Wake(USB_TX_RESP);
+    USB_Tx_Wake();
     return true;
 }
 
@@ -302,26 +302,17 @@ void Protocol_Parameter_Write_Response(uint8_t Txn,
                                        uint16_t Parameter_Id,
                                        Parameter_Status_e Status)
 {
-    uint8_t Resp[2];
-
-    Resp[0] = (uint8_t)Parameter_Id;
-    Resp[1] = (uint8_t)(Parameter_Id >> 8);
-    Response(Txn,
-             AXDR_MSG_PARAMETER,
-             AXDR_PARAM_WRITE,
-             Parameter_Status_Map(Status),
-             Resp,
-             sizeof(Resp));
+    Protocol_Write_Response(Txn, Parameter_Id, Parameter_Status_Map(Status));
 }
 
-void Protocol_Action_Response(uint8_t Txn,
-                              uint16_t Action_Id,
-                              AxDr_Status_e Status)
+void Protocol_Write_Response(uint8_t Txn,
+                             uint16_t Id,
+                             AxDr_Status_e Status)
 {
     uint8_t Resp[2];
 
-    Resp[0] = (uint8_t)Action_Id;
-    Resp[1] = (uint8_t)(Action_Id >> 8);
+    Resp[0] = (uint8_t)Id;
+    Resp[1] = (uint8_t)(Id >> 8);
     Response(Txn,
              AXDR_MSG_PARAMETER,
              AXDR_PARAM_WRITE,
@@ -367,7 +358,6 @@ static void Plot_Rx(const uint8_t *Data, uint8_t Len)
         uint8_t Config_ID;
         uint8_t Count;
         uint16_t Var[AXDR_NORMAL_MAX_CH];
-        uint8_t Resp[3U + AXDR_NORMAL_MAX_CH * 2U];
 
         if (Len < 5U)
         {
@@ -397,21 +387,13 @@ static void Plot_Rx(const uint8_t *Data, uint8_t Len)
 
                 if (Status == AXDR_OK)
                 {
-                    Resp[0] = Group;
-                    Resp[1] = Config_ID;
-                    Resp[2] = Count;
-                    for (uint8_t n = 0U; n < Count; n++)
-                    {
-                        Resp[3U + n * 2U] = (uint8_t)Var[n];
-                        Resp[4U + n * 2U] = (uint8_t)(Var[n] >> 8);
-                    }
-                    Response(Txn, AXDR_MSG_PLOT, Op, Status, Resp, (uint8_t)(3U + Count * 2U));
+                    Response(Txn, AXDR_MSG_PLOT, Op, Status, &Data[2], (uint8_t)(Required - 2U));
                     return;
                 }
             }
         }
     }
-    else if (Op == AXDR_PLOT_START)
+    else if ((Op == AXDR_PLOT_START) || (Op == AXDR_PLOT_STOP))
     {
         Required = 3U;
         if (!AxDr_CANFD_Padding_Zero(Data, Required, Len))
@@ -420,19 +402,7 @@ static void Plot_Rx(const uint8_t *Data, uint8_t Len)
         }
         else
         {
-            Status = Plot_Start(Data[2]);
-        }
-    }
-    else if (Op == AXDR_PLOT_STOP)
-    {
-        Required = 3U;
-        if (!AxDr_CANFD_Padding_Zero(Data, Required, Len))
-        {
-            Status = AXDR_ERR_LENGTH;
-        }
-        else
-        {
-            Status = Plot_Stop(Data[2]);
+            Status = (Op == AXDR_PLOT_START) ? Plot_Start(Data[2]) : Plot_Stop(Data[2]);
         }
     }
     else if (Op == AXDR_PLOT_CAPS)

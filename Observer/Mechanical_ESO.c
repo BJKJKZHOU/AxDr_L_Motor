@@ -111,7 +111,3 @@ void Mechanical_ESO_Run(float Theta_Meas, bool Position_Valid, float Iq)
     Mechanical_ESO.State.Theta = Angle_Wrap(Mechanical_ESO.State.Theta);
 }
 
-float Mechanical_ESO_Wm_Get(void)
-{
-    return Mechanical_ESO.State.Wm;
-}
