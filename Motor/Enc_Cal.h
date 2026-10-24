@@ -37,6 +37,9 @@ typedef struct
 } Enc_Cal_T;
 
 extern volatile Enc_Cal_T Enc_Cal;
+/* Fast CAL_HANDOFF publishes fresh dq feedback, then sets Ready. The 2 kHz
+ * owner prepares the speed ramp and selects CAL_DECEL. Its first ADC cycle
+ * tracks the VF voltage into the current controller before clearing Ready. */
 extern volatile bool Enc_Cal_Handoff_Ready;
 
 bool Enc_Cal_Start(void);

@@ -178,7 +178,7 @@ static void Motor_Cmd_Run(void)
             case MOTOR_CMD_RUN:
                 Action_Status = Enc_Action_Pending ? AXDR_ERR_STATE :
                                 Motor_Status_Map(Motor_Start());
-                if ((Action_Status == AXDR_OK) && (Motor_Mode_Get() == PHASE_SEARCH))
+                if ((Action_Status == AXDR_OK) && (Motor_Mode == PHASE_SEARCH))
                 {
                     Enc_Action = Msg.Reserved;
                     Enc_Action_Pending = true;
@@ -243,7 +243,7 @@ static void Motor_Cmd_Run(void)
                     break;
                 }
                 Parameter_Value = (Parameter_Value_T){ 0 };
-                switch (Motor_Mode_Get())
+                switch (Motor_Mode)
                 {
                     case TORQUE:
                         Parameter_Value.U8 = (uint8_t)SPEED;
@@ -313,21 +313,7 @@ static void Motor_Cmd_Run(void)
                 break;
 
             case MOTOR_CMD_SIGNAL_START:
-                Action_Status = AXDR_OK;
-                if (Enc_Control_Active() || !Protection_Enable_Allowed() ||
-                    ((Signal_Injection.Para.Target == SIGNAL_SPEED) ?
-                     ((Motor_Mode_Get() != SPEED) ||
-                      ((Motor_State_Get() != ENABLED) && (Motor_State_Get() != RUN))) :
-                     ((Motor_Mode_Get() != TORQUE) || (Motor_State_Get() != ENABLED))))
-                {
-                    Action_Status = AXDR_ERR_STATE;
-                }
-                else if (!Signal_Injection_Start(Motor_I_Limit_Effective_Get(),
-                                                 Motor_Wm_Limit_Effective_Get()))
-                {
-                    Action_Status = AXDR_ERR_CONFIG;
-                }
-                Motor_Action_Response(Msg.Reserved, Action_Status);
+                Motor_Action_Response(Msg.Reserved, Motor_Status_Map(Motor_Signal_Start()));
                 break;
 
             case MOTOR_CMD_SIGNAL_ABORT:

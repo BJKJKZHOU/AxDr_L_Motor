@@ -5,7 +5,6 @@
 
 #include "Current_Loop.h"
 
-
 #include "Motor_Para.h"
 #include "Motor_Type.h"
 #include "control_params.h"
@@ -18,8 +17,6 @@ LADRC_T Iq_LADRC = { 0 };
 uint8_t Current_Controller = CURRENT_CTRL_PI;
 float Control_LADRC_Bw_Hz = CUR_LADRC_BW_HZ_DEFAULT;
 float Control_LADRC_Eso_Bw_Hz = CUR_LADRC_ESO_BW_HZ_DEFAULT;
-
-extern Motor_Run_T Motor_Run;
 
 static FAST_CODE void Current_Loop_Limits_Update(float U_Lim)
 {

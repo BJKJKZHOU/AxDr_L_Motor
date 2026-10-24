@@ -56,6 +56,8 @@ volatile float Motor_Plot_Position_Ref = 0.0f;
 
 static volatile Motor_State_e Motor_State = DISABLED;
 
+/* The 2 kHz loop owns these references. The first VF-to-FOC ADC cycle
+ * seeds them from fresh dq feedback until the next speed-loop update. */
 static Current_Ref_T Current_Ref = { 0 };
 static Motion_Ref_T Motion_Ref = { 0 };
 static SCurve_T SCurve = { 0 };
@@ -69,21 +71,11 @@ static uint32_t Sensorless_Stop_Delay_Cnt = 0U;
 
 static FAST_CODE void Motor_Limit_Get(Motor_Limit_T *Lim)
 {
-    Lim->I_Max = (Motor_Lim.I_Max < User_Lim.I_Max) ? Motor_Lim.I_Max : User_Lim.I_Max;
-    Lim->Wm_Max = (Motor_Lim.Wm_Max < User_Lim.Wm_Max) ? Motor_Lim.Wm_Max : User_Lim.Wm_Max;
-
-    if (Lim->I_Max < 0.0f)
-    {
-        Lim->I_Max = 0.0f;
-    }
-
-    if (Lim->Wm_Max < 0.0f)
-    {
-        Lim->Wm_Max = 0.0f;
-    }
+    Lim->I_Max = Motor_I_Limit_Effective_Get();
+    Lim->Wm_Max = Motor_Wm_Limit_Effective_Get();
 }
 
-static void Iq_Limit_Calc(float *Iq_Min, float *Iq_Max)
+static void Iq_Limit_Calc(float I_Max, float *Iq_Min, float *Iq_Max)
 {
     float We;
     float U_Lim;
@@ -125,6 +117,20 @@ static void Iq_Limit_Calc(float *Iq_Min, float *Iq_Max)
 
     *Iq_Min = (-B - Sqrt_D) / (2.0f * A);
     *Iq_Max = (-B + Sqrt_D) / (2.0f * A);
+
+    if (*Iq_Min < -I_Max)
+    {
+        *Iq_Min = -I_Max;
+    }
+    if (*Iq_Max > I_Max)
+    {
+        *Iq_Max = I_Max;
+    }
+    if (*Iq_Min > *Iq_Max)
+    {
+        *Iq_Min = 0.0f;
+        *Iq_Max = 0.0f;
+    }
 }
 
 static void Motion_State_Reset(void)
@@ -150,7 +156,6 @@ void Motor_Cal_Decel_Begin(void)
     float Iq = Motor_Run.Iq;
     float Iq_Min;
     float Iq_Max;
-    Motor_Limit_T Lim;
 
     Ramp_Reset(&Motion_Ref, Wm);
     SCurve = (SCurve_T){ 0 };
@@ -159,15 +164,7 @@ void Motor_Cal_Decel_Begin(void)
     Current_Ref.Id = Motor_Run.Id;
     Current_Ref.Iq = Iq;
 
-    Motor_Limit_Get(&Lim);
-    Iq_Limit_Calc(&Iq_Min, &Iq_Max);
-    if (Iq_Min < -Lim.I_Max) Iq_Min = -Lim.I_Max;
-    if (Iq_Max > Lim.I_Max) Iq_Max = Lim.I_Max;
-    if (Iq_Min > Iq_Max)
-    {
-        Iq_Min = 0.0f;
-        Iq_Max = 0.0f;
-    }
+    Iq_Limit_Calc(Motor_I_Limit_Effective_Get(), &Iq_Min, &Iq_Max);
     Speed_Loop_Track(We_Ref, We_Ref, Iq, Iq_Min, Iq_Max);
 }
 
@@ -361,23 +358,7 @@ void Motor_Control(void)
 
     Current_Ref.Id = 0.0f;
 
-    Iq_Limit_Calc(&Iq_Min, &Iq_Max);
-
-    if (Iq_Min < -Lim.I_Max)
-    {
-        Iq_Min = -Lim.I_Max;
-    }
-
-    if (Iq_Max > Lim.I_Max)
-    {
-        Iq_Max = Lim.I_Max;
-    }
-
-    if (Iq_Min > Iq_Max)
-    {
-        Iq_Min = 0.0f;
-        Iq_Max = 0.0f;
-    }
+    Iq_Limit_Calc(Lim.I_Max, &Iq_Min, &Iq_Max);
 
     We_Fbk = (float)Motor_Para.Pp * Mechanical_ESO.State.Wm;
 
@@ -432,20 +413,20 @@ void Motor_Control(void)
             Wm_Ref = Motion_Ref.Wm;
             We_Ref = (float)Motor_Para.Pp * Wm_Ref;
 
-            /* Speed FRF bypasses the motion ramp, not the current loop. */
+            /* Stop keeps RUN while decelerating, so a later FRF Start can
+             * still pass the Action gate. Cancel it before adding excitation. */
             Speed_Inj = 0.0f;
-            if ((Motor_Mode == SPEED) &&
-                (Signal_Injection.State.Active != 0U) &&
+            if ((Signal_Injection.State.Active != 0U) &&
                 (Signal_Injection.State.Target == SIGNAL_SPEED))
             {
-                if (((Motor_State == ENABLED) || (Motor_State == RUN)) && !Stop_Pending)
+                if (Stop_Pending)
                 {
-                    Speed_Inj = (float)Motor_Para.Pp * Signal_Injection_Run();
-                    We_Ref += Speed_Inj;
+                    Signal_Injection_Stop();
                 }
                 else
                 {
-                    Signal_Injection_Stop();
+                    Speed_Inj = (float)Motor_Para.Pp * Signal_Injection_Run();
+                    We_Ref += Speed_Inj;
                 }
             }
 
@@ -533,6 +514,7 @@ void Motor_Control(void)
             break;
     }
 
+    /* The handoff ADC cycle can reseed Current_Ref after Speed_Loop returns. */
     Limit_Value(&Current_Ref.Iq, Iq_Min, Iq_Max);
 
     if (Cal_Speed)
@@ -573,7 +555,9 @@ Motor_Fast_Mode_e Motor_Fast_Run(float Encoder_Theta_e,
     /* Sensored modes retain current control while ENABLED for servo holding. */
     if (Cal || Servo_Mode())
     {
-        if ((Enc_Cal.Step == CAL_DECEL) && Enc_Cal_Handoff_Ready)
+        bool Handoff = (Enc_Cal.Step == CAL_DECEL) && Enc_Cal_Handoff_Ready;
+
+        if (Handoff)
         {
             /* ADC has published this sample in the encoder frame. Keep VF
              * rotating once more; ADC tracks that voltage before running FOC. */
@@ -584,8 +568,7 @@ Motor_Fast_Mode_e Motor_Fast_Run(float Encoder_Theta_e,
 
         /* Reuse the angle already calculated for the encoder-frame Park.
          * Retain the original angle path if encoder/ESO feedback is unavailable. */
-        *Theta_e = (Encoder_Park_Valid ||
-                    ((Enc_Cal.Step == CAL_DECEL) && Enc_Cal_Handoff_Ready)) ? Encoder_Theta_e :
+        *Theta_e = (Encoder_Park_Valid || Handoff) ? Encoder_Theta_e :
                    Angle_Wrap((float)Motor_Para.Pp * Motor_Run.Theta_m + Motor_Cal.Theta_Off);
         *Id_Ref = Current_Ref.Id;
         *Iq_Ref = Current_Ref.Iq;
@@ -623,11 +606,6 @@ Motor_Fast_Mode_e Motor_Fast_Run(float Encoder_Theta_e,
 Motor_State_e Motor_State_Get(void)
 {
     return Motor_State;
-}
-
-Motor_Mode_e Motor_Mode_Get(void)
-{
-    return (Motor_Mode_e)Motor_Mode;
 }
 
 float Motor_I_Limit_Effective_Get(void)
@@ -710,9 +688,9 @@ Motor_Status_e Motor_Enable(void)
     Motor_Run.Ualpha = 0.0f;
     Motor_Run.Ubeta = 0.0f;
 
-    if (Servo)
+    if (Servo && !PWM_Enable())
     {
-        PWM_Enable();
+        return MOTOR_ERR_CONFIG;
     }
     Motor_State = ENABLED;
     return MOTOR_OK;
@@ -768,7 +746,11 @@ Motor_Status_e Motor_Start(void)
 
     if ((Enc_Step == ENC_PHASE_RUN) || (!Servo_Mode() && !Cal))
     {
-        PWM_Enable();
+        if (!PWM_Enable())
+        {
+            Motor_Disable();
+            return MOTOR_ERR_CONFIG;
+        }
     }
 
     Stop_Pending = false;
@@ -859,6 +841,22 @@ void Motor_Disable(void)
     Motor_Disable_Apply();
 }
 
+Motor_Status_e Motor_Signal_Start(void)
+{
+    if (Enc_Control_Active() || !Protection_Enable_Allowed() ||
+        ((Signal_Injection.Para.Target == SIGNAL_SPEED) ?
+         ((Motor_Mode != SPEED) || ((Motor_State != ENABLED) && (Motor_State != RUN))) :
+         ((Motor_Mode != TORQUE) || (Motor_State != ENABLED))))
+    {
+        return MOTOR_ERR_STATE;
+    }
+    if (!Signal_Injection_Start(Motor_I_Limit_Effective_Get(), Motor_Wm_Limit_Effective_Get()))
+    {
+        return MOTOR_ERR_CONFIG;
+    }
+    return MOTOR_OK;
+}
+
 Motor_Status_e Motor_Ident_Start(Ident_Mode_e Mode)
 {
     if ((Motor_State != ENABLED) ||
@@ -877,7 +875,11 @@ Motor_Status_e Motor_Ident_Start(Ident_Mode_e Mode)
         return MOTOR_ERR_CONFIG;
     }
 
-    PWM_Enable();
+    if (!PWM_Enable())
+    {
+        Identification_Stop();
+        return MOTOR_ERR_CONFIG;
+    }
     Motor_State = RUN;
     return MOTOR_OK;
 }

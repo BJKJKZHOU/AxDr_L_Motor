@@ -258,7 +258,7 @@ static bool LCD_Feedback_Valid(void)
 
 static void LCD_Sample(void)
 {
-    Motor_Mode_e Mode = Motor_Mode_Get();
+    Motor_Mode_e Mode = (Motor_Mode_e)Motor_Mode;
     float Ref;
     float Fbk;
 

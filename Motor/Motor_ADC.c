@@ -336,6 +336,20 @@ void Fast_Loop(void)
         goto finish;
     }
 
+    /* A latched encoder fault must also turn off an ENABLED servo hold.
+     * The 2 kHz protection task performs the final Disable transition. */
+    if ((Encoder.Fault != 0U) && (Motor_State_Get() != DISABLED) &&
+        Motor_Encoder_Required())
+    {
+        PWM_Disable();
+        Motor_Run.Ud = 0.0f;
+        Motor_Run.Uq = 0.0f;
+        Motor_Run.Ualpha = 0.0f;
+        Motor_Run.Ubeta = 0.0f;
+        Motor_Plot_Iq_Ref = 0.0f;
+        goto finish;
+    }
+
     /* The slow speed-loop handoff and the first FOC cycle both need fresh
      * encoder-frame currents, while VF still owns the output voltage. */
     Cal_Handoff = (Motor_State_Get() == RUN) && (Enc_Step == ENC_CAL_RUN) &&
@@ -394,24 +408,18 @@ void Fast_Loop(void)
         }
         Motor_Run.Theta_e = Theta_e;
 
-        /* Current FRF is injected into the actual PI reference before limits. */
+        /* Motor_Signal_Start checks TORQUE/ENABLED before starting current FRF.
+         * Stop, Disable and Run cancel it; only the per-sample target remains here. */
         if ((Signal_Injection.State.Active != 0U) &&
             (Signal_Injection.State.Target != SIGNAL_SPEED))
         {
-            if ((Motor_Mode == TORQUE) && (Motor_State_Get() == ENABLED))
+            if (Signal_Injection.State.Target == SIGNAL_ID)
             {
-                if (Signal_Injection.State.Target == SIGNAL_ID)
-                {
-                    Id_Ref += Signal_Injection_Run();
-                }
-                else
-                {
-                    Iq_Ref += Signal_Injection_Run();
-                }
+                Id_Ref += Signal_Injection_Run();
             }
             else
             {
-                Signal_Injection_Stop();
+                Iq_Ref += Signal_Injection_Run();
             }
         }
 
@@ -492,7 +500,3 @@ finish:
     }
 }
 
-float Motor_Iq_Ref_Get(void)
-{
-    return Motor_Plot_Iq_Ref;
-}
