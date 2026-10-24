@@ -142,7 +142,8 @@ bool Sensorless_Begin(void)
     }
 
     Sensorless_Observer.Para.Rs = Motor_Para.Rs;
-    Sensorless_Observer.Para.Ls = Motor_Para.Ld;
+    Sensorless_Observer.Para.Ld = Motor_Para.Ld;
+    Sensorless_Observer.Para.Lq = Motor_Para.Lq;
     Sensorless_Observer.Para.Flux = Motor_Para.Flux;
     Sensorless_Observer.Para.BW_Hz = Control_Flux_Obs_Bw_Hz;
 

@@ -13,7 +13,8 @@
 typedef struct
 {
     float Rs;
-    float Ls;
+    float Ld;
+    float Lq;
     float Flux;
     float BW_Hz;
 
@@ -32,6 +33,8 @@ typedef struct
     float LambdaAlpha;
     float LambdaBeta;
 
+    /* Active flux: Lambda - Lq * I, aligned with rotor d when
+     * Flux + (Ld - Lq) * Id > 0. */
     float PsiAlpha;
     float PsiBeta;
 

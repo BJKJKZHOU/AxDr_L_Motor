@@ -22,7 +22,7 @@
 | 运动轨迹 | 支持转矩斜坡、速度与位置梯形轨迹、S 曲线轨迹；已开展运行中修改目标、正反转、位置往返及减速停止测试 |
 | 电流控制 | 20 kHz dq 电流环；有感模式可切换 PI / LADRC，保留相同的速度与位置外环进行对比；支持 dq 解耦与反电动势前馈 |
 | 无位置传感器控制 | 采用 I/F 启动、非线性磁链观测器（NLOB）与 PLL；固件完成转子对齐、启动、闭环接管及减速时切回 I/F |
-| 电机参数辨识 | 支持定子电阻与电感（Rs/Ls）、永磁体磁链、转动惯量与粘性摩擦（J/B）辨识；可读取辨识结果并应用到电机模型，配套脚本记录重复测试结果 |
+| 电机参数辨识 | 支持定子电阻与 d/q 轴电感（Rs/Ld/Lq）、永磁体磁链、转动惯量与粘性摩擦（J/B）辨识；可读取辨识结果并应用到电机模型，配套脚本记录重复测试结果 |
 | 编码器校准及补偿 | 支持编码器方向与零位寻相，以及角度误差校准与补偿；校准结果自动保存 |
 | 调参与存储 | 电流与速度 PI 支持按模型和带宽计算增益，也可手动设置 Kp/Ki；手动增益独立保存，切换调参方式时保留原配置 |
 | 数据与显示 | USB 可选择采集电流、速度、角度等信号，配套波形、Bode、FFT/PSD 分析；板载 LCD 显示运行模式、状态、参考值、反馈值与实时波形 |
@@ -99,7 +99,7 @@ arm-none-eabi-objcopy -O ihex build/gcc-release/AxDr_L_Motor.elf build/gcc-relea
 
 - [运动轨迹](docs/轨迹规划测试记录.md)：三种控制模式下的目标修改、正反转、位置往返、S 曲线及停止行为验证。
 - [速度环频响](docs/速度环与位置环调参记录.md#speed-frf-hw-20261010)：100 rad/s 工作点下八组 PI 对照，记录 1～150 Hz 的闭环幅相响应。
-- [参数辨识](docs/辨识测试记录.md)：Rs/Ls、磁链与 J/B 的测试条件、重复性及待验证问题。
+- [参数辨识](docs/辨识测试记录.md)：Rs/Ld/Lq、磁链与 J/B 的测试条件、重复性及待定位问题。
 
 ## 通信与工具
 
@@ -108,7 +108,7 @@ arm-none-eabi-objcopy -O ihex build/gcc-release/AxDr_L_Motor.elf build/gcc-relea
 | 用途 | 工具 |
 | --- | --- |
 | 新电机连续辨识与可选无感试运行 | [new_motor_commission.py](tools/new_motor_commission.py) |
-| Rs/Ls、磁链与 J/B 辨识及结果记录 | [identification_test.py](tools/identification_test.py) |
+| Rs/Ld/Lq、磁链与 J/B 辨识及结果记录 | [identification_test.py](tools/identification_test.py) |
 | 编码器寻相 | [servo_phase_search.py](tools/servo_phase_search.py) |
 | 无感运行 | [sensorless_run.py](tools/sensorless_run.py) |
 | USB 波形采集、文件归档与 FFT/PSD 分析 | [fft.py](tools/fft.py) |

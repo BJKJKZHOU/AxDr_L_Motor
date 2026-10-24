@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Identify an unknown motor and optionally apply results to firmware RAM.
 
-The tool ends after Rs/Ls and optional Flux and J/B identification. It never starts a
+The tool ends after Rs/Ld/Lq and optional Flux and J/B identification. It never starts a
 sensorless or servo run. Motor output is disabled on normal exit, failure, and
 user interruption.
 
@@ -117,7 +117,8 @@ OBJECT_NAME = {
     PARAM_EVENT_TRIP: "PARAM_EVENT_TRIP",
     PARAM_IDENT_RS_LS_VALID: "PARAM_IDENT_RS_LS_VALID",
     PARAM_IDENT_RS_RESULT: "PARAM_IDENT_RS_RESULT",
-    PARAM_IDENT_LS_RESULT: "PARAM_IDENT_LS_RESULT",
+    PARAM_IDENT_LD_RESULT: "PARAM_IDENT_LD_RESULT",
+    PARAM_IDENT_LQ_RESULT: "PARAM_IDENT_LQ_RESULT",
     PARAM_IDENT_FLUX_VALID: "PARAM_IDENT_FLUX_VALID",
     PARAM_IDENT_FLUX_RESULT: "PARAM_IDENT_FLUX_RESULT",
     PARAM_IDENT_JB_VALID: "PARAM_IDENT_JB_VALID",
@@ -184,7 +185,7 @@ NORMAL_INDEX = {
 DEFAULT_RS_LS_COUNT = 5
 DEFAULT_FLUX_COUNT = 2
 DEFAULT_RS_REPEAT_LIMIT = 0.15
-DEFAULT_LS_REPEAT_LIMIT = 0.20
+DEFAULT_L_REPEAT_LIMIT = 0.20
 
 
 class QualityFailure(RuntimeError):
@@ -667,8 +668,12 @@ class IdentificationClient:
                 PARAM_IDENT_RS_RESULT,
                 PARAM_FLOAT,
             )
-            result["ls_h"] = self.parameter_read(
-                PARAM_IDENT_LS_RESULT,
+            result["ld_h"] = self.parameter_read(
+                PARAM_IDENT_LD_RESULT,
+                PARAM_FLOAT,
+            )
+            result["lq_h"] = self.parameter_read(
+                PARAM_IDENT_LQ_RESULT,
                 PARAM_FLOAT,
             )
         elif mode == IDENT_FLUX:
@@ -763,7 +768,7 @@ class IdentificationClient:
                             )
                     if failure is not None:
                         name = {
-                            IDENT_RS_LS: "Rs/Ls",
+                            IDENT_RS_LS: "Rs/Ld/Lq",
                             IDENT_FLUX: "Flux",
                             IDENT_JB: "J/B",
                         }[mode]
@@ -862,47 +867,42 @@ def summarize_rs_ls(results, requested_count, args):
         for item in valid
         if math.isfinite(item["rs_ohm"]) and item["rs_ohm"] > 0.0
     ]
-    ls = [
-        item["ls_h"]
-        for item in valid
-        if math.isfinite(item["ls_h"]) and item["ls_h"] > 0.0
-    ]
     reasons = []
 
     if len(results) != requested_count:
         reasons.append("not all requested runs were attempted")
     if len(valid) != requested_count:
-        reasons.append("one or more Rs/Ls runs failed")
+        reasons.append("one or more Rs/Ld/Lq runs failed")
     if len(rs) != len(valid) or not rs:
         reasons.append("Rs contains a non-positive or non-finite result")
-    if len(ls) != len(valid) or not ls:
-        reasons.append("Ls contains a non-positive or non-finite result")
 
     rs_stats = value_stats(rs)
-    ls_stats = value_stats(ls)
-    if (
-        rs_stats is not None
-        and rs_stats["max_relative_deviation"] > args.rs_repeat_limit
-    ):
+    if (rs_stats is not None
+            and rs_stats["max_relative_deviation"] > args.rs_repeat_limit):
         reasons.append("Rs repeatability exceeds limit")
-    if (
-        ls_stats is not None
-        and ls_stats["max_relative_deviation"] > args.ls_repeat_limit
-    ):
-        reasons.append("Ls repeatability exceeds limit")
 
-    return {
+    summary = {
         "requested_count": requested_count,
         "attempted_count": len(results),
         "success_count": len(valid),
         "failure_count": len(results) - len(valid),
         "rs_repeatability_limit": args.rs_repeat_limit,
-        "ls_repeatability_limit": args.ls_repeat_limit,
+        "l_repeatability_limit": args.l_repeat_limit,
         "rs_ohm": rs_stats,
-        "ls_h": ls_stats,
-        "passed": not reasons,
-        "reasons": reasons,
     }
+    for axis in ("d", "q"):
+        key = f"l{axis}_h"
+        values = [item[key] for item in valid
+                  if math.isfinite(item[key]) and item[key] > 0.0]
+        if len(values) != len(valid) or not values:
+            reasons.append(f"L{axis} contains a non-positive or non-finite result")
+        stats = value_stats(values)
+        if (stats is not None
+                and stats["max_relative_deviation"] > args.l_repeat_limit):
+            reasons.append(f"L{axis} repeatability exceeds limit")
+        summary[key] = stats
+    summary.update(passed=not reasons, reasons=reasons)
+    return summary
 
 
 def summarize_flux(results, forward_count, reverse_count, args):
@@ -983,7 +983,8 @@ def result_print(name, index, count, mode, result):
     if passed and mode == IDENT_RS_LS:
         text += (
             f" Rs={result['rs_ohm']:.9g} ohm"
-            f" Ls={result['ls_h'] * 1.0e6:.4f} uH"
+            f" Ld={result['ld_h'] * 1.0e6:.4f} uH"
+            f" Lq={result['lq_h'] * 1.0e6:.4f} uH"
         )
     elif passed and mode == IDENT_FLUX:
         text += f" Flux={result['flux_wb']:.10g} Wb"
@@ -1004,7 +1005,7 @@ def result_print(name, index, count, mode, result):
 
 def run_group(client, mode, count, args, results, direction=None, run_offset=0):
     name = {
-        IDENT_RS_LS: "Rs/Ls",
+        IDENT_RS_LS: "Rs/Ld/Lq",
         IDENT_FLUX: f"Flux {direction}",
         IDENT_JB: "J/B",
     }[mode]
@@ -1037,7 +1038,7 @@ def run_group(client, mode, count, args, results, direction=None, run_offset=0):
 
 
 def print_rs_ls(summary):
-    print("\nRs/Ls summary")
+    print("\nRs/Ld/Lq summary")
     print(
         f" attempted={summary['attempted_count']}/{summary['requested_count']}"
         f" success={summary['success_count']} failure={summary['failure_count']}"
@@ -1045,23 +1046,18 @@ def print_rs_ls(summary):
     print(
         " limits:"
         f" Rs={100.0 * summary['rs_repeatability_limit']:.2f}%"
-        f" Ls={100.0 * summary['ls_repeatability_limit']:.2f}%"
+        f" Ld/Lq={100.0 * summary['l_repeatability_limit']:.2f}%"
     )
-    if summary["rs_ohm"] is not None and summary["ls_h"] is not None:
-        print(
-            f" Rs={summary['rs_ohm']['median']:.7g} ohm"
-            f" ({summary['rs_ohm']['min']:.7g} .. {summary['rs_ohm']['max']:.7g})"
-        )
-        print(
-            f" Ls={summary['ls_h']['median'] * 1.0e6:.4f} uH"
-            f" ({summary['ls_h']['min'] * 1.0e6:.4f} .."
-            f" {summary['ls_h']['max'] * 1.0e6:.4f})"
-        )
-        print(
-            " repeatability:"
-            f" Rs={100.0 * summary['rs_ohm']['max_relative_deviation']:.2f}%"
-            f" Ls={100.0 * summary['ls_h']['max_relative_deviation']:.2f}%"
-        )
+    for key, label, scale, unit in (("rs_ohm", "Rs", 1.0, "ohm"),
+                                    ("ld_h", "Ld", 1.0e6, "uH"),
+                                    ("lq_h", "Lq", 1.0e6, "uH")):
+        stats = summary[key]
+        if stats is not None:
+            print(
+                f" {label}={stats['median'] * scale:.7g} {unit}"
+                f" ({stats['min'] * scale:.7g} .. {stats['max'] * scale:.7g})"
+                f" deviation={100.0 * stats['max_relative_deviation']:.2f}%"
+            )
     print(f" quality={'PASS' if summary['passed'] else 'FAIL'}")
     for reason in summary["reasons"]:
         print(f"  - {reason}")
@@ -1128,7 +1124,7 @@ def parse_args():
         "--rs-ls-count",
         type=int,
         default=DEFAULT_RS_LS_COUNT,
-        help=f"number of Rs/Ls runs, default {DEFAULT_RS_LS_COUNT}",
+        help=f"number of Rs/Ld/Lq runs, default {DEFAULT_RS_LS_COUNT}",
     )
     parser.add_argument(
         "--flux-forward-count",
@@ -1145,12 +1141,12 @@ def parse_args():
     parser.add_argument(
         "--apply-rl",
         action="store_true",
-        help="apply accepted Rs/Ls to firmware RAM and allow Flux identification",
+        help="apply accepted Rs/Ld/Lq to firmware RAM and allow Flux identification",
     )
     parser.add_argument(
         "--skip-flux",
         action="store_true",
-        help="finish after the Rs/Ls stage even when --apply-rl is used",
+        help="finish after the Rs/Ld/Lq stage even when --apply-rl is used",
     )
     parser.add_argument(
         "--apply-flux",
@@ -1178,10 +1174,10 @@ def parse_args():
         help="maximum Rs deviation from median, default 0.10",
     )
     parser.add_argument(
-        "--ls-repeat-limit",
+        "--l-repeat-limit",
         type=float,
-        default=DEFAULT_LS_REPEAT_LIMIT,
-        help="maximum Ls deviation from median, default 0.15",
+        default=DEFAULT_L_REPEAT_LIMIT,
+        help="maximum Ld or Lq deviation from median, default 0.20",
     )
     parser.add_argument("--flux-repeat-limit", type=float, default=0.05)
     parser.add_argument("--flux-direction-limit", type=float, default=0.05)
@@ -1233,7 +1229,7 @@ def parse_args():
         parser.error("--jb-hz must be finite and positive")
     for name in (
         "rs_repeat_limit",
-        "ls_repeat_limit",
+        "l_repeat_limit",
         "flux_repeat_limit",
         "flux_direction_limit",
         "ident_timeout",
@@ -1275,7 +1271,7 @@ def main():
             "jb_ratio": args.jb_ratio,
             "jb_hz": args.jb_hz,
             "rs_repeatability_limit": args.rs_repeat_limit,
-            "ls_repeatability_limit": args.ls_repeat_limit,
+            "l_repeatability_limit": args.l_repeat_limit,
             "flux_repeat_limit": args.flux_repeat_limit,
             "flux_direction_limit": args.flux_direction_limit,
             "ident_timeout_s": args.ident_timeout,
@@ -1317,7 +1313,7 @@ def main():
 
     print(
         "Unknown motor identification:"
-        f" Rs/Ls={args.rs_ls_count},"
+        f" Rs/Ld/Lq={args.rs_ls_count},"
         f" Flux={args.flux_forward_count} forward +"
         f" {args.flux_reverse_count} reverse"
         f", J/B={args.jb_count}"
@@ -1343,7 +1339,7 @@ def main():
                 if flux_requested:
                     record["firmware_if_current_a"] = client.if_current_set()
 
-                print(f"\nRs/Ls identification: {args.rs_ls_count} run(s)")
+                print(f"\nRs/Ld/Lq identification: {args.rs_ls_count} run(s)")
                 run_group(
                     client,
                     IDENT_RS_LS,
@@ -1359,16 +1355,16 @@ def main():
                 print_rs_ls(summary)
                 if not summary["passed"]:
                     raise QualityFailure(
-                        "Rs/Ls quality gate: " + "; ".join(summary["reasons"])
+                        "Rs/Ld/Lq quality gate: " + "; ".join(summary["reasons"])
                     )
 
                 if args.apply_rl:
                     client.apply()
                     record["rs_ls"]["applied"] = True
-                    print("Rs/Ls applied to firmware RAM.")
+                    print("Rs/Ld/Lq applied to firmware RAM.")
                 else:
-                    record["flux"]["skip_reason"] = "Rs/Ls was not applied"
-                    print("Rs/Ls not applied; Flux identification skipped.")
+                    record["flux"]["skip_reason"] = "Rs/Ld/Lq was not applied"
+                    print("Rs/Ld/Lq not applied; Flux identification skipped.")
 
                 if flux_requested:
                     client.configure_plot(flux=True)

@@ -29,7 +29,7 @@
 #define RS_LS_MEASURE_CYCLE       100U
 #define RS_LS_MEASURE_SKIP_CYCLE  5U
 
-/* Rs/Ls working point is defined in the current domain. */
+/* Rs/Ld/Lq working point is defined in the current domain. */
 #define RS_LS_I_DC_SHARE          0.65f
 #define RS_LS_I_AC_SHARE          0.25f
 #define RS_LS_SNR_POWER_MIN       100.0f
@@ -96,6 +96,7 @@ static float Ls_B;
 
 static bool RL_Temporary;
 static bool Freq_Refined;
+static bool Q_Axis;
 
 static float Abs_Value(float Value)
 {
@@ -267,6 +268,8 @@ static bool Measure_Calc(uint32_t Sample_Cnt, float I_Min, float *I_Amp, float *
     Z_Re = (U_Re * I_Re + U_Im * I_Im) / Den;
     Z_Im = (U_Im * I_Re - U_Re * I_Im) / Den;
 
+    /* Continuous RL impedance approximation at the injection frequency.
+     * Both phasors use the same sample index and the active PWM command. */
     *Rs = Z_Re;
     *Ls = Z_Im / (TWO_PI_F * Freq);
 
@@ -361,13 +364,15 @@ void Rs_Ls_Start(void)
     Rough_RL_Restore();
 
     Rs_Ls_Result.Rs_Ohm = 0.0f;
-    Rs_Ls_Result.Ls_H = 0.0f;
+    Rs_Ls_Result.Ld_H = 0.0f;
+    Rs_Ls_Result.Lq_H = 0.0f;
     Rs_Ls_Result.Valid = false;
 
     Phase = 0.0f;
     U_DC = 0.0f;
     U_AC = 0.0f;
     Freq_Refined = false;
+    Q_Axis = false;
 
     Frequency_Set(RS_LS_PROBE_FREQ_HZ);
     Measure_Reset();
@@ -383,6 +388,7 @@ void Rs_Ls_Stop(void)
 }
 
 Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
+                            float Ibeta_A,
                             float *Theta_e,
                             float *Id_Ref,
                             float *Iq_Ref,
@@ -413,10 +419,13 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
     float U_AC_Max;
     float U_Hold_Abs;
     float Window_S;
+    float I_Meas;
+    float U_Meas;
     uint32_t Sample_Cnt;
     bool Align_Done;
     bool DC_Ready;
     bool AC_Ready;
+    bool Result_Ready = false;
 
     *Theta_e = 0.0f;
     *Id_Ref = 0.0f;
@@ -501,11 +510,22 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
         }
     }
 
+    /* ADC samples near the PWM centre. The previous command is active in
+     * this period; the command below loads at the next PWM bottom. */
+    I_Meas = Q_Axis ? Ibeta_A : Ialpha_A;
+    U_Meas = Q_Axis ? Motor_Run.Ubeta : Motor_Run.Ualpha;
     SinCos(Phase, &Sin, &Cos);
 
     if ((State == RS_LS_NOISE) || (State == RS_LS_PROBE_RAMP) || (State == RS_LS_PROBE_MEASURE))
     {
         *Ualpha_V = U_DC + U_AC * Sin;
+    }
+    else if (Q_Axis)
+    {
+        /* Keep the alignment field fixed on alpha while exciting beta.
+         * Rotating the field by 90 degrees would measure Ld again. */
+        *Ualpha_V = U_Hold;
+        *Ubeta_V = U_AC * Sin;
     }
     else
     {
@@ -514,8 +534,8 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
 
     if (State == RS_LS_NOISE)
     {
-        I_Re += Ialpha_A * Cos;
-        I_Im -= Ialpha_A * Sin;
+        I_Re += I_Meas * Cos;
+        I_Im -= I_Meas * Sin;
         Cnt++;
 
         Sample_Cnt = Sample_Per_Cycle * RS_LS_PROBE_MEASURE_CYCLE;
@@ -541,8 +561,8 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
     else if (State == RS_LS_PROBE_RAMP)
     {
         I_DC_Sum += Ialpha_A;
-        Ramp_I_Re += Ialpha_A * Cos;
-        Ramp_I_Im -= Ialpha_A * Sin;
+        Ramp_I_Re += I_Meas * Cos;
+        Ramp_I_Im -= I_Meas * Sin;
         Ramp_Cnt++;
 
         Sample_Cnt = Sample_Per_Cycle * RS_LS_RAMP_CYCLE;
@@ -566,6 +586,7 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
                 {
                     Fail();
                     *Ualpha_V = 0.0f;
+                    *Ubeta_V = 0.0f;
                     return FAST_OFF;
                 }
 
@@ -591,8 +612,8 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
     }
     else if (State == RS_LS_RAMP)
     {
-        Ramp_I_Re += Ialpha_A * Cos;
-        Ramp_I_Im -= Ialpha_A * Sin;
+        Ramp_I_Re += I_Meas * Cos;
+        Ramp_I_Im -= I_Meas * Sin;
         Ramp_Cnt++;
 
         Sample_Cnt = Sample_Per_Cycle * RS_LS_RAMP_CYCLE;
@@ -616,6 +637,7 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
                 {
                     Fail();
                     *Ualpha_V = 0.0f;
+                    *Ubeta_V = 0.0f;
                     return FAST_OFF;
                 }
 
@@ -628,12 +650,12 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
     else if (State == RS_LS_PROBE_MEASURE)
     {
         I_DC_Sum += Ialpha_A;
-        U_Re += *Ualpha_V * Cos;
-        U_Im -= *Ualpha_V * Sin;
-        I_Re += Ialpha_A * Cos;
-        I_Im -= Ialpha_A * Sin;
-        Ramp_I_Re += Ialpha_A * Cos;
-        Ramp_I_Im -= Ialpha_A * Sin;
+        U_Re += U_Meas * Cos;
+        U_Im -= U_Meas * Sin;
+        I_Re += I_Meas * Cos;
+        I_Im -= I_Meas * Sin;
+        Ramp_I_Re += I_Meas * Cos;
+        Ramp_I_Im -= I_Meas * Sin;
         Ramp_Cnt++;
         Cnt++;
 
@@ -669,6 +691,7 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
                 {
                     Fail();
                     *Ualpha_V = 0.0f;
+                    *Ubeta_V = 0.0f;
                     return FAST_OFF;
                 }
 
@@ -701,6 +724,7 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
 
                 Fail();
                 *Ualpha_V = 0.0f;
+                *Ubeta_V = 0.0f;
                 return FAST_OFF;
             }
             else if (!Measure_Calc(Sample_Cnt, I_Min, &I_Amp, &Rs, &Ls) ||
@@ -708,6 +732,7 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
             {
                 Fail();
                 *Ualpha_V = 0.0f;
+                *Ubeta_V = 0.0f;
                 return FAST_OFF;
             }
             else if (!(Ls > RS_LS_LS_MIN_H && Ls < RS_LS_LS_MAX_H))
@@ -720,6 +745,7 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
 
                 Fail();
                 *Ualpha_V = 0.0f;
+                *Ubeta_V = 0.0f;
                 return FAST_OFF;
             }
             else
@@ -752,10 +778,10 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
         /* Each 100-cycle window discards its first five complete cycles. */
         if (Cnt >= Sample_Per_Cycle * RS_LS_MEASURE_SKIP_CYCLE)
         {
-            U_Re += *Ualpha_V * Cos;
-            U_Im -= *Ualpha_V * Sin;
-            I_Re += Ialpha_A * Cos;
-            I_Im -= Ialpha_A * Sin;
+            U_Re += U_Meas * Cos;
+            U_Im -= U_Meas * Sin;
+            I_Re += I_Meas * Cos;
+            I_Im -= I_Meas * Sin;
         }
         Cnt++;
 
@@ -769,6 +795,7 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
                 {
                     Fail();
                     *Ualpha_V = 0.0f;
+                    *Ubeta_V = 0.0f;
                     return FAST_OFF;
                 }
 
@@ -781,7 +808,8 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
                     Ramp_Reset();
                     Measure_Reset();
                     State = RS_LS_RAMP;
-                    *Ualpha_V = 0.0f;
+                    *Ualpha_V = U_Hold;
+                    *Ubeta_V = 0.0f;
                     return FAST_VOLTAGE;
                 }
 
@@ -794,21 +822,21 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
                 {
                     Fail();
                     *Ualpha_V = 0.0f;
+                    *Ubeta_V = 0.0f;
                     return FAST_OFF;
                 }
 
                 if (Pair_Valid(Rs_A, Ls_A, Rs_B, Ls_B))
                 {
-                    Rs_Ls_Result.Rs_Ohm = 0.5f * (Rs_A + Rs_B);
-                    Rs_Ls_Result.Ls_H = 0.5f * (Ls_A + Ls_B);
-                    Rs_Ls_Result.Valid = true;
-                    Identification_Report(true);
-                    *Ualpha_V = 0.0f;
-                    return FAST_OFF;
+                    Rs = 0.5f * (Rs_A + Rs_B);
+                    Ls = 0.5f * (Ls_A + Ls_B);
+                    Result_Ready = true;
                 }
-
-                Measure_Reset();
-                State = RS_LS_MEASURE_C;
+                else
+                {
+                    Measure_Reset();
+                    State = RS_LS_MEASURE_C;
+                }
             }
             else
             {
@@ -816,21 +844,45 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
                 {
                     Fail();
                     *Ualpha_V = 0.0f;
+                    *Ubeta_V = 0.0f;
                     return FAST_OFF;
                 }
 
-                if (Third_Result(Rs, Ls, &Rs_Ls_Result.Rs_Ohm, &Rs_Ls_Result.Ls_H))
-                {
-                    Rs_Ls_Result.Valid = true;
-                    Identification_Report(true);
-                }
-                else
+                if (!Third_Result(Rs, Ls, &Rs, &Ls))
                 {
                     Fail();
+                    *Ualpha_V = 0.0f;
+                    *Ubeta_V = 0.0f;
+                    return FAST_OFF;
+                }
+                Result_Ready = true;
+            }
+
+            if (Result_Ready)
+            {
+                if (Q_Axis)
+                {
+                    Rs_Ls_Result.Lq_H = Ls;
+                    Rs_Ls_Result.Valid = true;
+                    Identification_Report(true);
+                    *Ualpha_V = 0.0f;
+                    *Ubeta_V = 0.0f;
+                    return FAST_OFF;
                 }
 
-                *Ualpha_V = 0.0f;
-                return FAST_OFF;
+                Rs_Ls_Result.Rs_Ohm = Rs;
+                Rs_Ls_Result.Ld_H = Ls;
+                Q_Axis = true;
+                /* Reuse the refined frequency and AC voltage as the q-axis
+                 * starting point; both axes use the same current target/ramp.
+                 * Keep Ud and the fixed alignment angle through the handoff. */
+                Phase = 0.0f;
+                Ramp_Reset();
+                Measure_Reset();
+                State = RS_LS_RAMP;
+                *Ualpha_V = U_Hold;
+                *Ubeta_V = 0.0f;
+                return FAST_VOLTAGE;
             }
         }
     }

@@ -262,7 +262,8 @@ bool JB_Start(void)
     JB_IF.Para.Iq_Slew_A_S = IF_IQ_SLEW_A_S;
 
     Ident_Observer.Para.Rs = Motor_Para.Rs;
-    Ident_Observer.Para.Ls = Motor_Para.Ld;
+    Ident_Observer.Para.Ld = Motor_Para.Ld;
+    Ident_Observer.Para.Lq = Motor_Para.Lq;
     Ident_Observer.Para.Flux = Motor_Para.Flux;
     Ident_Observer.Para.BW_Hz = Control_Flux_Obs_Bw_Hz;
     Pll_Wn = TWO_PI_F * Control_PLL_Bw_Hz;

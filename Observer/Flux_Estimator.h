@@ -11,8 +11,8 @@
 
 typedef enum
 {
-    FLUX_EST_VECTOR = 0,
-    FLUX_EST_SCALAR,
+    FLUX_EST_VECTOR = 0, /* Active-flux vector in the I/F frame. */
+    FLUX_EST_SCALAR,     /* PM flux in the observer frame. */
 
 } Flux_Estimator_Mode_e;
 
@@ -35,7 +35,7 @@ typedef struct
     float Iq_F;
     float Psi_d;
     float Psi_q;
-    float Flux;
+    float Flux; /* PM flux, including after vector fitting. */
     float Yd;
     float Yq;
     float Window_Num;

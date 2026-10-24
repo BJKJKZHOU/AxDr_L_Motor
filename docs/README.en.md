@@ -22,7 +22,7 @@ Hardware run on 2026-10-24: approximately 24.8 V supply, encoder-based speed mod
 | Motion profiles | Torque ramps, trapezoidal speed and position profiles, and S-curve profiles; tested with target changes during operation, direction reversals, position round trips, and deceleration to a stop |
 | Current control | 20 kHz dq current loop; encoder-based operation can switch between PI / LADRC while retaining the same outer speed and position loops for comparison; supports dq decoupling and back-EMF feedforward |
 | Sensorless control | I/F startup, nonlinear flux observer (NLOB), and PLL; firmware handles rotor alignment, startup, closed-loop handover, and return to I/F during deceleration |
-| Motor parameter identification | Identifies stator resistance and inductance (Rs/Ls), permanent-magnet flux linkage, inertia, and viscous friction (J/B); results can be read and applied to the motor model, with scripts for recording repeated tests |
+| Motor parameter identification | Identifies stator resistance and d/q-axis inductances (Rs/Ld/Lq), permanent-magnet flux linkage, inertia, and viscous friction (J/B); results can be read and applied to the motor model, with scripts for recording repeated tests |
 | Encoder calibration and compensation | Encoder direction and zero-offset alignment, plus angular error calibration and compensation; calibration results are saved automatically |
 | Tuning and storage | Current and speed PI gains can be calculated from the model and bandwidth or set manually through Kp/Ki; manual gains are stored separately and retained when switching tuning methods |
 | Data and display | USB capture of selectable current, speed, angle, and other signals, with waveform, Bode, and FFT/PSD analysis; the onboard LCD shows operating mode, state, references, feedback, and live waveforms |
@@ -99,7 +99,7 @@ Other hardware tests:
 
 - [Motion profiles (Chinese)](轨迹规划测试记录.md): target changes, direction reversals, position round trips, S-curves, and stop behavior across the three control modes.
 - [Speed-loop frequency response (Chinese)](速度环与位置环调参记录.md#speed-frf-hw-20261010): eight PI configurations at a 100 rad/s operating point, recording closed-loop magnitude and phase from 1 to 150 Hz.
-- [Parameter identification (Chinese)](辨识测试记录.md): Rs/Ls, flux linkage, and J/B test conditions, repeatability, and open questions.
+- [Parameter identification (Chinese)](辨识测试记录.md): Rs/Ld/Lq, flux linkage, and J/B test conditions, repeatability, and open questions.
 
 ## Communication and tools
 
@@ -108,7 +108,7 @@ The firmware communicates with a computer over a USB virtual serial port (CDC) u
 | Purpose | Tool |
 | --- | --- |
 | Sequential identification of a new motor with an optional sensorless trial run | [new_motor_commission.py](../tools/new_motor_commission.py) |
-| Rs/Ls, flux linkage, and J/B identification and result logging | [identification_test.py](../tools/identification_test.py) |
+| Rs/Ld/Lq, flux linkage, and J/B identification and result logging | [identification_test.py](../tools/identification_test.py) |
 | Encoder alignment | [servo_phase_search.py](../tools/servo_phase_search.py) |
 | Sensorless operation | [sensorless_run.py](../tools/sensorless_run.py) |
 | USB waveform capture, file archiving, and FFT/PSD analysis | [fft.py](../tools/fft.py) |

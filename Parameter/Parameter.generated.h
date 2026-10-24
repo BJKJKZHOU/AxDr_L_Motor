@@ -214,14 +214,17 @@ typedef enum
     /* Protection.Trip: 当前硬件快速关断级事件位图。 */
     PARAM_EVENT_TRIP = 0x0804U,
 
-    /* Rs_Ls_Result.Valid: 最近一次Rs/Ls辨识结果是否有效。 */
+    /* Rs_Ls_Result.Valid: 最近一次Rs/Ld/Lq辨识结果是否有效。 */
     PARAM_IDENT_RS_LS_VALID = 0x0901U,
 
-    /* Rs_Ls_Result.Rs_Ohm: 最近一次Rs/Ls辨识得到的相电阻结果。 */
+    /* Rs_Ls_Result.Rs_Ohm: 最近一次Rs/Ld/Lq辨识得到的相电阻结果。 */
     PARAM_IDENT_RS_RESULT = 0x0902U,
 
-    /* Rs_Ls_Result.Ls_H: 最近一次Rs/Ls辨识得到的等效相电感结果。 */
-    PARAM_IDENT_LS_RESULT = 0x0903U,
+    /* Rs_Ls_Result.Ld_H: 最近一次Rs/Ld/Lq辨识得到的d轴电感结果。 */
+    PARAM_IDENT_LD_RESULT = 0x0903U,
+
+    /* Rs_Ls_Result.Lq_H: 保持d轴励磁、q轴交流注入得到的电感结果。 */
+    PARAM_IDENT_LQ_RESULT = 0x0904U,
 
     /* Flux_Result.Valid: 最近一次Flux辨识结果是否有效。 */
     PARAM_IDENT_FLUX_VALID = 0x0910U,
@@ -322,7 +325,7 @@ typedef enum
     /* MOTOR_CMD_DISABLE: 立即关闭PWM并进入DISABLED。 */
     ACTION_MOTOR_DISABLE = 0x1004U,
 
-    /* MOTOR_CMD_IDENT_START: 启动Rs/Ls辨识。 */
+    /* MOTOR_CMD_IDENT_START: 启动Rs/Ld/Lq辨识。 */
     ACTION_IDENT_RS_LS_START = 0x1101U,
 
     /* MOTOR_CMD_IDENT_START: 启动Flux辨识。 */
