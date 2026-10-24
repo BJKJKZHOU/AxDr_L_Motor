@@ -17,21 +17,23 @@ import time
 import numpy as np
 
 
-def responses(ref, fbk, output):
-    """Return complex T, S, C, G, L, H_U from measured same-clock phasors."""
+def responses(ref, fbk, output, *, infer_loop=True):
+    """Return tracking responses; infer loop quantities only when applicable."""
     ref, fbk, output = complex(ref), complex(fbk), complex(output)
-    error = ref - fbk
     if abs(ref) < 1e-12:
         raise ValueError("reference phasor is zero")
+    tracking = {"T": fbk / ref, "HU": output / ref}
+    if not infer_loop:
+        return tracking
+    error = ref - fbk
     if abs(error) < 1e-12 or abs(output) < 1e-12:
         raise ValueError("error or voltage phasor is too small for L/G measurement")
     return {
-        "T": fbk / ref,
+        **tracking,
         "S": error / ref,
         "C": output / error,
         "G": fbk / output,
         "L": fbk / error,
-        "HU": output / ref,
     }
 
 
@@ -102,7 +104,10 @@ def bode_metrics(freq_hz, open_loop, closed_loop, low_frequency_points=3,
         raise ValueError("quality must be unknown, valid or invalid")
     if low_frequency_points < 1:
         raise ValueError("low_frequency_points must be positive")
-    f, ((l_db, l_phase), (t_db, _)) = bode_arrays(freq_hz, open_loop, closed_loop)
+    # None means the reference response does not identify the feedback loop.
+    loop = (np.full(len(closed_loop), complex(np.nan, np.nan))
+            if open_loop is None else open_loop)
+    f, ((l_db, l_phase), (t_db, _)) = bode_arrays(freq_hz, loop, closed_loop)
     order = np.argsort(freq_hz)
     reliable = np.ones(len(f), dtype=bool)
     if point_valid is not None:
@@ -155,6 +160,8 @@ def bode_metrics(freq_hz, open_loop, closed_loop, low_frequency_points=3,
         bw_reason = "unreliable low-frequency reference"
     pm_reason = crossing_reason(unity, l_phase)
     gm_reason = crossing_reason(phase_crossings, l_phase)
+    if open_loop is None:
+        pm_reason = gm_reason = "tracking response does not determine loop gain"
     if not pm_reason and pm is not None and abs(pm[0]) >= 179:
         pm_reason = "phase-margin sign ambiguous near positive real axis"
     if bw_reason:
@@ -189,12 +196,19 @@ def plot_bode_a4(freq_hz, open_loop, sensitivity, closed_loop, title, destinatio
     from matplotlib import pyplot as plt
     from matplotlib.ticker import LogLocator, NullFormatter, MultipleLocator
 
-    loop = np.asarray(open_loop)
-    finite = np.flatnonzero(np.isfinite(loop) & (abs(loop) > 1e-20))
-    anchor = (np.asarray(freq_hz)[finite[np.argmin(abs(np.log(abs(loop[finite]))))]]
-              if len(finite) else None)
-    f, spectra = bode_arrays(freq_hz, open_loop, sensitivity, closed_loop,
-                            phase_anchor=anchor)
+    anchor = None
+    signals = (closed_loop,)
+    labels = ("Reference tracking T",)
+    colors = ("#DCA832",)
+    if open_loop is not None:
+        loop = np.asarray(open_loop)
+        finite = np.flatnonzero(np.isfinite(loop) & (abs(loop) > 1e-20))
+        if len(finite):
+            anchor = np.asarray(freq_hz)[finite[np.argmin(abs(np.log(abs(loop[finite]))))]]
+        signals = (open_loop, sensitivity, closed_loop)
+        labels = ("Inferred L = T/(1-T)", "Sensitivity S", "Closed Loop T")
+        colors = ("#367EBC", "#D86B43", "#DCA832")
+    f, spectra = bode_arrays(freq_hz, *signals, phase_anchor=anchor)
     metrics = bode_metrics(freq_hz, open_loop, closed_loop, quality=quality,
                            quality_reason=quality_reason, point_valid=point_valid)
     output = Path(destination)
@@ -226,10 +240,7 @@ def plot_bode_a4(freq_hz, open_loop, sensitivity, closed_loop, title, destinatio
             2, 1, sharex=True, figsize=(11.69, 8.27), dpi=180,
             gridspec_kw={"height_ratios": [1, 1]},
         )
-        for (gain_db, phase_deg), label, color in zip(
-            spectra, ("Inferred L = T/(1-T)", "Sensitivity S", "Closed Loop T"),
-            ("#367EBC", "#D86B43", "#DCA832"),
-        ):
+        for (gain_db, phase_deg), label, color in zip(spectra, labels, colors):
             mag.semilogx(f, gain_db, label=label, lw=1.25, color=color)
             phase.semilogx(f, phase_deg, label=label, lw=1.25, color=color)
 
@@ -285,7 +296,9 @@ def plot_bode_a4(freq_hz, open_loop, sensitivity, closed_loop, title, destinatio
         reasons = list(dict.fromkeys(metrics[key] for key in
                        ("bandwidth_reason", "phase_margin_reason", "gain_margin_reason")
                        if metrics[key]))
-        note = "Unit negative feedback assumed; L/margins inferred, not measured open-loop."
+        note = ("Reference-to-feedback tracking response."
+                if open_loop is None else
+                "Unit negative feedback assumed; L/margins inferred, not measured open-loop.")
         if reasons:
             note += " N/A: " + "; ".join(reasons)
         fig.text(.5, .025, textwrap.fill(note, 135), ha="center", va="center",
@@ -409,7 +422,7 @@ def replot(source, output):
             raise ValueError("invalid NMIXX quality metadata")
         if (freq.ndim != 1 or len(freq) < 2 or
             any(v.shape != (len(bw),) for v in (ff, tune, kp, ki, controller, ladrc_bw, ladrc_eso, fs)) or
-            not np.all(np.isin(controller, [0, 1])) or
+            not np.all(np.isin(controller, [0, 1, 2])) or
             not np.all(np.isfinite(fs)) or np.any(fs <= 0) or
             any(v.shape != shape for v in (reference, feedback, output_signal)) or
             any(not np.all(np.isfinite(v)) for v in (reference, feedback, output_signal)) or
@@ -422,10 +435,12 @@ def replot(source, output):
     metrics = {}
     for i, bandwidth in enumerate(bw):
         T = T_all[i]
-        S = 1 - T
-        L = np.divide(T, S, out=np.full(T.shape, complex(np.nan, np.nan)),
-                      where=abs(S) >= 1e-10)
-        key = f"{NAMES[loop_id].replace(' ', '_')}_BW{bandwidth:g}_FF{int(ff[i])}"
+        L = S = None
+        if loop_id == LOOPS["speed"] or controller[i] != 2:
+            S = 1 - T
+            L = np.divide(T, S, out=np.full(T.shape, complex(np.nan, np.nan)),
+                          where=abs(S) >= 1e-10)
+        key = f"{NAMES[loop_id].replace(' ', '_')}_BW{bandwidth:g}_FF{int(ff[i])}_Current{int(controller[i])}"
         if loop_id == LOOPS["speed"] and speed_controller[i] == 1:
             key = f"Speed_LADRC{speed_ladrc_bw[i]:g}_ESO{mech_eso_bw[i]:g}_Current{int(controller[i])}"
         if key in metrics:
@@ -434,12 +449,14 @@ def replot(source, output):
             label = f"Speed (LADRC {speed_ladrc_bw[i]:g} / mechanical ESO {mech_eso_bw[i]:g} Hz)"
         elif loop_id != LOOPS["speed"] and controller[i] == 1:
             label = f"{NAMES[loop_id]} (LADRC {ladrc_bw[i]:g} / ESO {ladrc_eso[i]:g} Hz)"
+        elif loop_id != LOOPS["speed"] and controller[i] == 2:
+            label = f"{NAMES[loop_id]} (DPCC)"
         elif tune[i] == 1:
             label = f"{NAMES[loop_id]} (Manual Kp {kp[i]:.4g}, Ki {ki[i]:.4g})"
         else:
             label = f"{NAMES[loop_id]} (PI setting {bandwidth:g} Hz)"
         if loop_id == LOOPS["speed"]:
-            label += f", current {'PI' if controller[i] == 0 else 'LADRC'}"
+            label += f", current {('PI', 'LADRC', 'DPCC')[controller[i]]}"
         if loop_id != LOOPS["speed"]:
             label += f", FF {int(ff[i])}"
         metrics[key] = plot_bode_a4(
@@ -655,7 +672,7 @@ def sinusoid_fit(signal, freq, times):
             float(np.sqrt(np.mean(residue ** 2))), float(coef[2]))
 
 
-def analyze(raw, freq, amp, settle_cycles, channels, sample_rate_hz):
+def analyze(raw, freq, amp, settle_cycles, channels, sample_rate_hz, *, infer_loop=True):
     """Fit the injection and same-clock reference/feedback/output phasors."""
     data = np.frombuffer(bytes(raw), dtype="<i2")
     if len(data) % len(channels) != 0:
@@ -677,7 +694,7 @@ def analyze(raw, freq, amp, settle_cycles, channels, sample_rate_hz):
     out, out_err, out_dc = sinusoid_fit(interval[:, 3], freq, t)
     if abs(ref) < max(channels[1][2] * 5, amp * 0.2):
         raise RuntimeError("measured reference amplitude too small")
-    frf = responses(ref, fbk, out)
+    frf = responses(ref, fbk, out, infer_loop=infer_loop)
     drift = []
     split = len(interval) // 2
     for col, phasor in enumerate((ref, fbk, out), 1):
@@ -812,6 +829,8 @@ def main():
             if not caps["channels"][pid][0] & 1:
                 raise RuntimeError(f"FAST channel unavailable: 0x{pid:04x}")
         controller = client.read_u8(PARAM_CTRL_CURRENT_CONTROLLER)
+        # DPCC weights reference and feedback differently; T/(1-T) is not L.
+        infer_loop = loop_id == LOOPS["speed"] or controller != 2
         ladrc_bw = client.read_float(PARAM_CTRL_LADRC_BW_HZ)
         ladrc_eso = client.read_float(PARAM_CTRL_LADRC_ESO_BW_HZ)
         expected_mode = 1 if args.loop == "speed" else 0
@@ -889,7 +908,8 @@ def main():
                 raise RuntimeError(f"{freq:g} Hz: FAST int16 Plot data clipped")
             if client.read_u8(PARAM_MOTOR_STATE) != state:
                 raise RuntimeError("motor changed state during sweep")
-            result = analyze(client.fast, freq, args.amp, args.settle_cycles, channels, sample_rate_hz)
+            result = analyze(client.fast, freq, args.amp, args.settle_cycles, channels,
+                             sample_rate_hz, infer_loop=infer_loop)
             raw_path = args.out / f"point_{i:03d}.raw"
             raw_path.write_bytes(client.fast)
             results.append(result)
@@ -923,19 +943,23 @@ def main():
 
         if len(results) >= 2:
             T = fbk / ref
-            S = 1 - T
-            L = np.divide(T, S, out=np.full(T.shape, complex(np.nan, np.nan)),
-                          where=abs(S) >= 1e-10)
+            L = S = None
+            if infer_loop:
+                S = 1 - T
+                L = np.divide(T, S, out=np.full(T.shape, complex(np.nan, np.nan)),
+                              where=abs(S) >= 1e-10)
             if args.loop == "speed" and speed_controller == 1:
                 title = f"Speed (LADRC {speed_ladrc_bw:g} / mechanical ESO {mech_eso_bw:g} Hz)"
             elif args.loop != "speed" and controller == 1:
                 title = f"{NAMES[loop_id]} (LADRC {ladrc_bw:g} / ESO {ladrc_eso:g} Hz)"
+            elif args.loop != "speed" and controller == 2:
+                title = f"{NAMES[loop_id]} (DPCC)"
             elif tune_source == 1:
                 title = f"{NAMES[loop_id]} (Manual Kp {kp:.4g}, Ki {ki:.4g})"
             else:
                 title = f"{NAMES[loop_id]} (PI setting {bw:g} Hz)"
             if args.loop == "speed":
-                title += f", current {'PI' if controller == 0 else 'LADRC'}"
+                title += f", current {('PI', 'LADRC', 'DPCC')[controller]}"
             if args.loop != "speed":
                 title += f", FF {ff}"
             if args.plot:

@@ -268,10 +268,10 @@ typedef enum
     /* Control_Current_Tune_Source: 当前电流环增益来源；Bandwidth按模型和带宽生成实际PI，Manual发布RAM中的Id/Iq手调参数。切换不读Flash，Save保存当前Manual配置。 */
     PARAM_CTRL_CURRENT_SOURCE = 0x0A06U,
 
-    /* Current_FF_Enable: 有感Torque/Speed/Position模式的dq交叉耦合与反电动势前馈；0关闭，1开启(默认)，使用机械ESO转速及电机Ld/Lq/Flux。 */
+    /* Current_FF_Enable: 有感Torque/Speed/Position模式的dq交叉耦合与反电动势前馈；0关闭，1开启(默认)，使用机械ESO转速及电机Ld/Lq/Flux。DPCC内部模型始终包含这些项，不受此开关影响。 */
     PARAM_CTRL_CURRENT_FF_ENABLE = 0x0A07U,
 
-    /* Current_Controller: 在DISABLED状态选择电流控制算法：0为PI(默认)，1为LADRC；LADRC先用于有感三种Servo模式。 */
+    /* Current_Controller: 在DISABLED状态选择电流控制算法：0为PI(默认)，1为LADRC，2为DPCC。选用DPCC时，有感Torque/Speed/Position使用DPCC，辨识、无感及编码器校准使用PI。仅RAM生效。 */
     PARAM_CTRL_CURRENT_CONTROLLER = 0x0A08U,
 
     /* Control_LADRC_Bw_Hz: LADRC线性误差反馈增益对应频率，d/q共用；默认500 Hz，仅RAM生效。 */

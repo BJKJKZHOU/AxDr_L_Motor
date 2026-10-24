@@ -500,7 +500,7 @@ def main():
     ap.add_argument("--out", type=Path)
     ap.add_argument("--baud", type=int, default=115200)
     ap.add_argument("--firmware-sha", help="optional user-supplied flashed firmware SHA (not verified)")
-    ap.add_argument("--controller", help="optional PI/LADRC label")
+    ap.add_argument("--controller", help="optional PI/LADRC/DPCC label")
     ap.add_argument("--rpm", type=float, help="optional target speed (mechanical rpm)")
     ap.add_argument("--pole-pairs", type=int, help="optional motor pole pairs")
     args = ap.parse_args()

@@ -13,6 +13,7 @@ PID_T Id_Ctrl = ID_CTRL_DEFAULT;
 PID_T Iq_Ctrl = IQ_CTRL_DEFAULT;
 LADRC_T Id_LADRC = { 0 };
 LADRC_T Iq_LADRC = { 0 };
+DPCC_Para_T Current_DPCC = { 0 };
 
 uint8_t Current_Controller = CURRENT_CTRL_PI;
 float Control_LADRC_Bw_Hz = CUR_LADRC_BW_HZ_DEFAULT;
@@ -48,12 +49,12 @@ void Current_Loop_State_Reset(void)
     Iq_LADRC.Sig.Ref_Dot = 0.0f;
 }
 
-/* Follow the last VF voltage with the already selected current controller.
+/* Follow the last VF voltage with the controller selected for calibration.
  * PI needs its integral, LADRC needs the measured state and disturbance. */
-void Current_Loop_Track(float Id, float Iq, float Ud, float Uq,
+void Current_Loop_Track(uint8_t Controller, float Id, float Iq, float Ud, float Uq,
                         float Ud_FF, float Uq_FF)
 {
-    if (Current_Controller == CURRENT_CTRL_PI)
+    if (Controller == CURRENT_CTRL_PI)
     {
         Id_Ctrl.Sig.Ref = Id;
         Id_Ctrl.Sig.Fbk = Id;
@@ -82,7 +83,7 @@ void Current_Loop_Track(float Id, float Iq, float Ud, float Uq,
 }
 
 void Current_Loop(float Id_Ref, float Iq_Ref, float U_Lim,
-                  bool Sensored,
+                  uint8_t Controller, float We, float Sin, float Cos,
                   float Ud_FF, float Uq_FF,
                   float *Ud, float *Uq)
 {
@@ -92,7 +93,28 @@ void Current_Loop(float Id_Ref, float Iq_Ref, float U_Lim,
     Iq_Ctrl.Sig.Ref = Iq_Ref;
     Iq_Ctrl.Sig.Fbk = Motor_Run.Iq;
 
-    if ((Current_Controller == CURRENT_CTRL_LADRC) && Sensored)
+    if (Controller == CURRENT_CTRL_DPCC)
+    {
+        /* Previous limited alpha/beta command is active at this sample.
+         * Its stored dq components belong to the previous sample angle. */
+        float Ud_Applied = Motor_Run.Ualpha * Cos + Motor_Run.Ubeta * Sin;
+        float Uq_Applied = -Motor_Run.Ualpha * Sin + Motor_Run.Ubeta * Cos;
+
+        DPCC_Run(&Current_DPCC, Id_Ref, Iq_Ref, Motor_Run.Id, Motor_Run.Iq,
+                 Ud_Applied, Uq_Applied, We * Motor_Para.Ld, We * Motor_Para.Lq,
+                 We * Motor_Para.Flux, We * CUR_TS, Ud, Uq);
+        /* DPCC includes model compensation and voltage-angle advance.
+         * The common path adds feedforward once after controller dispatch. */
+        *Ud -= Ud_FF;
+        *Uq -= Uq_FF;
+        Id_Ctrl.Sig.Err = Id_Ref - Motor_Run.Id;
+        Iq_Ctrl.Sig.Err = Iq_Ref - Motor_Run.Iq;
+        Id_Ctrl.Sig.Out = *Ud;
+        Iq_Ctrl.Sig.Out = *Uq;
+        return;
+    }
+
+    if (Controller == CURRENT_CTRL_LADRC)
     {
         Id_LADRC.Sig.Ref = Id_Ref;
         Id_LADRC.Sig.Fbk = Motor_Run.Id;
