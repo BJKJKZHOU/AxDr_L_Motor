@@ -22,7 +22,8 @@ typedef enum
 {
     MOTOR_WORK_FIT = 0,
     MOTOR_WORK_SAVE_ALL,
-    MOTOR_WORK_SAVE_CAL,
+    MOTOR_WORK_SAVE_PHASE,
+    MOTOR_WORK_SAVE_ENC,
 
 } Motor_Work_Job_e;
 

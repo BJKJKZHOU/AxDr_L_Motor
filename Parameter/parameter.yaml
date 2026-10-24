@@ -548,7 +548,7 @@ objects:
     persistent: true
     binding: Motor_Cal.Valid
     label: Calibration Valid
-    description: "当前伺服相位/编码器校准结果是否有效。"
+    description: "当前寻相结果是否有效；重新寻相或用户修改极对数、编码器协议、SPI类型时清零，结果应用成功时置位，上电按保存值恢复。"
     range: { min: 0, max: 1 }
 
   PARAM_CAL_ENC_DIR:
@@ -580,14 +580,8 @@ objects:
     unit: rad
     description: "两次静态ALIGN计算得到的电角零位偏差，单位rad；最后一次成功计算后更新。"
 
-  PARAM_PHASE_VERIFY_MOVE:
-    id: 0x0411
-    type: f32
-    access: ro
-    getter: Servo_Phase_Verify_Move_Get
-    label: Phase Verify Move (retired)
-    unit: rad
-    description: "已停用的寻相诊断字段；简化寻相不再执行正Iq验证，此值恒为0。"
+  # 0x0411 PARAM_PHASE_VERIFY_MOVE 已停用：寻相不再执行正 Iq 移动验证。
+  # 保留名称和 ID 供查阅，不再提供读写，也不重新分配此 ID。
 
   PARAM_RUN_POSITION:
     id: 0x0501

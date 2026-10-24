@@ -47,8 +47,3 @@ bool Motor_Cal_Set(int8_t Enc_Dir, float Theta_Off)
 
     return true;
 }
-
-void Motor_Cal_Invalidate(void)
-{
-    Motor_Cal.Valid = 0U;
-}

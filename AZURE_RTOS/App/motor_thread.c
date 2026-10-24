@@ -10,16 +10,15 @@
 
 #include "Encoder.h"
 #include "Mechanical_ESO.h"
-#include "Motor_Para.h"
 #include "Motor_Control.h"
-#include "Enc_Cal.h"
+#include "Enc_Control.h"
+#include "Motor_Para.h"
 #include "NVS_Storage.h"
 #include "motor_work.h"
 #include "Parameter.h"
 #include "Plot.h"
 #include "Protocol.h"
 #include "Protection.h"
-#include "Servo_Phase.h"
 #include "Signal_Injection.h"
 #include "USB_Thread.h"
 #include "main.h"
@@ -38,13 +37,11 @@ volatile Motor_Time_T Motor_Time = { 0 };
 static TX_THREAD Motor_Thread;
 static uint8_t Normal_Div = 0U;
 static bool Ident_Action_Pending = false;
-static Motor_Cmd_Msg_T Ident_Action_Msg = { 0 };
-static bool Phase_Action_Pending = false;
-static Motor_Cmd_Msg_T Phase_Action_Msg = { 0 };
-static bool Cal_Action_Pending = false;
-static Motor_Cmd_Msg_T Cal_Action_Msg = { 0 };
+static ULONG Ident_Action = 0U;
+static bool Enc_Action_Pending = false;
+static ULONG Enc_Action = 0U;
 static bool Save_Action_Pending = false;
-static Motor_Cmd_Msg_T Save_Action_Msg = { 0 };
+static ULONG Save_Action = 0U;
 
 static void Motor_Entry(ULONG thread_input);
 
@@ -98,27 +95,27 @@ Motor_Parameter_Request_Status_e Motor_Parameter_Write_Request(
     return MOTOR_PARAM_REQUEST_OK;
 }
 
-static uint16_t Motor_Action_Id_Get(const Motor_Cmd_Msg_T *Msg)
+static uint16_t Motor_Action_Id_Get(ULONG Action)
 {
-    return (uint16_t)((Msg->Reserved >> MOTOR_ACTION_ID_SHIFT) & MOTOR_ACTION_ID_MASK);
+    return (uint16_t)((Action >> MOTOR_ACTION_ID_SHIFT) & MOTOR_ACTION_ID_MASK);
 }
 
-static uint8_t Motor_Action_Txn_Get(const Motor_Cmd_Msg_T *Msg)
+static uint8_t Motor_Action_Txn_Get(ULONG Action)
 {
-    return (uint8_t)((Msg->Reserved >> MOTOR_ACTION_TXN_SHIFT) & MOTOR_ACTION_TXN_MASK);
+    return (uint8_t)((Action >> MOTOR_ACTION_TXN_SHIFT) & MOTOR_ACTION_TXN_MASK);
 }
 
-static void Motor_Action_Response(const Motor_Cmd_Msg_T *Msg, AxDr_Status_e Status)
+static void Motor_Action_Response(ULONG Action, AxDr_Status_e Status)
 {
-    Protocol_Action_Response(Motor_Action_Txn_Get(Msg),
-                             Motor_Action_Id_Get(Msg),
-                             Status);
+    Protocol_Write_Response(Motor_Action_Txn_Get(Action),
+                            Motor_Action_Id_Get(Action),
+                            Status);
 }
 
-static void Motor_Action_Complete(const Motor_Cmd_Msg_T *Msg, AxDr_Status_e Status)
+static void Motor_Action_Complete(ULONG Action, AxDr_Status_e Status)
 {
-    Protocol_Action_Complete(Motor_Action_Txn_Get(Msg),
-                             Motor_Action_Id_Get(Msg),
+    Protocol_Action_Complete(Motor_Action_Txn_Get(Action),
+                             Motor_Action_Id_Get(Action),
                              Status);
 }
 
@@ -126,72 +123,39 @@ static void Motor_Async_Action_Poll(void)
 {
     if (Ident_Action_Pending && !Identification_Active())
     {
-        Motor_Action_Complete(&Ident_Action_Msg,
+        Motor_Action_Complete(Ident_Action,
                               Identification_Result_Valid() ? AXDR_OK : AXDR_ERR_CONFIG);
         Ident_Action_Pending = false;
     }
 
     if (Save_Action_Pending && (Motor_Work_State >= MOTOR_WORK_DONE))
     {
-        Motor_Action_Response(&Save_Action_Msg,
+        Motor_Action_Response(Save_Action,
                               (Motor_Work_State == MOTOR_WORK_DONE) ? AXDR_OK : AXDR_ERR_CONFIG);
         Save_Action_Pending = false;
         Motor_Work_Ack();
     }
 
-    if (Phase_Action_Pending && (Motor_State_Get() != RUN) && !Servo_Phase_Active())
+    if (Enc_Action_Pending && !Enc_Control_Active())
     {
-        if (!Servo_Phase_Result_Valid() || (Motor_Cal.Valid == 0U))
-        {
-            Motor_Action_Complete(&Phase_Action_Msg, AXDR_ERR_CONFIG);
-            Phase_Action_Pending = false;
-        }
-        else if (Motor_Work_State >= MOTOR_WORK_DONE)
-        {
-            Motor_Action_Complete(&Phase_Action_Msg,
-                                  (Motor_Work_State == MOTOR_WORK_DONE) ? AXDR_OK : AXDR_ERR_CONFIG);
-            Phase_Action_Pending = false;
-            Motor_Work_Ack();
-        }
-    }
-
-    if (Cal_Action_Pending && (Enc_Cal.Step >= CAL_DONE))
-    {
-        if (Enc_Cal.Step == CAL_FAILED)
-        {
-            /* A failed fit may still be finishing in the low-priority worker. */
-            if (Motor_Work_State != MOTOR_WORK_BUSY)
-            {
-                Motor_Work_Ack();
-                Motor_Action_Complete(&Cal_Action_Msg, AXDR_ERR_CONFIG);
-                Cal_Action_Pending = false;
-            }
-        }
-        else if (Motor_Work_State == MOTOR_WORK_IDLE)
-        {
-            if (!Motor_Work_Request(MOTOR_WORK_SAVE_CAL))
-            {
-                Motor_Action_Complete(&Cal_Action_Msg, AXDR_ERR_CONFIG);
-                Cal_Action_Pending = false;
-            }
-        }
-        else if (Motor_Work_State >= MOTOR_WORK_DONE)
-        {
-            Motor_Action_Complete(&Cal_Action_Msg,
-                                  (Motor_Work_State == MOTOR_WORK_DONE) ? AXDR_OK : AXDR_ERR_CONFIG);
-            Cal_Action_Pending = false;
-            Motor_Work_Ack();
-        }
-    }
-    /* Panel-triggered PHASE_SEARCH has no Action context, but still saves. */
-    if (!Phase_Action_Pending && !Cal_Action_Pending && !Save_Action_Pending &&
-        ((Enc_Cal.Step < CAL_SPEED) || (Enc_Cal.Step >= CAL_DONE)) &&
-        (Motor_Work_State >= MOTOR_WORK_DONE))
-    {
-        Motor_Work_Ack();
+        Motor_Action_Complete(Enc_Action, (Enc_Step == ENC_DONE) ? AXDR_OK : AXDR_ERR_CONFIG);
+        Enc_Action_Pending = false;
     }
 }
 
+static AxDr_Status_e Motor_Status_Map(Motor_Status_e Status)
+{
+    switch (Status)
+    {
+        case MOTOR_OK:
+            return AXDR_OK;
+        case MOTOR_ERR_STATE:
+            return AXDR_ERR_STATE;
+        case MOTOR_ERR_CONFIG:
+        default:
+            return AXDR_ERR_CONFIG;
+    }
+}
 
 static void Motor_Cmd_Run(void)
 {
@@ -206,59 +170,34 @@ static void Motor_Cmd_Run(void)
         switch ((Motor_Cmd_e)Msg.Cmd)
         {
             case MOTOR_CMD_ENABLE:
-                Action_Status = AXDR_OK;
-                if ((Motor_State_Get() != DISABLED) || !Protection_Enable_Allowed() ||
-                    (Motor_Work_State != MOTOR_WORK_IDLE) || Cal_Action_Pending)
-                {
-                    Action_Status = AXDR_ERR_STATE;
-                }
-                else
-                {
-                    Motor_Enable();
-                    if (Motor_State_Get() != ENABLED)
-                    {
-                        Action_Status = AXDR_ERR_CONFIG;
-                    }
-                }
-                Motor_Action_Response(&Msg, Action_Status);
+                Action_Status = Enc_Action_Pending ? AXDR_ERR_STATE :
+                                Motor_Status_Map(Motor_Enable());
+                Motor_Action_Response(Msg.Reserved, Action_Status);
                 break;
 
             case MOTOR_CMD_RUN:
-                Action_Status = AXDR_OK;
-                if ((Motor_State_Get() != ENABLED) || (Motor_Mode_Get() == IDENT) ||
-                    Cal_Action_Pending)
+                Action_Status = Enc_Action_Pending ? AXDR_ERR_STATE :
+                                Motor_Status_Map(Motor_Start());
+                if ((Action_Status == AXDR_OK) && (Motor_Mode_Get() == PHASE_SEARCH))
                 {
-                    Action_Status = AXDR_ERR_STATE;
+                    Enc_Action = Msg.Reserved;
+                    Enc_Action_Pending = true;
                 }
-                else
-                {
-                    Motor_Start();
-                    if (Motor_State_Get() != RUN)
-                    {
-                        Action_Status = AXDR_ERR_CONFIG;
-                    }
-                    else if (Motor_Mode_Get() == PHASE_SEARCH)
-                    {
-                        Phase_Action_Msg = Msg;
-                        Phase_Action_Pending = true;
-                    }
-                }
-                Motor_Action_Response(&Msg, Action_Status);
+                Motor_Action_Response(Msg.Reserved, Action_Status);
                 break;
 
             case MOTOR_CMD_STOP:
                 Motor_Stop();
-                Motor_Action_Response(&Msg, AXDR_OK);
+                Motor_Action_Response(Msg.Reserved, AXDR_OK);
                 break;
 
             case MOTOR_CMD_DISABLE:
                 Motor_Disable();
-                Action_Status = (Motor_State_Get() == DISABLED) ? AXDR_OK : AXDR_ERR_CONFIG;
-                Motor_Action_Response(&Msg, Action_Status);
+                Motor_Action_Response(Msg.Reserved, AXDR_OK);
                 break;
 
             case MOTOR_CMD_EN_TOGGLE:
-                if ((Enc_Cal.Step >= CAL_SPEED) && (Enc_Cal.Step <= CAL_PHASE))
+                if (Enc_Control_Active())
                 {
                     Motor_Disable();
                     break;
@@ -272,10 +211,7 @@ static void Motor_Cmd_Run(void)
 
                 if (State == DISABLED)
                 {
-                    if (Protection_Enable_Allowed())
-                    {
-                        Motor_Enable();
-                    }
+                    (void)Motor_Enable();
                 }
                 else
                 {
@@ -284,7 +220,7 @@ static void Motor_Cmd_Run(void)
                 break;
 
             case MOTOR_CMD_RUN_TOGGLE:
-                if ((Enc_Cal.Step >= CAL_SPEED) && (Enc_Cal.Step <= CAL_PHASE))
+                if (Enc_Control_Active())
                 {
                     Motor_Stop();
                     break;
@@ -293,7 +229,7 @@ static void Motor_Cmd_Run(void)
 
                 if (State == ENABLED)
                 {
-                    Motor_Start();
+                    (void)Motor_Start();
                 }
                 else if (State == RUN)
                 {
@@ -331,58 +267,32 @@ static void Motor_Cmd_Run(void)
                 break;
 
             case MOTOR_CMD_ENC_CAL_START:
-                Action_Status = AXDR_OK;
-                if ((Motor_State_Get() != DISABLED) || !Protection_Enable_Allowed() ||
-                    (Motor_Work_State != MOTOR_WORK_IDLE) || Cal_Action_Pending)
+                Action_Status = Enc_Action_Pending ? AXDR_ERR_STATE :
+                                Motor_Status_Map(Motor_Enc_Cal_Start());
+                if (Action_Status == AXDR_OK)
                 {
-                    Action_Status = AXDR_ERR_STATE;
+                    Enc_Action = Msg.Reserved;
+                    Enc_Action_Pending = true;
                 }
-                else if (!Enc_Cal_Start())
-                {
-                    Action_Status = AXDR_ERR_CONFIG;
-                }
-                else
-                {
-                    Cal_Action_Msg = Msg;
-                    Cal_Action_Pending = true;
-                }
-                Motor_Action_Response(&Msg, Action_Status);
+                Motor_Action_Response(Msg.Reserved, Action_Status);
                 break;
 
             case MOTOR_CMD_IDENT_START:
-                Action_Status = AXDR_OK;
-                if ((Motor_State_Get() != ENABLED) ||
-                    (Motor_Mode_Get() != IDENT) ||
-                    !Protection_Enable_Allowed())
+                Action_Status = Motor_Status_Map(Motor_Ident_Start((Ident_Mode_e)Msg.Arg));
+                if (Action_Status == AXDR_OK)
                 {
-                    Action_Status = AXDR_ERR_STATE;
-                }
-                else if (!Motor_Ident_Start((Ident_Mode_e)Msg.Arg))
-                {
-                    Action_Status = AXDR_ERR_CONFIG;
-                }
-                else
-                {
-                    Ident_Action_Msg = Msg;
+                    Ident_Action = Msg.Reserved;
                     Ident_Action_Pending = true;
                 }
-                Motor_Action_Response(&Msg, Action_Status);
+                Motor_Action_Response(Msg.Reserved, Action_Status);
                 break;
 
             case MOTOR_CMD_IDENT_ABORT:
-                Action_Status = ((Motor_State_Get() == RUN) &&
-                                 (Motor_Mode_Get() == IDENT) &&
-                                 Identification_Active()) ?
-                                    AXDR_OK : AXDR_ERR_STATE;
-                if ((Action_Status == AXDR_OK) && !Motor_Ident_Abort())
-                {
-                    Action_Status = AXDR_ERR_CONFIG;
-                }
-                Motor_Action_Response(&Msg, Action_Status);
+                Action_Status = Motor_Ident_Abort() ? AXDR_OK : AXDR_ERR_STATE;
+                Motor_Action_Response(Msg.Reserved, Action_Status);
                 break;
 
             case MOTOR_CMD_PARAMETER_WRITE:
-                memset(&Parameter_Value, 0, sizeof(Parameter_Value));
                 memcpy(&Parameter_Value, &Msg.Arg2, sizeof(Msg.Arg2));
                 memcpy((uint8_t *)&Parameter_Value + sizeof(Msg.Arg2),
                        &Msg.Arg3,
@@ -399,36 +309,17 @@ static void Motor_Cmd_Run(void)
                 break;
 
             case MOTOR_CMD_IDENT_APPLY:
-                Action_Status = AXDR_OK;
-                if ((Motor_State_Get() == RUN) ||
-                    (Motor_Mode_Get() != IDENT) ||
-                    !Identification_Result_Valid())
-                {
-                    Action_Status = AXDR_ERR_STATE;
-                }
-                else if (!Motor_Ident_Apply())
-                {
-                    Action_Status = AXDR_ERR_CONFIG;
-                }
-                Motor_Action_Response(&Msg, Action_Status);
+                Motor_Action_Response(Msg.Reserved, Motor_Status_Map(Motor_Ident_Apply()));
                 break;
 
             case MOTOR_CMD_PROTECTION_CLEAR:
-                Action_Status = AXDR_OK;
-                if (Motor_State_Get() != DISABLED)
-                {
-                    Action_Status = AXDR_ERR_STATE;
-                }
-                else if (!Protection_Clear())
-                {
-                    Action_Status = AXDR_ERR_CONFIG;
-                }
-                Motor_Action_Response(&Msg, Action_Status);
+                Action_Status = Protection_Clear() ? AXDR_OK : AXDR_ERR_STATE;
+                Motor_Action_Response(Msg.Reserved, Action_Status);
                 break;
 
             case MOTOR_CMD_SIGNAL_START:
                 Action_Status = AXDR_OK;
-                if (Cal_Action_Pending || !Protection_Enable_Allowed() ||
+                if (Enc_Control_Active() || !Protection_Enable_Allowed() ||
                     ((Signal_Injection.Para.Target == SIGNAL_SPEED) ?
                      ((Motor_Mode_Get() != SPEED) ||
                       ((Motor_State_Get() != ENABLED) && (Motor_State_Get() != RUN))) :
@@ -441,28 +332,28 @@ static void Motor_Cmd_Run(void)
                 {
                     Action_Status = AXDR_ERR_CONFIG;
                 }
-                Motor_Action_Response(&Msg, Action_Status);
+                Motor_Action_Response(Msg.Reserved, Action_Status);
                 break;
 
             case MOTOR_CMD_SIGNAL_ABORT:
                 Signal_Injection_Stop();
-                Motor_Action_Response(&Msg, AXDR_OK);
+                Motor_Action_Response(Msg.Reserved, AXDR_OK);
                 break;
 
             case MOTOR_CMD_PARAMETER_SAVE:
                 if ((Motor_State_Get() != DISABLED) ||
-                    (Motor_Work_State != MOTOR_WORK_IDLE) || Cal_Action_Pending)
+                    (Motor_Work_State != MOTOR_WORK_IDLE) || Enc_Control_Active())
                 {
-                    Motor_Action_Response(&Msg, AXDR_ERR_STATE);
+                    Motor_Action_Response(Msg.Reserved, AXDR_ERR_STATE);
                 }
                 else if (!Motor_Work_Request(MOTOR_WORK_SAVE_ALL))
                 {
-                    Motor_Action_Response(&Msg, AXDR_ERR_CONFIG);
+                    Motor_Action_Response(Msg.Reserved, AXDR_ERR_CONFIG);
                 }
                 else
                 {
                     /* Keep the original final ActionResponse after NVS finishes. */
-                    Save_Action_Msg = Msg;
+                    Save_Action = Msg.Reserved;
                     Save_Action_Pending = true;
                 }
                 break;
@@ -471,7 +362,7 @@ static void Motor_Cmd_Run(void)
                 break;
         }
 
-        /* Close any finite action ended by this command before another command can reuse its context. */
+        /* 先通知被本条命令结束的动作，再处理后续命令，避免覆盖原请求信息。 */
         Motor_Async_Action_Poll();
     }
 }
@@ -582,7 +473,6 @@ static void Motor_Entry(ULONG thread_input)
 
             T0 = DWT->CYCCNT;
             Motor_Control();
-            Enc_Cal_Run();
             Cyc = DWT->CYCCNT - T0;
             Motor_Time_Set(Cyc, &Motor_Time.Control_Cyc, &Motor_Time.Control_Max);
 

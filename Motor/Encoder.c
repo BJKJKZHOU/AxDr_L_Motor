@@ -10,7 +10,6 @@
 #include "Math.h"
 #include "Sin_LUT.h"
 #include "Mechanical_ESO.h"
-#include "Motor_Cal.h"
 #include "Motor_Type.h"
 #include "control_params.h"
 #include "main.h"
@@ -43,7 +42,6 @@ FAST_CODE float Encoder_Angle_Correct(float Theta_Native)
     return Angle_Wrap(Theta_Native - Error);
 }
 
-static float Theta_Pre = 0.0f;
 static uint8_t Pos_Valid = 0U;
 static uint8_t Ready_Cnt = 0U;
 
@@ -114,14 +112,12 @@ static bool Driver_Bind(void)
 
 static void Feedback_Reset(void)
 {
-    Theta_Pre = 0.0f;
     Pos_Valid = 0U;
     Ready_Cnt = 0U;
 
     Encoder.Raw = 0U;
     Encoder.Theta_Native = 0.0f;
     Encoder.Theta_m = 0.0f;
-    Encoder.Position = 0.0f;
     Encoder.Err_Cnt = 0U;
     Encoder.Miss_Cnt = 0U;
     Encoder.Startup_Cnt = 0U;
@@ -150,17 +146,6 @@ static void Startup_Count(void)
     if (Encoder.Startup_Cnt >= ENC_STARTUP_TIMEOUT_CNT)
     {
         Encoder.Fault = 1U;
-    }
-}
-
-static void Startup_Invalid(void)
-{
-    Encoder.Valid = 0U;
-
-    if (Encoder.Ready == 0U)
-    {
-        Ready_Cnt = 0U;
-        Startup_Count();
     }
 }
 
@@ -201,17 +186,6 @@ void Encoder_DMA_Config(void)
     __set_PRIMASK(Primask);
 }
 
-void Encoder_Config_Changed(void)
-{
-    Motor_Cal_Invalidate();
-    Encoder_DMA_Config();
-}
-
-float Encoder_Position_Get(void)
-{
-    return Encoder.Position;
-}
-
 void Encoder_Position_Read(int32_t *Turn, float *Theta)
 {
     uint32_t Primask;
@@ -242,7 +216,7 @@ void Encoder_DMA_IRQHandler(void)
 
 void Encoder_Sample_Invalid(void)
 {
-    Startup_Invalid();
+    Encoder_Sample_Reject();
 
     if ((Encoder.Ready != 0U) && (Encoder.Fault == 0U))
     {
@@ -260,7 +234,13 @@ void Encoder_Sample_Invalid(void)
 
 void Encoder_Sample_Reject(void)
 {
-    Startup_Invalid();
+    Encoder.Valid = 0U;
+
+    if (Encoder.Ready == 0U)
+    {
+        Ready_Cnt = 0U;
+        Startup_Count();
+    }
 }
 
 void Encoder_Sample_Update(uint32_t Raw, float Theta)
@@ -278,7 +258,8 @@ void Encoder_Sample_Update(uint32_t Raw, float Theta)
 
     if (Pos_Valid != 0U)
     {
-        Delta = Theta - Theta_Pre;
+        /* 更新前的单圈角度就是上一拍角度，用于判断是否跨圈。 */
+        Delta = Theta - Encoder.Theta_m;
 
         if (Delta < -PI_F)
         {
@@ -294,9 +275,7 @@ void Encoder_Sample_Update(uint32_t Raw, float Theta)
         Pos_Valid = 1U;
     }
 
-    Theta_Pre = Theta;
     Encoder.Theta_m = Theta;
-    Encoder.Position = (float)Motor_Run.Turn * TWO_PI_F + Theta;
     Encoder.Lost_Cnt = 0U;
     Encoder.Valid = 1U;
     Motor_Run.Theta_m = Theta;

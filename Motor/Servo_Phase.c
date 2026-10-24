@@ -49,9 +49,7 @@ typedef struct
     float Theta_Native_Align;
     float Theta_Native_Pre;
     float Native_Delta;
-    float I_Search_A;
     int8_t Enc_Dir;
-    float Theta_Off;
 
 } Servo_Phase_T;
 
@@ -102,47 +100,17 @@ static bool Angle_Stable(float Theta, float *Theta_Mean)
     return true;
 }
 
-static void Result_Snapshot(Servo_Phase_Result_State_e State, Servo_Phase_Fail_e Fail)
+static void Result_Snapshot(Servo_Phase_Fail_e Fail)
 {
-    Last_Result.State = State;
     Last_Result.Fail = Fail;
     Last_Result.Enc_Dir = Phase.Enc_Dir;
-    Last_Result.Theta_Off = Phase.Theta_Off;
-    Last_Result.I_Search_A = Phase.I_Search_A;
 }
 
 static void Fail(Servo_Phase_Fail_e Reason)
 {
     Phase.State = PHASE_FAILED;
-    Result_Snapshot(SERVO_PHASE_RESULT_FAIL, Reason);
-}
-
-static bool Calibration_Save(void)
-{
-    const uint16_t Valid_Id = PARAM_CAL_VALID;
-    const uint16_t Ids[] = {
-        PARAM_MOTOR_PP, PARAM_ENCODER_PROTOCOL, PARAM_ENCODER_SPI_TYPE,
-        PARAM_CAL_ENC_DIR, PARAM_CAL_THETA_OFF,
-        PARAM_ENCODER_HARMONIC_C1, PARAM_ENCODER_HARMONIC_S1,
-        PARAM_ENCODER_HARMONIC_C2, PARAM_ENCODER_HARMONIC_S2,
-        PARAM_CAL_VALID,
-    };
-
     Motor_Cal.Valid = 0U;
-    if (NVS_Storage_Save_Ids(&Valid_Id, 1U) != 0)
-    {
-        Motor_Cal.Valid = 1U;
-        return false;
-    }
-
-    Motor_Cal.Valid = 1U;
-
-    if (NVS_Storage_Save_Ids(Ids, sizeof(Ids) / sizeof(Ids[0])) != 0)
-    {
-        return false;
-    }
-
-    return true;
+    Result_Snapshot(Reason);
 }
 
 bool Servo_Phase_Start(void)
@@ -154,13 +122,11 @@ bool Servo_Phase_Start(void)
 
     Phase = (Servo_Phase_T){ 0 };
     Last_Result = (Servo_Phase_Result_T){ 0 };
-    Last_Result.State = SERVO_PHASE_RESULT_RUNNING;
+    /* 本次完成前不沿用上一次寻相的有效标记。 */
     Motor_Cal.Valid = 0U;
 
-    Phase.I_Search_A = Servo_Phase_Config.I_Search_A;
     Phase.Stable_Theta = Encoder.Theta_Native;
-    Phase.Enc_Dir = 1; /* provisional, not published to Motor_Cal */
-    Last_Result.I_Search_A = Phase.I_Search_A;
+    Phase.Enc_Dir = 1; /* 暂用于判断方向，结束后再应用到 Motor_Cal。 */
     Phase.State = PHASE_ALIGN;
 
     return true;
@@ -170,7 +136,7 @@ void Servo_Phase_Abort(void)
 {
     if (Servo_Phase_Active())
     {
-        Result_Snapshot(SERVO_PHASE_RESULT_FAIL, SERVO_PHASE_FAIL_ABORTED);
+        Result_Snapshot(SERVO_PHASE_FAIL_ABORTED);
     }
 
     Phase.State = PHASE_IDLE;
@@ -183,8 +149,7 @@ bool Servo_Phase_Active(void)
 
 bool Servo_Phase_Apply(void)
 {
-    if ((Phase.State != PHASE_DONE) ||
-        (Last_Result.State != SERVO_PHASE_RESULT_PASS))
+    if (Phase.State != PHASE_DONE)
     {
         Phase.State = PHASE_IDLE;
         return false;
@@ -203,7 +168,12 @@ bool Servo_Phase_Apply(void)
 
 bool Servo_Phase_Save(void)
 {
-    return (Motor_Cal.Valid != 0U) && Calibration_Save();
+    const uint16_t Ids[] = {
+        PARAM_CAL_ENC_DIR, PARAM_CAL_THETA_OFF, PARAM_CAL_VALID,
+    };
+
+    return (Motor_Cal.Valid != 0U) &&
+           (NVS_Storage_Save_Ids(Ids, sizeof(Ids) / sizeof(Ids[0])) == 0);
 }
 
 const Servo_Phase_Result_T *Servo_Phase_Last_Result_Get(void)
@@ -239,7 +209,7 @@ Motor_Fast_Mode_e Servo_Phase_Fast_Run(float *Theta_e,
     {
         case PHASE_ALIGN:
             *Theta_e = 0.0f;
-            *Id_Ref = Phase.I_Search_A;
+            *Id_Ref = Servo_Phase_Config.I_Search_A;
 
             if (Angle_Stable(Encoder.Theta_Native, &Theta_Native_Stable))
             {
@@ -258,7 +228,7 @@ Motor_Fast_Mode_e Servo_Phase_Fast_Run(float *Theta_e,
 
             if (Phase.State == PHASE_RUN)
             {
-                *Iq_Ref = Phase.I_Search_A;
+                *Iq_Ref = Servo_Phase_Config.I_Search_A;
 
                 if (__builtin_fabsf((float)Motor_Para.Pp * Phase.Native_Delta) >=
                     PHASE_DIR_CONFIRM_E_RAD)
@@ -282,12 +252,8 @@ Motor_Fast_Mode_e Servo_Phase_Fast_Run(float *Theta_e,
             return FAST_CURRENT;
 
         case PHASE_ALIGN_FINAL:
-            Delta = Angle_Delta(Encoder.Theta_Native, Phase.Theta_Native_Pre);
-            Phase.Theta_Native_Pre = Encoder.Theta_Native;
-            Phase.Native_Delta += Delta;
-
             *Theta_e = 0.0f;
-            *Id_Ref = Phase.I_Search_A;
+            *Id_Ref = Servo_Phase_Config.I_Search_A;
 
             if (Angle_Stable(Encoder.Theta_Native, &Theta_Native_Stable))
             {
@@ -301,10 +267,9 @@ Motor_Fast_Mode_e Servo_Phase_Fast_Run(float *Theta_e,
                 /* The residual is zero when the two aligned positions differ
                  * by an integer number of electrical revolutions, including 0. */
                 Last_Result.Theta_Off_Error = Offset_Error;
-                Last_Result.Pos_Move = (float)Phase.Enc_Dir * Phase.Native_Delta;
-                Phase.Theta_Off = Angle_Wrap(Offset_Initial + 0.5f * Offset_Error);
+                Last_Result.Theta_Off = Angle_Wrap(Offset_Initial + 0.5f * Offset_Error);
                 Phase.State = PHASE_DONE;
-                Result_Snapshot(SERVO_PHASE_RESULT_PASS, SERVO_PHASE_FAIL_NONE);
+                Result_Snapshot(SERVO_PHASE_FAIL_NONE);
                 return FAST_OFF;
             }
             return FAST_CURRENT;

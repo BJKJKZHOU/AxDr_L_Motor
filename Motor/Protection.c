@@ -9,6 +9,7 @@
 #include "Motor_ADC.h"
 #include "Motor_Control.h"
 #include "Motor_PWM.h"
+#include "main.h"
 #include "motor_params.h"
 
 volatile Protection_T Protection = { 0 };
@@ -19,42 +20,14 @@ static uint32_t Current_Overload_Count = 0U;
 static uint32_t Current_Fast_Count = 0U;
 static bool Current_Fault_Latched = false;
 
-void Protection_Report_Set(uint32_t Event)
-{
-    Protection.Report |= Event;
-}
-
-void Protection_Report_Clear(uint32_t Event)
-{
-    Protection.Report &= ~Event;
-}
-
-void Protection_Warning_Set(uint32_t Event)
-{
-    Protection.Warning |= Event;
-}
-
-void Protection_Warning_Clear(uint32_t Event)
-{
-    Protection.Warning &= ~Event;
-}
-
 void Protection_Fault_Set(uint32_t Event)
 {
-    Protection.Fault |= Event;
-}
+    uint32_t Primask = __get_PRIMASK();
 
-/*
- * AxDr_L development board note:
- * there is currently no comparator/driver-fault -> TIM1 BKIN hardware path.
- * This entry is reserved for a future board or other hardware that can assert
- * a real fast trip source. Software-detected faults on the current board must
- * normally be raised through Protection_Fault_Set().
- */
-void Protection_Trip_Set(uint32_t Event)
-{
-    Protection.Trip |= Event;
-    PWM_Disable();
+    /* 线程和 ADC 中断都会置位，避免更新时覆盖另一处刚记录的故障。 */
+    __disable_irq();
+    Protection.Fault |= Event;
+    __set_PRIMASK(Primask);
 }
 
 float Protection_Vbus_Min_Get(void)

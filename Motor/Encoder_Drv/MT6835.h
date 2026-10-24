@@ -14,10 +14,7 @@ typedef struct
 {
     uint32_t CRC_Err;
     uint16_t Under_Voltage_Cnt;
-    uint8_t Status;
-    uint8_t Over_Speed;
-    uint8_t Weak_Field;
-    uint8_t Under_Voltage;
+    uint8_t Status; /* bit0：超速，bit1：磁场偏弱，bit2：欠压。 */
 
 } MT6835_State_T;
 

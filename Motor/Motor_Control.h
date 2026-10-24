@@ -31,14 +31,28 @@ bool Motor_Encoder_Required(void);
 /* Existing speed/current PI handover used by encoder calibration. */
 void Motor_Cal_Decel_Begin(void);
 
-void Motor_Enable(void);
-void Motor_Start(void);
+/* 动作执行结果，由命令入口转换为通信应答。 */
+typedef enum
+{
+    MOTOR_OK = 0,
+    MOTOR_ERR_STATE,
+    MOTOR_ERR_CONFIG,
+
+} Motor_Status_e;
+
+Motor_Status_e Motor_Enable(void);
+Motor_Status_e Motor_Start(void);
+Motor_Status_e Motor_Enc_Cal_Start(void);
 void Motor_Stop(void);
 void Motor_Disable(void);
 
-bool Motor_Ident_Start(Ident_Mode_e Mode);
+/* Internal output/state transition; keep the encoder sequence active.
+ * User disable and protection must use Motor_Disable() to cancel it. */
+void Motor_Disable_Apply(void);
+
+Motor_Status_e Motor_Ident_Start(Ident_Mode_e Mode);
 bool Motor_Ident_Abort(void);
-bool Motor_Ident_Apply(void);
+Motor_Status_e Motor_Ident_Apply(void);
 
 /* User mechanical coordinate feedback. Internal FOC state remains in Motor_Run. */
 float Motor_Wm_Get(void);

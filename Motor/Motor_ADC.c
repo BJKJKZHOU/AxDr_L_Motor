@@ -11,6 +11,7 @@
 #include "Current_Loop.h"
 #include "Encoder.h"
 #include "Enc_Cal.h"
+#include "Enc_Control.h"
 #include "Mechanical_ESO.h"
 #include "Math.h"
 #include "Motor_Control.h"
@@ -230,6 +231,7 @@ void Fast_Loop(void)
     bool Current_OK;
     bool Encoder_Park_Valid;
     bool Sensored;
+    bool Cal_Handoff;
     float Theta_e;
     float Encoder_Theta_e;
     float Ialpha;
@@ -334,6 +336,23 @@ void Fast_Loop(void)
         goto finish;
     }
 
+    /* The slow speed-loop handoff and the first FOC cycle both need fresh
+     * encoder-frame currents, while VF still owns the output voltage. */
+    Cal_Handoff = (Motor_State_Get() == RUN) && (Enc_Step == ENC_CAL_RUN) &&
+                  ((Enc_Cal.Step == CAL_HANDOFF) ||
+                   ((Enc_Cal.Step == CAL_DECEL) && Enc_Cal_Handoff_Ready));
+    if (Cal_Handoff)
+    {
+        if (!Encoder_Park_Valid)
+        {
+            Encoder_Theta_e = Angle_Wrap((float)Motor_Para.Pp * Encoder.Theta_m + Motor_Cal.Theta_Off);
+            SinCos(Encoder_Theta_e, &Sin, &Cos);
+            Iq_Encoder = -Ialpha * Sin + Ibeta * Cos;
+        }
+        Motor_Run.Id = Ialpha * Cos + Ibeta * Sin;
+        Motor_Run.Iq = Iq_Encoder;
+    }
+
     Fast_Mode = Motor_Fast_Run(Encoder_Theta_e, Encoder_Park_Valid,
                                &Theta_e, &Id_Ref, &Iq_Ref, &Ualpha, &Ubeta);
     Motor_Plot_Iq_Ref = Iq_Ref;
@@ -355,19 +374,24 @@ void Fast_Loop(void)
 
     if (Fast_Mode == FAST_CURRENT)
     {
+        Sensored = ((Enc_Step == ENC_CAL_RUN) &&
+                    ((Enc_Cal.Step == CAL_SPEED) || (Enc_Cal.Step == CAL_DECEL))) ||
+                   (!Enc_Control_Active() && (Motor_Mode <= POSITION));
         /* Motor_Fast_Run may use the previous-cycle dq values (IF/ident).
          * Publish this sample only after it has selected the FOC angle. */
-        /* Only the three sensored servo modes use the encoder FOC frame. */
-        if (!Encoder_Park_Valid || (Motor_Mode > POSITION))
+        if (!Cal_Handoff)
         {
-            SinCos(Theta_e, &Sin, &Cos);
-            Motor_Run.Iq = -Ialpha * Sin + Ibeta * Cos;
+            if (!Encoder_Park_Valid || !Sensored)
+            {
+                SinCos(Theta_e, &Sin, &Cos);
+                Motor_Run.Iq = -Ialpha * Sin + Ibeta * Cos;
+            }
+            else
+            {
+                Motor_Run.Iq = Iq_Encoder;
+            }
+            Motor_Run.Id = Ialpha * Cos + Ibeta * Sin;
         }
-        else
-        {
-            Motor_Run.Iq = Iq_Encoder;
-        }
-        Motor_Run.Id = Ialpha * Cos + Ibeta * Sin;
         Motor_Run.Theta_e = Theta_e;
 
         /* Current FRF is injected into the actual PI reference before limits. */
@@ -399,15 +423,24 @@ void Fast_Loop(void)
         U_Lim = ADC.Vbus_V * INV_SQRT3_F * VOLT_MOD_MAX;
         Ud_FF = 0.0f;
         Uq_FF = 0.0f;
-        Sensored = ((Enc_Cal.Step == CAL_SPEED) || (Enc_Cal.Step == CAL_DECEL)) ||
-                   (((Enc_Cal.Step < CAL_SPEED) || (Enc_Cal.Step >= CAL_DONE)) &&
-                    (Motor_Mode <= POSITION));
         if ((Current_FF_Enable != 0U) && Sensored && Encoder_Park_Valid)
         {
             float We = (float)Motor_Para.Pp * Mechanical_ESO.State.Wm;
 
             Ud_FF = -We * Motor_Para.Lq * Motor_Run.Iq;
             Uq_FF = We * (Motor_Para.Ld * Motor_Run.Id + Motor_Para.Flux);
+        }
+
+        if (Cal_Handoff)
+        {
+            /* Track this cycle's rotating VF vector with the selected PI/LADRC.
+             * Park and model feedforward above are shared with normal FOC. */
+            Motor_Run.Ud = Ualpha * Cos + Ubeta * Sin;
+            Motor_Run.Uq = -Ualpha * Sin + Ubeta * Cos;
+            Current_Loop_State_Reset();
+            Current_Loop_Track(Motor_Run.Id, Motor_Run.Iq,
+                               Motor_Run.Ud - Ud_FF, Motor_Run.Uq - Uq_FF, Ud_FF, Uq_FF);
+            Enc_Cal_Handoff_Ready = false;
         }
 
         Current_Loop(Id_Ref, Iq_Ref, U_Lim, Sensored, Ud_FF, Uq_FF, &Ud, &Uq);
