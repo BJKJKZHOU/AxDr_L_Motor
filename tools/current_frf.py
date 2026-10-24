@@ -302,6 +302,7 @@ NAMES = ("Current Id", "Current Iq", "Speed")
 def save_bode(path, freq_hz, ref, fbk, out, loop_id, bandwidth_hz,
               ff_enabled, tune_source, kp, ki, workpoint=None, pole_pairs=None,
               *, current_controller, ladrc_bw_hz, ladrc_eso_bw_hz, sample_rate_hz,
+              speed_controller, speed_ladrc_bw_hz, mech_eso_bw_hz,
               quality="unknown", quality_reason="", point_valid=None,
               fit_residual=None, fit_drift=None):
     """Store measured same-clock phasors in the NMIXX container with the measured controller configuration."""
@@ -314,6 +315,9 @@ def save_bode(path, freq_hz, ref, fbk, out, loop_id, bandwidth_hz,
         "ladrc_bw_hz": np.full(1, ladrc_bw_hz, dtype=float),
         "ladrc_eso_bw_hz": np.full(1, ladrc_eso_bw_hz, dtype=float),
         "sample_rate_hz": np.full(1, sample_rate_hz, dtype=float),
+        "speed_controller": np.full(1, speed_controller, dtype=np.uint8),
+        "speed_ladrc_bw_hz": np.full(1, speed_ladrc_bw_hz, dtype=float),
+        "mech_eso_bw_hz": np.full(1, mech_eso_bw_hz, dtype=float),
     }
     if quality not in ("unknown", "valid", "invalid"):
         raise ValueError("invalid measurement quality")
@@ -363,6 +367,7 @@ def replot(source, output):
             "kp", "ki", "ref", "fbk", "out", "current_controller",
             "ladrc_bw_hz", "ladrc_eso_bw_hz", "sample_rate_hz",
             "quality", "quality_reason", "point_valid",
+            "speed_controller", "speed_ladrc_bw_hz", "mech_eso_bw_hz",
         }
         missing = required.difference(archive.files)
         if missing:
@@ -383,8 +388,16 @@ def replot(source, output):
         feedback = np.asarray(archive["fbk"], dtype=np.complex128)
         output_signal = np.asarray(archive["out"], dtype=np.complex128)
         fs = np.asarray(archive["sample_rate_hz"], dtype=float)
+        speed_controller = np.asarray(archive["speed_controller"])
+        speed_ladrc_bw = np.asarray(archive["speed_ladrc_bw_hz"], dtype=float)
+        mech_eso_bw = np.asarray(archive["mech_eso_bw_hz"], dtype=float)
         if freq.ndim != 1 or bw.ndim != 1 or not len(bw):
             raise ValueError("invalid NMIXX frequency/condition dimensions")
+        if (any(v.shape != bw.shape for v in (speed_controller, speed_ladrc_bw, mech_eso_bw)) or
+            not np.all(np.isin(speed_controller, [0, 1])) or
+            not np.all(np.isfinite(speed_ladrc_bw)) or not np.all(np.isfinite(mech_eso_bw)) or
+            np.any(speed_ladrc_bw <= 0) or np.any(mech_eso_bw <= 0)):
+            raise ValueError("invalid NMIXX speed controller metadata")
         shape = (len(bw), len(freq))
         quality = np.asarray(archive["quality"])
         reason = np.asarray(archive["quality_reason"])
@@ -413,9 +426,13 @@ def replot(source, output):
         L = np.divide(T, S, out=np.full(T.shape, complex(np.nan, np.nan)),
                       where=abs(S) >= 1e-10)
         key = f"{NAMES[loop_id].replace(' ', '_')}_BW{bandwidth:g}_FF{int(ff[i])}"
+        if loop_id == LOOPS["speed"] and speed_controller[i] == 1:
+            key = f"Speed_LADRC{speed_ladrc_bw[i]:g}_ESO{mech_eso_bw[i]:g}_Current{int(controller[i])}"
         if key in metrics:
             raise ValueError(f"duplicate NMIXX condition: {key}")
-        if loop_id != LOOPS["speed"] and controller[i] == 1:
+        if loop_id == LOOPS["speed"] and speed_controller[i] == 1:
+            label = f"Speed (LADRC {speed_ladrc_bw[i]:g} / mechanical ESO {mech_eso_bw[i]:g} Hz)"
+        elif loop_id != LOOPS["speed"] and controller[i] == 1:
             label = f"{NAMES[loop_id]} (LADRC {ladrc_bw[i]:g} / ESO {ladrc_eso[i]:g} Hz)"
         elif tune[i] == 1:
             label = f"{NAMES[loop_id]} (Manual Kp {kp[i]:.4g}, Ki {ki[i]:.4g})"
@@ -447,6 +464,7 @@ from parameter_ids_generated import (
     PARAM_SIGNAL_SPEED_REF, PARAM_SIGNAL_SPEED_FBK,
     PARAM_SIGNAL_SPEED_IQ_OUT, PARAM_SIGNAL_SPEED_INJ,
     PARAM_CTRL_SPEED_BW_HZ, PARAM_CTRL_SPEED_SOURCE,
+    PARAM_CTRL_SPEED_CONTROLLER, PARAM_CTRL_SPEED_LADRC_BW_HZ, PARAM_CTRL_MECH_ESO_BW_HZ,
     PARAM_CTRL_CURRENT_SOURCE, PARAM_CTRL_CURRENT_CONTROLLER,
     PARAM_CTRL_LADRC_BW_HZ, PARAM_CTRL_LADRC_ESO_BW_HZ, PARAM_PLOT_FAST_DROP,
     PARAM_CTRL_SPEED_KP_EFFECTIVE,
@@ -806,6 +824,9 @@ def main():
         if client.read_u8(PARAM_SIGNAL_TARGET) != loop_id:
             raise RuntimeError("FRF target readback mismatch")
         ff = client.read_u8(PARAM_CTRL_CURRENT_FF_ENABLE)
+        speed_controller = client.read_u8(PARAM_CTRL_SPEED_CONTROLLER)
+        speed_ladrc_bw = client.read_float(PARAM_CTRL_SPEED_LADRC_BW_HZ)
+        mech_eso_bw = client.read_float(PARAM_CTRL_MECH_ESO_BW_HZ)
         if args.loop == "speed":
             pole_pairs = client.read_u8(PARAM_MOTOR_PP)
             if pole_pairs < 1:
@@ -894,6 +915,8 @@ def main():
                   workpoint=workpoint, pole_pairs=pole_pairs, quality=quality,
                   current_controller=controller, ladrc_bw_hz=ladrc_bw,
                   ladrc_eso_bw_hz=ladrc_eso, sample_rate_hz=sample_rate_hz,
+                  speed_controller=speed_controller, speed_ladrc_bw_hz=speed_ladrc_bw,
+                  mech_eso_bw_hz=mech_eso_bw,
                   quality_reason=quality_reason, point_valid=point_valid,
                   fit_residual=[r["fit_residual"] for r in results],
                   fit_drift=[r["fit_drift"] for r in results])
@@ -903,7 +926,9 @@ def main():
             S = 1 - T
             L = np.divide(T, S, out=np.full(T.shape, complex(np.nan, np.nan)),
                           where=abs(S) >= 1e-10)
-            if args.loop != "speed" and controller == 1:
+            if args.loop == "speed" and speed_controller == 1:
+                title = f"Speed (LADRC {speed_ladrc_bw:g} / mechanical ESO {mech_eso_bw:g} Hz)"
+            elif args.loop != "speed" and controller == 1:
                 title = f"{NAMES[loop_id]} (LADRC {ladrc_bw:g} / ESO {ladrc_eso:g} Hz)"
             elif tune_source == 1:
                 title = f"{NAMES[loop_id]} (Manual Kp {kp:.4g}, Ki {ki:.4g})"

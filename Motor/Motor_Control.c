@@ -437,7 +437,14 @@ void Motor_Control(void)
                 Motor_State = ENABLED;
             }
 
-            Current_Ref.Iq = Speed_Loop(We_Ref, We_Fbk, Iq_Min, Iq_Max);
+            if (!Cal_Speed && (Speed_Controller == SPEED_CTRL_LADRC))
+            {
+                Current_Ref.Iq = Speed_LADRC(We_Ref, Iq_Min, Iq_Max);
+            }
+            else
+            {
+                Current_Ref.Iq = Speed_Loop(We_Ref, We_Fbk, Iq_Min, Iq_Max);
+            }
             /* Publish all four 2 kHz values atomically to FAST Plot. */
             Primask = __get_PRIMASK();
             __disable_irq();
@@ -506,7 +513,14 @@ void Motor_Control(void)
 
             Pos_Div ^= 1U;
             We_Ref = (float)Motor_Para.Pp * Wm_Ref;
-            Current_Ref.Iq = Speed_Loop(We_Ref, We_Fbk, Iq_Min, Iq_Max);
+            if (Speed_Controller == SPEED_CTRL_LADRC)
+            {
+                Current_Ref.Iq = Speed_LADRC(We_Ref, Iq_Min, Iq_Max);
+            }
+            else
+            {
+                Current_Ref.Iq = Speed_Loop(We_Ref, We_Fbk, Iq_Min, Iq_Max);
+            }
             break;
 
         default:

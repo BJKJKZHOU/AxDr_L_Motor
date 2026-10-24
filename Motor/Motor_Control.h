@@ -57,7 +57,7 @@ Motor_Status_e Motor_Signal_Start(void);
 float Motor_Wm_Get(void);
 void Motor_Position_Get(int32_t *Turn, float *Theta);
 
-/* Coherent 2 kHz speed-PI sample, held for the 20 kHz FAST plot. */
+/* Coherent 2 kHz active speed-controller sample, held for the 20 kHz FAST plot. */
 typedef struct
 {
     float Ref;

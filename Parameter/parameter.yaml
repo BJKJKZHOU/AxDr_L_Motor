@@ -169,7 +169,7 @@ objects:
     binding: Mechanical_ESO.State.Td
     label: Td
     unit: N*m
-    description: "Mechanical ESO估算的负载/扰动转矩，仅用于诊断。"
+    description: "Mechanical ESO估算的负载/扰动转矩；有感速度LADRC用于扰动补偿，PI时仅用于诊断。"
     plot: { modes: [fast, normal], fast_scale: 0.001 }
 
   PARAM_MECH_ESO_ERROR:
@@ -1059,6 +1059,27 @@ objects:
       readback: [PARAM_CTRL_SPEED_KP_EFFECTIVE, PARAM_CTRL_SPEED_KI_EFFECTIVE]
 
 
+  PARAM_CTRL_SPEED_CONTROLLER:
+    id: 0x0A16
+    type: u8
+    access: rw
+    binding: Speed_Controller
+    label: Speed Controller
+    description: "在DISABLED状态选择有感速度/位置模式的速度控制器：0为PI(默认)，1为复用机械ESO的LADRC；辨识、无感和编码器校准保持PI。仅RAM生效。"
+    write_state: disabled
+    allowed_symbols: [SPEED_CTRL_PI, SPEED_CTRL_LADRC]
+
+  PARAM_CTRL_SPEED_LADRC_BW_HZ:
+    id: 0x0A17
+    type: f32
+    access: rw
+    binding: Control_Speed_LADRC_Bw_Hz
+    label: LADRC Speed Gain
+    unit: Hz
+    description: "速度LADRC线性反馈增益对应频率，默认50 Hz；共用机械ESO的Wm/Td和模型，无独立LESO带宽。仅RAM生效，需验证模型与闭环响应。"
+    write_state: disabled
+    range: { min: 0.0, exclusive_min: true, max: 500.0 }
+
   PARAM_CTRL_POSITION_KP:
     id: 0x0A20
     type: f32
@@ -1206,7 +1227,7 @@ objects:
     access: ro
     binding: Speed_Ctrl.Para.Kp
     label: Speed Effective Kp
-    description: "速度控制器当前实际使用的Kp，由Source选择生成；不保存。"
+    description: "速度PI的Kp，由Source选择生成；LADRC不使用此增益。不保存。"
 
   PARAM_CTRL_SPEED_KI_EFFECTIVE:
     id: 0x0A15
@@ -1214,7 +1235,7 @@ objects:
     access: ro
     binding: Speed_Ctrl.Para.Ki
     label: Speed Effective Ki
-    description: "速度控制器当前实际使用的Ki，由Source选择生成；不保存。"
+    description: "速度PI的Ki，由Source选择生成；LADRC不使用此增益。不保存。"
 
   # Temporary frequency-response injection; never saved to NVS.
   PARAM_SIGNAL_FREQ_HZ:
@@ -1331,7 +1352,7 @@ objects:
     binding: Motor_Frf_Speed.Ref
     label: Speed FRF We Ref
     unit: rad/s
-    description: "2kHz速度PI消费的电角速度参考，FAST读取同步快照。"
+    description: "2kHz当前速度控制器消费的电角速度参考，FAST读取同步快照。"
     plot: { modes: [fast, normal], fast_scale: 0.05 }
 
   PARAM_SIGNAL_SPEED_FBK:
@@ -1341,7 +1362,7 @@ objects:
     binding: Motor_Frf_Speed.Fbk
     label: Speed FRF We Feedback
     unit: rad/s
-    description: "2kHz速度PI消费的ESO电角速度反馈，FAST读取同步快照。"
+    description: "2kHz当前速度控制器消费的ESO电角速度反馈，FAST读取同步快照。"
     plot: { modes: [fast, normal], fast_scale: 0.05 }
 
   PARAM_SIGNAL_SPEED_IQ_OUT:
@@ -1351,7 +1372,7 @@ objects:
     binding: Motor_Frf_Speed.Iq
     label: Speed FRF Iq Command
     unit: A
-    description: "2kHz速度PI本周期输出的IqRef，同步采集。"
+    description: "2kHz当前速度控制器本周期限幅后的IqRef，同步采集。"
     plot: { modes: [fast, normal], fast_scale: 0.001 }
 
   PARAM_SIGNAL_SPEED_INJ:
