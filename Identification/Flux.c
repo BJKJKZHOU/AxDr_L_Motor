@@ -591,7 +591,8 @@ static void Flux_Coarse_Control_Run(const Flux_Slow_Snapshot_T *Snapshot)
                                  __builtin_atan2f(Flux_Estimator.State.Psi_q,
                                                   Flux_Estimator.State.Psi_d));
         Ident_Observer.Para.Rs = Motor_Para.Rs;
-        Ident_Observer.Para.Ls = Motor_Para.Ld;
+        Ident_Observer.Para.Ld = Motor_Para.Ld;
+        Ident_Observer.Para.Lq = Motor_Para.Lq;
         Obs_Para_Update();
         Ident_PLL.Para.Kp = 2.0f * Control_PLL_Damp * Pll_Wn;
         Ident_PLL.Para.Ki = Pll_Wn * Pll_Wn;

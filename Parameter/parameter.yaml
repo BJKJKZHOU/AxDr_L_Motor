@@ -768,8 +768,8 @@ objects:
     type: u8
     access: ro
     binding: Rs_Ls_Result.Valid
-    label: Rs/Ls Valid
-    description: "最近一次Rs/Ls辨识结果是否有效。"
+    label: Rs/Ld/Lq Valid
+    description: "最近一次Rs/Ld/Lq辨识结果是否有效。"
     range: { min: 0, max: 1 }
 
   PARAM_IDENT_RS_RESULT:
@@ -779,16 +779,25 @@ objects:
     binding: Rs_Ls_Result.Rs_Ohm
     label: Rs Result
     unit: ohm
-    description: "最近一次Rs/Ls辨识得到的相电阻结果。"
+    description: "最近一次Rs/Ld/Lq辨识得到的相电阻结果。"
 
-  PARAM_IDENT_LS_RESULT:
+  PARAM_IDENT_LD_RESULT:
     id: 0x0903
     type: f32
     access: ro
-    binding: Rs_Ls_Result.Ls_H
-    label: Ls Result
+    binding: Rs_Ls_Result.Ld_H
+    label: Ld Result
     unit: H
-    description: "最近一次Rs/Ls辨识得到的等效相电感结果。"
+    description: "最近一次Rs/Ld/Lq辨识得到的d轴电感结果。"
+
+  PARAM_IDENT_LQ_RESULT:
+    id: 0x0904
+    type: f32
+    access: ro
+    binding: Rs_Ls_Result.Lq_H
+    label: Lq Result
+    unit: H
+    description: "保持d轴励磁、q轴交流注入得到的电感结果。"
 
   PARAM_IDENT_FLUX_VALID:
     id: 0x0910
@@ -1176,8 +1185,8 @@ objects:
     access: wo
     command: MOTOR_CMD_IDENT_START
     arg: IDENT_RS_LS
-    label: Rs/Ls
-    description: "启动Rs/Ls辨识。"
+    label: Rs/Ld/Lq
+    description: "启动Rs/Ld/Lq辨识。"
 
   ACTION_IDENT_FLUX_START:
     id: 0x1102

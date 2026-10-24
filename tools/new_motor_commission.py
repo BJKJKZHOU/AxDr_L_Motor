@@ -4,7 +4,7 @@
 The workflow is fixed intentionally:
 
 1. Apply the known pole pairs to firmware RAM.
-2. Run Rs/Ls identification five times.
+2. Run Rs/Ld/Lq identification five times.
 3. Check repeatability and ask whether the fifth result may be applied to RAM.
 4. Run Flux identification twice forward and twice reverse.
 5. Check Flux repeatability and direction consistency.
@@ -194,8 +194,12 @@ class Commission(base.MotorUSB):
                 base.PARAM_IDENT_RS_RESULT,
                 base.PARAM_FLOAT,
             )
-            result["ls_h"] = self.parameter_read(
-                base.PARAM_IDENT_LS_RESULT,
+            result["ld_h"] = self.parameter_read(
+                base.PARAM_IDENT_LD_RESULT,
+                base.PARAM_FLOAT,
+            )
+            result["lq_h"] = self.parameter_read(
+                base.PARAM_IDENT_LQ_RESULT,
                 base.PARAM_FLOAT,
             )
         else:
@@ -258,7 +262,7 @@ class Commission(base.MotorUSB):
                                 "identification completed without a valid result"
                             )
                     if failure is not None:
-                        name = "Rs/Ls" if mode == IDENT_RS_LS else "Flux"
+                        name = "Rs/Ld/Lq" if mode == IDENT_RS_LS else "Flux"
                         failure = RuntimeError(
                             f"{name} identification failed; {failure}; "
                             f"captured phase peak={self.run_peak:.3f} A"
@@ -325,22 +329,26 @@ def max_relative_deviation(values):
 
 def evaluate_rs_ls(results, args):
     rs = [item["rs_ohm"] for item in results]
-    ls = [item["ls_h"] for item in results]
+    ld = [item["ld_h"] for item in results]
+    lq = [item["lq_h"] for item in results]
     summary = {
         "rs_median_ohm": statistics.median(rs),
-        "ls_median_h": statistics.median(ls),
+        "ld_median_h": statistics.median(ld),
+        "lq_median_h": statistics.median(lq),
         "rs_max_relative_deviation": max_relative_deviation(rs),
-        "ls_max_relative_deviation": max_relative_deviation(ls),
+        "ld_max_relative_deviation": max_relative_deviation(ld),
+        "lq_max_relative_deviation": max_relative_deviation(lq),
     }
     reasons = []
     if not all(item["valid"] for item in results):
         reasons.append("one or more results are invalid")
-    if not all(math.isfinite(value) and value > 0.0 for value in rs + ls):
-        reasons.append("Rs/Ls contains a non-positive or non-finite value")
+    if not all(math.isfinite(value) and value > 0.0 for value in rs + ld + lq):
+        reasons.append("Rs/Ld/Lq contains a non-positive or non-finite value")
     if summary["rs_max_relative_deviation"] > args.rl_repeat_limit:
         reasons.append("Rs repeatability exceeds limit")
-    if summary["ls_max_relative_deviation"] > args.rl_repeat_limit:
-        reasons.append("Ls repeatability exceeds limit")
+    for axis in ("d", "q"):
+        if summary[f"l{axis}_max_relative_deviation"] > args.rl_repeat_limit:
+            reasons.append(f"L{axis} repeatability exceeds limit")
     if any(item["fast_lost"] > args.max_lost or
            item["normal_lost"] > args.max_lost for item in results):
         reasons.append("telemetry loss exceeds limit")
@@ -383,20 +391,23 @@ def evaluate_flux(results, args):
 
 
 def print_rs_ls(results, summary):
-    print("\nRs/Ls results")
-    print(" run       Rs (ohm)      Ls (uH)   peak (A)  lost F/N")
+    print("\nRs/Ld/Lq results")
+    print(" run       Rs (ohm)      Ld (uH)      Lq (uH)   peak (A)  lost F/N")
     for item in results:
         print(
             f" {item['run']:>3d}  {item['rs_ohm']:>13.7g}  "
-            f"{item['ls_h'] * 1.0e6:>11.4f}  "
+            f"{item['ld_h'] * 1.0e6:>11.4f}  "
+            f"{item['lq_h'] * 1.0e6:>11.4f}  "
             f"{item['phase_peak_a']:>8.3f}  "
             f"{item['fast_lost']}/{item['normal_lost']}"
         )
     print(
         f" median: Rs={summary['rs_median_ohm']:.7g} ohm, "
-        f"Ls={summary['ls_median_h'] * 1.0e6:.4f} uH; "
+        f"Ld={summary['ld_median_h'] * 1.0e6:.4f} uH, "
+        f"Lq={summary['lq_median_h'] * 1.0e6:.4f} uH; "
         f"max deviation={100.0 * summary['rs_max_relative_deviation']:.2f}%/"
-        f"{100.0 * summary['ls_max_relative_deviation']:.2f}%"
+        f"{100.0 * summary['ld_max_relative_deviation']:.2f}%/"
+        f"{100.0 * summary['lq_max_relative_deviation']:.2f}%"
     )
 
 
@@ -451,7 +462,7 @@ def parse_args():
     parser.add_argument(
         "--identify-only",
         action="store_true",
-        help="stop after Rs/Ls and Flux are accepted and applied to firmware RAM",
+        help="stop after Rs/Ld/Lq and Flux are accepted and applied to firmware RAM",
     )
     parser.add_argument("--target-we", type=int, default=1000,
                         help="final sensorless test point in electrical rad/s")
@@ -513,7 +524,7 @@ def main():
     declined = None
 
     print(
-        "Unknown-motor commissioning: 5 x Rs/Ls, "
+        "Unknown-motor commissioning: 5 x Rs/Ld/Lq, "
         "2 x forward Flux, 2 x reverse Flux"
     )
     if args.identify_only:
@@ -539,7 +550,7 @@ def main():
                 record["firmware_pole_pairs"] = ident.pole_pairs_set()
 
                 for run in range(1, 6):
-                    print(f"\nRs/Ls identification {run}/5")
+                    print(f"\nRs/Ld/Lq identification {run}/5")
                     try:
                         result = ident.run_ident(IDENT_RS_LS, run)
                     except IdentificationFailed as exc:
@@ -552,13 +563,13 @@ def main():
                 print_rs_ls(record["rs_ls"], rl_summary)
                 ident.stop_plot()
                 if reasons:
-                    raise RuntimeError("Rs/Ls quality gate: " + "; ".join(reasons))
+                    raise RuntimeError("Rs/Ld/Lq quality gate: " + "; ".join(reasons))
                 if not confirm_ram(
-                        "Apply run 5 Rs/Ls to RAM (Ld=Lq=Ls)?"):
-                    raise UserDeclined("Rs/Ls RAM update declined")
+                        "Apply run 5 Rs/Ld/Lq to RAM (Rs, Ld, Lq)?"):
+                    raise UserDeclined("Rs/Ld/Lq RAM update declined")
                 ident.apply()
                 record["rs_ls_applied"] = True
-                print("Rs/Ls applied to RAM from run 5.")
+                print("Rs/Ld/Lq applied to RAM from run 5.")
 
                 ident.configure_plot()
                 directions = ("forward", "forward", "reverse", "reverse")
@@ -593,7 +604,7 @@ def main():
                 if args.identify_only:
                     record["status"] = "completed"
                     print(
-                        "Identification complete. Rs/Ls and Flux remain in firmware RAM; "
+                        "Identification complete. Rs/Ld/Lq and Flux remain in firmware RAM; "
                         "do not reset the MCU before the next commissioning step."
                     )
                     return

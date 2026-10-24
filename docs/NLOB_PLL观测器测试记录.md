@@ -1,9 +1,10 @@
 # NLOB + PLL 观测器测试记录
 
-更新时间：2026-10-06
+更新时间：2026-10-24
 分支：`feat/sensorless-open-loop`（第 1～6 节历史记录）；`feat/jb-identification`（第 7 节）；`fix/sensorless-speed-loop`（第 8 节）
 
-最新无感加减速及 IF 双向切换实测见第 8 节。第 1～6 节的 Shadow 与 Takeover 门槛保留为历史记录。
+Ld/Lq 分离后的有功磁链模型及实机对照见[辨识测试记录第 16 节](辨识测试记录.md#16-2026-10-24凸极磁链模型与实机回归)。
+无感加减速及 IF 双向切换实测见第 8 节。第 1～6 节的 Shadow 与 Takeover 门槛保留为历史记录。
 
 ## 1. 记录范围
 
@@ -52,7 +53,7 @@ Id/Iq 重投影，否则 Park 坐标会瞬间跳变约 `81 deg`。
 
 ## 4. Flux Error 定义
 
-当前定义：
+当时的单电感模型定义：
 
 ```text
 Flux_Err = Flux_ref^2 - PsiAlpha^2 - PsiBeta^2

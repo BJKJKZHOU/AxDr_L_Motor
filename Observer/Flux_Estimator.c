@@ -53,8 +53,13 @@ bool Flux_Estimator_Run(Flux_Estimator_T *Est,
     Est->State.Id_F += Id_Dot * Ts;
     Est->State.Iq_F += Iq_Dot * Ts;
 
-    Est->State.Yd = Uq - Est->Para.Rs * Iq - Est->Para.Lq * Iq_Dot - We * Est->Para.Ld * Id;
-    Est->State.Yq = -Ud + Est->Para.Rs * Id + Est->Para.Ld * Id_Dot - We * Est->Para.Lq * Iq;
+    /* Vector fitting uses the I/F frame, whose d axis need not be the rotor
+     * axis. Subtract isotropic Lq to fit active flux in that frame. Scalar
+     * fitting uses the observer frame and estimates PM flux directly. */
+    float L = (Mode == FLUX_EST_VECTOR) ? Est->Para.Lq : Est->Para.Ld;
+
+    Est->State.Yd = Uq - Est->Para.Rs * Iq - Est->Para.Lq * Iq_Dot - We * L * Id;
+    Est->State.Yq = -Ud + Est->Para.Rs * Id + L * Id_Dot - We * Est->Para.Lq * Iq;
     Est->State.Model_Valid = __builtin_isfinite(Est->State.Yd) && __builtin_isfinite(Est->State.Yq);
     if (!Est->State.Model_Valid)
     {
@@ -70,8 +75,17 @@ bool Flux_Estimator_Run(Flux_Estimator_T *Est,
         Err_q = Est->State.Yq - We * Est->State.Psi_q;
         Est->State.Psi_d += Gain * Norm * Err_d;
         Est->State.Psi_q += Gain * Norm * Err_q;
-        Est->State.Flux = __builtin_sqrtf(Est->State.Psi_d * Est->State.Psi_d +
-                                          Est->State.Psi_q * Est->State.Psi_q);
+        float Psi = __builtin_sqrtf(Est->State.Psi_d * Est->State.Psi_d +
+                                    Est->State.Psi_q * Est->State.Psi_q);
+
+        if (!__builtin_isfinite(Psi) || (Psi <= 0.0f))
+        {
+            return false;
+        }
+        /* Rotor Id is the current projection onto active flux, not I/F Id. */
+        float Id_Rotor = (Id * Est->State.Psi_d + Iq * Est->State.Psi_q) / Psi;
+
+        Est->State.Flux = Psi - (Est->Para.Ld - Est->Para.Lq) * Id_Rotor;
         Est->State.Estimate_Valid = __builtin_isfinite(Est->State.Flux) && (Est->State.Flux > 0.0f);
     }
     else if (__builtin_isfinite(Est->State.Flux) && (Est->State.Flux > 0.0f))

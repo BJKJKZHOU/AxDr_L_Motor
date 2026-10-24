@@ -6,6 +6,13 @@ Before modifying C/C++ source in this repository, read `docs/CODE_STYLE.md` and 
 
  - 每次修改前，需要说明原因，变更计划，取得同意后才能修改。
 
+## 文档与测试记录
+
+- 以实测数据、结论和参数调整依据为主，保留影响结果解释的必要条件；重复测量和对比优先用表格。
+- 正常结束状态、零故障、零丢帧、构建通过及参数恢复等常规信息默认省略；出现异常或本身就是测试对象时记录。
+- 不记录无归档用途的固件哈希、冗长临时文件清单及过时命令；必要的数据和复现入口简要保留。
+- 避免重复的“不能据此”“不代表”等泛化说明，直接写明观察结果、具体差异和待定位问题，区分事实与推测。
+
 ## Core rules
 
 - Preserve the existing motor-control behavior and timing unless the task explicitly requires a behavior change.

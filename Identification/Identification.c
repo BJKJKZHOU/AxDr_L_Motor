@@ -181,8 +181,8 @@ bool Identification_Apply(void)
     if (Ident_Mode == IDENT_RS_LS)
     {
         Model.Rs = Rs_Ls_Result.Rs_Ohm;
-        Model.Ld = Rs_Ls_Result.Ls_H;
-        Model.Lq = Rs_Ls_Result.Ls_H;
+        Model.Ld = Rs_Ls_Result.Ld_H;
+        Model.Lq = Rs_Ls_Result.Lq_H;
     }
     else if (Ident_Mode == IDENT_FLUX)
     {
@@ -224,7 +224,8 @@ Motor_Fast_Mode_e Identification_Fast_Run(float Ia_A,
 
     if (Ident_Mode == IDENT_RS_LS)
     {
-        return Rs_Ls_Run(Ia_A, Theta_e, Id_Ref, Iq_Ref, Ualpha_V, Ubeta_V);
+        return Rs_Ls_Run(Ia_A, (Ia_A + 2.0f * Ib_A) * INV_SQRT3_F,
+                         Theta_e, Id_Ref, Iq_Ref, Ualpha_V, Ubeta_V);
     }
 
     if (Ident_Mode == IDENT_FLUX)
