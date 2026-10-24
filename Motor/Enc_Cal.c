@@ -81,24 +81,12 @@ bool Enc_Cal_Start(void)
     return true;
 }
 
-/* Publish a calibration phase and its 20 kHz execution entry together.
- * Do not mask interrupts while running the rest of the 2 kHz procedure. */
-static void Enc_Cal_Step_Set(Enc_Cal_Step_e Step)
-{
-    uint32_t Primask = __get_PRIMASK();
-
-    __disable_irq();
-    Enc_Cal.Step = Step;
-    Motor_Fast_Select();
-    __set_PRIMASK(Primask);
-}
-
 void Enc_Cal_Abort(void)
 {
     if ((Enc_Cal.Step >= CAL_SPEED) && (Enc_Cal.Step < CAL_DONE))
     {
         /* Prevent a late worker result from applying after cancellation. */
-        Enc_Cal_Step_Set(CAL_FAILED);
+        Enc_Cal.Step = CAL_FAILED;
     }
 }
 
@@ -346,7 +334,7 @@ void Enc_Cal_Run(void)
     /* Fitting and saving follow the actual transition to DISABLED. */
     if (Motor_State_Get() != ((Enc_Cal.Step < CAL_FIT) ? RUN : DISABLED))
     {
-        Enc_Cal_Step_Set(CAL_FAILED);
+        Enc_Cal.Step = CAL_FAILED;
         return;
     }
 
@@ -367,11 +355,11 @@ void Enc_Cal_Run(void)
         {
             Tick = 0U;
             Hold_Cnt = 0U;
-            Enc_Cal_Step_Set(CAL_VF);
+            Enc_Cal.Step = CAL_VF;
         }
         else if (Tick > (uint32_t)((ENC_CAL_WM / Motion_Config.Wm_Acc + 4.0f) / SPD_TS))
         {
-            Enc_Cal_Step_Set(CAL_FAILED);
+            Enc_Cal.Step = CAL_FAILED;
         }
         return;
     }
@@ -399,11 +387,11 @@ void Enc_Cal_Run(void)
 
         if (Hold_Cnt < ENC_CAL_SPEED_HOLD_CNT)
         {
-            Enc_Cal_Step_Set(CAL_FAILED);
+            Enc_Cal.Step = CAL_FAILED;
             return;
         }
 
-        Enc_Cal_Step_Set(CAL_SAMPLE);
+        Enc_Cal.Step = CAL_SAMPLE;
         return;
     }
 
@@ -413,11 +401,11 @@ void Enc_Cal_Run(void)
         if ((Sample_Cnt > ENC_CAL_SAMPLES) || !__builtin_isfinite(Wm) ||
             (__builtin_fabsf(Wm - ENC_CAL_WM) >= 0.1f * ENC_CAL_WM))
         {
-            Enc_Cal_Step_Set(CAL_FAILED);
+            Enc_Cal.Step = CAL_FAILED;
         }
         else if (Sample_Cnt == ENC_CAL_SAMPLES)
         {
-            Enc_Cal_Step_Set(CAL_HANDOFF);
+            Enc_Cal.Step = CAL_HANDOFF;
         }
         return;
     }
@@ -429,7 +417,7 @@ void Enc_Cal_Run(void)
             Motor_Cal_Decel_Begin();
             Hold_Cnt = 0U;
             Tick = 0U;
-            Enc_Cal_Step_Set(CAL_DECEL);
+            Enc_Cal.Step = CAL_DECEL;
         }
         return;
     }
@@ -439,7 +427,7 @@ void Enc_Cal_Run(void)
         Wm = Mechanical_ESO.State.Wm;
         if (++Tick > (uint32_t)((ENC_CAL_WM / Motion_Config.Wm_Dec + 4.0f) / SPD_TS))
         {
-            Enc_Cal_Step_Set(CAL_FAILED);
+            Enc_Cal.Step = CAL_FAILED;
             return;
         }
         if ((Motor_Wm_Ref_Get() != 0.0f) || !__builtin_isfinite(Wm) ||
@@ -454,7 +442,7 @@ void Enc_Cal_Run(void)
             return;
         }
 
-        Enc_Cal_Step_Set(CAL_FIT);
+        Enc_Cal.Step = CAL_FIT;
         return;
     }
 
@@ -464,10 +452,10 @@ void Enc_Cal_Run(void)
         {
             if (!Motor_Work_Request(MOTOR_WORK_FIT))
             {
-                Enc_Cal_Step_Set(CAL_FAILED);
+                Enc_Cal.Step = CAL_FAILED;
                 return;
             }
-            Enc_Cal_Step_Set(CAL_FIT_WAIT);
+            Enc_Cal.Step = CAL_FIT_WAIT;
         }
         return;
     }
@@ -482,23 +470,23 @@ void Enc_Cal_Run(void)
         Motor_Work_Ack();
         if (!Passed)
         {
-            Enc_Cal_Step_Set(CAL_FAILED);
+            Enc_Cal.Step = CAL_FAILED;
             return;
         }
 
         if (!Motor_Work_Request(MOTOR_WORK_SAVE_ENC))
         {
-            Enc_Cal_Step_Set(CAL_FAILED);
+            Enc_Cal.Step = CAL_FAILED;
             return;
         }
 
-        Enc_Cal_Step_Set(CAL_SAVE_WAIT);
+        Enc_Cal.Step = CAL_SAVE_WAIT;
         return;
     }
 
     if ((Enc_Cal.Step == CAL_SAVE_WAIT) && (Motor_Work_State >= MOTOR_WORK_DONE))
     {
-        Enc_Cal_Step_Set((Motor_Work_State == MOTOR_WORK_DONE) ? CAL_DONE : CAL_FAILED);
+        Enc_Cal.Step = (Motor_Work_State == MOTOR_WORK_DONE) ? CAL_DONE : CAL_FAILED;
         Motor_Work_Ack();
     }
 }

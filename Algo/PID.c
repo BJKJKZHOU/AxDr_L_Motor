@@ -18,7 +18,12 @@ void PID_Run(PID_T *Pid, float Ts)
     P = Pid->Para.Kp * Pid->Sig.Err;
 
     Int_Pre = Pid->State.Int;
-    Int = Int_Pre + Pid->Para.Ki * Pid->Sig.Err * Ts;
+    /* Ki == 0 holds the existing bias, including a tracked handoff value. */
+    Int = Int_Pre;
+    if (Pid->Para.Ki != 0.0f)
+    {
+        Int += Pid->Para.Ki * Pid->Sig.Err * Ts;
+    }
 
     if (Int > Pid->Para.Int_Max)
     {

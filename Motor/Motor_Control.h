@@ -12,8 +12,6 @@
 #include "Identification.h"
 
 void Motor_Control(void);
-/* Upper layer publishes the selected fast execution entry on state transitions. */
-void Motor_Fast_Select(void);
 FAST_CODE Motor_Fast_Mode_e Motor_Fast_Run(float Encoder_Theta_e,
                                           bool Encoder_Park_Valid,
                                           float *Theta_e,
@@ -53,6 +51,7 @@ void Motor_Disable_Apply(void);
 
 Motor_Status_e Motor_Ident_Start(Ident_Mode_e Mode);
 Motor_Status_e Motor_Ident_Apply(void);
+Motor_Status_e Motor_Signal_Start(void);
 
 /* User mechanical coordinate feedback. Internal FOC state remains in Motor_Run. */
 float Motor_Wm_Get(void);

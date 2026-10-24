@@ -386,9 +386,11 @@ void Fast_Loop(void)
         goto finish;
     }
 
-    if ((Fast_Mode == FAST_CURRENT) || (Fast_Mode == FAST_SENSORED_CURRENT))
+    if (Fast_Mode == FAST_CURRENT)
     {
-        Sensored = (Fast_Mode == FAST_SENSORED_CURRENT);
+        Sensored = ((Enc_Step == ENC_CAL_RUN) &&
+                    ((Enc_Cal.Step == CAL_SPEED) || (Enc_Cal.Step == CAL_DECEL))) ||
+                   (!Enc_Control_Active() && (Motor_Mode <= POSITION));
         /* Motor_Fast_Run may use the previous-cycle dq values (IF/ident).
          * Publish this sample only after it has selected the FOC angle. */
         if (!Cal_Handoff)
@@ -406,7 +408,7 @@ void Fast_Loop(void)
         }
         Motor_Run.Theta_e = Theta_e;
 
-        /* The Action owner checks TORQUE/ENABLED before starting current FRF.
+        /* Motor_Signal_Start checks TORQUE/ENABLED before starting current FRF.
          * Stop, Disable and Run cancel it; only the per-sample target remains here. */
         if ((Signal_Injection.State.Active != 0U) &&
             (Signal_Injection.State.Target != SIGNAL_SPEED))

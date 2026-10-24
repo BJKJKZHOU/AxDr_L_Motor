@@ -130,3 +130,19 @@ void Enc_Control_Run(void)
     }
 }
 
+Motor_Fast_Mode_e Enc_Control_Fast_Run(float *Theta_e,
+                                        float *Id_Ref,
+                                        float *Iq_Ref,
+                                        float *Ualpha,
+                                        float *Ubeta)
+{
+    if (Enc_Step == ENC_PHASE_RUN)
+    {
+        return Servo_Phase_Fast_Run(Theta_e, Id_Ref, Iq_Ref, Ualpha, Ubeta);
+    }
+    if (Enc_Step == ENC_CAL_RUN)
+    {
+        return Enc_Cal_Fast_Run(Theta_e, Ualpha, Ubeta);
+    }
+    return FAST_OFF;
+}
