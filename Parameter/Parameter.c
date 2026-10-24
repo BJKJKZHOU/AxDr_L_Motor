@@ -307,12 +307,22 @@ static Parameter_Status_e Parameter_Apply(const Parameter_Entry_T *Entry,
             Parameter_On_Change(Entry->Id);
             return PARAM_OK;
     }
-    return Motor_Para_Update(&Model, Eso_Bw_Hz) ? PARAM_OK : PARAM_ERR_VALUE;
+    if (!Motor_Para_Update(&Model, Eso_Bw_Hz))
+    {
+        return PARAM_ERR_VALUE;
+    }
+
+    /* 仅用户实际改动极对数后要求重新寻相，上电恢复不经过此处。 */
+    if (Entry->Id == PARAM_MOTOR_PP)
+    {
+        Motor_Cal.Valid = 0U;
+    }
+    return PARAM_OK;
 }
 
-static Parameter_Status_e Parameter_Write_Common(uint16_t Id,
-                                                 Parameter_Type_e Type,
-                                                 Parameter_Value_T Value)
+Parameter_Status_e Parameter_Write(uint16_t Id,
+                                   Parameter_Type_e Type,
+                                   Parameter_Value_T Value)
 {
     const Parameter_Entry_T *Entry;
     Motor_State_e State;
@@ -386,13 +396,6 @@ Parameter_Status_e Parameter_Read(uint16_t Id,
     return PARAM_OK;
 }
 
-Parameter_Status_e Parameter_Write(uint16_t Id,
-                                   Parameter_Type_e Type,
-                                   Parameter_Value_T Value)
-{
-    return Parameter_Write_Common(Id, Type, Value);
-}
-
 bool Parameter_Persistent_Read(uint16_t Id,
                                Parameter_Type_e *Type,
                                Parameter_Value_T *Value)
@@ -447,18 +450,6 @@ bool Parameter_Persistent_Next(uint32_t *Index,
     }
 
     return false;
-}
-
-Parameter_Status_e Parameter_Check(uint16_t Id, Parameter_Type_e Type,
-                                   Parameter_Value_T Value)
-{
-    const Parameter_Entry_T *Entry = Parameter_Find(Id);
-
-    if (Entry == NULL)
-    {
-        return PARAM_ERR_ID;
-    }
-    return Parameter_Value_Check(Entry, Type, Value);
 }
 
 Parameter_Status_e Parameter_Restore(uint16_t Id,

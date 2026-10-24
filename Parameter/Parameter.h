@@ -66,9 +66,7 @@ bool Parameter_Persistent_Next(uint32_t *Index,
                                uint16_t *Id,
                                Parameter_Type_e *Type,
                                Parameter_Value_T *Value);
-/* Validate type/range without writing RAM or invoking on_change. */
-Parameter_Status_e Parameter_Check(uint16_t Id, Parameter_Type_e Type,
-                                   Parameter_Value_T Value);
+/* 按表校验并恢复 RAM，不触发参数修改回调。 */
 Parameter_Status_e Parameter_Restore(uint16_t Id,
                                      Parameter_Type_e Type,
                                      Parameter_Value_T Value);

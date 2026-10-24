@@ -8,6 +8,9 @@
 #include <stdbool.h>
 #include <string.h>
 
+#include "Encoder.h"
+#include "Mechanical_ESO.h"
+#include "Motor_Para.h"
 #include "Motor_Control.h"
 #include "Enc_Cal.h"
 #include "NVS_Storage.h"
@@ -477,12 +480,22 @@ UINT Motor_Thread_Init(VOID *memory_ptr)
 {
     TX_BYTE_POOL *byte_pool;
     CHAR *pointer;
+    Motor_Para_T Model = Motor_Para;
+    float Eso_Bw_Hz = Mechanical_ESO_Bw_Hz;
 
     byte_pool = (TX_BYTE_POOL *)memory_ptr;
 
-    /* Restore configuration before the Motor thread starts. Invalid scalar
-     * records keep defaults; a rejected model leaves ESO/calibration invalid. */
+    /* Motor_Ready 置位前完成加载和配置，此时编码器尚未开始采样。 */
     (void)NVS_Storage_Load_All();
+    if (!Motor_Para_Update(&Motor_Para, Mechanical_ESO_Bw_Hz))
+    {
+        /* 保留原有模型，其他参数仍使用按表恢复的值。 */
+        Motor_Para = Model;
+        Mechanical_ESO_Bw_Hz = Eso_Bw_Hz;
+        Current_Tuning_Update();
+        Speed_Tuning_Update();
+    }
+    Encoder_DMA_Config();
 
     UINT Work_Result = Motor_Work_Thread_Init(byte_pool);
     if (Work_Result != TX_SUCCESS)

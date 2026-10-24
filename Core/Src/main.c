@@ -30,7 +30,6 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "Encoder.h"
 #include "Motor_ADC.h"
 #include "Motor_PWM.h"
 /* USER CODE END Includes */
@@ -122,8 +121,6 @@ int main(void)
   /* Ignore ADC timing until the first TIM1 underflow establishes T0. */
   Fast_Time.T0 = UINT32_MAX;
   Fast_Time.Enc_Cyc = UINT32_MAX;
-
-  Encoder_DMA_Config();
 
   ADC_Calib();
 
