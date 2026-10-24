@@ -49,7 +49,7 @@ typedef enum
     /* Mechanical_ESO.State.Wm: Mechanical ESO估算的机械角速度。 */
     PARAM_MECH_ESO_WM = 0x0023U,
 
-    /* Mechanical_ESO.State.Td: Mechanical ESO估算的负载/扰动转矩，仅用于诊断。 */
+    /* Mechanical_ESO.State.Td: Mechanical ESO估算的负载/扰动转矩；有感速度LADRC用于扰动补偿，PI时仅用于诊断。 */
     PARAM_MECH_ESO_TD = 0x0024U,
 
     /* Mechanical_ESO.State.Error: Mechanical ESO的单圈角度观测误差，Theta_meas-Theta_hat回绕到[-π,π)。 */
@@ -289,6 +289,12 @@ typedef enum
     /* Control_Speed_Tune_Source: 当前速度环增益来源；Bandwidth按模型和带宽生成实际PI，Manual发布RAM中的手调参数。切换不读Flash，Save保存当前Manual配置。 */
     PARAM_CTRL_SPEED_SOURCE = 0x0A13U,
 
+    /* Speed_Controller: 在DISABLED状态选择有感速度/位置模式的速度控制器：0为PI(默认)，1为复用机械ESO的LADRC；辨识、无感和编码器校准保持PI。仅RAM生效。 */
+    PARAM_CTRL_SPEED_CONTROLLER = 0x0A16U,
+
+    /* Control_Speed_LADRC_Bw_Hz: 速度LADRC线性反馈增益对应频率，默认50 Hz；共用机械ESO的Wm/Td和模型，无独立LESO带宽。仅RAM生效，需验证模型与闭环响应。 */
+    PARAM_CTRL_SPEED_LADRC_BW_HZ = 0x0A17U,
+
     /* Pos_Ctrl.Para.Kp: 位置环P增益，单位为(rad/s)/rad。 */
     PARAM_CTRL_POSITION_KP = 0x0A20U,
 
@@ -334,10 +340,10 @@ typedef enum
     /* MOTOR_CMD_PARAMETER_SAVE: 将当前持久化参数显式保存到NVS；仅DISABLED状态允许执行。 */
     ACTION_PARAMETER_SAVE = 0x1202U,
 
-    /* Speed_Ctrl.Para.Kp: 速度控制器当前实际使用的Kp，由Source选择生成；不保存。 */
+    /* Speed_Ctrl.Para.Kp: 速度PI的Kp，由Source选择生成；LADRC不使用此增益。不保存。 */
     PARAM_CTRL_SPEED_KP_EFFECTIVE = 0x0A14U,
 
-    /* Speed_Ctrl.Para.Ki: 速度控制器当前实际使用的Ki，由Source选择生成；不保存。 */
+    /* Speed_Ctrl.Para.Ki: 速度PI的Ki，由Source选择生成；LADRC不使用此增益。不保存。 */
     PARAM_CTRL_SPEED_KI_EFFECTIVE = 0x0A15U,
 
     /* Signal_Injection.Para.Freq_Hz: 有感D/Q电流环或速度环正弦激励频率；Start时锁存。 */
@@ -373,13 +379,13 @@ typedef enum
     /* Iq_Ctrl.Sig.Out: 当前选中电流控制器的q轴电压输出，未叠加公共dq前馈、未经过最终dq二维限幅。 */
     PARAM_SIGNAL_IQ_PI_OUT = 0x0B0BU,
 
-    /* Motor_Frf_Speed.Ref: 2kHz速度PI消费的电角速度参考，FAST读取同步快照。 */
+    /* Motor_Frf_Speed.Ref: 2kHz当前速度控制器消费的电角速度参考，FAST读取同步快照。 */
     PARAM_SIGNAL_SPEED_REF = 0x0B0CU,
 
-    /* Motor_Frf_Speed.Fbk: 2kHz速度PI消费的ESO电角速度反馈，FAST读取同步快照。 */
+    /* Motor_Frf_Speed.Fbk: 2kHz当前速度控制器消费的ESO电角速度反馈，FAST读取同步快照。 */
     PARAM_SIGNAL_SPEED_FBK = 0x0B0DU,
 
-    /* Motor_Frf_Speed.Iq: 2kHz速度PI本周期输出的IqRef，同步采集。 */
+    /* Motor_Frf_Speed.Iq: 2kHz当前速度控制器本周期限幅后的IqRef，同步采集。 */
     PARAM_SIGNAL_SPEED_IQ_OUT = 0x0B0EU,
 
     /* Motor_Frf_Speed.Inj: 本次2kHz速度环实际叠加的电角速度正弦激励，同步采集。 */

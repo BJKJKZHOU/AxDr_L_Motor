@@ -5,6 +5,14 @@
 
 #include "LADRC.h"
 
+float LADRC_Speed(float Wm_Err, float Wm, float Td, float Wc,
+                  float B_Over_J, float Inv_J, float Kt_Over_J)
+{
+    /* J*dWm/dt = Kt*Iq - B*Wm - Td. Compensate friction and the
+     * external ESO disturbance once, with proportional speed feedback. */
+    return (Wc * Wm_Err + B_Over_J * Wm + Inv_J * Td) / Kt_Over_J;
+}
+
 void LADRC_Run(LADRC_T *Ctrl, float Ts)
 {
     float Eso_Err;

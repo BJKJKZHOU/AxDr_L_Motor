@@ -18,7 +18,7 @@ Hardware run on 2026-10-24: approximately 24.8 V supply, encoder-based speed mod
 
 | Feature | Details |
 | --- | --- |
-| Encoder-based control | Torque, speed, and position modes with mechanical ESO speed estimation, 2 kHz speed PI, and 1 kHz position P; includes MT6816 and MT6835 SPI encoder drivers |
+| Encoder-based control | Torque, speed, and position modes with a mechanical ESO, selectable 2 kHz speed PI / LADRC, and 1 kHz position P; includes MT6816 and MT6835 SPI encoder drivers |
 | Motion profiles | Torque ramps, trapezoidal speed and position profiles, and S-curve profiles; tested with target changes during operation, direction reversals, position round trips, and deceleration to a stop |
 | Current control | 20 kHz dq current loop; encoder-based operation can switch between PI / LADRC while retaining the same outer speed and position loops for comparison; supports dq decoupling and back-EMF feedforward |
 | Sensorless control | I/F startup, nonlinear flux observer (NLOB), and PLL; firmware handles rotor alignment, startup, closed-loop handover, and return to I/F during deceleration |
@@ -36,7 +36,7 @@ flowchart LR
     P["Position profile"] --> PC["Position P + profile-speed feedforward<br/>1 kHz"]
     E["SPI encoder"] --> PC
     E --> ESO["Mechanical ESO<br/>20 kHz"]
-    PC --> SC["Speed PI<br/>2 kHz"]
+    PC --> SC["Speed PI / LADRC<br/>2 kHz"]
     S["Speed profile"] --> SC
     ESO --> SC
     SC --> IQ["Iq reference"]
@@ -46,6 +46,8 @@ flowchart LR
 ~~~
 
 Current sensing, coordinate transforms, limiting, and protection are omitted from the diagram. Control loops and motion profiles are implemented in [Motor/](../Motor/) and [Motion/](../Motion/).
+
+Speed PI/LADRC selection is independent of the current controller; speed LADRC shares the mechanical ESO. See [parameters (Chinese)](速度环与位置环调参记录.md#speed-ladrc) and [±300 rad/s test results (Chinese)](速度环与位置环调参记录.md#speed-ladrc-regression-20261024).
 
 Current sensing, coordinate transforms, current control, and modulation execute in the ADC interrupt path, with the current loop running once per PWM cycle. ThreadX threads handle motion-control scheduling, command processing, USB communication, and LCD updates; high-frequency control runs separately from communication and display tasks. The current, speed, and position loops run at **20 kHz / 2 kHz / 1 kHz**, respectively.
 
@@ -79,7 +81,7 @@ At 6000 RPM with encoder-based PI speed control, approximately 10 seconds of dat
 | ESO speed standard deviation / RPM | 11.1395 | 1.7472 |
 | Iq second mechanical harmonic peak / A | 0.42668 | 0.02162 |
 
-In this comparison, ESO speed standard deviation decreased by 84.3%, and the Iq second mechanical harmonic peak decreased by 94.9%. The tests also verified calibration storage, loading after reset, and aborting calibration with a stop command during acceleration. ESO speed is derived from the same encoder, so these results do not establish independently measured angular accuracy. Full conditions and raw waveforms are in the [encoder calibration and compensation test record (Chinese)](Mechanical_ESO_有感速度测试记录_20260917.md#encoder-auto-cal-20261020).
+In this comparison, ESO speed standard deviation decreased by 84.3%, and the Iq second mechanical harmonic peak decreased by 94.9%. The tests also verified calibration storage, loading after reset, and aborting calibration with a stop command during acceleration. Speed statistics use the mechanical ESO output, with angle feedback from the motor encoder. Full conditions and raw waveforms are in the [encoder calibration and compensation test record (Chinese)](Mechanical_ESO_有感速度测试记录_20260917.md#encoder-auto-cal-20261020).
 
 **PI / LADRC current-loop and three-loop comparison (2026-10-17)**
 
@@ -91,12 +93,12 @@ Under the tested settings, LADRC had lower RMS position-holding error and lower 
 
 [![D/Q current-loop closed-loop frequency responses across seven PI settings](data/20261010_current_frf/bode_comparison.png)](data/20261010_current_frf/bode_comparison.png)
 
-At 20 kHz sampling, seven PI parameter sets × D/Q axes × feedforward decoupling on/off produced 28 closed-loop frequency sweeps. Higher-bandwidth settings show gain peaking. The PI design bandwidth is not the measured −3 dB bandwidth, and inferred margins are not independent open-loop measurements. Test conditions, validity assessment, and raw data are in the [current-loop frequency-response record (Chinese)](电流环频响测试.md#frf-hw-20261010).
+At 20 kHz sampling, seven PI parameter sets × D/Q axes × feedforward decoupling on/off produced 28 closed-loop frequency sweeps. Higher-bandwidth settings show gain peaking. Plots label the PI parameter settings; the closed-loop response is calculated from feedback and reference signals, and margins are inferred from that response. Test conditions, validity assessment, and raw data are in the [current-loop frequency-response record (Chinese)](电流环频响测试.md#frf-hw-20261010).
 
 Other hardware tests:
 
 - [Motion profiles (Chinese)](轨迹规划测试记录.md): target changes, direction reversals, position round trips, S-curves, and stop behavior across the three control modes.
-- [Speed-loop frequency response (Chinese)](速度环与位置环调参记录.md#speed-frf-hw-20261010): eight PI configurations at a 100 rad/s operating point; linear bandwidth and stability margins remain unconfirmed.
+- [Speed-loop frequency response (Chinese)](速度环与位置环调参记录.md#speed-frf-hw-20261010): eight PI configurations at a 100 rad/s operating point, recording closed-loop magnitude and phase from 1 to 150 Hz.
 - [Parameter identification (Chinese)](辨识测试记录.md): Rs/Ls, flux linkage, and J/B test conditions, repeatability, and open questions.
 
 ## Communication and tools

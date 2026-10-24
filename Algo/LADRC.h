@@ -42,4 +42,13 @@ typedef struct
 
 FAST_CODE void LADRC_Run(LADRC_T *Ctrl, float Ts);
 
+/* Speed LADRC using an external mechanical ESO, without an internal
+ * observer, integral or reference derivative. Wm_Err = Wm_Ref - Wm;
+ * Wm_Err and Wm are mechanical rad/s, Td is signed disturbance torque
+ * in N*m, and Wc is the control pole frequency in rad/s. Returns Iq in A.
+ * The caller supplies validated model ratios (Kt_Over_J > 0), owns
+ * observer updates and applies the effective current limits. */
+float LADRC_Speed(float Wm_Err, float Wm, float Td, float Wc,
+                  float B_Over_J, float Inv_J, float Kt_Over_J);
+
 #endif /* LADRC_H */

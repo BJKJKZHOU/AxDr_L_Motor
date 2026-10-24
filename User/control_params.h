@@ -126,7 +126,7 @@
  * Mechanical ESO.
  * Runs at the 20 kHz fast-loop rate. The observer keeps a continuous
  * mechanical angle state, estimates Wm for the speed loop, and estimates
- * disturbance/load torque for diagnostics only.
+ * disturbance/load torque for diagnostics and sensored speed LADRC.
  */
 #define MECH_ESO_BW_HZ_DEFAULT 100.0f
 #define MECH_ESO_WO_DEFAULT    (TWO_PI_F * MECH_ESO_BW_HZ_DEFAULT)
@@ -162,6 +162,10 @@
 
 #define SPD_BW_HZ_DEFAULT 30.0f
 #define SPD_WC_DEFAULT    (TWO_PI_F * SPD_BW_HZ_DEFAULT)
+
+/* Initial feedback-gain setting, not a validated closed-loop bandwidth.
+ * Speed LADRC shares the existing mechanical ESO and its bandwidth. */
+#define SPD_LADRC_BW_HZ_DEFAULT 50.0f
 
 #define SPD_KP_DEFAULT (MOTOR_J_DEFAULT * SPD_WC_DEFAULT / ((float)MOTOR_PP_DEFAULT * MOTOR_KT_DEFAULT))
 #define SPD_KI_DEFAULT (MOTOR_B_DEFAULT * SPD_WC_DEFAULT / ((float)MOTOR_PP_DEFAULT * MOTOR_KT_DEFAULT))
