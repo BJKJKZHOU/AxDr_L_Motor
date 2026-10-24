@@ -60,7 +60,7 @@
 #define CUR_LADRC_BW_HZ_DEFAULT     500.0f
 #define CUR_LADRC_ESO_BW_HZ_DEFAULT 1500.0f
 
-#define CUR_BW_HZ_DEFAULT 2000.0f
+#define CUR_BW_HZ_DEFAULT 1250.0f
 #define CUR_WC_DEFAULT    (TWO_PI_F * CUR_BW_HZ_DEFAULT)
 
 #define ID_KP_DEFAULT (MOTOR_LD_DEFAULT * CUR_WC_DEFAULT)
@@ -89,6 +89,11 @@
     },                                 \
 }
 
+/* Shared flux-observer and PLL tuning for sensorless control and identification. */
+#define FLUX_OBS_BW_HZ_DEFAULT 200.0f
+#define PLL_BW_HZ_DEFAULT      65.0f
+#define PLL_DAMP_DEFAULT       0.707f
+
 /* Open-loop current strategy. Speed comes from the signed mechanical command. */
 #define OPEN_ALIGN_ID_A   0.2f
 #define OPEN_ALIGN_TIME_S 0.5f
@@ -104,9 +109,6 @@
  * Keep the existing minimum accepted AC amplitude independent of protection. */
 #define IDENT_RL_IAC_RATIO 0.35f
 #define IDENT_RL_IAC_MIN_A 0.04f
-
-/* Flux/JB working current in A, independent of the protection limit. */
-#define IDENT_IQ_MAX_A 0.7f
 
 /*
  * Mechanical-speed reference profile.

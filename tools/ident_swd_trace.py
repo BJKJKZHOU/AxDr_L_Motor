@@ -44,23 +44,11 @@ SIGNALS = {
     "pll_we": ("gdb:Ident_PLL.State.We", "f32", "main"),
     "pll_err": ("gdb:Ident_PLL.State.Err", "f32", "main"),
     "pll_theta": ("gdb:Ident_PLL.State.Theta", "f32", "main"),
-    "handover_we_err_f": ("gdb:'Identification/Flux.c'::Handover.We_Err_F", "f32", "main"),
-    "handover_we_err2_f": ("gdb:'Identification/Flux.c'::Handover.We_Err2_F", "f32", "main"),
-    "handover_pll_err2_f": ("gdb:'Identification/Flux.c'::Handover.PLL_Err2_F", "f32", "main"),
-    "handover_theta_err_f": ("gdb:'Identification/Flux.c'::Handover.Theta_Err_F", "f32", "main"),
-    "handover_theta_err2_f": ("gdb:'Identification/Flux.c'::Handover.Theta_Err2_F", "f32", "main"),
-    "handover_speed_valid": ("gdb:'Identification/Flux.c'::Handover.Speed_Valid", "u8", "main"),
-    "handover_theta_valid": ("gdb:'Identification/Flux.c'::Handover.Theta_Valid", "u8", "main"),
     "est_flux": ("gdb:Flux_Estimator.State.Flux", "f32", "main"),
     "emf_ratio": ("nm:Emf_Ratio_F", "f32", "main"),
     "emf_valid": ("nm:Emf_Valid", "u8", "main"),
     "obs_active": ("nm:Obs_Active", "u8", "main"),
     "pll_active": ("nm:PLL_Active", "u8", "main"),
-    "obs_control": ("nm:Obs_Control", "u8", "main"),
-    "work_reached": ("nm:Work_Point_Reached", "u8", "main"),
-    "motion_armed": ("nm:Motion_Lost_Armed", "u8", "main"),
-    "motion_lost_cnt": ("nm:Motion_Lost_Cnt", "u32", "main"),
-    "handover_ready_cnt": ("nm:Handover_Ready_Cnt", "u32", "main"),
     "blend_cnt": ("gdb:'Identification/Flux.c'::Handover.Blend_Cnt", "u32", "main"),
     "vbus_v": ("gdb:ADC.Vbus_V", "f32", "main"),
     "ia_a": ("gdb:ADC.Ia_A", "f32", "main"),
@@ -72,8 +60,8 @@ SIGNALS = {
     "uq_v": ("gdb:Motor_Run.Uq", "f32", "main"),
     "resp_rd": ("nm:Resp_Rd", "u8", "aux"),
     "resp_wr": ("nm:Resp_Wr", "u8", "aux"),
-    "plot_fast_run": ("gdb:Plot_Group[0].Run", "u8", "aux"),
-    "plot_normal_run": ("gdb:Plot_Group[1].Run", "u8", "aux"),
+    "plot_fast_run": ("gdb:Plot_Run[0]", "u8", "aux"),
+    "plot_normal_run": ("gdb:Plot_Run[1]", "u8", "aux"),
     "plot_fast_drop": ("nm:Plot_Fast_Drop", "u32", "aux"),
     "plot_normal_drop": ("nm:Plot_Normal_Drop", "u32", "aux"),
     "usb_tx_runs": ("gdb:USB_Tx_Thread_Obj.tx_thread_run_count", "u32", "aux"),
@@ -326,7 +314,6 @@ def main():
                         f"We_IF={main_values['if_we']:.1f} "
                         f"We_obs={main_values['we_obs']:.1f} "
                         f"EMF={main_values['emf_ratio']:.3f} "
-                        f"lost={main_values['motion_lost_cnt']} "
                         f"plot_drop={aux['plot_fast_drop']}/{aux['plot_normal_drop']}",
                         flush=True,
                     )

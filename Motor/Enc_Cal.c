@@ -340,7 +340,7 @@ void Enc_Cal_Run(void)
 
     if (Enc_Cal.Step == CAL_SPEED)
     {
-        Wm = Mechanical_ESO_Wm_Get();
+        Wm = Mechanical_ESO.State.Wm;
         Tick++;
         if (__builtin_fabsf(Wm - ENC_CAL_WM) < 0.1f * ENC_CAL_WM)
         {
@@ -370,7 +370,7 @@ void Enc_Cal_Run(void)
         {
             return;
         }
-        Wm = Mechanical_ESO_Wm_Get();
+        Wm = Mechanical_ESO.State.Wm;
         if (__builtin_isfinite(Wm) &&
             (__builtin_fabsf(Wm - ENC_CAL_WM) < 0.1f * ENC_CAL_WM))
         {
@@ -397,7 +397,7 @@ void Enc_Cal_Run(void)
 
     if (Enc_Cal.Step == CAL_SAMPLE)
     {
-        Wm = Mechanical_ESO_Wm_Get();
+        Wm = Mechanical_ESO.State.Wm;
         if ((Sample_Cnt > ENC_CAL_SAMPLES) || !__builtin_isfinite(Wm) ||
             (__builtin_fabsf(Wm - ENC_CAL_WM) >= 0.1f * ENC_CAL_WM))
         {
@@ -424,7 +424,7 @@ void Enc_Cal_Run(void)
 
     if (Enc_Cal.Step == CAL_DECEL)
     {
-        Wm = Mechanical_ESO_Wm_Get();
+        Wm = Mechanical_ESO.State.Wm;
         if (++Tick > (uint32_t)((ENC_CAL_WM / Motion_Config.Wm_Dec + 4.0f) / SPD_TS))
         {
             Enc_Cal.Step = CAL_FAILED;

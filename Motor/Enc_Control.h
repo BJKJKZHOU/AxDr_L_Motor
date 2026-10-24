@@ -13,8 +13,7 @@
 
 typedef enum
 {
-    ENC_NORMAL = 0,
-    ENC_PHASE,
+    ENC_PHASE = 1,
     ENC_CAL,
 
 } Enc_Mode_e;

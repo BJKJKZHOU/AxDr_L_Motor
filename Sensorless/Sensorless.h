@@ -19,6 +19,7 @@ typedef enum
     SL_ALIGN = 0,
     SL_IF,
     SL_IF_TO_OBS,
+    SL_IF_TO_OBS_CURRENT,
     SL_OBS,
     SL_OBS_TO_IF,
     SL_FAILED,
@@ -39,7 +40,6 @@ extern PLL_T Sensorless_PLL;
 bool Sensorless_Begin(void);
 void Sensorless_Stop_Request(void);
 void Sensorless_Stop(void);
-FAST_CODE bool Sensorless_Active(void);
 bool Sensorless_Speed_Control_Active(void);
 float Sensorless_Wm_Get(void);
 

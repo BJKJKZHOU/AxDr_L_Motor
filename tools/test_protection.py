@@ -17,6 +17,12 @@ class ProtectionTest(unittest.TestCase):
         cls.temp = tempfile.TemporaryDirectory(prefix="protection-")
         cls.addClassCleanup(cls.temp.cleanup)
         path = Path(cls.temp.name)
+        (path / "main.h").write_text('''
+#include <stdint.h>
+uint32_t __get_PRIMASK(void);
+void __disable_irq(void);
+void __set_PRIMASK(uint32_t Value);
+''')
         # Only the motor/hardware boundary is stubbed; compile Protection.c itself.
         header = path / "boundary.h"
         header.write_text('''
@@ -30,12 +36,29 @@ void Motor_Disable(void);
         source = path / "boundary.c"
         source.write_text('''
 #include "boundary.h"
+#include <assert.h>
 #include "Motor_ADC.h"
 #include "Encoder.h"
+#include "Protection.h"
 volatile ADC_T ADC = { .Vbus_V = 24.0f };
 volatile Encoder_T Encoder;
 int State;
 int Pwm_Off;
+uint32_t Test_Primask, Test_Pending_Fault, Test_Fault_At_Unmask;
+uint32_t __get_PRIMASK(void) { return Test_Primask; }
+void __disable_irq(void) { Test_Primask = 1U; }
+void __set_PRIMASK(uint32_t Value)
+{
+    assert(Test_Primask == 1U);
+    Test_Primask = Value;
+    if ((Value == 0U) && (Test_Pending_Fault != 0U))
+    {
+        uint32_t Event = Test_Pending_Fault;
+        Test_Pending_Fault = 0U;
+        Test_Fault_At_Unmask = Protection.Fault;
+        Protection_Fault_Set(Event);
+    }
+}
 Motor_State_e Motor_State_Get(void) { return (Motor_State_e)State; }
 bool Motor_Encoder_Required(void) { return false; }
 void Motor_Disable(void) { State = DISABLED; Pwm_Off = 1; }
@@ -44,7 +67,7 @@ void PWM_Disable(void) { Pwm_Off = 1; }
         library = path / "protection.so"
         subprocess.run([
             "cc", "-shared", "-fPIC", "-O2", "-Wall", "-Wextra", "-Werror",
-            "-IMotor", "-IUser", "-include", str(header),
+            "-IMotor", "-IUser", "-I" + str(path), "-include", str(header),
             "Motor/Protection.c", str(source), "-o", str(library),
         ], cwd=ROOT, check=True)
         cls.lib = ct.CDLL(str(library))
@@ -52,11 +75,15 @@ void PWM_Disable(void) { Pwm_Off = 1; }
         cls.lib.Protection_Current_Fast.restype = ct.c_bool
         cls.lib.Protection_Clear.restype = ct.c_bool
         cls.lib.Protection_Enable_Allowed.restype = ct.c_bool
+        cls.lib.Protection_Fault_Set.argtypes = [ct.c_uint32]
+        cls.mask = ct.c_uint32.in_dll(cls.lib, "Test_Primask")
+        cls.pending = ct.c_uint32.in_dll(cls.lib, "Test_Pending_Fault")
         cls.state = ct.c_int.in_dll(cls.lib, "State")
         cls.pwm_off = ct.c_int.in_dll(cls.lib, "Pwm_Off")
         cls.events = (ct.c_uint32 * 4).in_dll(cls.lib, "Protection")
 
     def setUp(self):
+        self.mask.value = self.pending.value = 0
         self.state.value = 0
         self.assertTrue(self.lib.Protection_Clear())
         self.pwm_off.value = 0
@@ -64,6 +91,30 @@ void PWM_Disable(void) { Pwm_Off = 1; }
 
     def sample(self, peak):
         return self.lib.Protection_Current_Fast(peak, -peak / 2, -peak / 2)
+
+    def test_fault_bits_accumulate_and_interrupt_mask_is_preserved(self):
+        for mask in (0, 1):
+            with self.subTest(mask=mask):
+                self.setUp()
+                self.mask.value = mask
+                self.events[2] = 1 << 9
+                self.lib.Protection_Fault_Set(1 << 5)
+                self.lib.Protection_Fault_Set(1 << 5)
+                self.assertEqual(self.events[2], (1 << 9) | (1 << 5))
+                self.assertEqual(self.mask.value, mask)
+                self.assertEqual(self.pwm_off.value, 0)
+                self.lib.Protection_Control()
+                self.assertEqual(self.state.value, 0)
+                self.assertEqual(self.pwm_off.value, 1)
+
+    def test_pending_fault_after_interrupts_resume_keeps_both_bits(self):
+        # 模拟恢复中断后立即处理 ADC 故障，检查线程写入已经完成。
+        self.pending.value = 1 << 9
+        self.lib.Protection_Fault_Set(1 << 5)
+        self.assertEqual(ct.c_uint32.in_dll(self.lib, "Test_Fault_At_Unmask").value, 1 << 5)
+        self.assertEqual(self.events[2], (1 << 9) | (1 << 5))
+        self.assertEqual(self.mask.value, 0)
+        self.assertEqual(self.pending.value, 0)
 
     def test_fast_threshold_delay_and_latch(self):
         for _ in range(4):

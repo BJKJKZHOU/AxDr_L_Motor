@@ -58,6 +58,14 @@ Servo_Phase_Config_T Servo_Phase_Config =
     .I_Search_A = PHASE_SEARCH_I_DEFAULT_A,
 };
 
+typedef struct
+{
+    int8_t Enc_Dir;
+    float Theta_Off;
+    float Theta_Off_Error;
+
+} Servo_Phase_Result_T;
+
 static Servo_Phase_T Phase = { 0 };
 static Servo_Phase_Result_T Last_Result = { 0 };
 
@@ -100,17 +108,10 @@ static bool Angle_Stable(float Theta, float *Theta_Mean)
     return true;
 }
 
-static void Result_Snapshot(Servo_Phase_Fail_e Fail)
-{
-    Last_Result.Fail = Fail;
-    Last_Result.Enc_Dir = Phase.Enc_Dir;
-}
-
-static void Fail(Servo_Phase_Fail_e Reason)
+static void Fail(void)
 {
     Phase.State = PHASE_FAILED;
     Motor_Cal.Valid = 0U;
-    Result_Snapshot(Reason);
 }
 
 bool Servo_Phase_Start(void)
@@ -134,11 +135,6 @@ bool Servo_Phase_Start(void)
 
 void Servo_Phase_Abort(void)
 {
-    if (Servo_Phase_Active())
-    {
-        Result_Snapshot(SERVO_PHASE_FAIL_ABORTED);
-    }
-
     Phase.State = PHASE_IDLE;
 }
 
@@ -157,7 +153,7 @@ bool Servo_Phase_Apply(void)
 
     if (!Motor_Cal_Set(Last_Result.Enc_Dir, Last_Result.Theta_Off))
     {
-        Fail(SERVO_PHASE_FAIL_APPLY);
+        Fail();
         Phase.State = PHASE_IDLE;
         return false;
     }
@@ -176,9 +172,9 @@ bool Servo_Phase_Save(void)
            (NVS_Storage_Save_Ids(Ids, sizeof(Ids) / sizeof(Ids[0])) == 0);
 }
 
-const Servo_Phase_Result_T *Servo_Phase_Last_Result_Get(void)
+float Servo_Phase_Theta_Off_Error_Get(void)
 {
-    return &Last_Result;
+    return Last_Result.Theta_Off_Error;
 }
 
 Motor_Fast_Mode_e Servo_Phase_Fast_Run(float *Theta_e,
@@ -201,7 +197,7 @@ Motor_Fast_Mode_e Servo_Phase_Fast_Run(float *Theta_e,
 
     if ((Encoder.Valid == 0U) || (Encoder.Fault != 0U))
     {
-        Fail(SERVO_PHASE_FAIL_ENCODER);
+        Fail();
         return FAST_OFF;
     }
 
@@ -269,7 +265,7 @@ Motor_Fast_Mode_e Servo_Phase_Fast_Run(float *Theta_e,
                 Last_Result.Theta_Off_Error = Offset_Error;
                 Last_Result.Theta_Off = Angle_Wrap(Offset_Initial + 0.5f * Offset_Error);
                 Phase.State = PHASE_DONE;
-                Result_Snapshot(SERVO_PHASE_FAIL_NONE);
+                Last_Result.Enc_Dir = Phase.Enc_Dir;
                 return FAST_OFF;
             }
             return FAST_CURRENT;

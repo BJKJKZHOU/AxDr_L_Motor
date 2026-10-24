@@ -41,9 +41,6 @@ typedef struct
     /* Native normalized [0, 2pi) angle before Motor_Cal.Enc_Dir is applied. */
     float Theta_Native;
 
-    /* Theta_m is already mapped by Motor_Cal.Enc_Dir into the internal mechanical coordinate. */
-    float Theta_m;
-
     uint32_t Err_Cnt;
     uint32_t Miss_Cnt;
     uint16_t Startup_Cnt;

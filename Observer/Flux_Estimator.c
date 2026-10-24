@@ -9,7 +9,6 @@
 
 bool Flux_Estimator_Run(Flux_Estimator_T *Est,
                         Flux_Estimator_Mode_e Mode,
-                        Flux_Estimator_Action_e Action,
                         bool Measure,
                         float Ud,
                         float Uq,
@@ -30,7 +29,6 @@ bool Flux_Estimator_Run(Flux_Estimator_T *Est,
 
     if ((Est == 0) || (Ts <= 0.0f) ||
         ((Mode != FLUX_EST_VECTOR) && (Mode != FLUX_EST_SCALAR)) ||
-        ((Action != FLUX_EST_HOLD) && (Action != FLUX_EST_UPDATE)) ||
         !__builtin_isfinite(Ud) || !__builtin_isfinite(Uq) ||
         !__builtin_isfinite(Id) || !__builtin_isfinite(Iq) || !__builtin_isfinite(We))
     {
@@ -63,29 +61,26 @@ bool Flux_Estimator_Run(Flux_Estimator_T *Est,
         return false;
     }
 
-    if (Action == FLUX_EST_UPDATE)
-    {
-        Norm = We / (We * We + Est->Para.We_Min * Est->Para.We_Min);
-        Gain = TWO_PI_F * Est->Para.Est_BW_Hz * Ts;
+    Norm = We / (We * We + Est->Para.We_Min * Est->Para.We_Min);
+    Gain = TWO_PI_F * Est->Para.Est_BW_Hz * Ts;
 
-        if (Mode == FLUX_EST_VECTOR)
+    if (Mode == FLUX_EST_VECTOR)
+    {
+        Err_d = Est->State.Yd - We * Est->State.Psi_d;
+        Err_q = Est->State.Yq - We * Est->State.Psi_q;
+        Est->State.Psi_d += Gain * Norm * Err_d;
+        Est->State.Psi_q += Gain * Norm * Err_q;
+        Est->State.Flux = __builtin_sqrtf(Est->State.Psi_d * Est->State.Psi_d +
+                                          Est->State.Psi_q * Est->State.Psi_q);
+        Est->State.Estimate_Valid = __builtin_isfinite(Est->State.Flux) && (Est->State.Flux > 0.0f);
+    }
+    else if (__builtin_isfinite(Est->State.Flux) && (Est->State.Flux > 0.0f))
+    {
+        Flux_Next = Est->State.Flux + Gain * Norm * (Est->State.Yd - We * Est->State.Flux);
+        if (__builtin_isfinite(Flux_Next) && (Flux_Next > 0.0f))
         {
-            Err_d = Est->State.Yd - We * Est->State.Psi_d;
-            Err_q = Est->State.Yq - We * Est->State.Psi_q;
-            Est->State.Psi_d += Gain * Norm * Err_d;
-            Est->State.Psi_q += Gain * Norm * Err_q;
-            Est->State.Flux = __builtin_sqrtf(Est->State.Psi_d * Est->State.Psi_d +
-                                              Est->State.Psi_q * Est->State.Psi_q);
-            Est->State.Estimate_Valid = __builtin_isfinite(Est->State.Flux) && (Est->State.Flux > 0.0f);
-        }
-        else if (__builtin_isfinite(Est->State.Flux) && (Est->State.Flux > 0.0f))
-        {
-            Flux_Next = Est->State.Flux + Gain * Norm * (Est->State.Yd - We * Est->State.Flux);
-            if (__builtin_isfinite(Flux_Next) && (Flux_Next > 0.0f))
-            {
-                Est->State.Flux = Flux_Next;
-                Est->State.Estimate_Valid = true;
-            }
+            Est->State.Flux = Flux_Next;
+            Est->State.Estimate_Valid = true;
         }
     }
 

@@ -317,11 +317,6 @@ class Commission(base.SensorlessTest):
             failure = exc
         finally:
             self.ident_active = False
-            if failure is not None:
-                try:
-                    self.parameter_action(base.ACTION_IDENT_ABORT)
-                except (TimeoutError, RuntimeError):
-                    pass
             try:
                 self.parameter_action(base.ACTION_MOTOR_DISABLE)
             except (TimeoutError, RuntimeError) as exc:

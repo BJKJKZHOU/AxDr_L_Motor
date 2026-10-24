@@ -95,7 +95,7 @@ static void Iq_Limit_Calc(float *Iq_Min, float *Iq_Max)
     float D;
     float Sqrt_D;
 
-    We = (float)Motor_Para.Pp * Mechanical_ESO_Wm_Get();
+    We = (float)Motor_Para.Pp * Mechanical_ESO.State.Wm;
     U_Lim = ADC.Vbus_V * INV_SQRT3_F * VOLT_MOD_MAX;
 
     Wlq = We * Motor_Para.Lq;
@@ -132,7 +132,8 @@ static void Motion_State_Reset(void)
     int32_t Turn;
     float Theta;
 
-    Speed_Loop_State_Reset((float)Motor_Para.Pp * Mechanical_ESO_Wm_Get());
+    Speed_Ctrl.State.Int = 0.0f;
+    Speed_Ctrl.State.Fbk_Pre = (float)Motor_Para.Pp * Mechanical_ESO.State.Wm;
     Wm_Ref = 0.0f;
     We_Ref = 0.0f;
     Encoder_Position_Read(&Turn, &Theta);
@@ -145,7 +146,7 @@ static void Motion_State_Reset(void)
  * seeds the current controller from that cycle's voltage and current. */
 void Motor_Cal_Decel_Begin(void)
 {
-    float Wm = Mechanical_ESO_Wm_Get();
+    float Wm = Mechanical_ESO.State.Wm;
     float Iq = Motor_Run.Iq;
     float Iq_Min;
     float Iq_Max;
@@ -175,6 +176,18 @@ static FAST_CODE bool Servo_Mode(void)
     return (Motor_Mode == TORQUE) || (Motor_Mode == SPEED) || (Motor_Mode == POSITION);
 }
 
+/* References shared by the non-servo stop and power-stage Disable paths. */
+static void Motor_Refs_Clear(void)
+{
+    Current_Ref.Id = 0.0f;
+    Current_Ref.Iq = 0.0f;
+    Wm_Ref = 0.0f;
+    We_Ref = 0.0f;
+    Sensorless_We_Target = 0.0f;
+    Sensorless_Profile_Active = false;
+    Sensorless_Stop_Delay_Cnt = 0U;
+}
+
 static void NonServo_Enabled_Apply(void)
 {
     if (Motor_Mode == SENSORLESS_SPEED)
@@ -183,13 +196,7 @@ static void NonServo_Enabled_Apply(void)
     }
 
     Stop_Pending = false;
-    Current_Ref.Id = 0.0f;
-    Current_Ref.Iq = 0.0f;
-    Wm_Ref = 0.0f;
-    We_Ref = 0.0f;
-    Sensorless_We_Target = 0.0f;
-    Sensorless_Profile_Active = false;
-    Sensorless_Stop_Delay_Cnt = 0U;
+    Motor_Refs_Clear();
     Motor_Run.Ud = 0.0f;
     Motor_Run.Uq = 0.0f;
     Motor_Run.Ualpha = 0.0f;
@@ -201,20 +208,13 @@ static void NonServo_Enabled_Apply(void)
 void Motor_Disable_Apply(void)
 {
     Stop_Pending = false;
-
     if (Motor_Mode == SENSORLESS_SPEED)
     {
         Sensorless_Stop();
     }
 
     PWM_Disable();
-    Current_Ref.Id = 0.0f;
-    Current_Ref.Iq = 0.0f;
-    Wm_Ref = 0.0f;
-    We_Ref = 0.0f;
-    Sensorless_We_Target = 0.0f;
-    Sensorless_Profile_Active = false;
-    Sensorless_Stop_Delay_Cnt = 0U;
+    Motor_Refs_Clear();
     Motor_State = DISABLED;
 }
 
@@ -264,7 +264,7 @@ void Motor_Control(void)
         {
             Identification_Control();
 
-            if (!Identification_Active())
+            if ((Ident_State != IDENT_RUNNING) && (Ident_State != IDENT_FINISH))
             {
                 NonServo_Enabled_Apply();
             }
@@ -379,7 +379,7 @@ void Motor_Control(void)
         Iq_Max = 0.0f;
     }
 
-    We_Fbk = (float)Motor_Para.Pp * Mechanical_ESO_Wm_Get();
+    We_Fbk = (float)Motor_Para.Pp * Mechanical_ESO.State.Wm;
 
     switch (Mode)
     {
@@ -605,7 +605,6 @@ Motor_Fast_Mode_e Motor_Fast_Run(float Encoder_Theta_e,
         case IDENT:
             return Identification_Fast_Run(ADC.Ia_A,
                                            ADC.Ib_A,
-                                           ADC.Ic_A,
                                            Theta_e,
                                            Id_Ref,
                                            Iq_Ref,
@@ -633,18 +632,16 @@ Motor_Mode_e Motor_Mode_Get(void)
 
 float Motor_I_Limit_Effective_Get(void)
 {
-    Motor_Limit_T Lim;
+    float I_Max = (Motor_Lim.I_Max < User_Lim.I_Max) ? Motor_Lim.I_Max : User_Lim.I_Max;
 
-    Motor_Limit_Get(&Lim);
-    return Lim.I_Max;
+    return (I_Max < 0.0f) ? 0.0f : I_Max;
 }
 
 float Motor_Wm_Limit_Effective_Get(void)
 {
-    Motor_Limit_T Lim;
+    float Wm_Max = (Motor_Lim.Wm_Max < User_Lim.Wm_Max) ? Motor_Lim.Wm_Max : User_Lim.Wm_Max;
 
-    Motor_Limit_Get(&Lim);
-    return Lim.Wm_Max;
+    return (Wm_Max < 0.0f) ? 0.0f : Wm_Max;
 }
 
 float Motor_Wm_Ref_Get(void)
@@ -846,14 +843,8 @@ void Motor_Stop(void)
 
     if (Motor_Mode == IDENT)
     {
-        if (Identification_Active())
-        {
-            (void)Motor_Ident_Abort();
-        }
-        else
-        {
-            NonServo_Enabled_Apply();
-        }
+        Identification_Stop();
+        NonServo_Enabled_Apply();
         return;
     }
 
@@ -891,23 +882,9 @@ Motor_Status_e Motor_Ident_Start(Ident_Mode_e Mode)
     return MOTOR_OK;
 }
 
-bool Motor_Ident_Abort(void)
-{
-    if ((Motor_State != RUN) ||
-        (Motor_Mode != IDENT) ||
-        !Identification_Active())
-    {
-        return false;
-    }
-
-    Identification_Abort();
-    NonServo_Enabled_Apply();
-    return true;
-}
-
 Motor_Status_e Motor_Ident_Apply(void)
 {
-    if ((Motor_State == RUN) || (Motor_Mode != IDENT) || !Identification_Result_Valid())
+    if ((Motor_State == RUN) || (Motor_Mode != IDENT) || (Ident_State != IDENT_DONE))
     {
         return MOTOR_ERR_STATE;
     }
@@ -925,7 +902,7 @@ float Motor_Wm_Get(void)
     if ((Encoder.Ready != 0U) && (Encoder.Fault == 0U) &&
         (Mechanical_ESO.Para.Valid != 0U))
     {
-        return Motor_Internal_To_User(Mechanical_ESO_Wm_Get());
+        return Motor_Internal_To_User(Mechanical_ESO.State.Wm);
     }
 
     return 0.0f;

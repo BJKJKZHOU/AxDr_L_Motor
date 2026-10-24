@@ -34,6 +34,12 @@ class TorqueRampTest(unittest.TestCase):
         cls.temp = tempfile.TemporaryDirectory(prefix="torque-ramp-")
         cls.addClassCleanup(cls.temp.cleanup)
         path = Path(cls.temp.name)
+        (path / "main.h").write_text("#include <stdint.h>\n"
+            "static inline uint32_t __get_PRIMASK(void) { return 0; }\n"
+            "static inline void __disable_irq(void) {}\n"
+            "static inline void __set_PRIMASK(uint32_t V) { (void)V; }\n")
+        (path / "tx_api.h").write_text("#pragma once\ntypedef unsigned UINT;\n"
+            "typedef struct { int Unused; } TX_BYTE_POOL;\n")
         boundary = path / "boundary.c"
         boundary.write_text('''
 #include <stdlib.h>
@@ -49,11 +55,28 @@ class TorqueRampTest(unittest.TestCase):
 #include "Open_Loop.h"
 #include "Sensorless.h"
 #include "Servo_Phase.h"
+#include "Enc_Cal.h"
+#include "Enc_Control.h"
+#include "motor_work.h"
+#include "Protection.h"
 
 Motor_Para_T Motor_Para;
+uint8_t Open_Loop_Method;
 volatile ADC_T ADC;
 volatile Encoder_T Encoder;
 Mechanical_ESO_T Mechanical_ESO;
+volatile Enc_Cal_T Enc_Cal;
+volatile bool Enc_Cal_Handoff_Ready;
+volatile Enc_Step_e Enc_Step;
+volatile Motor_Work_State_e Motor_Work_State;
+bool Protection_Enable_Allowed(void) { return true; }
+void Enc_Control_Run(void) { abort(); }
+void Enc_Control_Abort(void) { abort(); }
+bool Enc_Control_Start(Enc_Mode_e Mode) { (void)Mode; abort(); }
+Motor_Fast_Mode_e Enc_Control_Fast_Run(float *T, float *D, float *Q, float *A, float *B)
+{ (void)T; (void)D; (void)Q; (void)A; (void)B; abort(); }
+Motor_Fast_Mode_e Enc_Cal_Fast_Run(float *T, float *A, float *B)
+{ (void)T; (void)A; (void)B; abort(); }
 int Pwm_On;
 int Encoder_Position_Read_Cnt;
 
@@ -61,20 +84,18 @@ void Encoder_Position_Read(int32_t *Turn, float *Theta)
 {
     Encoder_Position_Read_Cnt++;
     *Turn = Motor_Run.Turn;
-    *Theta = Motor_Run.Theta_m;
+    *Theta = Encoder.Theta_m;
 }
 
 void PWM_Enable(void) { Pwm_On = 1; }
 void PWM_Disable(void) { Pwm_On = 0; }
 void Current_Loop_State_Reset(void) {}
-float Mechanical_ESO_Wm_Get(void) { return Mechanical_ESO.State.Wm; }
 
 /* These modes must never execute in a sensored control regression. */
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 bool Sensorless_Begin(void) { abort(); }
 void Sensorless_Stop_Request(void) { abort(); }
 void Sensorless_Stop(void) { abort(); }
-bool Sensorless_Active(void) { abort(); }
 bool Sensorless_Speed_Control_Active(void) { abort(); }
 float Sensorless_Wm_Get(void) { abort(); }
 Sensorless_State_e Sensorless_State_Get(void) { abort(); }
@@ -88,15 +109,14 @@ bool Servo_Phase_Apply(void) { abort(); }
 Motor_Fast_Mode_e Servo_Phase_Fast_Run(float *Theta, float *Id, float *Iq,
                                       float *Ua, float *Ub) { abort(); }
 void Open_Loop_Reset(void) { abort(); }
-void Open_Loop(float We, float *Theta, float *Id, float *Iq) { abort(); }
+Motor_Fast_Mode_e Open_Loop(float We, float *Theta, float *Id, float *Iq, float *Ua, float *Ub) { abort(); }
 bool Identification_Start(Ident_Mode_e Mode, float Wm) { abort(); }
-void Identification_Abort(void) { abort(); }
+volatile Ident_State_e Ident_State = IDENT_IDLE;
+void Identification_Stop(void) { abort(); }
+void Identification_Report(bool Valid) { abort(); }
 void Identification_Control(void) { abort(); }
 bool Identification_Apply(void) { abort(); }
-bool Identification_Active(void) { abort(); }
-bool Identification_Result_Valid(void) { abort(); }
-Ident_State_e Identification_State_Get(void) { abort(); }
-Motor_Fast_Mode_e Identification_Fast_Run(float Ia, float Ib, float Ic,
+Motor_Fast_Mode_e Identification_Fast_Run(float Ia, float Ib,
                                          float *Theta, float *Id, float *Iq,
                                          float *Ua, float *Ub) { abort(); }
 
@@ -114,6 +134,7 @@ void Test_Setup(int Mode, float Kt, int Dir, float Rate)
     ADC.Vbus_V = 24.0f;
     Encoder.Ready = 1;
     Encoder.Fault = 0;
+    Encoder.Theta_m = 0.0f;
     Motor_Cal.Valid = 1;
     Mechanical_ESO = (Mechanical_ESO_T){ .Para.Valid = 1 };
     Motion_Config = (Motion_Config_T){ .Wm_Acc = 100.0f, .Wm_Dec = 100.0f,
@@ -135,12 +156,12 @@ void Test_Vbus(float Vbus) { ADC.Vbus_V = Vbus; }
 ''')
         library = path / "torque.so"
         subprocess.run([
-            "cc", "-shared", "-fPIC", "-O2", "-Wall", "-Wextra", "-Werror",
-            "-IMotor", "-IMotion", "-IAlgo", "-IUser", "-IObserver",
+            "cc", "-shared", "-fPIC", "-Wl,--no-undefined", "-O2", "-Wall", "-Wextra", "-Werror",
+            f"-I{path}", "-IAZURE_RTOS/App", "-IMotor", "-IMotion", "-IAlgo", "-IUser", "-IObserver",
             "-IIdentification", "-ISensorless",
             "Motor/Motor_Control.c", "Motor/Motor_Config.c", "Motor/Motion_Loop.c",
             "Motion/Motion.c", "Motion/Ramp.c", "Motion/Trapezoid.c", "Motion/SCurve.c",
-            "Algo/Math.c", "Algo/PID.c", str(boundary), "-lm", "-o", str(library),
+            "Algo/Math.c", "Algo/PID.c", "Algo/Sin_LUT.c", "Motor/Signal_Injection.c", str(boundary), "-lm", "-o", str(library),
         ], cwd=ROOT, check=True)
         cls.lib = ct.CDLL(str(library))
         cls.lib.Test_Setup.argtypes = [ct.c_int, ct.c_float, ct.c_int, ct.c_float]
