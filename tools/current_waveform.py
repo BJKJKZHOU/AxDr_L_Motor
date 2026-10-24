@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Render existing AxDr waveform archives; hardware capture belongs to fft.py.
 
-Only reads *.waveform.nmixx or legacy .i16/.npz input. Does not open USB,
+Only reads *.waveform.nmixx input. Does not open USB,
 SWD or OpenOCD. Unknown/missing timing must never be interpreted as a
 continuous 20 kHz waveform or used for electrical-angle sine fitting.
 
@@ -19,98 +19,60 @@ import sys
 
 import numpy as np
 
-from fft import CHANNELS
-
 PHASES = ("ia", "ib", "ic")
 COLORS = ("#2563eb", "#db6b16", "#169b79")
 
 
-def load_capture(path, legacy_fs):
-    if path.name.endswith(".waveform.nmixx"):
-        with np.load(path, allow_pickle=False) as z:
-            if (int(z["format_version"][0]) != 1 or
-                    str(z["kind"][0]) != "waveform"):
-                raise ValueError(f"unsupported waveform archive: {path}")
-            group = str(z["group"][0])
-            raw = z["raw_samples"]
-            fs = float(z["sample_rate_hz"][0])
-            names = list(map(str, z["channel_name"]))
-            scale = z["channel_scale"]
-            seq = z["frame_seq"].astype(np.int64)
-            counts = z["frame_sample_count"].astype(np.int64)
-            quality = str(z["quality"][0])
-            reason = str(z["quality_reason"][0])
-            if (group != "fast" or raw.ndim != 2 or
-                    raw.dtype.kind != "i" or raw.dtype.itemsize != 2 or
-                    len(raw) < 2 or len(names) != raw.shape[1] or
-                    len(scale) != len(names) or len(seq) != len(counts) or
-                    int(counts.sum()) != len(raw) or
-                    quality not in ("valid", "unknown", "invalid") or
-                    not np.isfinite(fs) or fs <= 0 or
-                    not np.isfinite(scale).all() or
-                    len(set(names)) != len(names)):
-                raise ValueError(f"malformed FAST waveform archive: {path}")
-            if (quality == "valid" and
-                    (np.any(((np.diff(seq) & 0xFFFF) != 1)) or
-                     int(z["usb_seq_lost"][0]) != 0 or
-                     int(z["malformed_frames"][0]) != 0 or
-                     int(z["firmware_drop_before"][0]) < 0 or
-                     int(z["firmware_drop_after"][0]) < 0 or
-                     int(z["firmware_drop_before"][0]) != int(z["firmware_drop_after"][0]))):
-                raise ValueError(f"archive falsely claims valid continuous timing: {path}")
-            values = raw.astype(np.float64) * scale
-            meta = json.loads(str(z["metadata_json"][0]))
-            pair = np.full(len(raw), -1, dtype=np.int8)
-            return dict(values=values, names=names, pair=pair, fs=fs,
-                        quality=quality, reason=reason, meta=meta,
-                        label=meta.get("controller") or path.name.split(".waveform")[0],
-                        archive_stem=path.name[:-len(".waveform.nmixx")],
-                        t=np.arange(len(raw), dtype=np.float64) / fs)
-
-    if path.suffix == ".npz":
-        with np.load(path, allow_pickle=False) as z:
-            if int(z["format_version"].item()) != 1:
-                raise ValueError("unsupported legacy NPZ")
-            values = z["values"]
-            t = z["time_s"]
-            names = list(map(str, z["channel_names"]))
-            pair = z["phase_pair"]
-            meta = json.loads(str(z["metadata_json"].item()))
-            fs = float(z["sample_rate_hz"].item())
-            label = str(z["label"].item())
-    else:
-        raw_path = path.with_suffix(".i16") if path.suffix == ".json" else path
-        meta = json.loads(raw_path.with_suffix(".json").read_text(encoding="utf-8"))
-        columns = meta["columns"]
-        raw = np.fromfile(raw_path, dtype="<i2")
-        if not len(raw) or len(raw) % len(columns):
-            raise ValueError(f"incomplete legacy sample row: {raw_path}")
-        raw = raw.reshape(-1, len(columns)).astype(np.float64)
-        index = {col[0]: n for n, col in enumerate(columns)}
-        if "Tick" not in index:
-            raise ValueError("legacy .i16 requires Tick for the time axis")
-        step = np.diff(raw[:, index["Tick"]].astype(np.int64)) & 0xFFFF
-        if np.any(step == 0):
-            raise ValueError("duplicate legacy Tick")
-        t = np.r_[0, np.cumsum(step)] / legacy_fs
-        ids = {info[0]: name for name, info in CHANNELS.items()}
-        names, parts = [], []
-        for n, (_, param_id, scale) in enumerate(columns):
-            if param_id in ids:
-                names.append(ids[param_id])
-                parts.append(raw[:, n] * scale)
-        values = np.asarray(parts).T
-        fs = legacy_fs
-        pair = raw[:, index["Pair"]].astype(np.int8) if "Pair" in index else np.full(len(t), -1)
-        label = meta.get("mode", raw_path.stem)
-
-    if (values.ndim != 2 or values.shape != (len(t), len(names)) or
-            pair.shape != t.shape or not np.isfinite(values).all() or
-            not np.isfinite(t).all() or np.any(np.diff(t) <= 0)):
-        raise ValueError(f"invalid legacy capture: {path}")
-    return dict(values=values, names=names, pair=pair, fs=fs,
-                quality="unknown", reason="legacy format: firmware drops not verified",
-                meta=meta, label=label, archive_stem=None, t=t)
+def load_capture(path):
+    if not path.name.endswith(".waveform.nmixx"):
+        raise ValueError("input must be a .waveform.nmixx archive")
+    with np.load(path, allow_pickle=False) as z:
+        required = {
+            "kind", "group", "raw_samples", "sample_rate_hz", "channel_name",
+            "channel_scale", "frame_seq", "frame_sample_count", "quality",
+            "quality_reason", "usb_seq_lost", "malformed_frames",
+            "firmware_drop_before", "firmware_drop_after", "metadata_json",
+        }
+        missing = required.difference(z.files)
+        if missing:
+            raise ValueError(f"missing waveform fields: {', '.join(sorted(missing))}")
+        if str(z["kind"][0]) != "waveform":
+            raise ValueError(f"unsupported waveform archive: {path}")
+        group = str(z["group"][0])
+        raw = z["raw_samples"]
+        fs = float(z["sample_rate_hz"][0])
+        names = list(map(str, z["channel_name"]))
+        scale = z["channel_scale"]
+        seq = z["frame_seq"].astype(np.int64)
+        counts = z["frame_sample_count"].astype(np.int64)
+        quality = str(z["quality"][0])
+        reason = str(z["quality_reason"][0])
+        if (group != "fast" or raw.ndim != 2 or
+                raw.dtype.kind != "i" or raw.dtype.itemsize != 2 or
+                len(raw) < 2 or len(names) != raw.shape[1] or
+                len(scale) != len(names) or len(seq) != len(counts) or
+                int(counts.sum()) != len(raw) or
+                quality not in ("valid", "unknown", "invalid") or
+                not np.isfinite(fs) or fs <= 0 or
+                not np.isfinite(scale).all() or
+                len(set(names)) != len(names)):
+            raise ValueError(f"malformed FAST waveform archive: {path}")
+        if (quality == "valid" and
+                (np.any(((np.diff(seq) & 0xFFFF) != 1)) or
+                 int(z["usb_seq_lost"][0]) != 0 or
+                 int(z["malformed_frames"][0]) != 0 or
+                 int(z["firmware_drop_before"][0]) < 0 or
+                 int(z["firmware_drop_after"][0]) < 0 or
+                 int(z["firmware_drop_before"][0]) != int(z["firmware_drop_after"][0]))):
+            raise ValueError(f"archive falsely claims valid continuous timing: {path}")
+        values = raw.astype(np.float64) * scale
+        meta = json.loads(str(z["metadata_json"][0]))
+        pair = np.full(len(raw), -1, dtype=np.int8)
+        return dict(values=values, names=names, pair=pair, fs=fs,
+                    quality=quality, reason=reason, meta=meta,
+                    label=meta.get("controller") or path.name.split(".waveform")[0],
+                    archive_stem=path.name[:-len(".waveform.nmixx")],
+                    t=np.arange(len(raw), dtype=np.float64) / fs)
 
 
 def validate(cap):
@@ -272,28 +234,25 @@ def plot_comparison(caps, out, zoom_ms, start_ms):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--input", type=Path, nargs="+", required=True,
-                        help="waveform.nmixx, or legacy .i16/.json/.npz")
+                        help=".waveform.nmixx archive")
     parser.add_argument("--labels", nargs="+", help="optional label per input")
     parser.add_argument("--out", type=Path,
                         default=Path("test-data") / f"{date.today():%Y%m%d}_current_waveform" / "plots")
     parser.add_argument("--zoom-ms", type=float, default=5.0)
     parser.add_argument("--zoom-start-ms", type=float)
-    parser.add_argument("--fs", type=float, default=20000.0, help="only for legacy .i16")
     args = parser.parse_args()
-    if (not np.isfinite(args.fs) or args.fs <= 0 or
-            not np.isfinite(args.zoom_ms) or args.zoom_ms <= 0 or
+    if (not np.isfinite(args.zoom_ms) or args.zoom_ms <= 0 or
             (args.zoom_start_ms is not None and
              (not np.isfinite(args.zoom_start_ms) or args.zoom_start_ms < 0))):
-        parser.error("invalid sample rate or zoom")
+        parser.error("invalid zoom")
     if args.labels is not None and len(args.labels) != len(args.input):
         parser.error("--labels must match --input count")
     caps = []
     for i, path in enumerate(args.input):
-        cap = validate(load_capture(path, args.fs))
+        cap = validate(load_capture(path))
         if args.labels:
             cap["label"] = args.labels[i]
-        source_stem = cap["archive_stem"] or (
-            re.sub(r"[^A-Za-z0-9_-]", "_", path.stem)[:70] + "-" + date.today().isoformat())
+        source_stem = cap["archive_stem"]
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", source_stem):
             raise ValueError(f"invalid archive file name: {path.name}")
         cap["stem"] = source_stem

@@ -7,16 +7,16 @@ user interruption.
 
 Examples:
     python3 tools/identification_test.py \
-        --port /dev/ttyACM1 --pole-pairs 7 --current-limit 2.0 \
+        --port /dev/ttyACM1 --pole-pairs 7 \
         --rs-ls-count 5 --run
 
     python3 tools/identification_test.py \
-        --port /dev/ttyACM1 --pole-pairs 7 --current-limit 2.0 --if-current 0.5 \
+        --port /dev/ttyACM1 --pole-pairs 7 --if-current 0.5 \
         --rs-ls-count 5 --apply-rl \
         --flux-forward-count 2 --flux-reverse-count 2 --apply-flux --run
 
     python3 tools/identification_test.py \
-        --port /dev/ttyACM1 --pole-pairs 7 --current-limit 2.0 \
+        --port /dev/ttyACM1 --pole-pairs 7 \
         --rs-ls-count 500 --run
 """
 
@@ -52,13 +52,19 @@ PARAM_READ = 0x01
 PARAM_WRITE = 0x02
 
 PARAM_U8 = 0
+PARAM_I8 = 1
 PARAM_FLOAT = 2
+PARAM_I32 = 3
 PARAM_U32 = 4
+PARAM_POSITION = 5
 PARAM_ACTION = 6
 PARAM_FORMAT = {
     PARAM_U8: "<B",
+    PARAM_I8: "<b",
     PARAM_FLOAT: "<f",
+    PARAM_I32: "<i",
     PARAM_U32: "<I",
+    PARAM_POSITION: "<if",
 }
 
 PLOT_CONFIG = 0x01
@@ -143,8 +149,6 @@ PROTECTION_NAME = {
     1 << 8: "DRIVER",
 }
 
-HOST_CURRENT_HARD_LIMIT_A = 5.0
-IF_WE_RAD_S = 120.0
 
 CANFD_LENGTHS = tuple(range(9)) + (12, 16, 20, 24, 32, 48, 64)
 
@@ -152,7 +156,7 @@ FAST_CONFIG_ID = 13
 NORMAL_CONFIG_ID = 14
 FAST_RATE_HZ = 20000.0
 NORMAL_RATE_HZ = 1000.0
-CAPTURE_MAGIC = b"AXDRCAP1"
+CAPTURE_MAGIC = b"AXDRCAP"
 CURRENT_FAST_VARS = (
     ("Ia", PARAM_ADC_IA, 0.001),
     ("Ib", PARAM_ADC_IB, 0.001),
@@ -289,9 +293,6 @@ class IdentificationClient:
         self.plot_started = False
         self.ident_active = False
         self.run_peak = 0.0
-        self.run_trip = False
-        self.run_trip_reason = None
-        self.vbus = []
 
         self.fast_last = None
         self.fast_lost = 0
@@ -349,7 +350,6 @@ class IdentificationClient:
                     "dtype": "<i2",
                     "sample_count": self.flux_fast_sample,
                     "sample_rate_hz": FAST_RATE_HZ,
-                    "version": 1,
                 },
                 self.flux_current_data,
             )
@@ -365,7 +365,6 @@ class IdentificationClient:
                     "dtype": "<f4",
                     "sample_count": self.flux_normal_sample,
                     "sample_rate_hz": NORMAL_RATE_HZ,
-                    "version": 1,
                 },
                 self.flux_state_data,
             )
@@ -412,15 +411,6 @@ class IdentificationClient:
             ic = -(ia + ib)
             peak = max(abs(ia), abs(ib), abs(ic))
             self.run_peak = max(self.run_peak, peak)
-            if self.run_trip:
-                continue
-
-            if peak > HOST_CURRENT_HARD_LIMIT_A:
-                self.run_trip = True
-                self.run_trip_reason = (
-                    "identification phase current exceeded host hard limit "
-                    f"{HOST_CURRENT_HARD_LIMIT_A:.3f} A"
-                )
 
     def process_normal(self, payload):
         count = len(self.normal_vars)
@@ -437,8 +427,6 @@ class IdentificationClient:
             self.normal_lost += (seq - expected) & 0xFFFF
         self.normal_last = seq
         self.normal_frames += 1
-        vbus, = struct.unpack_from("<f", payload, 4)
-        self.vbus.append(vbus)
 
         if not self.ident_active or self.flux_state_data is None:
             return
@@ -470,6 +458,7 @@ class IdentificationClient:
 
     def request(self, msg_type, op, data=b"", context=None):
         txn = self.txn
+        self.txn = (txn % 255) + 1
         payload = bytes([txn, op]) + data
         self.ser.write(usb_frame(msg_type, payload))
 
@@ -486,7 +475,6 @@ class IdentificationClient:
                     name = STATUS_NAME.get(status, str(status))
                     request_name = context or f"request {msg_type}/{op}"
                     raise RuntimeError(f"{request_name}: {name}")
-                self.txn = (txn % 255) + 1
                 return response[4:]
 
         request_name = context or f"request {msg_type}/{op}"
@@ -515,11 +503,13 @@ class IdentificationClient:
                 f"id=0x{response_id:04X} type={response_type}"
             )
 
-        return struct.unpack_from(PARAM_FORMAT[param_type], data, 3)[0]
+        values = struct.unpack_from(PARAM_FORMAT[param_type], data, 3)
+        return values if param_type == PARAM_POSITION else values[0]
 
     def parameter_write(self, param_id, param_type, value):
         name = OBJECT_NAME.get(param_id, "parameter")
-        encoded = struct.pack(PARAM_FORMAT[param_type], value)
+        values = value if param_type == PARAM_POSITION else (value,)
+        encoded = struct.pack(PARAM_FORMAT[param_type], *values)
         data = self.request(
             MSG_PARAMETER,
             PARAM_WRITE,
@@ -601,17 +591,6 @@ class IdentificationClient:
         except (TimeoutError, RuntimeError):
             pass
 
-    def current_limit_set(self):
-        self.parameter_write(
-            PARAM_LIMIT_I_MAX,
-            PARAM_FLOAT,
-            self.args.current_limit,
-        )
-        print(
-            f"Commission current limit={self.args.current_limit:.3f} A; "
-            f"hard limit={HOST_CURRENT_HARD_LIMIT_A:.3f} A"
-        )
-
     def if_current_set(self):
         self.parameter_write(
             PARAM_MOTOR_IF_CURRENT,
@@ -678,25 +657,6 @@ class IdentificationClient:
         )
         self.plot_started = False
 
-    def check_vbus(self):
-        self.vbus.clear()
-        deadline = time.monotonic() + self.args.vbus_seconds
-        while time.monotonic() < deadline:
-            self.process(self.parser.feed(self.ser.read(4096)))
-
-        if not self.vbus:
-            raise RuntimeError("no Vbus samples")
-        mean = statistics.mean(self.vbus)
-        print(
-            f"Vbus={mean:.3f} V "
-            f"({min(self.vbus):.3f} .. {max(self.vbus):.3f} V)"
-        )
-        if not self.args.vbus_min <= mean <= self.args.vbus_max:
-            raise RuntimeError(
-                f"Vbus {mean:.3f} V outside "
-                f"{self.args.vbus_min:.3f} .. {self.args.vbus_max:.3f} V"
-            )
-
     def ident_result(self, mode):
         result = {"state": IDENT_DONE}
         if mode == IDENT_RS_LS:
@@ -738,7 +698,7 @@ class IdentificationClient:
     def run_ident(self, mode, run_number, direction=None):
         if direction is not None:
             sign = 1.0 if direction == "forward" else -1.0
-            wm_test = sign * IF_WE_RAD_S / self.args.pole_pairs
+            wm_test = sign  # Flux_Start uses only the target sign.
             self.parameter_write(
                 PARAM_TARGET_SPEED,
                 PARAM_FLOAT,
@@ -756,8 +716,6 @@ class IdentificationClient:
         self.parameter_action(ACTION_MOTOR_ENABLE)
 
         self.run_peak = 0.0
-        self.run_trip = False
-        self.run_trip_reason = None
         fast_lost_start = self.fast_lost
         normal_lost_start = self.normal_lost
         fast_samples_start = self.fast_samples
@@ -776,10 +734,6 @@ class IdentificationClient:
 
             while time.monotonic() < deadline:
                 self.process(self.parser.feed(self.ser.read(4096)))
-
-                if self.run_trip:
-                    failure = RuntimeError(self.run_trip_reason)
-                    break
 
                 status = self.action_complete_status(txn, start_action)
                 if status is not None:
@@ -1165,7 +1119,6 @@ def parse_args():
         help="required confirmation to energize the motor",
     )
     parser.add_argument("--pole-pairs", type=int, required=True)
-    parser.add_argument("--current-limit", type=float, required=True)
     parser.add_argument(
         "--if-current",
         type=float,
@@ -1230,21 +1183,13 @@ def parse_args():
         default=DEFAULT_LS_REPEAT_LIMIT,
         help="maximum Ls deviation from median, default 0.15",
     )
-    parser.add_argument(
-        "--rl-repeat-limit",
-        type=float,
-        help="deprecated: override both Rs and Ls repeatability limits",
-    )
     parser.add_argument("--flux-repeat-limit", type=float, default=0.05)
     parser.add_argument("--flux-direction-limit", type=float, default=0.05)
-    parser.add_argument("--vbus-min", type=float, default=10.0)
-    parser.add_argument("--vbus-max", type=float, default=20.0)
-    parser.add_argument("--vbus-seconds", type=float, default=0.2)
     parser.add_argument(
         "--ident-timeout",
         type=float,
-        default=8.0,
-        help="maximum seconds for each identification run, default 8",
+        default=60.0,
+        help="maximum seconds for each identification run, default 60",
     )
     parser.add_argument(
         "--interval",
@@ -1259,25 +1204,17 @@ def parse_args():
     parser.add_argument("--output")
     args = parser.parse_args()
 
-    if args.rl_repeat_limit is not None:
-        args.rs_repeat_limit = args.rl_repeat_limit
-        args.ls_repeat_limit = args.rl_repeat_limit
-
     flux_requested = args.apply_rl and not args.skip_flux
 
     if not args.run:
         parser.error("--run is required to energize the motor")
     if not 1 <= args.pole_pairs <= 255:
         parser.error("--pole-pairs must be between 1 and 255")
-    if args.current_limit <= 0.0:
-        parser.error("--current-limit must be positive")
     if flux_requested and args.if_current is None:
         parser.error("--if-current is required when Flux identification is requested")
     if args.if_current is not None:
         if args.if_current <= 0.0:
             parser.error("--if-current must be positive")
-        if args.if_current > args.current_limit:
-            parser.error("--if-current must not exceed --current-limit")
     if args.rs_ls_count <= 0:
         parser.error("--rs-ls-count must be positive")
     if args.flux_forward_count <= 0 or args.flux_reverse_count <= 0:
@@ -1294,14 +1231,11 @@ def parse_args():
         parser.error("--jb-ratio must be between 0 and 1 (exclusive)")
     if not math.isfinite(args.jb_hz) or args.jb_hz <= 0.0:
         parser.error("--jb-hz must be finite and positive")
-    if args.vbus_min >= args.vbus_max:
-        parser.error("--vbus-min must be less than --vbus-max")
     for name in (
         "rs_repeat_limit",
         "ls_repeat_limit",
         "flux_repeat_limit",
         "flux_direction_limit",
-        "vbus_seconds",
         "ident_timeout",
         "timeout",
     ):
@@ -1333,9 +1267,7 @@ def main():
         "started": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "configuration": {
             "pole_pairs": args.pole_pairs,
-            "current_limit_a": args.current_limit,
             "if_current_a": args.if_current,
-            "host_current_hard_limit_a": HOST_CURRENT_HARD_LIMIT_A,
             "rs_ls_count": args.rs_ls_count,
             "flux_forward_count": args.flux_forward_count,
             "flux_reverse_count": args.flux_reverse_count,
@@ -1361,7 +1293,7 @@ def main():
             "flux_state_channels": [
                 name for name, _ in FLUX_NORMAL_VARS
             ],
-            "flux_capture_format": "AXDRCAP1",
+            "flux_capture_format": "AXDRCAP",
         },
         "rs_ls": {
             "results": [],
@@ -1390,7 +1322,7 @@ def main():
         f" {args.flux_reverse_count} reverse"
         f", J/B={args.jb_count}"
     )
-    print("RAM updates are temporary; reset restores compiled parameters.")
+    print("RAM updates are temporary; restart reloads saved parameters.")
 
     try:
         with serial.Serial(
@@ -1407,9 +1339,7 @@ def main():
             try:
                 client.prepare()
                 client.configure_plot()
-                client.check_vbus()
                 record["firmware_pole_pairs"] = client.pole_pairs_set()
-                client.current_limit_set()
                 if flux_requested:
                     record["firmware_if_current_a"] = client.if_current_set()
 

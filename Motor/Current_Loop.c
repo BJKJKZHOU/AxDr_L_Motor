@@ -112,7 +112,7 @@ void Current_Loop(float Id_Ref, float Iq_Ref, float U_Lim,
         *Ud = Id_LADRC.Sig.Out - Ud_FF;
         *Uq = Iq_LADRC.Sig.Out - Uq_FF;
 
-        /* Keep legacy PI plot IDs live under LADRC. */
+        /* Plot reports the selected controller output before shared feedforward. */
         Id_Ctrl.Sig.Out = *Ud;
         Iq_Ctrl.Sig.Out = *Uq;
         return;

@@ -55,7 +55,7 @@ CHANNELS = {
     "uq_pi": (PARAM_SIGNAL_IQ_PI_OUT, "V", .001, True),
     "wm": (PARAM_RUN_WM, "rad/s", None, True),
     "wm_ref": (PARAM_REF_WM, "rad/s", None, True),
-    "iq_cmd": (PARAM_REF_IQ, "A", None, True),
+    "iq_cmd": (PARAM_REF_IQ, "A", .001, True),
 }
 
 RATES = {"fast": 20000, "normal": 1000}
@@ -153,10 +153,9 @@ class PlotClient:
                     continue
                 seq = struct.unpack_from("<H", payload)[0]
                 count = payload[3]
-                n = self.count if self.group == "fast" else count
-                required = 4 + count * n * (2 if self.group == "fast" else 4)
-                if (count == 0 or len(payload) < required or
-                    (self.group == "fast" and count > 20) or
+                required = 4 + (count * self.count * 2 if self.group == "fast" else count * 4)
+                if (count == 0 or len(payload) < required or any(payload[required:]) or
+                    (self.group == "fast" and count > self.block_samples) or
                     (self.group == "normal" and count != self.count)):
                     self.bad += 1
                     continue
@@ -164,7 +163,7 @@ class PlotClient:
                     self.lost += (seq - self.last_seq - 1) & 0xFFFF
                 self.last_seq = seq
                 self.frame_seq.append(seq)
-                self.frame_count.append(count)
+                self.frame_count.append(count if self.group == "fast" else 1)
                 self.samples.extend(payload[4:required])
         return responses
 
@@ -175,7 +174,6 @@ class PlotClient:
         length = next(n for n in CANFD_LENGTHS if n >= len(body))
         frame = MAGIC + struct.pack("<HB", (msg_type << 6) | 1, length)
         self.ser.write(frame + body.ljust(length, b"\x00"))
-        self.ser.flush()
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             for response in self.poll():
@@ -196,15 +194,24 @@ class PlotClient:
             raise ValueError(f"unexpected Parameter response for 0x{param_id:04X}")
         return struct.unpack_from("<I", data, 3)[0]
 
-    def try_read_drop(self, group):
-        try:
-            return self.read_u32(PARAM_PLOT_FAST_DROP if group == "fast"
-                                 else PARAM_PLOT_NORMAL_DROP)
-        except (RuntimeError, TimeoutError, ValueError):
-            # Older firmware has no USB-readable drop counter.
-            return None
+    def read_drop(self, group):
+        return self.read_u32(PARAM_PLOT_FAST_DROP if group == "fast"
+                             else PARAM_PLOT_NORMAL_DROP)
 
     def capture(self, group, names, seconds, *, strict=True):
+        from motor_usb import plot_capabilities
+        caps = plot_capabilities(lambda msg, op, body: self.request(op, body, msg_type=msg))
+        if len(names) > caps["max_channels"][group]:
+            raise ValueError("channel count exceeds firmware Plot capacity")
+        for name in names:
+            pid, unit, scale, normal = CHANNELS[name]
+            modes, firmware_scale = caps["channels"][pid]
+            if not modes & (1 if group == "fast" else 2):
+                raise ValueError(f"firmware does not support {name} in {group} Plot")
+            if group == "fast" and not np.isclose(scale, firmware_scale, rtol=1e-6, atol=0):
+                raise ValueError(f"firmware scale differs for {name}: {firmware_scale}")
+        self.sample_rate = caps["rates"][group]
+        self.block_samples = caps["block_samples"]
         self.group = group
         self.count = len(names)
         self.config_id = 31 if group == "fast" else 32
@@ -213,7 +220,7 @@ class PlotClient:
         payload = bytes((group_id, self.config_id, len(names)))
         payload += b"".join(struct.pack("<H", CHANNELS[name][0]) for name in names)
         self.request(PLOT_CONFIG, payload)
-        before = self.try_read_drop(group)
+        before = self.read_drop(group)
         self.samples.clear()
         self.frame_seq.clear()
         self.frame_count.clear()
@@ -231,10 +238,10 @@ class PlotClient:
                 self.request(PLOT_STOP, bytes((1 << group_id,)))
             finally:
                 self.collect = False
-        after = self.try_read_drop(group)
+        after = self.read_drop(group)
         raw = bytes(self.samples)
         sample_count = len(raw) // (len(names) * (2 if group == "fast" else 4))
-        delta = ((after - before) & 0xFFFFFFFF) if before is not None and after is not None else None
+        delta = (after - before) & 0xFFFFFFFF
         problems = []
         if self.lost:
             problems.append(f"USB sequence gaps={self.lost}")
@@ -242,13 +249,12 @@ class PlotClient:
             problems.append(f"malformed frames={self.bad}")
         if delta:
             problems.append(f"firmware dropped={delta} blocks/samples")
-        if sample_count < RATES[group] * seconds * .90:
+        if sample_count < self.sample_rate * seconds * .90:
             problems.append(f"received only {sample_count} samples in {seconds:g}s")
         if sum(self.frame_count) != sample_count:
             problems.append("packet sample counts do not match captured bytes")
-        quality = "invalid" if problems else ("valid" if delta is not None else "unknown")
-        reason = "; ".join(problems) if problems else (
-            "firmware drop counter unavailable" if quality == "unknown" else "")
+        quality = "invalid" if problems else "valid"
+        reason = "; ".join(problems)
         self.last_capture_info = dict(
             quality=quality, quality_reason=reason,
             firmware_drop_before=before, firmware_drop_after=after,
@@ -300,7 +306,6 @@ def save_spectrum(path, kind, group, names, fs, sample_count, frequency, values,
     with path.open("wb") as handle:
         np.savez_compressed(
             handle,
-            format_version=np.array([1], dtype=np.int32),
             kind=np.array([kind]),
             group=np.array([group]),
             sample_rate_hz=np.array([fs], dtype=np.float64),
@@ -327,7 +332,6 @@ def save_waveform(path, raw, group, names, fs, info, metadata=None):
     with path.open("wb") as handle:
         np.savez_compressed(
             handle,
-            format_version=np.array([1], dtype=np.int32),
             kind=np.array(["waveform"]),
             group=np.array([group]),
             sample_rate_hz=np.array([fs], dtype=np.float64),
@@ -358,7 +362,16 @@ def save_waveform(path, raw, group, names, fs, info, metadata=None):
 def read_waveform(path):
     """Read a waveform archive for offline FFT/PSD, rejecting unverified timing."""
     with np.load(path, allow_pickle=False) as z:
-        if int(z["format_version"][0]) != 1 or str(z["kind"][0]) != "waveform":
+        required = {
+            "kind", "quality", "quality_reason", "group", "channel_name",
+            "sample_rate_hz", "raw_samples", "frame_sample_count", "frame_seq",
+            "usb_seq_lost", "malformed_frames", "firmware_drop_before",
+            "firmware_drop_after", "channel_id", "channel_scale",
+        }
+        missing = required.difference(z.files)
+        if missing:
+            raise ValueError(f"missing waveform fields: {', '.join(sorted(missing))}")
+        if str(z["kind"][0]) != "waveform":
             raise ValueError("unsupported waveform NMIXX")
         if str(z["quality"][0]) != "valid":
             raise ValueError("FFT/PSD requires verified continuous waveform: "
@@ -368,7 +381,7 @@ def read_waveform(path):
         fs = float(z["sample_rate_hz"][0])
         raw = np.asarray(z["raw_samples"])
         expected = np.dtype("<i2" if group == "fast" else "<f4")
-        if (group not in RATES or fs <= 0 or
+        if (group not in RATES or not np.isfinite(fs) or fs <= 0 or
             raw.ndim != 2 or raw.shape[1] != len(names) or
             raw.dtype.kind != expected.kind or raw.dtype.itemsize != expected.itemsize or
             not np.isfinite(raw).all() or len(raw) < 8):
@@ -434,8 +447,14 @@ def plot_spectrum(freq, values, names, units, kind, fs, n_samples, output,
 
 def draw_archive(archive_path, out):
     with np.load(archive_path, allow_pickle=False) as saved:
-        if int(saved["format_version"][0]) != 1:
-            raise ValueError("unsupported spectrum NMIXX version")
+        required = {
+            "kind", "freq_hz", "spectrum", "channel_name", "channel_unit",
+            "sample_rate_hz", "sample_count", "segment_length",
+            "quality", "quality_reason",
+        }
+        missing = required.difference(saved.files)
+        if missing:
+            raise ValueError(f"missing spectrum fields: {', '.join(sorted(missing))}")
         kind = str(saved["kind"][0])
         if kind not in ("fft", "psd"):
             raise ValueError("not an FFT/PSD NMIXX archive")
@@ -445,9 +464,13 @@ def draw_archive(archive_path, out):
         units = list(saved["channel_unit"])
         fs = float(saved["sample_rate_hz"][0])
         n = int(saved["sample_count"][0])
-        quality = str(saved["quality"][0]) if "quality" in saved.files else "unknown"
-        reason = str(saved["quality_reason"][0]) if "quality_reason" in saved.files else "Historical archive: quality not recorded"
-        if values.shape != (len(names), len(freq)) or not np.all(np.isfinite(values)):
+        quality = str(saved["quality"][0])
+        reason = str(saved["quality_reason"][0])
+        if (freq.ndim != 1 or len(freq) < 2 or
+            len(units) != len(names) or not np.isfinite(fs) or fs <= 0 or n < 1 or
+            quality not in ("valid", "invalid", "unknown") or
+            values.shape != (len(names), len(freq)) or
+            not np.all(np.isfinite(freq)) or not np.all(np.isfinite(values))):
             raise ValueError("invalid archived spectrum")
         amp = np.abs(values) * 2
         if kind == "fft":
@@ -466,7 +489,6 @@ def main():
     ap = argparse.ArgumentParser(description="AxDr USB Plot waveform capture and FFT / Welch PSD")
     source = ap.add_mutually_exclusive_group(required=True)
     source.add_argument("--port", help="live USB CDC device")
-    source.add_argument("--input-raw", type=Path, help="legacy interleaved Plot samples")
     source.add_argument("--input-waveform", type=Path, help="verified .waveform.nmixx for offline spectrum")
     source.add_argument("--result", type=Path, help="replot an existing .fft.nmixx or .psd.nmixx")
     ap.add_argument("--group", choices=("fast", "normal"), default="fast")
@@ -476,7 +498,6 @@ def main():
     ap.add_argument("--welch-n", type=int, default=8192)
     ap.add_argument("--name", default="Spectrum", help="test name prefix before local YYYY-MM-DD")
     ap.add_argument("--out", type=Path)
-    ap.add_argument("--save-raw", action="store_true", help="keep legacy raw bytes in local test-data")
     ap.add_argument("--baud", type=int, default=115200)
     ap.add_argument("--firmware-sha", help="optional user-supplied flashed firmware SHA (not verified)")
     ap.add_argument("--controller", help="optional PI/LADRC label")
@@ -529,11 +550,9 @@ def main():
             raw = client.capture(group, names, args.duration,
                                  strict=(args.analysis != "waveform"))
             info = client.last_capture_info
+            fs = client.sample_rate
         finally:
             client.close()
-    elif args.input_raw is not None:
-        raw = args.input_raw.read_bytes()
-        print("Warning: legacy .raw has no frame/drop metadata; timing is unverified.")
 
     if args.analysis == "waveform":
         meta = dict(firmware_sha=args.firmware_sha or "",
@@ -550,13 +569,6 @@ def main():
     data = decode_samples(raw, group, names)
     if data.shape[1] < 8:
         raise RuntimeError("fewer than 8 valid samples")
-    if info is not None and info["quality"] == "unknown":
-        print("Warning: firmware drop counter unavailable; spectral timing is unverified.")
-    if args.save_raw and args.port is not None:
-        raw_path = args.out / f"{prefix}.raw"
-        if raw_path.exists():
-            ap.error(f"raw file already exists: {raw_path}")
-        raw_path.write_bytes(raw)
     units = [CHANNELS[name][1] for name in names]
     print(f"Captured {data.shape[1]} samples, {data.shape[1] / fs:.3f} s, "
           f"{fs:g} Hz, channels={','.join(names)}")
@@ -571,11 +583,8 @@ def main():
             freq, spectrum, nfft, windows = welch_psd(data, fs, args.welch_n)
             plotted = spectrum
         archive = args.out / f"{prefix}.{kind}.nmixx"
-        status = ("valid" if args.input_waveform is not None else
-                  (info["quality"] if info is not None else "unknown"))
-        reason = ("" if status == "valid" else
-                  (info["quality_reason"] if info is not None else
-                   "legacy raw without frame/drop metadata"))
+        status = "valid" if args.input_waveform is not None else info["quality"]
+        reason = "" if args.input_waveform is not None else info["quality_reason"]
         save_spectrum(archive, kind, group, names, fs, data.shape[1],
                       freq, spectrum, nfft, windows, status, reason)
         image = args.out / f"{prefix}.{kind}.png"

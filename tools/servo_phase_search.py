@@ -16,7 +16,6 @@ Example:
         --encoder mt6835 \
         --pole-pairs 11 \
         --phase-current 0.5 \
-        --current-limit 2.0 \
         --run
 """
 
@@ -91,13 +90,6 @@ class PhaseSearch(base.IdentificationClient):
         self.parameter_write(base.PARAM_MOTOR_PP, base.PARAM_U8, self.args.pole_pairs)
         self.parameter_write(base.PARAM_MOTOR_MODE, base.PARAM_U8, MODE_PHASE_SEARCH)
 
-        if self.args.current_limit is not None:
-            self.parameter_write(
-                base.PARAM_LIMIT_I_MAX,
-                base.PARAM_FLOAT,
-                self.args.current_limit,
-            )
-
         if self.args.phase_current is not None:
             self.parameter_write(
                 base.PARAM_PHASE_I_SEARCH,
@@ -132,8 +124,6 @@ class PhaseSearch(base.IdentificationClient):
         print(f"Encoder protocol=spi ({protocol_readback})")
         print(f"SPI encoder={self.args.encoder} ({encoder_readback})")
         print(f"Pole pairs={pp_readback}")
-        if self.args.current_limit is not None:
-            print(f"User current limit={self.args.current_limit:.3f} A")
         print(f"Configured phase-search current={phase_current:.3f} A")
 
     def encoder_status(self):
@@ -233,12 +223,6 @@ def parse_args():
         default=None,
         help="optional phase-search current override; firmware default is used when omitted",
     )
-    parser.add_argument(
-        "--current-limit",
-        type=float,
-        default=None,
-        help="optional user current limit applied before phase search",
-    )
     parser.add_argument("--encoder-timeout", type=float, default=2.0)
     parser.add_argument("--phase-timeout", type=float, default=30.0)
     parser.add_argument("--poll-interval", type=float, default=0.05)
@@ -257,8 +241,6 @@ def parse_args():
         parser.error("--pole-pairs must be in 1..255")
     if args.phase_current is not None and args.phase_current <= 0.0:
         parser.error("--phase-current must be positive")
-    if args.current_limit is not None and args.current_limit <= 0.0:
-        parser.error("--current-limit must be positive")
     if args.encoder_timeout <= 0.0 or args.phase_timeout <= 0.0:
         parser.error("timeouts must be positive")
     if args.poll_interval <= 0.0:

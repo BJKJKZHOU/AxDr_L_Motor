@@ -301,14 +301,20 @@ NAMES = ("Current Id", "Current Iq", "Speed")
 
 def save_bode(path, freq_hz, ref, fbk, out, loop_id, bandwidth_hz,
               ff_enabled, tune_source, kp, ki, workpoint=None, pole_pairs=None,
-              *, quality="unknown", quality_reason="", point_valid=None,
+              *, current_controller, ladrc_bw_hz, ladrc_eso_bw_hz, sample_rate_hz,
+              quality="unknown", quality_reason="", point_valid=None,
               fit_residual=None, fit_drift=None):
-    """Store measured same-clock phasors in the common NMIXX v2 container."""
+    """Store measured same-clock phasors in the NMIXX container with the measured controller configuration."""
     freq = np.asarray(freq_hz, dtype=np.float64)
     phasors = [np.asarray(x, dtype=np.complex128) for x in (ref, fbk, out)]
     if freq.ndim != 1 or len(freq) < 2 or any(x.shape != freq.shape for x in phasors):
         raise ValueError("frequency/phasor shapes do not match")
-    extra = {}
+    extra = {
+        "current_controller": np.full(1, current_controller, dtype=np.uint8),
+        "ladrc_bw_hz": np.full(1, ladrc_bw_hz, dtype=float),
+        "ladrc_eso_bw_hz": np.full(1, ladrc_eso_bw_hz, dtype=float),
+        "sample_rate_hz": np.full(1, sample_rate_hz, dtype=float),
+    }
     if quality not in ("unknown", "valid", "invalid"):
         raise ValueError("invalid measurement quality")
     extra["quality"] = np.array([quality])
@@ -335,7 +341,7 @@ def save_bode(path, freq_hz, ref, fbk, out, loop_id, bandwidth_hz,
         extra["pole_pairs"] = np.array([pole_pairs], dtype=np.int32)
     with Path(path).open("wb") as handle:
         np.savez_compressed(
-            handle, format_version=np.array([2], dtype=np.int32),
+            handle,
             freq_hz=freq,
             loop_id=np.array([loop_id], dtype=np.int32),
             bandwidth_hz=np.array([bandwidth_hz], dtype=np.float64),
@@ -352,31 +358,46 @@ def save_bode(path, freq_hz, ref, fbk, out, loop_id, bandwidth_hz,
 def replot(source, output):
     """Recompute each archived condition from measured complex phasors."""
     with np.load(source, allow_pickle=False) as archive:
-        if int(archive["format_version"][0]) != 2:
-            raise ValueError("unsupported NMIXX data version")
+        required = {
+            "freq_hz", "loop_id", "bandwidth_hz", "ff_enabled", "tune_source",
+            "kp", "ki", "ref", "fbk", "out", "current_controller",
+            "ladrc_bw_hz", "ladrc_eso_bw_hz", "sample_rate_hz",
+            "quality", "quality_reason", "point_valid",
+        }
+        missing = required.difference(archive.files)
+        if missing:
+            raise ValueError(f"missing Bode fields: {', '.join(sorted(missing))}")
         freq = np.asarray(archive["freq_hz"], dtype=np.float64)
         loop_id = int(archive["loop_id"][0])
         if loop_id not in LOOPS.values():
             raise ValueError("unknown NMIXX loop")
         bw = np.asarray(archive["bandwidth_hz"], dtype=np.float64)
         ff = np.asarray(archive["ff_enabled"], dtype=np.int32)
+        controller = np.asarray(archive["current_controller"], dtype=np.uint8)
+        ladrc_bw = np.asarray(archive["ladrc_bw_hz"], dtype=float)
+        ladrc_eso = np.asarray(archive["ladrc_eso_bw_hz"], dtype=float)
         tune = np.asarray(archive["tune_source"], dtype=np.int32)
         kp = np.asarray(archive["kp"], dtype=np.float64)
         ki = np.asarray(archive["ki"], dtype=np.float64)
         reference = np.asarray(archive["ref"], dtype=np.complex128)
         feedback = np.asarray(archive["fbk"], dtype=np.complex128)
         output_signal = np.asarray(archive["out"], dtype=np.complex128)
+        fs = np.asarray(archive["sample_rate_hz"], dtype=float)
+        if freq.ndim != 1 or bw.ndim != 1 or not len(bw):
+            raise ValueError("invalid NMIXX frequency/condition dimensions")
         shape = (len(bw), len(freq))
-        quality = np.asarray(archive.get("quality", np.full(len(bw), "unknown")))
-        reason = np.asarray(archive.get("quality_reason", np.full(len(bw), "measurement quality unknown (legacy archive)")))
-        point_valid = np.asarray(archive.get("point_valid", np.ones(shape, dtype=np.uint8)))
+        quality = np.asarray(archive["quality"])
+        reason = np.asarray(archive["quality_reason"])
+        point_valid = np.asarray(archive["point_valid"])
         if (quality.shape != (len(bw),) or reason.shape != (len(bw),) or
             quality.dtype.kind != "U" or reason.dtype.kind != "U" or
             not np.all(np.isin(quality, ["unknown", "valid", "invalid"])) or
             point_valid.shape != shape or not np.all(np.isin(point_valid, [0, 1]))):
             raise ValueError("invalid NMIXX quality metadata")
         if (freq.ndim != 1 or len(freq) < 2 or
-            any(v.shape != (len(bw),) for v in (ff, tune, kp, ki)) or
+            any(v.shape != (len(bw),) for v in (ff, tune, kp, ki, controller, ladrc_bw, ladrc_eso, fs)) or
+            not np.all(np.isin(controller, [0, 1])) or
+            not np.all(np.isfinite(fs)) or np.any(fs <= 0) or
             any(v.shape != shape for v in (reference, feedback, output_signal)) or
             any(not np.all(np.isfinite(v)) for v in (reference, feedback, output_signal)) or
             np.any(abs(reference) < 1e-12)):
@@ -394,10 +415,14 @@ def replot(source, output):
         key = f"{NAMES[loop_id].replace(' ', '_')}_BW{bandwidth:g}_FF{int(ff[i])}"
         if key in metrics:
             raise ValueError(f"duplicate NMIXX condition: {key}")
-        if tune[i] == 1:
+        if loop_id != LOOPS["speed"] and controller[i] == 1:
+            label = f"{NAMES[loop_id]} (LADRC {ladrc_bw[i]:g} / ESO {ladrc_eso[i]:g} Hz)"
+        elif tune[i] == 1:
             label = f"{NAMES[loop_id]} (Manual Kp {kp[i]:.4g}, Ki {ki[i]:.4g})"
         else:
             label = f"{NAMES[loop_id]} (PI setting {bandwidth:g} Hz)"
+        if loop_id == LOOPS["speed"]:
+            label += f", current {'PI' if controller[i] == 0 else 'LADRC'}"
         if loop_id != LOOPS["speed"]:
             label += f", FF {int(ff[i])}"
         metrics[key] = plot_bode_a4(
@@ -422,7 +447,8 @@ from parameter_ids_generated import (
     PARAM_SIGNAL_SPEED_REF, PARAM_SIGNAL_SPEED_FBK,
     PARAM_SIGNAL_SPEED_IQ_OUT, PARAM_SIGNAL_SPEED_INJ,
     PARAM_CTRL_SPEED_BW_HZ, PARAM_CTRL_SPEED_SOURCE,
-    PARAM_CTRL_CURRENT_SOURCE, PARAM_LIMIT_I_EFFECTIVE,
+    PARAM_CTRL_CURRENT_SOURCE, PARAM_CTRL_CURRENT_CONTROLLER,
+    PARAM_CTRL_LADRC_BW_HZ, PARAM_CTRL_LADRC_ESO_BW_HZ, PARAM_PLOT_FAST_DROP,
     PARAM_CTRL_SPEED_KP_EFFECTIVE,
     PARAM_CTRL_SPEED_KI_EFFECTIVE, PARAM_RUN_IQ,
     PARAM_CTRL_ID_KP, PARAM_CTRL_ID_KI, PARAM_CTRL_IQ_KP, PARAM_CTRL_IQ_KI,
@@ -444,7 +470,6 @@ PARAM_ACTION = 6
 PLOT_CONFIG = 1
 PLOT_START = 2
 PLOT_STOP = 3
-FAST_RATE_HZ = 20000.0
 FAST_CONFIG_ID = 21
 CHANNELS = {
     "id": (
@@ -545,7 +570,6 @@ class Client:
         self.txn = (self.txn % 255) + 1
         txn = self.txn
         self.ser.write(wire(msg_type, bytes([txn, operation]) + body))
-        self.ser.flush()
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             for payload in self.poll():
@@ -563,6 +587,12 @@ class Client:
         if len(payload) < 4 or struct.unpack_from("<H", payload)[0] != pid or payload[2] != 0:
             raise RuntimeError(f"unexpected value reply for 0x{pid:04X}")
         return payload[3]
+
+    def read_u32(self, pid):
+        payload = self.request(MSG_PARAMETER, PARAM_READ, struct.pack("<H", pid))
+        if len(payload) < 7 or struct.unpack_from("<H", payload)[0] != pid or payload[2] != 4:
+            raise RuntimeError(f"unexpected uint32 reply for 0x{pid:04X}")
+        return struct.unpack_from("<I", payload, 3)[0]
 
     def read_float(self, pid):
         payload = self.request(MSG_PARAMETER, PARAM_READ, struct.pack("<H", pid))
@@ -607,7 +637,7 @@ def sinusoid_fit(signal, freq, times):
             float(np.sqrt(np.mean(residue ** 2))), float(coef[2]))
 
 
-def analyze(raw, freq, amp, settle_cycles, channels):
+def analyze(raw, freq, amp, settle_cycles, channels, sample_rate_hz):
     """Fit the injection and same-clock reference/feedback/output phasors."""
     data = np.frombuffer(bytes(raw), dtype="<i2")
     if len(data) % len(channels) != 0:
@@ -618,12 +648,12 @@ def analyze(raw, freq, amp, settle_cycles, channels):
     active = np.flatnonzero(np.abs(inj) > max(channels[0][2] * 2, amp * 0.02))
     if len(active) < 50:
         raise RuntimeError("sine excitation missing from FAST Plot")
-    start = int(active[0]) + int(round(settle_cycles * FAST_RATE_HZ / freq))
+    start = int(active[0]) + int(round(settle_cycles * sample_rate_hz / freq))
     end = int(active[-1]) + 1
-    if end - start < max(100, int(round(2.0 * FAST_RATE_HZ / freq))):
+    if end - start < max(100, int(round(2.0 * sample_rate_hz / freq))):
         raise RuntimeError("too few settled cycles; increase --duration")
     interval = samples[start:end]
-    t = np.arange(len(interval), dtype=np.float64) / FAST_RATE_HZ
+    t = np.arange(len(interval), dtype=np.float64) / sample_rate_hz
     ref, ref_err, ref_dc = sinusoid_fit(interval[:, 1], freq, t)
     fbk, fbk_err, fbk_dc = sinusoid_fit(interval[:, 2], freq, t)
     out, out_err, out_dc = sinusoid_fit(interval[:, 3], freq, t)
@@ -719,7 +749,6 @@ def main():
 
     if not args.port:
         p.error("hardware capture requires --port")
-    max_freq = 999 if args.loop == "speed" else 9999
     if not 1 <= args.points_per_decade <= 1000:
         p.error("--points-per-decade must be between 1 and 1000")
     if args.freq is not None:
@@ -729,12 +758,12 @@ def main():
     else:
         if args.start is None or args.stop is None:
             p.error("specify --start and --stop, or use --freq for manual points")
-        if not 1 <= args.start < args.stop <= max_freq:
-            p.error(f"log sweep requires 1 <= start < stop <= {max_freq} Hz")
+        if not 1 <= args.start < args.stop:
+            p.error("log sweep requires 1 <= start < stop")
         freqs = log_sweep(args.start, args.stop, args.points_per_decade)
 
     if (len(freqs) < 2 or len(set(freqs)) != len(freqs) or
-        any(not math.isfinite(f) or f <= 0 or f > max_freq for f in freqs) or
+        any(not math.isfinite(f) or f <= 0 for f in freqs) or
         not math.isfinite(args.amp) or args.amp <= 0 or
         not math.isfinite(args.duration) or not 0 < args.duration <= 60 or
         not math.isfinite(args.settle_cycles) or args.settle_cycles < 0):
@@ -754,6 +783,19 @@ def main():
     channels = CHANNELS[args.loop]
     loop_id = LOOPS[args.loop]
     try:
+        from motor_usb import plot_capabilities
+        caps = plot_capabilities(client.request)
+        sample_rate_hz = caps["rates"]["fast"]
+        nyquist = caps["rates"]["normal"] if args.loop == "speed" else sample_rate_hz / 2
+        if any(f >= nyquist for f in freqs):
+            raise ValueError(f"sweep frequency must be below {nyquist:g} Hz for this firmware")
+        channels = tuple((name, pid, caps["channels"][pid][1]) for name, pid, _ in channels)
+        for _, pid, _ in channels:
+            if not caps["channels"][pid][0] & 1:
+                raise RuntimeError(f"FAST channel unavailable: 0x{pid:04x}")
+        controller = client.read_u8(PARAM_CTRL_CURRENT_CONTROLLER)
+        ladrc_bw = client.read_float(PARAM_CTRL_LADRC_BW_HZ)
+        ladrc_eso = client.read_float(PARAM_CTRL_LADRC_ESO_BW_HZ)
         expected_mode = 1 if args.loop == "speed" else 0
         state = client.read_u8(PARAM_MOTOR_STATE)
         if (client.read_u8(PARAM_MOTOR_MODE) != expected_mode or
@@ -780,7 +822,6 @@ def main():
             kp = client.read_float(PARAM_CTRL_SPEED_KP_EFFECTIVE)
             ki = client.read_float(PARAM_CTRL_SPEED_KI_EFFECTIVE)
             amp_param = PARAM_SIGNAL_SPEED_AMP
-            current_limit_a = client.read_float(PARAM_LIMIT_I_EFFECTIVE)
         else:
             bw = client.read_float(PARAM_CTRL_CURRENT_BW_HZ)
             tune_source = client.read_u8(PARAM_CTRL_CURRENT_SOURCE)
@@ -804,6 +845,7 @@ def main():
             client.set_float(PARAM_SIGNAL_FREQ_HZ, freq)
             client.set_float(amp_param, args.amp)
             client.set_float(PARAM_SIGNAL_TIME_S, duration)
+            drops_before = client.read_u32(PARAM_PLOT_FAST_DROP)
             client.plot_start(channels)
             plotting = True
             try:
@@ -816,6 +858,8 @@ def main():
                 plotting = False
             finally:
                 client.action(ACTION_SIGNAL_ABORT)
+            if client.read_u32(PARAM_PLOT_FAST_DROP) != drops_before:
+                raise RuntimeError("firmware dropped FAST samples during sweep")
             if client.dropped or client.malformed:
                 raise RuntimeError(f"FAST data incomplete: seq_lost={client.dropped}, "
                                    f"malformed={client.malformed}")
@@ -824,11 +868,7 @@ def main():
                 raise RuntimeError(f"{freq:g} Hz: FAST int16 Plot data clipped")
             if client.read_u8(PARAM_MOTOR_STATE) != state:
                 raise RuntimeError("motor changed state during sweep")
-            result = analyze(client.fast, freq, args.amp, args.settle_cycles, channels)
-            if args.loop == "speed":
-                iq_samples = np.frombuffer(bytes(client.fast), dtype="<i2").reshape(-1, 4)[:, 3]
-                if np.max(np.abs(iq_samples.astype(float) * channels[3][2])) >= 0.98 * current_limit_a:
-                    raise RuntimeError(f"{freq:g} Hz: speed PI Iq command approached current limit")
+            result = analyze(client.fast, freq, args.amp, args.settle_cycles, channels, sample_rate_hz)
             raw_path = args.out / f"point_{i:03d}.raw"
             raw_path.write_bytes(client.fast)
             results.append(result)
@@ -852,6 +892,8 @@ def main():
         save_bode(data_path, freqs, ref, fbk, out,
                   loop_id, bw, ff, tune_source, kp, ki,
                   workpoint=workpoint, pole_pairs=pole_pairs, quality=quality,
+                  current_controller=controller, ladrc_bw_hz=ladrc_bw,
+                  ladrc_eso_bw_hz=ladrc_eso, sample_rate_hz=sample_rate_hz,
                   quality_reason=quality_reason, point_valid=point_valid,
                   fit_residual=[r["fit_residual"] for r in results],
                   fit_drift=[r["fit_drift"] for r in results])
@@ -861,10 +903,14 @@ def main():
             S = 1 - T
             L = np.divide(T, S, out=np.full(T.shape, complex(np.nan, np.nan)),
                           where=abs(S) >= 1e-10)
-            if tune_source == 1:
+            if args.loop != "speed" and controller == 1:
+                title = f"{NAMES[loop_id]} (LADRC {ladrc_bw:g} / ESO {ladrc_eso:g} Hz)"
+            elif tune_source == 1:
                 title = f"{NAMES[loop_id]} (Manual Kp {kp:.4g}, Ki {ki:.4g})"
             else:
                 title = f"{NAMES[loop_id]} (PI setting {bw:g} Hz)"
+            if args.loop == "speed":
+                title += f", current {'PI' if controller == 0 else 'LADRC'}"
             if args.loop != "speed":
                 title += f", FF {ff}"
             if args.plot:

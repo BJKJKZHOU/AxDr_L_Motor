@@ -114,7 +114,7 @@
  * Mechanical-speed reference profile.
  * Acc/Dec are positive magnitudes in mechanical rad/s^2. Reversal always
  * decelerates Wm_Ref to zero before accelerating in the opposite direction.
- * These are first-version motion-policy defaults and require hardware tuning.
+ * These motion-policy defaults require hardware tuning.
  */
 #define MOTION_ACC_RAD_S2 100.0f
 #define MOTION_DEC_RAD_S2 100.0f

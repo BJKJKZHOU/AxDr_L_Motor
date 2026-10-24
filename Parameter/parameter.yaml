@@ -10,7 +10,6 @@
 # label is the short human-facing engineering name exported to Host/UI.
 # PARAM_* symbols, numeric IDs and C bindings remain machine-facing names.
 
-schema: 1
 
 objects:
   PARAM_ADC_IA:
@@ -1283,7 +1282,7 @@ objects:
     binding: Id_Ctrl.Sig.Out
     label: Id PI Output
     unit: V
-    description: "当前选中电流控制器的d轴电压输出，未叠加公共dq前馈、未经过最终dq二维限幅；保留原参数ID兼容旧扫频工具。"
+    description: "当前选中电流控制器的d轴电压输出，未叠加公共dq前馈、未经过最终dq二维限幅。"
     plot: { modes: [fast, normal], fast_scale: 0.001 }
 
   PARAM_SIGNAL_TARGET:
@@ -1322,7 +1321,7 @@ objects:
     binding: Iq_Ctrl.Sig.Out
     label: Iq PI Output
     unit: V
-    description: "当前选中电流控制器的q轴电压输出，未叠加公共dq前馈、未经过最终dq二维限幅；保留原参数ID兼容旧扫频工具。"
+    description: "当前选中电流控制器的q轴电压输出，未叠加公共dq前馈、未经过最终dq二维限幅。"
     plot: { modes: [fast, normal], fast_scale: 0.001 }
 
   PARAM_SIGNAL_SPEED_REF:

@@ -48,8 +48,8 @@ ON_CHANGE_C = {
 
 def load_objects():
     data = yaml.safe_load(SOURCE.read_text(encoding="utf-8"))
-    if not isinstance(data, dict) or data.get("schema") != 1:
-        raise ValueError("unsupported parameter schema")
+    if not isinstance(data, dict):
+        raise ValueError("parameter definitions must be a mapping")
     objects = data.get("objects")
     if not isinstance(objects, dict) or not objects:
         raise ValueError("objects must be a non-empty mapping")

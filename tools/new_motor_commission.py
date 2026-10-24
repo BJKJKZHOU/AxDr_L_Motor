@@ -3,7 +3,7 @@
 
 The workflow is fixed intentionally:
 
-1. Apply the known pole pairs and commissioning current limit to firmware RAM.
+1. Apply the known pole pairs to firmware RAM.
 2. Run Rs/Ls identification five times.
 3. Check repeatability and ask whether the fifth result may be applied to RAM.
 4. Run Flux identification twice forward and twice reverse.
@@ -13,16 +13,16 @@ The workflow is fixed intentionally:
    and run until Ctrl+C by default.
 
 Declining either identification result stops the workflow. Applied values, pole
-pairs and the user current limit are not saved to nonvolatile memory and are lost
+pairs are not saved to nonvolatile memory and are lost
 after a firmware reset. --identify-only is intended for workflows that continue
 immediately into another commissioning step, such as servo phase search.
 
 Examples:
     python3 tools/new_motor_commission.py \
-        --port /dev/ttyACM0 --current-limit 2.0 --run
+        --port /dev/ttyACM0 --pole-pairs 7 --run
 
     python3 tools/new_motor_commission.py \
-        --port /dev/ttyACM0 --current-limit 2.0 --identify-only --run
+        --port /dev/ttyACM0 --pole-pairs 7 --identify-only --run
 """
 
 import argparse
@@ -46,7 +46,6 @@ IDENT_FAILED = 3
 
 MODE_IDENT = 4
 
-HOST_CURRENT_GUARD_RATIO = 1.10
 
 FAST_CONFIG_ID = 13
 NORMAL_CONFIG_ID = 14
@@ -74,8 +73,6 @@ class Commission(base.MotorUSB):
         self.plot_started = False
         self.ident_active = False
         self.run_peak = 0.0
-        self.run_trip = False
-        self.vbus = []
         self.normal_last = None
         self.normal_lost = 0
         self.normal_frames = 0
@@ -107,8 +104,6 @@ class Commission(base.MotorUSB):
             peak = max(abs(raw[start + index] * 0.001)
                        for index in range(count))
             self.run_peak = max(self.run_peak, peak)
-            if peak > self.args.ident_current_limit:
-                self.run_trip = True
 
     def process_normal(self, payload):
         if (len(payload) != 8 or payload[2] != NORMAL_CONFIG_ID or
@@ -121,8 +116,6 @@ class Commission(base.MotorUSB):
             self.normal_lost += (seq - expected) & 0xFFFF
         self.normal_last = seq
         self.normal_frames += 1
-        value, = struct.unpack_from("<f", payload, 4)
-        self.vbus.append(value)
 
     def prepare(self):
         try:
@@ -137,17 +130,6 @@ class Commission(base.MotorUSB):
             )
         except (TimeoutError, RuntimeError):
             pass
-
-    def current_limit_set(self):
-        self.parameter_write(
-            base.PARAM_LIMIT_I_MAX,
-            base.PARAM_FLOAT,
-            self.args.current_limit,
-        )
-        print(
-            f"Commission current limit={self.args.current_limit:.3f} A; "
-            f"host guard={self.args.ident_current_limit:.3f} A"
-        )
 
     def pole_pairs_set(self):
         self.parameter_write(
@@ -201,25 +183,6 @@ class Commission(base.MotorUSB):
         )
         self.plot_started = False
 
-    def check_vbus(self):
-        self.vbus.clear()
-        deadline = time.monotonic() + self.args.vbus_seconds
-        while time.monotonic() < deadline:
-            self.process(self.parser.feed(self.ser.read(4096)))
-
-        if not self.vbus:
-            raise RuntimeError("no Vbus samples")
-        mean = statistics.mean(self.vbus)
-        print(
-            f"Vbus={mean:.3f} V "
-            f"({min(self.vbus):.3f} .. {max(self.vbus):.3f} V)"
-        )
-        if not self.args.vbus_min <= mean <= self.args.vbus_max:
-            raise RuntimeError(
-                f"Vbus {mean:.3f} V outside "
-                f"{self.args.vbus_min:.3f} .. {self.args.vbus_max:.3f} V"
-            )
-
     def ident_result(self, mode):
         result = {"state": IDENT_DONE}
         if mode == IDENT_RS_LS:
@@ -249,7 +212,7 @@ class Commission(base.MotorUSB):
     def run_ident(self, mode, run_number, direction=None):
         if direction is not None:
             sign = 1.0 if direction == "forward" else -1.0
-            wm_test = sign * sensorless_run.IF_WE_RAD_S / self.args.pole_pairs
+            wm_test = sign  # Flux_Start uses only the target sign.
             self.speed_set(wm_test)
 
         start_action = (base.ACTION_IDENT_RS_LS_START
@@ -260,7 +223,6 @@ class Commission(base.MotorUSB):
         self.parameter_action(base.ACTION_MOTOR_ENABLE)
 
         self.run_peak = 0.0
-        self.run_trip = False
         fast_lost_start = self.fast_lost
         normal_lost_start = self.normal_lost
         fast_samples_start = self.fast_samples
@@ -276,13 +238,6 @@ class Commission(base.MotorUSB):
 
             while time.monotonic() < deadline:
                 self.process(self.parser.feed(self.ser.read(4096)))
-
-                if self.run_trip:
-                    failure = RuntimeError(
-                        "identification phase current exceeded host guard "
-                        f"{self.args.ident_current_limit:.3f} A"
-                    )
-                    break
 
                 status = self.action_complete_status(txn, start_action)
                 if status is not None:
@@ -488,7 +443,7 @@ def log_write(record, output):
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Identify an unknown motor and optionally run guarded sensorless speed"
+        description="Identify an unknown motor and optionally run sensorless speed"
     )
     parser.add_argument("--port", required=True)
     parser.add_argument("--run", action="store_true",
@@ -500,44 +455,16 @@ def parse_args():
     )
     parser.add_argument("--target-we", type=int, default=1000,
                         help="final sensorless test point in electrical rad/s")
-    parser.add_argument("--pole-pairs", type=int, default=16,
+    parser.add_argument("--pole-pairs", type=int, required=True,
                         help="known pole pairs, written to firmware RAM and used for speed conversion")
     parser.add_argument("--direction", choices=("forward", "reverse"),
                         default="forward")
     parser.add_argument("--duration", type=float, default=0.0,
-                        help="final hold seconds; 0 runs until Ctrl+C")
-    parser.add_argument(
-        "--current-limit", type=float, required=True,
-        help="maximum phase current allowed for this motor during commissioning",
-    )
+                        help="seconds from RUN; 0 runs until Ctrl+C")
     parser.add_argument("--rl-repeat-limit", type=float, default=0.10)
     parser.add_argument("--flux-repeat-limit", type=float, default=0.05)
-    parser.add_argument("--vbus-min", type=float, default=10.0)
-    parser.add_argument("--vbus-max", type=float, default=20.0)
-    parser.add_argument("--vbus-seconds", type=float, default=0.2)
     parser.add_argument("--ident-timeout", type=float, default=25.0)
-    parser.add_argument("--ramp-step", type=float, default=0.5,
-                        help="mechanical rad/s per final-run ramp step")
-    parser.add_argument("--ramp-interval", type=float, default=0.02)
-    parser.add_argument(
-        "--observer-angle-rms-limit", type=float, default=0.03,
-        help="maximum control/observer angle RMS used to infer takeover",
-    )
-    parser.add_argument(
-        "--observer-window", type=float, default=0.2,
-        help="speed/angle inference window in seconds",
-    )
-    parser.add_argument(
-        "--observer-settle-seconds", type=float, default=0.5,
-        help="continuous stable time required before the final speed ramp",
-    )
-    parser.add_argument("--we-tolerance", type=float, default=20.0)
-    parser.add_argument("--we-relative-tolerance", type=float, default=0.03)
-    parser.add_argument("--speed-error-time", type=float, default=1.0)
-    parser.add_argument("--voltage-util-limit", type=float, default=0.985)
-    parser.add_argument("--ready-timeout", type=float, default=20.0)
-    parser.add_argument("--target-timeout", type=float, default=10.0)
-    parser.add_argument("--settle-seconds", type=float, default=0.5)
+    parser.add_argument("--stop-timeout", type=float, default=30.0)
     parser.add_argument("--status-interval", type=float, default=1.0)
     parser.add_argument("--max-lost", type=int, default=0)
     parser.add_argument("--output", help="JSON log path")
@@ -547,31 +474,19 @@ def parse_args():
 
     if not args.run:
         parser.error("--run is required to energize the motor")
-    if not 120 <= args.target_we <= 3000:
-        parser.error("--target-we must be between 120 and 3000 electrical rad/s")
     if not 1 <= args.pole_pairs <= 255:
         parser.error("--pole-pairs must be between 1 and 255")
-    if args.duration < 0.0:
+    if not math.isfinite(args.duration) or args.duration < 0.0:
         parser.error("--duration must be non-negative")
-    for name in (
-            "current_limit", "rl_repeat_limit", "flux_repeat_limit",
-            "vbus_min", "vbus_max", "vbus_seconds", "ident_timeout",
-            "ramp_step", "ramp_interval",
-            "observer_angle_rms_limit", "observer_window",
-            "observer_settle_seconds", "we_tolerance",
-            "we_relative_tolerance",
-            "speed_error_time", "voltage_util_limit", "ready_timeout",
-            "target_timeout", "settle_seconds", "status_interval", "timeout"):
-        if getattr(args, name) <= 0:
-            parser.error(f"--{name.replace('_', '-')} must be positive")
-    if args.vbus_min >= args.vbus_max:
-        parser.error("vbus-min must be less than vbus-max")
-    if args.voltage_util_limit > 1.0:
-        parser.error("voltage-util-limit must not exceed 1")
+    if not math.isfinite(args.target_we) or args.target_we < 0:
+        parser.error("--target-we must be finite and non-negative")
+    for name in ("rl_repeat_limit", "flux_repeat_limit", "ident_timeout",
+                 "status_interval", "stop_timeout", "timeout"):
+        if not math.isfinite(getattr(args, name)) or getattr(args, name) <= 0:
+            parser.error(f"--{name.replace('_', '-')} must be finite and positive")
     if args.max_lost < 0:
         parser.error("max-lost must be non-negative")
 
-    args.ident_current_limit = HOST_CURRENT_GUARD_RATIO * args.current_limit
     sign = 1.0 if args.direction == "forward" else -1.0
     args.target_wm = sign * args.target_we / args.pole_pairs
     args.rpm = abs(args.target_wm) * 60.0 / (2.0 * math.pi)
@@ -582,8 +497,6 @@ def main():
     args = parse_args()
     record = {
         "started": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
-        "current_limit_a": args.current_limit,
-        "host_current_guard_a": args.ident_current_limit,
         "target_we_rad_s": args.target_we,
         "target_wm_rad_s": args.target_wm,
         "pole_pairs": args.pole_pairs,
@@ -610,7 +523,7 @@ def main():
             f"Final target: {args.target_wm:.3f} mechanical rad/s "
             f"({args.target_we} electrical rad/s, {args.rpm:.2f} RPM at Pp={args.pole_pairs})"
         )
-    print("RAM updates are temporary; reset restores compiled parameters.")
+    print("RAM updates are temporary; restart reloads saved parameters.")
 
     try:
         with base.serial.Serial(args.port, args.baud, timeout=0.003,
@@ -623,9 +536,7 @@ def main():
             try:
                 ident.prepare()
                 ident.configure_plot()
-                ident.check_vbus()
                 record["firmware_pole_pairs"] = ident.pole_pairs_set()
-                ident.current_limit_set()
 
                 for run in range(1, 6):
                     print(f"\nRs/Ls identification {run}/5")
@@ -695,19 +606,13 @@ def main():
                 signal.signal(signal.SIGTERM, stop.handle)
                 runner = sensorless_run.SensorlessRun(ser, args, stop)
                 runner.prepare()
-                runner.configure_plot()
-                runner.check_vbus()
                 runner.run_motor(args.target_wm)
                 graceful = True
                 record["status"] = "completed"
             finally:
                 if runner is not None:
                     runner.stop_all(graceful)
-                    record["sensorless"] = {
-                        "current_peak_a": runner.current_peak,
-                        "fast_lost": runner.fast_lost,
-                        "normal_lost": runner.normal_lost,
-                    }
+                    record["sensorless"] = runner.last_status
                 elif ident is not None:
                     ident.stop_all()
 

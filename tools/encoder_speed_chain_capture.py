@@ -2,7 +2,7 @@
 """Atomic SENSORLESS_SPEED capture for encoder angle -> speed-chain diagnosis.
 
 No repository Python modules are imported. This file owns the AXDR USB framing,
-Parameter access, motor actions, Plot control and AXDRCAP1 binary output.
+Parameter access, motor actions, Plot control and AXDRCAP binary output.
 
 Only pyserial is required.
 
@@ -26,6 +26,33 @@ import argparse
 import json
 import signal
 import struct
+
+from parameter_ids_generated import (
+    PARAM_RUN_IQ,
+    PARAM_RUN_THETA_E,
+    PARAM_OBS_THETA,
+    PARAM_OBS_WE,
+    PARAM_MECH_ESO_WM,
+    PARAM_MOTOR_PP,
+    PARAM_MOTOR_DIR,
+    PARAM_ENCODER_PROTOCOL,
+    PARAM_ENCODER_READY,
+    PARAM_ENCODER_FAULT,
+    PARAM_CAL_VALID,
+    PARAM_CAL_ENC_DIR,
+    PARAM_CAL_THETA_OFF,
+    PARAM_RUN_POSITION,
+    PARAM_RUN_WM,
+    PARAM_REF_IQ,
+    PARAM_REF_WM,
+    PARAM_MOTOR_MODE,
+    PARAM_TARGET_SPEED,
+    PARAM_MOTOR_STATE,
+    ACTION_MOTOR_ENABLE,
+    ACTION_MOTOR_RUN,
+    ACTION_MOTOR_STOP,
+    ACTION_MOTOR_DISABLE,
+)
 import sys
 import time
 from pathlib import Path
@@ -38,7 +65,7 @@ except ImportError:
 
 
 MAGIC = b"AXDR"
-CAPTURE_MAGIC = b"AXDRCAP1"
+CAPTURE_MAGIC = b"AXDRCAP"
 NODE_ID = 1
 
 MSG_RESPONSE = 0x02
@@ -65,31 +92,7 @@ NORMAL_RATE_HZ = 1000.0
 MODE_SENSORLESS_SPEED = 5
 MOTOR_RUN = 2
 
-PARAM_RUN_IQ = 0x0011
-PARAM_RUN_THETA_E = 0x0014
-PARAM_OBS_THETA = 0x0020
-PARAM_OBS_WE = 0x0021
-PARAM_MOTOR_PP = 0x0101
-PARAM_MOTOR_DIR = 0x0116
-PARAM_ENCODER_PROTOCOL = 0x0301
-PARAM_ENCODER_READY = 0x0302
-PARAM_ENCODER_FAULT = 0x0304
-PARAM_CAL_VALID = 0x0402
-PARAM_CAL_ENC_DIR = 0x0403
-PARAM_CAL_THETA_OFF = 0x0404
-PARAM_RUN_POSITION = 0x0501
-PARAM_RUN_WM = 0x0502
-PARAM_MECH_ESO_WM = 0x0023
-PARAM_REF_IQ = 0x0510
-PARAM_REF_WM = 0x0511
-PARAM_MOTOR_MODE = 0x0701
-PARAM_TARGET_SPEED = 0x0703
-PARAM_MOTOR_STATE = 0x0710
 
-ACTION_MOTOR_ENABLE = 0x1001
-ACTION_MOTOR_RUN = 0x1002
-ACTION_MOTOR_STOP = 0x1003
-ACTION_MOTOR_DISABLE = 0x1004
 
 CANFD_LENGTHS = tuple(range(9)) + (12, 16, 20, 24, 32, 48, 64)
 
@@ -421,7 +424,6 @@ def make_metadata(client, targets, first_hold, hold):
 
     return {
         "capture": "encoder_speed_chain",
-        "format_version": 1,
         "created_unix_ns": time.time_ns(),
         "normal_rate_hz": NORMAL_RATE_HZ,
         "record_size": RECORD_SIZE,

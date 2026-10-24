@@ -358,7 +358,7 @@ typedef enum
     /* Id_Ctrl.Sig.Ref: 实际进入d轴电流控制器的参考（含信号激励）。 */
     PARAM_SIGNAL_ID_REF = 0x0B06U,
 
-    /* Id_Ctrl.Sig.Out: 当前选中电流控制器的d轴电压输出，未叠加公共dq前馈、未经过最终dq二维限幅；保留原参数ID兼容旧扫频工具。 */
+    /* Id_Ctrl.Sig.Out: 当前选中电流控制器的d轴电压输出，未叠加公共dq前馈、未经过最终dq二维限幅。 */
     PARAM_SIGNAL_ID_PI_OUT = 0x0B07U,
 
     /* Signal_Injection.Para.Target: 注入目标：0为Id，1为Iq，2为有感速度环；在Start时锁存。 */
@@ -370,7 +370,7 @@ typedef enum
     /* Iq_Ctrl.Sig.Ref: 实际进入q轴电流控制器的参考（含注入）。 */
     PARAM_SIGNAL_IQ_REF = 0x0B0AU,
 
-    /* Iq_Ctrl.Sig.Out: 当前选中电流控制器的q轴电压输出，未叠加公共dq前馈、未经过最终dq二维限幅；保留原参数ID兼容旧扫频工具。 */
+    /* Iq_Ctrl.Sig.Out: 当前选中电流控制器的q轴电压输出，未叠加公共dq前馈、未经过最终dq二维限幅。 */
     PARAM_SIGNAL_IQ_PI_OUT = 0x0B0BU,
 
     /* Motor_Frf_Speed.Ref: 2kHz速度PI消费的电角速度参考，FAST读取同步快照。 */

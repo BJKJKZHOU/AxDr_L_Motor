@@ -31,7 +31,7 @@
 #define ENC_MAX_RPM 25000.0f
 #define ENC_WM_MAX  (ENC_MAX_RPM * 6.283185307f / 60.0f)
 
-/* First-version phase-current command ceiling based on the board 10 A operating range. */
+/* Phase-current command ceiling based on the board 10 A operating range. */
 #define MOTOR_I_MAX_DEFAULT  10.0f
 #define MOTOR_WM_MAX_DEFAULT ENC_WM_MAX
 

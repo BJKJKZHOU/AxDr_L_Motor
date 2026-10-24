@@ -4,22 +4,32 @@
 
 [![Firmware Build](https://github.com/BJKJKZHOU/AxDr_L_Motor/actions/workflows/ci.yml/badge.svg)](https://github.com/BJKJKZHOU/AxDr_L_Motor/actions/workflows/ci.yml)
 
-Permanent-magnet synchronous motor (PMSM) field-oriented control (FOC) firmware for **STM32G474RET6 + AxDrive-L**. The project evolves through hardware experiments, motor identification, and controller comparisons, with measured data and test conditions retained for review.
+**AxDr_L_Motor** is permanent-magnet synchronous motor (PMSM) field-oriented control (FOC) firmware for the AxDrive-L driver board, powered by an STM32G474RET6. It supports encoder-based torque, speed, and position control, as well as sensorless speed control using a nonlinear flux observer (NLOB) and PLL.
 
-**Development environment:** C / STM32 HAL / ThreadX / USBX, STM32CubeMX configuration, CMake with ST Arm Clang / GNU Arm GCC, and Python for frequency-response and noise-spectrum analysis.
+Encoder-based control uses a **20 kHz current loop, 2 kHz speed loop, and 1 kHz position loop**. The current loop supports PI / LADRC, alongside mechanical ESO speed estimation, dq decoupling, and back-EMF feedforward. The firmware also provides trapezoidal and S-curve motion profiles, motor parameter identification, encoder calibration and compensation, and control parameter configuration and storage.
 
-## Current progress
+**Software foundation:** C / STM32 HAL / ThreadX / USBX.
 
-| Area | Stage | Measured scope and limitations |
-| --- | --- | --- |
-| Position-sensor-based servo control | **Basic functions tested on hardware** | Torque-command, speed PI, position P, motion profiles, and Stop behavior; results apply to the tested no-load conditions. [Test record (Chinese)](三环基本功能测试记录_20261009.md) |
-| Sensorless speed control | **Verified in a limited operating range** | 1000 RPM closed-loop operation and transitions between I/F startup and observer control; speed fluctuations remain at 150 RPM in I/F mode. [Test record (Chinese)](NLOB_PLL观测器测试记录.md#sensorless-accdec-20261006) |
-| Motor parameter identification | **Measured; accuracy still under evaluation** | Stator resistance/inductance (Rs/Ls), magnet flux linkage, inertia and viscous friction (J/B); five flux measurements yielded a 0.145% coefficient of variation. Rs/Ls consistency across operating points remains open. [Test record (Chinese)](辨识测试记录.md) |
-| Control-loop frequency-response testing | **Measurement and comparison ongoing** | 28 Id/Iq current-loop and eight speed-loop Bode datasets; high-bandwidth anomalies and speed-loop linearity require further verification. [Record index (Chinese)](测试与问题记录索引.md) |
+![AxDrive-L driver board, LCD, and motor running at 6000 RPM](images/axdrive-l-6000rpm-20261024.jpg)
+
+Hardware run on 2026-10-24: approximately 24.8 V supply, encoder-based speed mode, PI current control, and a 6000 RPM target. The LCD shows speed reference, feedback, and live waveforms.
+
+## Main features
+
+| Feature | Details |
+| --- | --- |
+| Encoder-based control | Torque, speed, and position modes with mechanical ESO speed estimation, 2 kHz speed PI, and 1 kHz position P; includes MT6816 and MT6835 SPI encoder drivers |
+| Motion profiles | Torque ramps, trapezoidal speed and position profiles, and S-curve profiles; tested with target changes during operation, direction reversals, position round trips, and deceleration to a stop |
+| Current control | 20 kHz dq current loop; encoder-based operation can switch between PI / LADRC while retaining the same outer speed and position loops for comparison; supports dq decoupling and back-EMF feedforward |
+| Sensorless control | I/F startup, nonlinear flux observer (NLOB), and PLL; firmware handles rotor alignment, startup, closed-loop handover, and return to I/F during deceleration |
+| Motor parameter identification | Identifies stator resistance and inductance (Rs/Ls), permanent-magnet flux linkage, inertia, and viscous friction (J/B); results can be read and applied to the motor model, with scripts for recording repeated tests |
+| Encoder calibration and compensation | Encoder direction and zero-offset alignment, plus angular error calibration and compensation; calibration results are saved automatically |
+| Tuning and storage | Current and speed PI gains can be calculated from the model and bandwidth or set manually through Kp/Ki; manual gains are stored separately and retained when switching tuning methods |
+| Data and display | USB capture of selectable current, speed, angle, and other signals, with waveform, Bode, and FFT/PSD analysis; the onboard LCD shows operating mode, state, references, feedback, and live waveforms |
 
 ## Control structure
 
-The primary signal path for **encoder-based** operation is shown below. Position, speed, and torque refer to **alternative command modes**, not three independent loops operating simultaneously.
+In encoder-based operation, position, speed, and torque commands enter the control chain at their respective points.
 
 ~~~mermaid
 flowchart LR
@@ -31,48 +41,84 @@ flowchart LR
     ESO --> SC
     SC --> IQ["Iq reference"]
     T["Torque command / Kt"] --> IQ
-    IQ --> CC["dq current PI<br/>20 kHz"]
+    IQ --> CC["dq current PI / LADRC<br/>20 kHz"]
     CC --> M["SVPWM / inverter / PMSM"]
 ~~~
 
-The position P controller adds a speed correction to the planned velocity. Speed PI uses electrical angular velocity (electrical speed = pole pairs × mechanical speed) and produces the Iq reference. The mechanical extended state observer (ESO) estimates speed and disturbance torque using encoder position and other signals; disturbance-torque estimation is currently diagnostic only. Current sensing, coordinate transforms, and limits are omitted from the diagram. See [Motor/](../Motor/) and [Motion/](../Motion/).
+Current sensing, coordinate transforms, limiting, and protection are omitted from the diagram. Control loops and motion profiles are implemented in [Motor/](../Motor/) and [Motion/](../Motion/).
 
-Sensorless operation follows **rotor alignment → I/F open-loop startup → nonlinear flux observer + PLL → closed-loop handover**, with a return to I/F at lower speeds. See [Sensorless/](../Sensorless/) and [Observer/](../Observer/).
+Current sensing, coordinate transforms, current control, and modulation execute in the ADC interrupt path, with the current loop running once per PWM cycle. ThreadX threads handle motion-control scheduling, command processing, USB communication, and LCD updates; high-frequency control runs separately from communication and display tasks. The current, speed, and position loops run at **20 kHz / 2 kHz / 1 kHz**, respectively.
 
-## Measured frequency responses
+Sensorless operation follows **rotor alignment → I/F open-loop startup → NLOB + PLL → closed-loop handover**, with a return to I/F available during deceleration to low speed. Startup and transition logic is in [Sensorless/](../Sensorless/); the flux observer, PLL, and mechanical ESO are in [Observer/](../Observer/).
 
-Click either preview to view its full-resolution Bode plot. Both measurements are **closed-loop frequency responses**; the configured PI design bandwidth is not necessarily the measured −3 dB bandwidth, and inferred stability margins are not independently measured open-loop margins.
+## Build
 
-<table>
-<tr>
-<td width="50%" valign="top">
-<a href="data/20261010_current_frf/bode_comparison.png"><img src="data/20261010_current_frf/bode_comparison.png" width="460" alt="D and Q current-loop frequency-response comparison across seven PI settings" /></a>
-<p><strong>Id / Iq current loops</strong><br />20 kHz sampling; seven PI parameter sets × D/Q axes × feedforward decoupling on/off, for 28 datasets. Higher-bandwidth settings show gain peaking.<br /><a href="电流环频响测试.md#frf-hw-20261010">Test record and data (Chinese)</a></p>
-</td>
-<td width="50%" valign="top">
-<a href="data/20261010_speed_frf/Speed-Wm100radps-Manual-Kp0.04-Ki0.3-FF0-2026-10-10.bode.png"><img src="data/20261010_speed_frf/Speed-Wm100radps-Manual-Kp0.04-Ki0.3-FF0-2026-10-10.bode.png" width="460" alt="Encoder-based speed-loop Bode result with manual PI" /></a>
-<p><strong>Encoder-based speed loop</strong><br />Eight PI configurations at a 100 rad/s operating point, with 1–150 Hz excitation. The example uses manual Kp=0.04 and Ki=0.3. Linear operating conditions are not yet verified; bandwidth and stability margins are N/A.<br /><a href="速度环与位置环调参记录.md#speed-frf-hw-20261010">Test record and data (Chinese)</a></p>
-</td>
-</tr>
-</table>
-
-## Build and documentation
-
-The target is [AxDrive-L](https://oshwhub.com/lylssy/foc_driver) (see its [reference firmware](https://github.com/disnox/AxDr_L)). This repository is not the official firmware for that project. Clone with Git submodules; an existing clone can run git submodule update --init --recursive.
+Install Git, CMake 3.22+, Ninja, and the GNU Arm Embedded toolchain before building.
 
 ~~~bash
-git clone --recursive https://github.com/BJKJKZHOU/AxDr_L_Motor.git
-cd AxDr_L_Motor
-
-# GNU Arm GCC (CMake 3.22+, Ninja, arm-none-eabi-gcc)
-cmake --preset gcc-release
-cmake --build --preset gcc-release
-
-# ST Arm Clang
-cmake --preset Release
-cmake --build --preset Release
+git clone --recurse-submodules https://github.com/BJKJKZHOU/AxDr_L_Motor.git &&
+cd AxDr_L_Motor &&
+cmake --preset gcc-release &&
+cmake --build --preset gcc-release --parallel &&
+arm-none-eabi-objcopy -O binary build/gcc-release/AxDr_L_Motor.elf build/gcc-release/AxDr_L_Motor.bin &&
+arm-none-eabi-objcopy -O ihex build/gcc-release/AxDr_L_Motor.elf build/gcc-release/AxDr_L_Motor.hex
 ~~~
 
-USB CDC currently carries AxDr Parameter / Action / Event messages and Plot data; the application layer uses CAN-FD-style messages. See the [frequency-response tool](../tools/current_frf.py), [FFT/PSD tool](../tools/fft.py), and [test index (Chinese)](测试与问题记录索引.md). Test scripts evolve with experiments; check their compatibility with the firmware revision. Coding conventions are in [CODE_STYLE.md (Chinese)](CODE_STYLE.md).
+Build outputs are in `build/gcc-release/`: `AxDr_L_Motor.elf`, `AxDr_L_Motor.bin`, and `AxDr_L_Motor.hex`.
 
-**Safety and licensing:** The firmware can directly drive a motor power stage; verify the hardware, motor parameters, and independent protection before energizing it. Project-owned code and documentation use [Apache-2.0](../LICENSE); third-party dependencies retain their respective licenses as documented in [THIRD_PARTY_LICENSES.md](../THIRD_PARTY_LICENSES.md).
+## Measured results
+
+The following results apply to the motors, firmware, and operating conditions documented in the linked records.
+
+**Encoder calibration and compensation (2026-10-20)**
+
+At 6000 RPM with encoder-based PI speed control, approximately 10 seconds of data were captured before and after automatic calibration, with the current-loop bandwidth and outer-loop gains unchanged:
+
+| Metric | Without compensation | Automatic compensation |
+| --- | ---: | ---: |
+| ESO speed standard deviation / RPM | 11.1395 | 1.7472 |
+| Iq second mechanical harmonic peak / A | 0.42668 | 0.02162 |
+
+In this comparison, ESO speed standard deviation decreased by 84.3%, and the Iq second mechanical harmonic peak decreased by 94.9%. The tests also verified calibration storage, loading after reset, and aborting calibration with a stop command during acceleration. ESO speed is derived from the same encoder, so these results do not establish independently measured angular accuracy. Full conditions and raw waveforms are in the [encoder calibration and compensation test record (Chinese)](Mechanical_ESO_有感速度测试记录_20260917.md#encoder-auto-cal-20261020).
+
+**PI / LADRC current-loop and three-loop comparison (2026-10-17)**
+
+With identical speed PI, position P, and motion-profile parameters, PI and LADRC were compared as the inner current loop through speed reversals, position round trips, steady-state holding, electrical disturbances, and Rs/Ls model mismatches of ±30%. Both current controllers completed operation with all three loops. The second comparison included 24 repeated positioning segments, 24 steady-state holding segments, and 96 electrical disturbance segments.
+
+Under the tested settings, LADRC had lower RMS position-holding error and lower peak position displacement under electrical disturbances. Manually tuned PI had lower maximum position-holding error and lower speed fluctuations with the nominal model. Parameters, methods, and results are in the [PI/LADRC three-loop comparison record (Chinese)](PI与LADRC电流环及三环回归测试记录_20261017.md#manual-pi-tuning-20261017).
+
+**Current-loop frequency response (2026-10-10)**
+
+[![D/Q current-loop closed-loop frequency responses across seven PI settings](data/20261010_current_frf/bode_comparison.png)](data/20261010_current_frf/bode_comparison.png)
+
+At 20 kHz sampling, seven PI parameter sets × D/Q axes × feedforward decoupling on/off produced 28 closed-loop frequency sweeps. Higher-bandwidth settings show gain peaking. The PI design bandwidth is not the measured −3 dB bandwidth, and inferred margins are not independent open-loop measurements. Test conditions, validity assessment, and raw data are in the [current-loop frequency-response record (Chinese)](电流环频响测试.md#frf-hw-20261010).
+
+Other hardware tests:
+
+- [Motion profiles (Chinese)](轨迹规划测试记录.md): target changes, direction reversals, position round trips, S-curves, and stop behavior across the three control modes.
+- [Speed-loop frequency response (Chinese)](速度环与位置环调参记录.md#speed-frf-hw-20261010): eight PI configurations at a 100 rad/s operating point; linear bandwidth and stability margins remain unconfirmed.
+- [Parameter identification (Chinese)](辨识测试记录.md): Rs/Ls, flux linkage, and J/B test conditions, repeatability, and open questions.
+
+## Communication and tools
+
+The firmware communicates with a computer over a USB virtual serial port (CDC) using a protocol defined by this project. It supports parameter reads and writes, motor start and stop, parameter identification, encoder calibration, status and fault reporting, and live waveform capture. Python tools are in [tools/](../tools/).
+
+| Purpose | Tool |
+| --- | --- |
+| Sequential identification of a new motor with an optional sensorless trial run | [new_motor_commission.py](../tools/new_motor_commission.py) |
+| Rs/Ls, flux linkage, and J/B identification and result logging | [identification_test.py](../tools/identification_test.py) |
+| Encoder alignment | [servo_phase_search.py](../tools/servo_phase_search.py) |
+| Sensorless operation | [sensorless_run.py](../tools/sensorless_run.py) |
+| USB waveform capture, file archiving, and FFT/PSD analysis | [fft.py](../tools/fft.py) |
+| Replotting saved waveforms and fundamental-component analysis | [current_waveform.py](../tools/current_waveform.py) |
+| Current-loop and speed-loop frequency sweeps | [current_frf.py](../tools/current_frf.py) |
+
+The [test and issue index (Chinese)](测试与问题记录索引.md) lists the tools and topic records. Use `--help` to view script options. Waveform and spectrum data can be saved for offline replotting and comparison across control settings.
+
+## Hardware sources and licensing
+
+The current hardware is [AxDrive-L](https://oshwhub.com/lylssy/foc_driver), with [AxDr_L](https://github.com/disnox/AxDr_L) as the reference software. This repository is not that project's official firmware.
+
+This firmware directly drives a motor power stage. Verify the hardware, motor parameters, and independent protection before experiments.
+
+Project-owned code and documentation use [Apache-2.0](../LICENSE). See [THIRD_PARTY_LICENSES.md](../THIRD_PARTY_LICENSES.md) for third-party components.

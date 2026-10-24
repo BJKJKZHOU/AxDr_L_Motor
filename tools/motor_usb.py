@@ -42,6 +42,7 @@ PARAM_FORMAT = {
 PLOT_CONFIG = 0x01
 PLOT_START = 0x02
 PLOT_STOP = 0x03
+PLOT_CAPS = 0x04
 EVENT_ACTION_COMPLETE = 0x03
 FAST_GROUP = 0
 NORMAL_GROUP = 1
@@ -87,6 +88,41 @@ def usb_frame(msg_type, payload):
     frame_length = canfd_length(len(payload))
     padded = payload + bytes(frame_length - len(payload))
     return MAGIC + struct.pack("<HB", can_id(msg_type), frame_length) + padded
+
+
+def plot_capabilities(request):
+    """Read the current firmware's paginated Plot channel and timing contract."""
+    start = 0
+    channels = {}
+    header = None
+    while True:
+        payload = request(MSG_PLOT, PLOT_CAPS, bytes([start]))
+        if len(payload) < 14:
+            raise RuntimeError("short Plot capability response")
+        page, following, count = payload[:3]
+        data = canfd_payload(payload, 14 + count * 7)
+        if data is None or page != start or not 1 <= count <= 6:
+            raise RuntimeError("invalid Plot capability page")
+        current = struct.unpack_from("<BBBII", data, 3)
+        if header is not None and current != header:
+            raise RuntimeError("Plot capabilities changed between pages")
+        header = current
+        for index in range(count):
+            pid, modes, scale = struct.unpack_from("<HBf", data, 14 + 7 * index)
+            if pid in channels:
+                raise RuntimeError("duplicate Plot capability")
+            channels[pid] = (modes, scale)
+        if following == 0xFF:
+            break
+        if following != start + count or following <= start:
+            raise RuntimeError("invalid Plot capability pagination")
+        start = following
+    fast_max, normal_max, block, fast_hz, normal_hz = header
+    if not all(header):
+        raise RuntimeError("invalid Plot timing or channel limits")
+    return {"rates": {"fast": fast_hz, "normal": normal_hz},
+            "max_channels": {"fast": fast_max, "normal": normal_max},
+            "block_samples": block, "channels": channels}
 
 
 class StreamParser:
@@ -157,6 +193,7 @@ class MotorUSB:
 
     def request(self, msg_type, op, data=b""):
         txn = self.txn
+        self.txn = (txn % 255) + 1
         payload = bytes([txn, op]) + data
         self.ser.write(usb_frame(msg_type, payload))
 
@@ -176,7 +213,6 @@ class MotorUSB:
                 if status != 0:
                     name = STATUS_NAME.get(status, str(status))
                     raise RuntimeError(f"request {msg_type}/{op}: {name}")
-                self.txn = (txn % 255) + 1
                 return response[4:]
 
         raise TimeoutError(f"request {msg_type}/{op} timeout")
@@ -196,12 +232,14 @@ class MotorUSB:
                 f"id=0x{response_id:04X} type={response_type}"
             )
 
-        return struct.unpack_from(PARAM_FORMAT[param_type], data, 3)[0]
+        values = struct.unpack_from(PARAM_FORMAT[param_type], data, 3)
+        return values if param_type == PARAM_POSITION else values[0]
 
     def parameter_write(self, param_id, param_type, value):
         if param_type == PARAM_ACTION:
             raise ValueError("use parameter_action() for actions")
-        encoded = struct.pack(PARAM_FORMAT[param_type], value)
+        values = value if param_type == PARAM_POSITION else (value,)
+        encoded = struct.pack(PARAM_FORMAT[param_type], *values)
         data = self.request(
             MSG_PARAMETER,
             PARAM_WRITE,

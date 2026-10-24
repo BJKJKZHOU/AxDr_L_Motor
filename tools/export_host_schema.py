@@ -17,7 +17,6 @@ import sys
 from gen_parameters import ROOT, SOURCE, actions, load_objects, values
 
 DEFAULT_OUTPUT = ROOT / "build" / "host" / "axdr-host-schema.toml"
-SCHEMA_VERSION = 1
 MOTOR_DEFAULT_HEADER = ROOT / "User" / "motor_params.h"
 MOTOR_DEFAULT_MACROS = {
     "PARAM_MOTOR_PP": "MOTOR_PP_DEFAULT",
@@ -115,13 +114,11 @@ def render_host_schema(objects) -> str:
         "# Source: Parameter/parameter.yaml + User/motor_params.h defaults",
         "# Regenerate with: python3 tools/export_host_schema.py",
         "",
-        f"schema_version = {SCHEMA_VERSION}",
-        'protocol = "axdr-canfd-v1"',
+        'protocol = "axdr-canfd"',
         "",
         "[source]",
         'repository = "AxDr_L_Motor"',
         f"git_sha = {toml_string(git_sha())}",
-        f"parameter_schema = {SCHEMA_VERSION}",
         "",
     ]
 
@@ -153,8 +150,7 @@ def render_host_schema(objects) -> str:
         if readback:
             lines.append(f"readback = {toml_array(readback)}")
 
-        # Runtime PLOT_CAPS is authoritative. Keep exporting FAST scale for
-        # current HostSchema consumers that still expose this metadata.
+        # The schema describes FAST scaling; runtime PLOT_CAPS is authoritative.
         plot = obj.get("plot")
         if isinstance(plot, dict) and "fast" in plot.get("modes", []):
             lines.append(f"plot_scale = {toml_scalar(plot['fast_scale'])}")
