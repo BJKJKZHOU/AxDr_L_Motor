@@ -243,6 +243,8 @@ void Fast_Loop(void)
     float Uq;
     float Ud_FF;
     float Uq_FF;
+    float We;
+    uint8_t Controller;
     float U_Lim;
     float Id_Ref;
     float Iq_Ref;
@@ -391,6 +393,12 @@ void Fast_Loop(void)
         Sensored = ((Enc_Step == ENC_CAL_RUN) &&
                     ((Enc_Cal.Step == CAL_SPEED) || (Enc_Cal.Step == CAL_DECEL))) ||
                    (!Enc_Control_Active() && (Motor_Mode <= POSITION));
+        Controller = Sensored ? Current_Controller : CURRENT_CTRL_PI;
+        if ((Controller == CURRENT_CTRL_DPCC) && Enc_Control_Active())
+        {
+            Controller = CURRENT_CTRL_PI;
+        }
+
         /* Motor_Fast_Run may use the previous-cycle dq values (IF/ident).
          * Publish this sample only after it has selected the FOC angle. */
         if (!Cal_Handoff)
@@ -429,14 +437,17 @@ void Fast_Loop(void)
         Motor_Plot_Iq_Ref = Iq_Ref;
 
         U_Lim = ADC.Vbus_V * INV_SQRT3_F * VOLT_MOD_MAX;
+        We = 0.0f;
         Ud_FF = 0.0f;
         Uq_FF = 0.0f;
-        if ((Current_FF_Enable != 0U) && Sensored && Encoder_Park_Valid)
+        if (Sensored && Encoder_Park_Valid)
         {
-            float We = (float)Motor_Para.Pp * Mechanical_ESO.State.Wm;
-
-            Ud_FF = -We * Motor_Para.Lq * Motor_Run.Iq;
-            Uq_FF = We * (Motor_Para.Ld * Motor_Run.Id + Motor_Para.Flux);
+            We = (float)Motor_Para.Pp * Mechanical_ESO.State.Wm;
+            if (Current_FF_Enable != 0U)
+            {
+                Ud_FF = -We * Motor_Para.Lq * Motor_Run.Iq;
+                Uq_FF = We * (Motor_Para.Ld * Motor_Run.Id + Motor_Para.Flux);
+            }
         }
 
         if (Cal_Handoff)
@@ -446,12 +457,13 @@ void Fast_Loop(void)
             Motor_Run.Ud = Ualpha * Cos + Ubeta * Sin;
             Motor_Run.Uq = -Ualpha * Sin + Ubeta * Cos;
             Current_Loop_State_Reset();
-            Current_Loop_Track(Motor_Run.Id, Motor_Run.Iq,
+            Current_Loop_Track(Controller, Motor_Run.Id, Motor_Run.Iq,
                                Motor_Run.Ud - Ud_FF, Motor_Run.Uq - Uq_FF, Ud_FF, Uq_FF);
             Enc_Cal_Handoff_Ready = false;
         }
 
-        Current_Loop(Id_Ref, Iq_Ref, U_Lim, Sensored, Ud_FF, Uq_FF, &Ud, &Uq);
+        Current_Loop(Id_Ref, Iq_Ref, U_Lim, Controller, We, Sin, Cos,
+                     Ud_FF, Uq_FF, &Ud, &Uq);
         /* One shared model feedforward and final voltage-vector limit. */
         Ud += Ud_FF;
         Uq += Uq_FF;

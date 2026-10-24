@@ -969,7 +969,7 @@ objects:
     persistent: true
     binding: Current_FF_Enable
     label: Current dq Feedforward
-    description: "有感Torque/Speed/Position模式的dq交叉耦合与反电动势前馈；0关闭，1开启(默认)，使用机械ESO转速及电机Ld/Lq/Flux。"
+    description: "有感Torque/Speed/Position模式的dq交叉耦合与反电动势前馈；0关闭，1开启(默认)，使用机械ESO转速及电机Ld/Lq/Flux。DPCC内部模型始终包含这些项，不受此开关影响。"
     write_state: not_running
     allowed: [0, 1]
 
@@ -979,9 +979,9 @@ objects:
     access: rw
     binding: Current_Controller
     label: Current Controller
-    description: "在DISABLED状态选择电流控制算法：0为PI(默认)，1为LADRC；LADRC先用于有感三种Servo模式。"
+    description: "在DISABLED状态选择电流控制算法：0为PI(默认)，1为LADRC，2为DPCC。选用DPCC时，有感Torque/Speed/Position使用DPCC，辨识、无感及编码器校准使用PI。仅RAM生效。"
     write_state: disabled
-    allowed_symbols: [CURRENT_CTRL_PI, CURRENT_CTRL_LADRC]
+    allowed_symbols: [CURRENT_CTRL_PI, CURRENT_CTRL_LADRC, CURRENT_CTRL_DPCC]
 
   PARAM_CTRL_LADRC_BW_HZ:
     id: 0x0A09

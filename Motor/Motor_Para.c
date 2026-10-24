@@ -90,6 +90,7 @@ void Speed_Tuning_Update(void)
 bool Motor_Para_Update(const Motor_Para_T *Para, float Eso_Bw_Hz)
 {
     Mechanical_ESO_Para_T Eso;
+    DPCC_Para_T Dpcc;
     float Kt = 1.5f * (float)Para->Pp * Para->Flux;
     uint32_t Primask;
 
@@ -98,6 +99,7 @@ bool Motor_Para_Update(const Motor_Para_T *Para, float Eso_Bw_Hz)
     {
         return false;
     }
+    Dpcc = DPCC_Para_Calc(Para->Rs, Para->Ld, Para->Lq, CUR_TS);
 
     /* Build outside the critical section. ESO runs even while disabled;
      * publish its model and coefficients together without touching State. */
@@ -106,6 +108,7 @@ bool Motor_Para_Update(const Motor_Para_T *Para, float Eso_Bw_Hz)
     Motor_Para = *Para;
     Mechanical_ESO_Bw_Hz = Eso_Bw_Hz;
     Mechanical_ESO.Para = Eso;
+    Current_DPCC = Dpcc;
     __set_PRIMASK(Primask);
 
     Current_Tuning_Update();
