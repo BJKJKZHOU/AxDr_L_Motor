@@ -127,6 +127,9 @@ typedef enum
     /* Encoder_Config.SPI_Type: SPI协议下选择的编码器芯片协议。 */
     PARAM_ENCODER_SPI_TYPE = 0x0310U,
 
+    /* Encoder_Config.ABZ_PPR: ABZ每机械圈A/B周期数，TIM3固定四倍频；修改后重建计数原点并重新寻相，无需等待Z。 */
+    PARAM_ENCODER_ABZ_PPR = 0x0316U,
+
     /* Encoder.Theta_Native: 方向和谐波补偿之前的原生机械角度。 */
     PARAM_ENCODER_THETA_NATIVE = 0x0311U,
 

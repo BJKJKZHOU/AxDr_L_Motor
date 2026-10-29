@@ -367,7 +367,7 @@ UINT Motor_Thread_Init(VOID *memory_ptr)
         Current_Tuning_Update();
         Speed_Tuning_Update();
     }
-    Encoder_DMA_Config();
+    Encoder_Config_Apply();
 
     UINT Work_Result = Motor_Work_Thread_Init(byte_pool);
     if (Work_Result != TX_SUCCESS)

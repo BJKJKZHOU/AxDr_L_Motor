@@ -15,6 +15,7 @@ typedef enum
 {
     ENC_PROTOCOL_NONE = 0,
     ENC_PROTOCOL_SPI,
+    ENC_PROTOCOL_ABZ,
 
 } Encoder_Protocol_e;
 
@@ -30,6 +31,7 @@ typedef struct
 {
     uint8_t Protocol; /* Encoder_Protocol_e; fixed-width configuration storage. */
     uint8_t SPI_Type; /* Encoder_SPI_Type_e; used when Protocol == ENC_PROTOCOL_SPI. */
+    uint32_t ABZ_PPR; /* Per-mechanical-revolution A/B cycles (x4 counter). */
 
 } Encoder_Config_T;
 
@@ -65,7 +67,9 @@ typedef struct
 extern Encoder_Harmonic_T Encoder_Harmonic;
 FAST_CODE float Encoder_Angle_Correct(float Theta_Native);
 
-void Encoder_DMA_Config(void);
+void Encoder_Config_Apply(void);
+/* Caller excludes sampling interrupts; preserves the hardware count origin. */
+void Encoder_Feedback_Reset(void);
 FAST_CODE void Encoder_DMA_IRQHandler(void);
 FAST_CODE void Encoder_Start(void);
 

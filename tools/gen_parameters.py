@@ -41,7 +41,7 @@ ON_CHANGE_C = {
     "SPEED_TUNING": "Control_Speed_Tune_Source = CTRL_TUNE_BANDWIDTH; Speed_Tuning_Update();",
     "SPEED_GAIN": "Control_Speed_Tune_Source = CTRL_TUNE_MANUAL; Speed_Tuning_Update();",
     "SPEED_SOURCE": "Speed_Tuning_Update();",
-    "ENCODER_CONFIG": "Motor_Cal.Valid = 0U;\n    Encoder_DMA_Config();",
+    "ENCODER_CONFIG": "Motor_Cal.Valid = 0U;\n    Encoder_Config_Apply();",
     "ENCODER_HARMONIC": "Motor_Cal.Valid = 0U;",
 }
 

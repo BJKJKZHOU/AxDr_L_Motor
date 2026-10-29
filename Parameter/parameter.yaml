@@ -419,7 +419,7 @@ objects:
     label: Encoder Protocol
     description: "运行前选择的编码器通信协议。"
     write_state: disabled
-    allowed_symbols: [ENC_PROTOCOL_NONE, ENC_PROTOCOL_SPI]
+    allowed_symbols: [ENC_PROTOCOL_NONE, ENC_PROTOCOL_SPI, ENC_PROTOCOL_ABZ]
     on_change: ENCODER_CONFIG
     host:
       readback: [PARAM_ENCODER_READY, PARAM_ENCODER_VALID, PARAM_ENCODER_FAULT]
@@ -462,6 +462,21 @@ objects:
     description: "SPI协议下选择的编码器芯片协议。"
     write_state: disabled
     allowed_symbols: [ENC_SPI_MT6816, ENC_SPI_MT6835]
+    on_change: ENCODER_CONFIG
+    host:
+      readback: [PARAM_ENCODER_READY, PARAM_ENCODER_VALID, PARAM_ENCODER_FAULT]
+
+
+  PARAM_ENCODER_ABZ_PPR:
+    id: 0x0316
+    type: u32
+    access: rw
+    persistent: true
+    binding: Encoder_Config.ABZ_PPR
+    label: ABZ PPR
+    description: "ABZ每机械圈A/B周期数，TIM3固定四倍频；修改后重建计数原点并重新寻相，无需等待Z。"
+    write_state: disabled
+    range: { min: 1, max: 16384 }
     on_change: ENCODER_CONFIG
     host:
       readback: [PARAM_ENCODER_READY, PARAM_ENCODER_VALID, PARAM_ENCODER_FAULT]

@@ -75,6 +75,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Motor/Enc_Control.c
     Motor/Encoder_Drv/MT6816.c
     Motor/Encoder_Drv/MT6835.c
+    Motor/Encoder_Drv/ABZ.c
     Motor/Protection.c
     Motor/Motor_Cal.c
     Motor/Motor_Config.c

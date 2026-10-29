@@ -5,6 +5,7 @@
 
 #include "Encoder.h"
 
+#include "ABZ.h"
 #include "MT6816.h"
 #include "MT6835.h"
 #include "Math.h"
@@ -14,6 +15,7 @@
 #include "control_params.h"
 #include "main.h"
 #include "motor_params.h"
+#include "spi.h"
 
 #define ENC_READY_VALID_CNT      16U
 #define ENC_RUNTIME_INVALID_CNT  3U
@@ -49,25 +51,6 @@ static void (*Drv_Config)(void) = 0;
 static void (*Drv_Start)(void) = 0;
 static void (*Drv_IRQHandler)(void) = 0;
 
-static void None_Config(void)
-{
-    CLEAR_BIT(SPI1->CR2, SPI_CR2_RXDMAEN);
-    CLEAR_BIT(DMA1_Channel5->CCR, DMA_CCR_EN);
-    CLEAR_BIT(DMA1_Channel5->CCR,
-              DMA_CCR_TCIE | DMA_CCR_HTIE | DMA_CCR_TEIE);
-    DMA1->IFCR = DMA_IFCR_CGIF5;
-    SPI1_CSN_GPIO_Port->BSRR = SPI1_CSN_Pin;
-}
-
-static void None_Start(void)
-{
-}
-
-static void None_IRQHandler(void)
-{
-    DMA1->IFCR = DMA_IFCR_CGIF5;
-}
-
 static bool SPI_Driver_Bind(Encoder_SPI_Type_e Type)
 {
     switch (Type)
@@ -91,26 +74,29 @@ static bool SPI_Driver_Bind(Encoder_SPI_Type_e Type)
 
 static bool Driver_Bind(void)
 {
+    Drv_Config = 0;
+    Drv_Start = 0;
+    Drv_IRQHandler = 0;
+
     switch ((Encoder_Protocol_e)Encoder_Config.Protocol)
     {
         case ENC_PROTOCOL_NONE:
-            Drv_IRQHandler = None_IRQHandler;
-            Drv_Start = None_Start;
-            Drv_Config = None_Config;
             return true;
 
         case ENC_PROTOCOL_SPI:
             return SPI_Driver_Bind((Encoder_SPI_Type_e)Encoder_Config.SPI_Type);
 
+        case ENC_PROTOCOL_ABZ:
+            Drv_Config = ABZ_Config;
+            Drv_Start = ABZ_Start;
+            return true;
+
         default:
-            Drv_Config = 0;
-            Drv_Start = 0;
-            Drv_IRQHandler = 0;
             return false;
     }
 }
 
-static void Feedback_Reset(void)
+void Encoder_Feedback_Reset(void)
 {
     Pos_Valid = 0U;
     Ready_Cnt = 0U;
@@ -148,31 +134,40 @@ static void Startup_Count(void)
     }
 }
 
-void Encoder_DMA_Config(void)
+void Encoder_Config_Apply(void)
 {
+    GPIO_InitTypeDef Gpio = { 0 };
     uint32_t Primask;
-    uint32_t CR1;
-    uint32_t CR2;
 
     /* Rebinding must not race a PWM trigger or an old DMA completion.
      * MT6835 owns TX channel 3 as well as the shared RX channel 5. */
     Primask = __get_PRIMASK();
     __disable_irq();
-    CR1 = SPI1->CR1;
-    CR2 = SPI1->CR2 & ~(SPI_CR2_RXDMAEN | SPI_CR2_TXDMAEN);
-    SPI1->CR2 = CR2;
     CLEAR_BIT(DMA1_Channel3->CCR, DMA_CCR_EN);
     CLEAR_BIT(DMA1_Channel5->CCR,
               DMA_CCR_EN | DMA_CCR_TCIE | DMA_CCR_HTIE | DMA_CCR_TEIE);
     DMA1->IFCR = DMA_IFCR_CGIF3 | DMA_IFCR_CGIF5;
-    SPI1_CSN_GPIO_Port->BSRR = SPI1_CSN_Pin;
-    /* Discard any queued SPI words when switching to another driver or None. */
-    SET_BIT(RCC->APB2RSTR, RCC_APB2RSTR_SPI1RST);
-    CLEAR_BIT(RCC->APB2RSTR, RCC_APB2RSTR_SPI1RST);
-    SPI1->CR2 = CR2;
-    SPI1->CR1 = CR1;
+    if (hspi1.State != HAL_SPI_STATE_RESET)
+    {
+        CLEAR_BIT(SPI1->CR2, SPI_CR2_RXDMAEN | SPI_CR2_TXDMAEN);
+        SPI1_CSN_GPIO_Port->BSRR = SPI1_CSN_Pin;
+        /* Flush queued words; the next SPI selection uses CubeMX's setup. */
+        SET_BIT(RCC->APB2RSTR, RCC_APB2RSTR_SPI1RST);
+        CLEAR_BIT(RCC->APB2RSTR, RCC_APB2RSTR_SPI1RST);
+        (void)HAL_SPI_DeInit(&hspi1);
+    }
 
-    Feedback_Reset();
+    ABZ_Deinit();
+    /* Release the shared connector before selecting its new function.
+     * ABZ reconfiguration must never drive the B or Z inputs as SPI outputs. */
+    Gpio.Pin = GPIO_PIN_3 | GPIO_PIN_4 | GPIO_PIN_5;
+    Gpio.Mode = GPIO_MODE_INPUT;
+    Gpio.Pull = GPIO_NOPULL;
+    HAL_GPIO_Init(GPIOB, &Gpio);
+    Gpio.Pin = SPI1_CSN_Pin;
+    Gpio.Pull = GPIO_PULLUP;
+    HAL_GPIO_Init(SPI1_CSN_GPIO_Port, &Gpio);
+    Encoder_Feedback_Reset();
 
     if (!Driver_Bind())
     {
@@ -181,7 +176,24 @@ void Encoder_DMA_Config(void)
         return;
     }
 
-    Drv_Config();
+    if (Encoder_Config.Protocol == ENC_PROTOCOL_SPI)
+    {
+        SPI1_CSN_GPIO_Port->BSRR = SPI1_CSN_Pin;
+        Gpio.Pin = SPI1_CSN_Pin;
+        Gpio.Mode = GPIO_MODE_OUTPUT_PP;
+        Gpio.Pull = GPIO_PULLUP;
+        Gpio.Speed = GPIO_SPEED_FREQ_LOW;
+        HAL_GPIO_Init(SPI1_CSN_GPIO_Port, &Gpio);
+        MX_SPI1_Init();
+    }
+    if (Drv_Config != 0)
+    {
+        Drv_Config();
+    }
+    if (Encoder.Fault != 0U)
+    {
+        Drv_Start = 0;
+    }
     __set_PRIMASK(Primask);
 }
 
@@ -189,7 +201,7 @@ void Encoder_Position_Read(int32_t *Turn, float *Theta)
 {
     uint32_t Primask;
 
-    /* Turn and Theta_m are updated together by the encoder DMA ISR. */
+    /* Turn and Theta_m are updated together by the sample ISR. */
     Primask = __get_PRIMASK();
     __disable_irq();
     *Turn = Motor_Run.Turn;

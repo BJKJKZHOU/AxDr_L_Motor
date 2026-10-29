@@ -81,7 +81,9 @@ PA0 的模拟引脚初始化及反初始化归属 ADC2。
 | `SPI1_SCK` | PB3 | SPI1_SCK | 编码器时钟 |
 | `SPI1_MISO` | PB4 | SPI1_MISO | 编码器数据输入 |
 | `SPI1_MOSI` | PB5 | SPI1_MOSI | 编码器数据输出 |
-| `SPI1_CSN` | PD2 | GPIO 输出 | 片选，当前上电置高 |
+| `SPI1_CSN` | PD2 | GPIO 上拉输入 | 选择 SPI 后配置为片选输出，空闲置高；ABZ 模式用于 Z 输入 |
+
+SPI1 初始化延后到读取编码器协议参数之后，仅选择 SPI 时才配置 PB3/PB4/PB5 复用。共享接口的 ABZ 接线和运行时切换见 [ABZ 编码器接入](ABZ编码器接入.md)。
 
 ### 4.2 Hall 接口
 
