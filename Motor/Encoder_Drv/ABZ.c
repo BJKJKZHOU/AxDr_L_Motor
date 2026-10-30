@@ -10,7 +10,8 @@
 #include "main.h"
 #include "stm32g4xx_hal.h"
 
-/* The AxDr-L V1.3 SPI 6P shares PB4/PB5/PD2 with ABZ.
+/* CN47 from GND: GND, A (PB5/CH2), B (PB4/CH1), Z (PB3), NC, VCC.
+ * Phase search establishes Enc_Dir with this A/B channel assignment.
  * TIM3 is 16-bit, so quadrature x4 CPR cannot exceed 65536.
  */
 #define ABZ_PPR_MAX 16384U
@@ -29,11 +30,11 @@ void ABZ_Deinit(void)
         return;
     }
 
-    HAL_NVIC_DisableIRQ(EXTI2_IRQn);
+    HAL_NVIC_DisableIRQ(EXTI3_IRQn);
     TIM3->CR1 &= ~TIM_CR1_CEN;
-    EXTI->IMR1 &= ~GPIO_PIN_2;
-    __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_2);
-    HAL_NVIC_ClearPendingIRQ(EXTI2_IRQn);
+    EXTI->IMR1 &= ~GPIO_PIN_3;
+    __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_3);
+    HAL_NVIC_ClearPendingIRQ(EXTI3_IRQn);
 
     Index_Seen = 0U;
     Index_Error_Cnt = 0;
@@ -63,10 +64,10 @@ void ABZ_Config(void)
     Gpio.Alternate = GPIO_AF2_TIM3;
     HAL_GPIO_Init(GPIOB, &Gpio);
 
-    Gpio.Pin = GPIO_PIN_2;
+    Gpio.Pin = GPIO_PIN_3;
     Gpio.Mode = GPIO_MODE_IT_RISING;
     Gpio.Pull = GPIO_PULLDOWN;
-    HAL_GPIO_Init(GPIOD, &Gpio);
+    HAL_GPIO_Init(GPIOB, &Gpio);
 
     /* Modulo one mechanical revolution also supports arbitrary PPR. */
     TIM3->CR1 = 0U;
@@ -80,10 +81,10 @@ void ABZ_Config(void)
     TIM3->SR = 0U;
     TIM3->CR1 = TIM_CR1_CEN;
 
-    __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_2);
-    HAL_NVIC_SetPriority(EXTI2_IRQn, 1U, 0U);
+    __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_3);
+    HAL_NVIC_SetPriority(EXTI3_IRQn, 1U, 0U);
     Active = 1U;
-    HAL_NVIC_EnableIRQ(EXTI2_IRQn);
+    HAL_NVIC_EnableIRQ(EXTI3_IRQn);
 }
 
 FAST_CODE void ABZ_Start(void)
@@ -96,12 +97,12 @@ FAST_CODE void ABZ_Start(void)
     Fast_Time.Enc_Cyc = DWT->CYCCNT - Fast_Time.T0;
 }
 
-/* The EXTI2 vector lives here, not in CubeMX-generated stm32g4xx_it.c. */
-void EXTI2_IRQHandler(void)
+/* The EXTI3 vector lives here, not in CubeMX-generated stm32g4xx_it.c. */
+void EXTI3_IRQHandler(void)
 {
-    if (__HAL_GPIO_EXTI_GET_IT(GPIO_PIN_2) != 0U)
+    if (__HAL_GPIO_EXTI_GET_IT(GPIO_PIN_3) != 0U)
     {
-        __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_2);
+        __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_3);
         if (Active != 0U)
         {
             int32_t Delta;

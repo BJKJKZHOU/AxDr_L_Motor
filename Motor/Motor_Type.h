@@ -91,14 +91,15 @@ typedef struct
  * Theta_Off must be calibrated after Enc_Dir / phase order are established:
  * Theta_e = wrap(Pp * Theta_m + Theta_Off).
  *
- * Valid 表示当前寻相结果可用；重新寻相或用户修改极对数、编码器类型时清零。
+ * Valid: 0=未寻相，1=寻相完成，2=寻相及编码器校准有效。
+ * 用户修改极对数、编码器协议/型号或线数时清零；独立重新寻相成功保留等级2。
  * 上电按参数表恢复保存值。
  */
 typedef struct
 {
     int8_t Enc_Dir; /* 寻相得到的方向，+1 / -1。 */
     float Theta_Off; /* 寻相得到的电角度偏置，rad。 */
-    uint8_t Valid; /* 寻相有效标记，对应参数 0x0402。 */
+    uint8_t Valid; /* 校准状态，对应参数 0x0402；非零允许有感运行。 */
 
 } Motor_Cal_T;
 

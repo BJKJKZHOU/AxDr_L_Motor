@@ -422,7 +422,7 @@ objects:
     allowed_symbols: [ENC_PROTOCOL_NONE, ENC_PROTOCOL_SPI, ENC_PROTOCOL_ABZ]
     on_change: ENCODER_CONFIG
     host:
-      readback: [PARAM_ENCODER_READY, PARAM_ENCODER_VALID, PARAM_ENCODER_FAULT]
+      readback: [PARAM_ENCODER_READY, PARAM_ENCODER_VALID, PARAM_ENCODER_FAULT, PARAM_CAL_VALID]
 
 
   PARAM_ENCODER_READY:
@@ -464,7 +464,7 @@ objects:
     allowed_symbols: [ENC_SPI_MT6816, ENC_SPI_MT6835]
     on_change: ENCODER_CONFIG
     host:
-      readback: [PARAM_ENCODER_READY, PARAM_ENCODER_VALID, PARAM_ENCODER_FAULT]
+      readback: [PARAM_ENCODER_READY, PARAM_ENCODER_VALID, PARAM_ENCODER_FAULT, PARAM_CAL_VALID]
 
 
   PARAM_ENCODER_ABZ_PPR:
@@ -479,7 +479,7 @@ objects:
     range: { min: 1, max: 16384 }
     on_change: ENCODER_CONFIG
     host:
-      readback: [PARAM_ENCODER_READY, PARAM_ENCODER_VALID, PARAM_ENCODER_FAULT]
+      readback: [PARAM_ENCODER_READY, PARAM_ENCODER_VALID, PARAM_ENCODER_FAULT, PARAM_CAL_VALID]
 
 
   PARAM_ENCODER_THETA_NATIVE:
@@ -561,9 +561,9 @@ objects:
     access: ro
     persistent: true
     binding: Motor_Cal.Valid
-    label: Calibration Valid
-    description: "当前寻相结果是否有效；重新寻相或用户修改极对数、编码器协议、SPI类型时清零，结果应用成功时置位，上电按保存值恢复。"
-    range: { min: 0, max: 1 }
+    label: Calibration State
+    description: "0=未寻相，1=寻相完成但编码器未校准，2=寻相及编码器校准有效；1和2均允许有感运行。修改极对数、编码器协议、SPI类型或ABZ线数后清零；已校准后重新寻相成功保留2，失败或中止清零。上电按保存值恢复。"
+    range: { min: 0, max: 2 }
 
   PARAM_CAL_ENC_DIR:
     id: 0x0403

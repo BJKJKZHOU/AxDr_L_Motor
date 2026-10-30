@@ -159,7 +159,7 @@ void Encoder_Config_Apply(void)
 
     ABZ_Deinit();
     /* Release the shared connector before selecting its new function.
-     * ABZ reconfiguration must never drive the B or Z inputs as SPI outputs. */
+     * ABZ reconfiguration must never drive the A/B/Z inputs as SPI outputs. */
     Gpio.Pin = GPIO_PIN_3 | GPIO_PIN_4 | GPIO_PIN_5;
     Gpio.Mode = GPIO_MODE_INPUT;
     Gpio.Pull = GPIO_NOPULL;

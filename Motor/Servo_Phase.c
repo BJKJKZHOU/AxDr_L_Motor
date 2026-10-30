@@ -123,8 +123,12 @@ bool Servo_Phase_Start(void)
 
     Phase = (Servo_Phase_T){ 0 };
     Last_Result = (Servo_Phase_Result_T){ 0 };
-    /* 本次完成前不沿用上一次寻相的有效标记。 */
-    Motor_Cal.Valid = 0U;
+    /* Keep the completed encoder calibration when only repeating phase search.
+     * Enc_Control owns the motor until success; failure/abort invalidates it. */
+    if (Motor_Cal.Valid != 2U)
+    {
+        Motor_Cal.Valid = 0U;
+    }
 
     Phase.Stable_Theta = Encoder.Theta_Native;
     Phase.Enc_Dir = 1; /* 暂用于判断方向，结束后再应用到 Motor_Cal。 */
@@ -136,6 +140,7 @@ bool Servo_Phase_Start(void)
 void Servo_Phase_Abort(void)
 {
     Phase.State = PHASE_IDLE;
+    Motor_Cal.Valid = 0U;
 }
 
 bool Servo_Phase_Active(void)

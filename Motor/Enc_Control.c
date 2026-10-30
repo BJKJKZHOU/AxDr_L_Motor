@@ -7,6 +7,7 @@
 
 #include "Enc_Cal.h"
 #include "Motor_Control.h"
+#include "Motor_Cal.h"
 #include "Servo_Phase.h"
 #include "motor_work.h"
 
@@ -29,6 +30,8 @@ bool Enc_Control_Start(Enc_Mode_e Mode)
     }
     else if (Mode == ENC_PHASE)
     {
+        /* A standalone phase search must not inherit an earlier CAL_DONE. */
+        Enc_Cal.Step = CAL_IDLE;
         if (!Servo_Phase_Start())
         {
             return false;
@@ -58,6 +61,7 @@ void Enc_Control_Abort(void)
         Servo_Phase_Abort();
     }
     /* A worker may still be fitting or writing Flash after the motor stops. */
+    Motor_Cal.Valid = 0U;
     Enc_Step = ENC_STOP_WAIT;
 }
 
@@ -85,9 +89,14 @@ void Enc_Control_Run(void)
             if (!Servo_Phase_Active())
             {
                 Motor_Disable_Apply();
-                if (Servo_Phase_Apply() && Motor_Work_Request(MOTOR_WORK_SAVE_PHASE))
+                if (Servo_Phase_Apply())
                 {
-                    Enc_Step = ENC_PHASE_SAVE;
+                    if (Enc_Cal.Step == CAL_DONE)
+                    {
+                        Motor_Cal.Valid = 2U;
+                    }
+                    Enc_Step = Motor_Work_Request(MOTOR_WORK_SAVE_PHASE) ?
+                               ENC_PHASE_SAVE : ENC_FAILED;
                 }
                 else
                 {
@@ -126,6 +135,10 @@ void Enc_Control_Run(void)
     }
     if (!Enc_Control_Active() || (Enc_Step == ENC_STOP_WAIT))
     {
+        if ((Enc_Step == ENC_FAILED) || (Enc_Step == ENC_STOP_WAIT))
+        {
+            Motor_Cal.Valid = 0U;
+        }
         Motor_Disable_Apply();
     }
 }

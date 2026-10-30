@@ -148,7 +148,7 @@ typedef enum
     /* Servo_Phase_Config.I_Search_A: 伺服寻相两次静态ALIGN的Id电流及方向辨识起转的Iq电流；起转后Iq归零等待500ms。 */
     PARAM_PHASE_I_SEARCH = 0x0401U,
 
-    /* Motor_Cal.Valid: 当前寻相结果是否有效；重新寻相或用户修改极对数、编码器协议、SPI类型时清零，结果应用成功时置位，上电按保存值恢复。 */
+    /* Motor_Cal.Valid: 0=未寻相，1=寻相完成但编码器未校准，2=寻相及编码器校准有效；1和2均允许有感运行。修改极对数、编码器协议、SPI类型或ABZ线数后清零；已校准后重新寻相成功保留2，失败或中止清零。上电按保存值恢复。 */
     PARAM_CAL_VALID = 0x0402U,
 
     /* Motor_Cal.Enc_Dir: 寻相得到的编码器方向符号，按工程约定用于机械方向对齐。 */
