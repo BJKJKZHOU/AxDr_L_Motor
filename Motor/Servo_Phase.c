@@ -108,7 +108,6 @@ static bool Angle_Stable(float Theta, float *Theta_Mean)
 static void Fail(void)
 {
     Phase.State = PHASE_FAILED;
-    Motor_Cal.Valid = 0U;
 }
 
 bool Servo_Phase_Start(void)
@@ -120,11 +119,6 @@ bool Servo_Phase_Start(void)
 
     Phase = (Servo_Phase_T){ 0 };
     Last_Result = (Servo_Phase_Result_T){ 0 };
-    /* 重复寻相保留已有的编码器校准，失败或中止时再清零。 */
-    if (Motor_Cal.Valid != 2U)
-    {
-        Motor_Cal.Valid = 0U;
-    }
 
     Phase.Stable_Theta = Encoder.Theta_Native;
     Phase.Enc_Dir = 1; /* 暂用于判断方向，结束后再应用到 Motor_Cal。 */
@@ -136,7 +130,6 @@ bool Servo_Phase_Start(void)
 void Servo_Phase_Abort(void)
 {
     Phase.State = PHASE_IDLE;
-    Motor_Cal.Valid = 0U;
 }
 
 bool Servo_Phase_Active(void)

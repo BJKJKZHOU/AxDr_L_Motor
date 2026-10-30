@@ -30,7 +30,7 @@ bool Enc_Control_Start(Enc_Mode_e Mode)
     }
     else if (Mode == ENC_PHASE)
     {
-        /* 独立寻相前清除上次校准的完成状态。 */
+        /* 独立寻相不继承完整校准流程的 CAL_DONE 状态。 */
         Enc_Cal.Step = CAL_IDLE;
         if (!Servo_Phase_Start())
         {
@@ -61,7 +61,6 @@ void Enc_Control_Abort(void)
         Servo_Phase_Abort();
     }
     /* 停机后等待后台拟合或 Flash 写入结束。 */
-    Motor_Cal.Valid = 0U;
     Enc_Step = ENC_STOP_WAIT;
 }
 
@@ -135,10 +134,6 @@ void Enc_Control_Run(void)
     }
     if (!Enc_Control_Active() || (Enc_Step == ENC_STOP_WAIT))
     {
-        if ((Enc_Step == ENC_FAILED) || (Enc_Step == ENC_STOP_WAIT))
-        {
-            Motor_Cal.Valid = 0U;
-        }
         Motor_Disable_Apply();
     }
 }

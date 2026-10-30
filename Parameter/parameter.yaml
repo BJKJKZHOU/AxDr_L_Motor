@@ -420,7 +420,7 @@ objects:
     description: "运行前选择的编码器通信协议。"
     write_state: disabled
     allowed_symbols: [ENC_PROTOCOL_NONE, ENC_PROTOCOL_SPI, ENC_PROTOCOL_ABZ]
-    on_change: ENCODER_CONFIG
+    on_change: ENCODER_PROTOCOL
     host:
       readback: [PARAM_ENCODER_READY, PARAM_ENCODER_VALID, PARAM_ENCODER_FAULT, PARAM_CAL_VALID]
 
@@ -462,7 +462,7 @@ objects:
     description: "SPI协议下选择的编码器芯片协议。"
     write_state: disabled
     allowed_symbols: [ENC_SPI_MT6816, ENC_SPI_MT6835]
-    on_change: ENCODER_CONFIG
+    on_change: ENCODER_SPI_TYPE
     host:
       readback: [PARAM_ENCODER_READY, PARAM_ENCODER_VALID, PARAM_ENCODER_FAULT, PARAM_CAL_VALID]
 
@@ -474,10 +474,10 @@ objects:
     persistent: true
     binding: Encoder_Config.ABZ_PPR
     label: ABZ PPR
-    description: "ABZ每机械圈A/B周期数，TIM3固定四倍频；修改后重建计数原点并重新寻相，无需等待Z。"
+    description: "ABZ每机械圈A/B周期数，TIM3固定四倍频；当前使用ABZ时修改后重建计数原点并重新寻相，无需等待Z。"
     write_state: disabled
     range: { min: 1, max: 16384 }
-    on_change: ENCODER_CONFIG
+    on_change: ENCODER_ABZ_PPR
     host:
       readback: [PARAM_ENCODER_READY, PARAM_ENCODER_VALID, PARAM_ENCODER_FAULT, PARAM_CAL_VALID]
 
@@ -562,7 +562,7 @@ objects:
     persistent: true
     binding: Motor_Cal.Valid
     label: Calibration State
-    description: "0=未寻相，1=寻相完成但编码器未校准，2=寻相及编码器校准有效；1和2均允许有感运行。修改极对数、编码器协议、SPI类型或ABZ线数后清零；已校准后重新寻相成功保留2，失败或中止清零。上电按保存值恢复。"
+    description: "0=未寻相，1=寻相完成但编码器未校准，2=寻相及编码器校准有效；1和2均允许有感运行。极对数或当前使用的编码器配置变化时清零；独立重新寻相在新结果应用前保留原状态，完整编码器校准应用新系数后清零并在最终寻相成功后置2。上电按保存值恢复。"
     range: { min: 0, max: 2 }
 
   PARAM_CAL_ENC_DIR:

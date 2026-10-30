@@ -418,10 +418,24 @@ case PARAM_SIGNAL_SPEED_AMP:
 
 #elif defined(PARAM_GENERATE_ON_CHANGE)
 case PARAM_ENCODER_PROTOCOL:
-case PARAM_ENCODER_SPI_TYPE:
-case PARAM_ENCODER_ABZ_PPR:
     Motor_Cal.Valid = 0U;
     Encoder_Config_Apply();
+    break;
+
+case PARAM_ENCODER_SPI_TYPE:
+    if (Encoder_Config.Protocol == ENC_PROTOCOL_SPI)
+    {
+        Motor_Cal.Valid = 0U;
+        Encoder_Config_Apply();
+    }
+    break;
+
+case PARAM_ENCODER_ABZ_PPR:
+    if (Encoder_Config.Protocol == ENC_PROTOCOL_ABZ)
+    {
+        Motor_Cal.Valid = 0U;
+        Encoder_Config_Apply();
+    }
     break;
 
 case PARAM_ENCODER_HARMONIC_C1:

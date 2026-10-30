@@ -42,18 +42,10 @@ bool Motor_Cal_Set(int8_t Enc_Dir, float Theta_Off)
         Motor_Cal.Valid = 1U;
     }
 
-    /* 方向变化后重新建立反馈历史。
-     * ABZ 保留 CNT，因为寻相得到的零位以当前计数为基准。 */
+    /* 方向变化只重建软件反馈历史，硬件采样配置和计数原点保持不变。 */
     if (Dir_Changed != 0)
     {
-        if (Encoder_Config.Protocol == ENC_PROTOCOL_ABZ)
-        {
-            Encoder_Feedback_Reset();
-        }
-        else
-        {
-            Encoder_Config_Apply();
-        }
+        Encoder_Feedback_Reset();
     }
     __set_PRIMASK(Primask);
 

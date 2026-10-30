@@ -127,7 +127,7 @@ typedef enum
     /* Encoder_Config.SPI_Type: SPI协议下选择的编码器芯片协议。 */
     PARAM_ENCODER_SPI_TYPE = 0x0310U,
 
-    /* Encoder_Config.ABZ_PPR: ABZ每机械圈A/B周期数，TIM3固定四倍频；修改后重建计数原点并重新寻相，无需等待Z。 */
+    /* Encoder_Config.ABZ_PPR: ABZ每机械圈A/B周期数，TIM3固定四倍频；当前使用ABZ时修改后重建计数原点并重新寻相，无需等待Z。 */
     PARAM_ENCODER_ABZ_PPR = 0x0316U,
 
     /* Encoder.Theta_Native: 方向和谐波补偿之前的原生机械角度。 */
@@ -148,7 +148,7 @@ typedef enum
     /* Servo_Phase_Config.I_Search_A: 伺服寻相两次静态ALIGN的Id电流及方向辨识起转的Iq电流；起转后Iq归零等待500ms。 */
     PARAM_PHASE_I_SEARCH = 0x0401U,
 
-    /* Motor_Cal.Valid: 0=未寻相，1=寻相完成但编码器未校准，2=寻相及编码器校准有效；1和2均允许有感运行。修改极对数、编码器协议、SPI类型或ABZ线数后清零；已校准后重新寻相成功保留2，失败或中止清零。上电按保存值恢复。 */
+    /* Motor_Cal.Valid: 0=未寻相，1=寻相完成但编码器未校准，2=寻相及编码器校准有效；1和2均允许有感运行。极对数或当前使用的编码器配置变化时清零；独立重新寻相在新结果应用前保留原状态，完整编码器校准应用新系数后清零并在最终寻相成功后置2。上电按保存值恢复。 */
     PARAM_CAL_VALID = 0x0402U,
 
     /* Motor_Cal.Enc_Dir: 寻相得到的编码器方向符号，按工程约定用于机械方向对齐。 */

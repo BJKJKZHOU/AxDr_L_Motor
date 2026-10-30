@@ -89,7 +89,8 @@ void Encoder_Port_ABZ(uint32_t Cpr)
     ENCODER_ABZ_TIM->CR1 = TIM_CR1_CEN;
 
     __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_3);
-    HAL_NVIC_SetPriority(EXTI3_IRQn, 1U, 0U);
+    /* Z 仅用于圈参考观察，不抢占 ADC 快环。 */
+    HAL_NVIC_SetPriority(EXTI3_IRQn, 3U, 0U);
     HAL_NVIC_EnableIRQ(EXTI3_IRQn);
 }
 
