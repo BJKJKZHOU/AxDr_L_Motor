@@ -6,6 +6,7 @@
 #include "Servo_Phase.h"
 
 #include "Encoder.h"
+#include "Enc_Cal.h"
 #include "Math.h"
 #include "Motor_Cal.h"
 #include "NVS_Storage.h"
@@ -13,12 +14,8 @@
 #include "control_params.h"
 #include "motor_params.h"
 
-/*
- * ALIGN at electrical zero, then use native encoder FOC and a small positive
- * Iq to identify encoder direction. Return Iq to zero for 500 ms before a
- * second fixed-field ALIGN. Motion range is not prescribed.
- * The global encoder mapping is changed only after DISABLED.
- */
+/* 电角度置零对齐后，施加正 Iq 判断编码器方向。
+ * Iq 归零等待 500 ms，再次对齐计算零位；禁能后应用结果。 */
 #define PHASE_SEARCH_I_DEFAULT_A  0.5f
 #define PHASE_DIR_CONFIRM_E_RAD   0.05f
 #define PHASE_STABLE_ERR_E_RAD    0.05f
@@ -123,8 +120,7 @@ bool Servo_Phase_Start(void)
 
     Phase = (Servo_Phase_T){ 0 };
     Last_Result = (Servo_Phase_Result_T){ 0 };
-    /* Keep the completed encoder calibration when only repeating phase search.
-     * Enc_Control owns the motor until success; failure/abort invalidates it. */
+    /* 重复寻相保留已有的编码器校准，失败或中止时再清零。 */
     if (Motor_Cal.Valid != 2U)
     {
         Motor_Cal.Valid = 0U;
@@ -214,7 +210,9 @@ Motor_Fast_Mode_e Servo_Phase_Fast_Run(float *Theta_e,
 
             if (Angle_Stable(Encoder.Theta_Native, &Theta_Native_Stable))
             {
-                Phase.Theta_Native_Align = Encoder_Angle_Correct(Theta_Native_Stable);
+                /* 编码器校准后，寻相使用新系数计算零位。 */
+                Phase.Theta_Native_Align = Encoder_Angle_Correct(
+                    Theta_Native_Stable, (Motor_Cal.Valid == 2U) || (Enc_Cal.Step == CAL_DONE));
                 Phase.Theta_Native_Pre = Encoder.Theta_Native;
                 Phase.Native_Delta = 0.0f;
                 Phase.State = PHASE_RUN;
@@ -258,15 +256,15 @@ Motor_Fast_Mode_e Servo_Phase_Fast_Run(float *Theta_e,
 
             if (Angle_Stable(Encoder.Theta_Native, &Theta_Native_Stable))
             {
-                Theta_Native_Stable = Encoder_Angle_Correct(Theta_Native_Stable);
+                Theta_Native_Stable = Encoder_Angle_Correct(
+                    Theta_Native_Stable, (Motor_Cal.Valid == 2U) || (Enc_Cal.Step == CAL_DONE));
                 Offset_Initial = Angle_Wrap(-(float)Motor_Para.Pp *
                                             (float)Phase.Enc_Dir * Phase.Theta_Native_Align);
                 Offset_Final = Angle_Wrap(-(float)Motor_Para.Pp *
                                           (float)Phase.Enc_Dir * Theta_Native_Stable);
                 Offset_Error = Angle_Delta(Offset_Final, Offset_Initial);
 
-                /* The residual is zero when the two aligned positions differ
-                 * by an integer number of electrical revolutions, including 0. */
+                /* 两次对齐位置应相差整数个电周期，用零位之差检查偏差。 */
                 Last_Result.Theta_Off_Error = Offset_Error;
                 Last_Result.Theta_Off = Angle_Wrap(Offset_Initial + 0.5f * Offset_Error);
                 Phase.State = PHASE_DONE;

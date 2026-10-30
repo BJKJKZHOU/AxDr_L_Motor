@@ -340,6 +340,12 @@ Parameter_Status_e Parameter_Write(uint16_t Id,
         return PARAM_ERR_READ_ONLY;
     }
 
+    /* 校准禁能保存后还会继续寻相，期间保持参数不变。 */
+    if (Enc_Control_Active())
+    {
+        return PARAM_ERR_STATE;
+    }
+
     State = Motor_State_Get();
 
     if (((Entry->Flags & PARAM_FLAG_DISABLED_ONLY) != 0U) &&

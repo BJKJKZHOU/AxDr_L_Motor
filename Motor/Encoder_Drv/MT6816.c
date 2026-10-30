@@ -22,7 +22,7 @@
 #define ENC_NOMAG_FAULT_MS  2U
 #define ENC_NOMAG_FAULT_CNT ((uint16_t)((CUR_FREQ_HZ_DEFAULT * (float)ENC_NOMAG_FAULT_MS) / 1000.0f))
 
-/* At 170 MHz: CSN setup 100 ns, inter-frame high 200 ns, SPI timeout 1 us. */
+/* 170 MHz 下：片选建立时间 100 ns，帧间高电平 200 ns，SPI 超时 1 us。 */
 #define ENC_CSN_LOW_CYC  17U
 #define ENC_CSN_HIGH_CYC 34U
 #define ENC_SPI_END_CYC  170U
@@ -61,7 +61,7 @@ static FAST_CODE void DMA_Rearm(void)
     ENC_DMA_RX->CPAR = (uint32_t)&ENC_SPI->DR;
     ENC_DMA_RX->CMAR = (uint32_t)&Rx[0];
     ENC_DMA_RX->CNDTR = 2U;
-    /* MT6835 uses normal DMA; restore this driver's two-word circular frame. */
+    /* 从 MT6835 切回时，恢复循环接收两个 16 位数据的方式。 */
     SET_BIT(ENC_DMA_RX->CCR,
             DMA_CCR_CIRC | DMA_CCR_HTIE | DMA_CCR_TCIE | DMA_CCR_TEIE);
     SET_BIT(ENC_DMA_RX->CCR, DMA_CCR_EN);

@@ -10,7 +10,7 @@
 #include "PID.h"
 #include "motor_params.h"
 
-/* AxDrive-L V1.3 current and DC-bus sampling conversion parameters. */
+/* AxDrive-L V1.3 电流和母线电压的采样换算参数。 */
 #define ADC_VREF_V     3.3f
 #define ADC_FULL_SCALE 4096.0f
 #define CUR_SHUNT_OHM  0.001f

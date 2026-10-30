@@ -10,6 +10,7 @@
 
 #include "Motor_Type.h"
 #include "Identification.h"
+#include "Enc_Control.h"
 
 void Motor_Control(void);
 FAST_CODE Motor_Fast_Mode_e Motor_Fast_Run(float Encoder_Theta_e,
@@ -41,7 +42,7 @@ typedef enum
 
 Motor_Status_e Motor_Enable(void);
 Motor_Status_e Motor_Start(void);
-Motor_Status_e Motor_Enc_Cal_Start(void);
+Motor_Status_e Motor_Enc_Start(Enc_Mode_e Mode);
 void Motor_Stop(void);
 void Motor_Disable(void);
 

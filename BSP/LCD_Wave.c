@@ -220,7 +220,7 @@ static const char *LCD_Mode_Name(Motor_Mode_e Mode)
         case OPEN_LOOP:       return "OPEN LOOP";
         case IDENT:           return "IDENT";
         case SENSORLESS_SPEED:return "SENSORLESS";
-        case PHASE_SEARCH:    return "PHASE";
+        case ENCODER_CAL:    return "ENC CAL";
         default:              return "UNKNOWN";
     }
 }

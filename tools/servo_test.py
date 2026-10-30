@@ -375,12 +375,11 @@ def main():
                 c.request(m.MSG_PLOT, m.PLOT_STOP, bytes([3]))
                 if args.phase_search:
                     c.parameter_write(m.PARAM_MOTOR_MODE, m.PARAM_U8, 6)
-                    c.parameter_action(m.ACTION_MOTOR_ENABLE)
-                    txn = c.parameter_action(m.ACTION_MOTOR_RUN)
+                    txn = c.parameter_action(m.ACTION_ENC_PHASE_START)
                     deadline = time.monotonic() + 30
                     while True:
                         c.dwell(0.05, expected=None)
-                        status = c.action_complete_status(txn, m.ACTION_MOTOR_RUN)
+                        status = c.action_complete_status(txn, m.ACTION_ENC_PHASE_START)
                         if status is not None:
                             if status:
                                 raise RuntimeError(f"phase search failed: status={status}")

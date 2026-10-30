@@ -9,13 +9,12 @@
 #include "main.h"
 #include "spi.h"
 
-/* CN47 from GND: GND, A (PB5/CH2), B (PB4/CH1), Z (PB3), NC (PD2), VCC.
- * Phase search establishes Enc_Dir with this A/B channel assignment. */
+/* CN47 从 GND 起：GND、A(PB5/CH2)、B(PB4/CH1)、Z(PB3)、空(PD2)、VCC。 */
 void Encoder_Port_Release(void)
 {
     GPIO_InitTypeDef Gpio = { 0 };
 
-    /* MT6835 owns TX channel 3 as well as the shared RX channel 5. */
+    /* 同时停止接收 DMA 和 MT6835 使用的发送 DMA。 */
     CLEAR_BIT(ENC_DMA_TX->CCR, DMA_CCR_EN);
     CLEAR_BIT(ENC_DMA_RX->CCR,
               DMA_CCR_EN | DMA_CCR_TCIE | DMA_CCR_HTIE | DMA_CCR_TEIE);
@@ -24,7 +23,7 @@ void Encoder_Port_Release(void)
     {
         CLEAR_BIT(ENC_SPI->CR2, SPI_CR2_RXDMAEN | SPI_CR2_TXDMAEN);
         ENC_CS_PORT->BSRR = ENC_CS_PIN;
-        /* Flush queued words; the next SPI selection uses CubeMX's setup. */
+        /* 复位 SPI，清除未完成传输留下的数据。 */
         SET_BIT(ENC_SPI_RST_REG, ENC_SPI_RST);
         CLEAR_BIT(ENC_SPI_RST_REG, ENC_SPI_RST);
         (void)HAL_SPI_DeInit(&hspi1);
@@ -36,7 +35,7 @@ void Encoder_Port_Release(void)
     __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_3);
     HAL_NVIC_ClearPendingIRQ(EXTI3_IRQn);
 
-    /* ABZ reconfiguration must never drive A/B/Z as SPI outputs. */
+    /* 先将共用引脚设为输入，避免切换时驱动编码器信号线。 */
     Gpio.Pin = GPIO_PIN_3 | GPIO_PIN_4 | GPIO_PIN_5;
     Gpio.Mode = GPIO_MODE_INPUT;
     Gpio.Pull = GPIO_NOPULL;
@@ -57,7 +56,7 @@ void Encoder_Port_SPI(void)
     Gpio.Speed = GPIO_SPEED_FREQ_LOW;
     HAL_GPIO_Init(ENC_CS_PORT, &Gpio);
     MX_SPI1_Init();
-    /* The TX route is shared; each chip driver selects its transfer mode. */
+    /* 配置发送 DMA 请求，传输方式由器件驱动设置。 */
     DMAMUX1_Channel2->CCR = DMA_REQUEST_SPI1_TX;
 }
 
@@ -77,8 +76,7 @@ void Encoder_Port_ABZ(uint32_t Cpr)
     Gpio.Pull = GPIO_PULLDOWN;
     HAL_GPIO_Init(GPIOB, &Gpio);
 
-    /* Cpr is validated by ABZ_Config against the board's counter capacity.
-     * Modulo one mechanical revolution also supports arbitrary PPR. */
+    /* 计数范围设为一机械圈，支持不同编码器线数。 */
     ENCODER_ABZ_TIM->CR1 = 0U;
     ENCODER_ABZ_TIM->PSC = 0U;
     ENCODER_ABZ_TIM->ARR = Cpr - 1U;
@@ -95,7 +93,7 @@ void Encoder_Port_ABZ(uint32_t Cpr)
     HAL_NVIC_EnableIRQ(EXTI3_IRQn);
 }
 
-/* Keep this vector outside CubeMX-generated stm32g4xx_it.c. */
+/* 中断入口放在此处，避免 CubeMX 导出时覆盖。 */
 void EXTI3_IRQHandler(void)
 {
     if (__HAL_GPIO_EXTI_GET_IT(GPIO_PIN_3) != 0U)

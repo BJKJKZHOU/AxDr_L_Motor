@@ -250,7 +250,7 @@ void Motor_Control(void)
 
     Mode = Cal_Speed ? SPEED : Motor_Mode;
 
-    if (Mode == PHASE_SEARCH)
+    if (Mode == ENCODER_CAL)
     {
         return;
     }
@@ -560,7 +560,7 @@ Motor_Fast_Mode_e Motor_Fast_Run(float Encoder_Theta_e,
         return FAST_OFF;
     }
 
-    /* Calibration supersedes the user mode without modifying Motor_Mode. */
+    /* 寻相和校准期间，输出由编码器任务控制。 */
     if (Enc && (!Cal || ((Enc_Cal.Step != CAL_SPEED) && (Enc_Cal.Step != CAL_DECEL))))
     {
         return Enc_Control_Fast_Run(Theta_e, Id_Ref, Iq_Ref, Ualpha, Ubeta);
@@ -654,7 +654,7 @@ Motor_Position_T Motor_Position_Ref_Get(void)
 
 bool Motor_Encoder_Required(void)
 {
-    return Servo_Mode() || (Motor_Mode == PHASE_SEARCH) ||
+    return Servo_Mode() || (Motor_Mode == ENCODER_CAL) ||
            Enc_Control_Active();
 }
 
@@ -722,21 +722,17 @@ Motor_Status_e Motor_Start(void)
 
     Signal_Injection_Stop();
 
-    /* Identification is entered only through Motor_Ident_Start(). */
-    if ((Motor_Mode == IDENT) && !Enc)
+    /* 辨识、寻相和校准由专用命令启动。 */
+    if (((Motor_Mode == IDENT) || (Motor_Mode == ENCODER_CAL)) && !Enc)
     {
         return MOTOR_ERR_STATE;
     }
 
     if (!Cal)
     {
-        if ((Enc_Step == ENC_PHASE_RUN) || (Motor_Mode == PHASE_SEARCH))
+        if (Enc_Step == ENC_PHASE_RUN)
         {
             Current_Loop_State_Reset();
-            if ((Enc_Step != ENC_PHASE_RUN) && !Enc_Control_Start(ENC_PHASE))
-            {
-                return MOTOR_ERR_CONFIG;
-            }
         }
         else if (Motor_Mode == OPEN_LOOP)
         {
@@ -773,16 +769,17 @@ Motor_Status_e Motor_Start(void)
     return MOTOR_OK;
 }
 
-Motor_Status_e Motor_Enc_Cal_Start(void)
+Motor_Status_e Motor_Enc_Start(Enc_Mode_e Mode)
 {
     Motor_Status_e Status;
 
-    if ((Motor_State != DISABLED) || !Protection_Enable_Allowed() ||
-        (Motor_Work_State != MOTOR_WORK_IDLE) || Enc_Control_Active())
+    if ((Motor_State != DISABLED) || (Motor_Mode != ENCODER_CAL) ||
+        !Protection_Enable_Allowed() || (Motor_Work_State != MOTOR_WORK_IDLE) ||
+        Enc_Control_Active())
     {
         return MOTOR_ERR_STATE;
     }
-    if (!Enc_Control_Start(ENC_CAL))
+    if (!Enc_Control_Start(Mode))
     {
         return MOTOR_ERR_CONFIG;
     }

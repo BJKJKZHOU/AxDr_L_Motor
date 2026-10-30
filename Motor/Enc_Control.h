@@ -30,7 +30,7 @@ typedef enum
 
 } Enc_Step_e;
 
-/* Normal encoder feedback remains live throughout these operations. */
+/* 寻相和校准期间持续采集编码器反馈。 */
 extern volatile Enc_Step_e Enc_Step;
 
 bool Enc_Control_Start(Enc_Mode_e Mode);

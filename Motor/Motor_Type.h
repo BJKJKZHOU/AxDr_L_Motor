@@ -24,7 +24,7 @@ typedef enum
     OPEN_LOOP,
     IDENT,
     SENSORLESS_SPEED,
-    PHASE_SEARCH,
+    ENCODER_CAL,
 
 } Motor_Mode_e;
 
@@ -71,29 +71,13 @@ typedef struct
 } Motor_Cmd_T;
 
 /*
- * Servo phase calibration establishes one self-consistent internal motor
- * coordinate. Enc_Dir, phase order and Theta_Off belong to that calibration
- * result and must not be changed merely to reverse the user-facing direction.
+ * 寻相确定 Enc_Dir 和 Theta_Off，统一正 Iq、正转矩和内部机械正方向。
+ * 用户转向由 Motor_Config.Dir 设置；编码器方向和零位在禁能后应用。
+ * Theta_e = wrap(Pp * Theta_m + Theta_Off)。
  *
- * Internal sign invariant:
- *   +Iq -> +Te -> internal positive mechanical direction.
- *
- * Motor_Config.Dir separately maps this internal direction to the user
- * mechanical coordinate. By project convention the user may choose output-
- * shaft-side CCW as positive; if the observed direction is opposite, change
- * Motor_Config.Dir only. This does not invalidate Enc_Dir or Theta_Off.
- *
- * Enc_Dir maps the encoder native angle direction into the internal motor
- * coordinate. Only +1 / -1 are valid and direction calibration may only be
- * changed while DISABLED. After direction correction, Motor_Run.Theta_m
- * and Turn belong to the internal motor coordinate, as does the ESO speed.
- *
- * Theta_Off must be calibrated after Enc_Dir / phase order are established:
- * Theta_e = wrap(Pp * Theta_m + Theta_Off).
- *
- * Valid: 0=未寻相，1=寻相完成，2=寻相及编码器校准有效。
- * 用户修改极对数、编码器协议/型号或线数时清零；独立重新寻相成功保留等级2。
- * 上电按参数表恢复保存值。
+ * Valid：0=未寻相，1=已寻相，2=寻相和编码器校准有效。
+ * 修改极对数、编码器协议、型号或线数时清零；重复寻相成功保留已有的 2。
+ * 上电恢复保存值。
  */
 typedef struct
 {

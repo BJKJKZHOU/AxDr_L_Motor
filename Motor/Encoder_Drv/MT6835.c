@@ -20,7 +20,7 @@
 #define ENC_UNDERVOLT_FAULT_MS  2U
 #define ENC_UNDERVOLT_FAULT_CNT ((uint16_t)((CUR_FREQ_HZ_DEFAULT * (float)ENC_UNDERVOLT_FAULT_MS) / 1000.0f))
 
-/* At 170 MHz: CSN setup 100 ns, SPI timeout 1 us. */
+/* 170 MHz 下：片选建立时间 100 ns，SPI 超时 1 us。 */
 #define ENC_CSN_LOW_CYC 17U
 #define ENC_SPI_END_CYC 170U
 
@@ -40,7 +40,7 @@ static FAST_CODE void Transfer_Abort(void)
     ENC_DMA->IFCR = ENC_DMA_TX_CLEAR | ENC_DMA_RX_CLEAR;
     ENC_CS_PORT->BSRR = ENC_CS_PIN;
 
-    /* Flush a partial frame and queued TX words before the next CSN edge. */
+    /* 复位 SPI，清除未完成的收发数据。 */
     CR1 = ENC_SPI->CR1;
     CR2 = ENC_SPI->CR2;
     SET_BIT(ENC_SPI_RST_REG, ENC_SPI_RST);
@@ -78,8 +78,7 @@ void MT6835_Config(void)
     MT6835_State.Under_Voltage_Cnt = 0U;
     MT6835_State.Status = 0U;
 
-    /* TX supplies the complete burst; only RX interrupts.
-     * Keep halfword transfers so MT6816 can share the same SPI data format. */
+    /* DMA 连续发送整帧，仅接收产生中断；沿用 MT6816 的 16 位格式。 */
     ENC_DMA_TX->CCR = DMA_CCR_DIR | DMA_CCR_MINC |
                         DMA_CCR_PSIZE_0 | DMA_CCR_MSIZE_0 | DMA_CCR_PL_0;
     ENC_DMA_TX->CPAR = (uint32_t)&ENC_SPI->DR;
@@ -162,7 +161,7 @@ void MT6835_IRQHandler(void)
         return;
     }
 
-    /* SPI_2 fields remain the final-frame timing; SPI_RX_Cnt is now one. */
+    /* 整帧接收计数一次，耗时记录到 SPI_2 字段。 */
     Fast_Time.SPI_2_Cyc = T0 - Fast_Time.T0;
     Fast_Time.SPI_2_Flag = Flags;
     Fast_Time.SPI_2_CNDTR = ENC_DMA_RX->CNDTR;
@@ -175,7 +174,7 @@ void MT6835_IRQHandler(void)
     Status = (uint8_t)((Data_L >> 8) & 0x07U);
     Crc_Recv = (uint8_t)(Data_L & 0x00FFU);
 
-    /* Registers 0x003..0x005, wire byte order; initial CRC and final XOR are zero. */
+    /* 按传输顺序校验 0x003～0x005，CRC 初值和最终异或值均为 0。 */
     Crc = CRC8_07(0U, (uint8_t)(Data_H >> 8));
     Crc = CRC8_07(Crc, (uint8_t)Data_H);
     Crc = CRC8_07(Crc, (uint8_t)(Data_L >> 8));

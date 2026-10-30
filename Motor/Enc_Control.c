@@ -30,7 +30,7 @@ bool Enc_Control_Start(Enc_Mode_e Mode)
     }
     else if (Mode == ENC_PHASE)
     {
-        /* A standalone phase search must not inherit an earlier CAL_DONE. */
+        /* 独立寻相前清除上次校准的完成状态。 */
         Enc_Cal.Step = CAL_IDLE;
         if (!Servo_Phase_Start())
         {
@@ -60,7 +60,7 @@ void Enc_Control_Abort(void)
     {
         Servo_Phase_Abort();
     }
-    /* A worker may still be fitting or writing Flash after the motor stops. */
+    /* 停机后等待后台拟合或 Flash 写入结束。 */
     Motor_Cal.Valid = 0U;
     Enc_Step = ENC_STOP_WAIT;
 }

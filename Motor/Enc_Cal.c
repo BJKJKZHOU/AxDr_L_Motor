@@ -29,8 +29,7 @@
 #define ENC_CAL_COEF_MAX       0.05f
 #define ENC_CAL_STOP_WAIT_CNT  ((uint32_t)(0.3f / SPD_TS + 0.5f))
 #define ENC_CAL_STOP_WM        (10.0f * TWO_PI_F / 60.0f)
-/* Mechanical angle RMS after removing offset, speed and 1x/2x.
- * The accepted VF records were 0.06..0.08 degrees; allow 0.25 degrees. */
+/* 拟合后的机械角度残差 RMS：实测 0.06～0.08°，合格上限取 0.25°。 */
 #define ENC_CAL_RMS_MAX        (0.25f * PI_F / 180.0f)
 #define ENC_CAL_FIT_N          6U
 
@@ -85,7 +84,7 @@ void Enc_Cal_Abort(void)
 {
     if ((Enc_Cal.Step >= CAL_SPEED) && (Enc_Cal.Step < CAL_DONE))
     {
-        /* Prevent a late worker result from applying after cancellation. */
+        /* 标记失败，使后台拟合结果在取消后失效。 */
         Enc_Cal.Step = CAL_FAILED;
     }
 }
@@ -102,8 +101,7 @@ Motor_Fast_Mode_e Enc_Cal_Fast_Run(float *Theta_e,
 
     if (!VF_Ready)
     {
-        /* The stored voltage was applied last cycle. Advance its phase once
-         * before VF_Run emits this cycle, preserving the rotating vector. */
+        /* 保存的是上周期电压，先推进一个周期的相位以保持连续。 */
         float Ua = Motor_Run.Ualpha;
         float Ub = Motor_Run.Ubeta;
 
@@ -116,8 +114,7 @@ Motor_Fast_Mode_e Enc_Cal_Fast_Run(float *Theta_e,
         VF_Ready = true;
     }
 
-    /* Constant-speed calibration holds the measured operating voltage. Encoder
-     * feedback never adjusts VF angle or amplitude after the transfer. */
+    /* 切入 VF 后保持电压幅值和转速，开环采集编码器误差。 */
     Cal_VF.Para.U_Max_V = ADC.Vbus_V * INV_SQRT3_F * VOLT_MOD_MAX;
     *Theta_e = Cal_VF.State.Theta_e;
     VF_Run(&Cal_VF, (float)Motor_Para.Pp * ENC_CAL_WM,
@@ -125,12 +122,12 @@ Motor_Fast_Mode_e Enc_Cal_Fast_Run(float *Theta_e,
 
     if (Enc_Cal.Step == CAL_HANDOFF)
     {
-        /* Keep rotating while the 2 kHz owner prepares the speed ramp. */
+        /* 等待速度环准备减速时，继续 VF 转动。 */
         Enc_Cal_Handoff_Ready = true;
     }
 
     Enc_Cal_Sample(Encoder.Theta_Native);
-    /* An incomplete/invalid capture cannot become a successful fit. */
+    /* 采样失败时关闭输出。 */
     return (Sample_Cnt > ENC_CAL_SAMPLES) ? FAST_OFF : FAST_VOLTAGE;
 }
 
@@ -147,8 +144,7 @@ static FAST_CODE void Enc_Cal_Sample(float Theta_Native)
     if ((Encoder.Valid == 0U) || (Encoder.Fault != 0U) ||
         !__builtin_isfinite(Theta_Native))
     {
-        /* Preserve rejection even if the encoder recovers before the next
-         * slow tick. A count above the requested length is never fitted. */
+        /* 用超出目标数量的计数记录采样失败，供低频任务检查。 */
         Sample_Cnt = ENC_CAL_SAMPLES + 1U;
         return;
     }
@@ -174,13 +170,12 @@ static FAST_CODE void Enc_Cal_Sample(float Theta_Native)
         {
             Delta += TWO_PI_F;
         }
-        /* Accumulate the small deviation, not ~600 rad of single-precision
-         * angle followed by cancellation against the nominal trajectory. */
+        /* 逐次累加角度误差，避免大角度相减造成浮点精度损失。 */
         Theta_Err += Delta - (float)Motor_Cal.Enc_Dir * ENC_CAL_WM * ENC_CAL_SAMPLE_TS;
     }
     Theta_Pre = Theta_Native;
 
-    /* Offset, speed error, then 1x/2x encoder harmonics. */
+    /* 拟合项：偏置、速度误差、一阶和二阶谐波。 */
     X[0] = 1.0f;
     X[1] = (float)Sample_Cnt * ENC_CAL_SAMPLE_TS - 3.0f;
     SinCos(Theta_Native, &X[3], &X[2]);
@@ -198,12 +193,10 @@ static FAST_CODE void Enc_Cal_Sample(float Theta_Native)
     Sample_Cnt++;
 }
 
-/* A = X'X is positive definite for a complete rotating capture. LDL' solves
- * A*Beta = B without pivoting or square roots. Double precision is confined to this offline
- * solve so RSS = Y2 - Beta'B does not amplify float solve error. */
+/* 用 LDL' 分解求解 A*Beta=B；采用双精度以减小残差计算误差。 */
 static bool Enc_Cal_Fit(float C[4])
 {
-    double LD[ENC_CAL_FIT_N][ENC_CAL_FIT_N]; /* Unit L below diagonal, D on diagonal. */
+    double LD[ENC_CAL_FIT_N][ENC_CAL_FIT_N]; /* 下三角保存 L，对角线保存 D。 */
     double Beta[ENC_CAL_FIT_N];
 
     if (Sample_Cnt != ENC_CAL_SAMPLES)
@@ -234,7 +227,7 @@ static bool Enc_Cal_Fit(float C[4])
             }
         }
 
-        /* Forward substitution L*z = B; Beta temporarily holds z. */
+        /* 求解 L*z=B，Beta 暂存 z。 */
         double V = B[i];
         for (uint32_t j = 0U; j < i; j++)
         {
@@ -281,8 +274,7 @@ static bool Enc_Cal_Fit(float C[4])
     return true;
 }
 
-/* The low-priority Motor Work thread calls this only while DISABLED.
- * Fit owns its coefficients; the encoder consumes the published correction. */
+/* 禁能后由后台线程拟合并应用系数。 */
 bool Enc_Cal_Fit_Apply(void)
 {
     float Coeff[4];
@@ -313,7 +305,7 @@ bool Enc_Cal_Fit_Apply(void)
 bool Enc_Cal_Save(void)
 {
     const uint16_t Ids[] = {
-        /* Publish the invalid phase marker before the changed correction. */
+        /* 先保存无效标志，再保存新系数。 */
         PARAM_CAL_VALID,
         PARAM_ENCODER_HARMONIC_C1, PARAM_ENCODER_HARMONIC_S1,
         PARAM_ENCODER_HARMONIC_C2, PARAM_ENCODER_HARMONIC_S2,
@@ -331,7 +323,7 @@ void Enc_Cal_Run(void)
         return;
     }
 
-    /* Fitting and saving follow the actual transition to DISABLED. */
+    /* 拟合和保存阶段要求电机已禁能。 */
     if (Motor_State_Get() != ((Enc_Cal.Step < CAL_FIT) ? RUN : DISABLED))
     {
         Enc_Cal.Step = CAL_FAILED;

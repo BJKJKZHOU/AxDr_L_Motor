@@ -187,7 +187,7 @@ typedef enum
     /* Motion_Config.Profile: 有感Speed/Position轨迹：0梯形；1五次速度S曲线、保持梯形加减速时间（峰值1.875倍）；2五次速度S曲线、保持峰值加减速度（时间1.875倍）。允许DISABLED/ENABLED修改，RUN禁止。 */
     PARAM_MOTION_PROFILE = 0x0605U,
 
-    /* Motor_Mode: 当前选择的电机控制模式；与TORQUE/SPEED/POSITION/OPEN_LOOP/IDENT/SENSORLESS_SPEED/PHASE_SEARCH对应。 */
+    /* Motor_Mode: 当前选择的电机控制模式；与TORQUE/SPEED/POSITION/OPEN_LOOP/IDENT/SENSORLESS_SPEED/ENCODER_CAL对应。 */
     PARAM_MOTOR_MODE = 0x0701U,
 
     /* Open_Loop_Method: 开环运行方法：IF或VF；在Disabled下选择，IF为默认。 */
@@ -319,7 +319,7 @@ typedef enum
     /* MOTOR_CMD_ENABLE: 使能电机功率级。 */
     ACTION_MOTOR_ENABLE = 0x1001U,
 
-    /* MOTOR_CMD_RUN: 按当前Motor Mode启动运行；PHASE_SEARCH模式下作为异步寻相启动动作。 */
+    /* MOTOR_CMD_RUN: 按当前Motor Mode启动正常运行；IDENT和ENCODER_CAL必须使用各自的专用启动Action。 */
     ACTION_MOTOR_RUN = 0x1002U,
 
     /* MOTOR_CMD_STOP: 请求停止当前运行；运动模式按当前减速度受控停稳后回到ENABLED，Disable仍用于立即关闭驱动。 */
@@ -403,8 +403,11 @@ typedef enum
     /* MOTOR_CMD_SIGNAL_ABORT: 立即取消激励，不改变正常Motor Stop/Disable状态。 */
     ACTION_SIGNAL_ABORT = 0x1302U,
 
-    /* MOTOR_CMD_ENC_CAL_START: 固件自动执行有感升速、VF采样辨识、应用谐波补偿及重新寻相保存。 */
+    /* MOTOR_CMD_ENC_START: 在ENCODER_CAL/DISABLED启动；固件自动执行有感升速、VF采样辨识、应用谐波补偿及重新寻相保存，完成后禁能并保留模式。 */
     ACTION_ENC_CAL_START = 0x1401U,
+
+    /* MOTOR_CMD_ENC_START: 在ENCODER_CAL/DISABLED启动寻相；固件自动使能、运行、应用并保存方向与电角零位，完成后禁能并保留模式。 */
+    ACTION_ENC_PHASE_START = 0x1402U,
 
 } Parameter_Id_e;
 

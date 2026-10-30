@@ -25,14 +25,15 @@ Encoder_Config_T Encoder_Config = ENCODER_CONFIG_DEFAULT;
 volatile Encoder_T Encoder = { 0 };
 Encoder_Harmonic_T Encoder_Harmonic = { 0 };
 
-FAST_CODE float Encoder_Angle_Correct(float Theta_Native)
+FAST_CODE float Encoder_Angle_Correct(float Theta_Native, bool Cal_Valid)
 {
     float Sin;
     float Cos;
     float Error;
 
-    if ((Encoder_Harmonic.C1 == 0.0f) && (Encoder_Harmonic.S1 == 0.0f) &&
-        (Encoder_Harmonic.C2 == 0.0f) && (Encoder_Harmonic.S2 == 0.0f))
+    if (!Cal_Valid ||
+        ((Encoder_Harmonic.C1 == 0.0f) && (Encoder_Harmonic.S1 == 0.0f) &&
+         (Encoder_Harmonic.C2 == 0.0f) && (Encoder_Harmonic.S2 == 0.0f)))
     {
         return Theta_Native;
     }
@@ -138,7 +139,7 @@ void Encoder_Config_Apply(void)
 {
     uint32_t Primask;
 
-    /* Rebinding must not race a PWM trigger or an old DMA completion. */
+    /* 切换驱动时暂停中断，避免采样和 DMA 同时访问外设。 */
     Primask = __get_PRIMASK();
     __disable_irq();
     Encoder_Port_Release();
@@ -170,7 +171,7 @@ void Encoder_Position_Read(int32_t *Turn, float *Theta)
 {
     uint32_t Primask;
 
-    /* Turn and Theta_m are updated together by the sample ISR. */
+    /* 一起读取圈数和角度，避免采样中断在两次读取之间更新位置。 */
     Primask = __get_PRIMASK();
     __disable_irq();
     *Turn = Motor_Run.Turn;
@@ -229,7 +230,7 @@ void Encoder_Sample_Update(uint32_t Raw, float Theta)
 
     Encoder.Raw = Raw;
     Encoder.Theta_Native = Theta;
-    Theta = Encoder_Angle_Correct(Theta);
+    Theta = Encoder_Angle_Correct(Theta, Motor_Cal.Valid == 2U);
 
     if (Motor_Cal.Enc_Dir < 0)
     {
@@ -270,8 +271,7 @@ void Encoder_Sample_Update(uint32_t Raw, float Theta)
 
         if (Ready_Cnt >= ENC_READY_VALID_CNT)
         {
-            /* Establish the observer angle when the feedback first becomes
-             * usable, not each time the power stage is enabled. */
+            /* 编码器就绪时，用当前角度初始化观测器。 */
             Mechanical_ESO.State.Theta = Theta;
             Encoder.Ready = 1U;
         }

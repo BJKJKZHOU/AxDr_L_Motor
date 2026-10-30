@@ -13,7 +13,7 @@ static uint32_t Key_Press(Key_T *Key, GPIO_TypeDef *Port, uint16_t Pin)
 {
     uint8_t Sample;
 
-    /* Board keys pull low when pressed. */
+    /* 按键按下为低电平。 */
     Sample = (HAL_GPIO_ReadPin(Port, Pin) == GPIO_PIN_RESET) ? 1U : 0U;
 
     if (Sample == Key->State)

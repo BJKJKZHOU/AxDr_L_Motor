@@ -30,7 +30,7 @@ bool Motor_Cal_Set(int8_t Enc_Dir, float Theta_Off)
         return false;
     }
 
-    /* Feedback and the ESO keep running while the power stage is disabled. */
+    /* 禁能时采样仍在运行，更新寻相结果需要中断保护。 */
     Primask = __get_PRIMASK();
     __disable_irq();
     Dir_Changed = (Enc_Dir != Motor_Cal.Enc_Dir);
@@ -42,12 +42,8 @@ bool Motor_Cal_Set(int8_t Enc_Dir, float Theta_Off)
         Motor_Cal.Valid = 1U;
     }
 
-    /*
-     * Enc_Dir changes the encoder raw-angle mapping into the mechanical
-     * coordinate system. Reset feedback history before accepting another
-     * sample so turn counting and the ESO never mix coordinate directions.
-     * ABZ must retain CNT: Theta_Off was measured in that counter coordinate.
-     */
+    /* 方向变化后重新建立反馈历史。
+     * ABZ 保留 CNT，因为寻相得到的零位以当前计数为基准。 */
     if (Dir_Changed != 0)
     {
         if (Encoder_Config.Protocol == ENC_PROTOCOL_ABZ)
