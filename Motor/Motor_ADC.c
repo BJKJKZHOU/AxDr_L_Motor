@@ -4,6 +4,7 @@
  */
 
 #include "Motor_ADC.h"
+#include "ADC_Board.h"
 
 #include <stdbool.h>
 
@@ -28,15 +29,6 @@
 #include "tim.h"
 
 #define ADC_SAMPLE_NUM 512U
-#define ADC_VREF_V     3.3f
-#define ADC_FULL_SCALE 4096.0f
-
-#define CUR_SHUNT_OHM 0.001f
-#define CUR_AMP_GAIN  20.0f
-
-#define VBUS_R1_OHM 20000.0f
-#define VBUS_R2_OHM 1000.0f
-
 #define CUR_RAW_TO_A (ADC_VREF_V / ADC_FULL_SCALE / CUR_SHUNT_OHM / CUR_AMP_GAIN)
 #define VBUS_RAW_TO_V (ADC_VREF_V / ADC_FULL_SCALE * ((VBUS_R1_OHM + VBUS_R2_OHM) / VBUS_R2_OHM))
 
@@ -91,20 +83,20 @@ void ADC_Calib(void)
     }
 
     /* Alternate Rank1 channels use the same acquisition time. */
-    MODIFY_REG(ADC1->SMPR1, ADC_SMPR1_SMP2,
-               ((ADC1->SMPR1 & ADC_SMPR1_SMP3) >> ADC_SMPR1_SMP3_Pos) << ADC_SMPR1_SMP2_Pos);
-    MODIFY_REG(ADC2->SMPR1, ADC_SMPR1_SMP1,
-               ((ADC2->SMPR1 & ADC_SMPR1_SMP2) >> ADC_SMPR1_SMP2_Pos) << ADC_SMPR1_SMP1_Pos);
+    LL_ADC_SetChannelSamplingTime(ADC1, ADC1_IB_CH,
+                                  LL_ADC_GetChannelSamplingTime(ADC1, ADC1_IA_CH));
+    LL_ADC_SetChannelSamplingTime(ADC2, ADC2_IC_CH,
+                                  LL_ADC_GetChannelSamplingTime(ADC2, ADC2_IB_CH));
 
     /* Following the MCSDK approach, precompute the full queue contexts.
      * JQM=0 repeats the last context: only the channels change, never
      * the trigger or length (STM32G474 ES0430 workaround). */
     ADC1_JSQR_A = JSQR1;
     ADC1_JSQR_B = (JSQR1 & ~ADC_JSQR_JSQ1) |
-                  ADC_JSQR_RK(ADC_CHANNEL_2, ADC_INJECTED_RANK_1);
+                  ADC_JSQR_RK(ADC1_IB_CH, ADC_INJECTED_RANK_1);
     ADC2_JSQR_B = JSQR2;
     ADC2_JSQR_C = (JSQR2 & ~ADC_JSQR_JSQ1) |
-                  ADC_JSQR_RK(ADC_CHANNEL_1, ADC_INJECTED_RANK_1);
+                  ADC_JSQR_RK(ADC2_IC_CH, ADC_INJECTED_RANK_1);
 
     /* Setting the queue mode clears JSQR. Re-seed the initial AB pair. */
     LL_ADC_INJ_SetQueueMode(ADC2, LL_ADC_INJ_QUEUE_2CONTEXTS_LAST_ACTIVE);

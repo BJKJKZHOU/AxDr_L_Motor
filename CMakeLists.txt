@@ -95,6 +95,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Storage/NVS_Storage.c
     AZURE_RTOS/App/motor_work.c
     BSP/Encoder_Port.c
+    BSP/Key.c
     BSP/RGB.c
     BSP/ST7789.c
     BSP/LCD_Wave.c

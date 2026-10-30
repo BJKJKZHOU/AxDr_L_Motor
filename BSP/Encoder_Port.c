@@ -16,17 +16,17 @@ void Encoder_Port_Release(void)
     GPIO_InitTypeDef Gpio = { 0 };
 
     /* MT6835 owns TX channel 3 as well as the shared RX channel 5. */
-    CLEAR_BIT(DMA1_Channel3->CCR, DMA_CCR_EN);
-    CLEAR_BIT(DMA1_Channel5->CCR,
+    CLEAR_BIT(ENC_DMA_TX->CCR, DMA_CCR_EN);
+    CLEAR_BIT(ENC_DMA_RX->CCR,
               DMA_CCR_EN | DMA_CCR_TCIE | DMA_CCR_HTIE | DMA_CCR_TEIE);
-    DMA1->IFCR = DMA_IFCR_CGIF3 | DMA_IFCR_CGIF5;
+    ENC_DMA->IFCR = ENC_DMA_TX_CLEAR | ENC_DMA_RX_CLEAR;
     if (hspi1.State != HAL_SPI_STATE_RESET)
     {
-        CLEAR_BIT(SPI1->CR2, SPI_CR2_RXDMAEN | SPI_CR2_TXDMAEN);
-        SPI1_CSN_GPIO_Port->BSRR = SPI1_CSN_Pin;
+        CLEAR_BIT(ENC_SPI->CR2, SPI_CR2_RXDMAEN | SPI_CR2_TXDMAEN);
+        ENC_CS_PORT->BSRR = ENC_CS_PIN;
         /* Flush queued words; the next SPI selection uses CubeMX's setup. */
-        SET_BIT(RCC->APB2RSTR, RCC_APB2RSTR_SPI1RST);
-        CLEAR_BIT(RCC->APB2RSTR, RCC_APB2RSTR_SPI1RST);
+        SET_BIT(ENC_SPI_RST_REG, ENC_SPI_RST);
+        CLEAR_BIT(ENC_SPI_RST_REG, ENC_SPI_RST);
         (void)HAL_SPI_DeInit(&hspi1);
     }
 
@@ -41,22 +41,24 @@ void Encoder_Port_Release(void)
     Gpio.Mode = GPIO_MODE_INPUT;
     Gpio.Pull = GPIO_NOPULL;
     HAL_GPIO_Init(GPIOB, &Gpio);
-    Gpio.Pin = SPI1_CSN_Pin;
+    Gpio.Pin = ENC_CS_PIN;
     Gpio.Pull = GPIO_PULLUP;
-    HAL_GPIO_Init(SPI1_CSN_GPIO_Port, &Gpio);
+    HAL_GPIO_Init(ENC_CS_PORT, &Gpio);
 }
 
 void Encoder_Port_SPI(void)
 {
     GPIO_InitTypeDef Gpio = { 0 };
 
-    SPI1_CSN_GPIO_Port->BSRR = SPI1_CSN_Pin;
-    Gpio.Pin = SPI1_CSN_Pin;
+    ENC_CS_PORT->BSRR = ENC_CS_PIN;
+    Gpio.Pin = ENC_CS_PIN;
     Gpio.Mode = GPIO_MODE_OUTPUT_PP;
     Gpio.Pull = GPIO_PULLUP;
     Gpio.Speed = GPIO_SPEED_FREQ_LOW;
-    HAL_GPIO_Init(SPI1_CSN_GPIO_Port, &Gpio);
+    HAL_GPIO_Init(ENC_CS_PORT, &Gpio);
     MX_SPI1_Init();
+    /* The TX route is shared; each chip driver selects its transfer mode. */
+    DMAMUX1_Channel2->CCR = DMA_REQUEST_SPI1_TX;
 }
 
 void Encoder_Port_ABZ(uint32_t Cpr)

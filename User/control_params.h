@@ -10,6 +10,14 @@
 #include "PID.h"
 #include "motor_params.h"
 
+/* AxDrive-L V1.3 current and DC-bus sampling conversion parameters. */
+#define ADC_VREF_V     3.3f
+#define ADC_FULL_SCALE 4096.0f
+#define CUR_SHUNT_OHM  0.001f
+#define CUR_AMP_GAIN   20.0f
+#define VBUS_R1_OHM    20000.0f
+#define VBUS_R2_OHM    1000.0f
+
 /* Fast-loop timing source. Current control runs once per PWM period. */
 #define PWM_FREQ_HZ_DEFAULT 20000.0f
 #define CUR_FREQ_HZ_DEFAULT PWM_FREQ_HZ_DEFAULT
