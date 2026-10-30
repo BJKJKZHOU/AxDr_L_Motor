@@ -32,7 +32,7 @@ Z 相仅标记每机械圈经过同一物理参考位置，用于检测累计计
 
 ## CubeMX
 
-IOC 保留 SPI1 的外设参数及引脚映射，在 Advanced Settings 中关闭 `MX_SPI1_Init()` 的自动调用，PD2 配置为上拉输入。`Encoder_Config_Apply()` 选择 SPI 时调用生成的初始化函数。TIM3 在 IOC 中仅保留基础初始化，编码器模式、四倍频、滤波和 ARR 由 `ABZ.c` 统一配置。
+IOC 保留 SPI1 的外设参数及引脚映射，在 Advanced Settings 中关闭 `MX_SPI1_Init()` 的自动调用，PD2 配置为上拉输入。`Encoder_Config_Apply()` 选择 SPI 时，经 `BSP/Encoder_Port.c` 调用生成的初始化函数。TIM3 在 IOC 中仅保留基础初始化；共用接口释放、GPIO 复用、编码器模式、四倍频、滤波、ARR 及 EXTI3 中断入口由 `BSP/Encoder_Port.c` 配置。`Motor/Encoder_Drv/ABZ.c` 负责 PPR 检查、计数角度换算和 Z 相偏差处理，通过板级头文件的定时器映射直接读取计数，采样路径不增加函数调用。板级文件独立于 CubeMX 生成文件。
 
 通过 CubeMX 更新生成代码；四个快速 ISR 的 CCMRAM 属性声明放在 `stm32g4xx_it.h` 的 USER CODE 区域，避免导出覆盖函数定义后丢失执行位置。
 

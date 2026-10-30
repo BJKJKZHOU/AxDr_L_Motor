@@ -15,7 +15,7 @@
 #include "control_params.h"
 #include "main.h"
 #include "motor_params.h"
-#include "spi.h"
+#include "Encoder_Port.h"
 
 #define ENC_READY_VALID_CNT      16U
 #define ENC_RUNTIME_INVALID_CNT  3U
@@ -136,37 +136,12 @@ static void Startup_Count(void)
 
 void Encoder_Config_Apply(void)
 {
-    GPIO_InitTypeDef Gpio = { 0 };
     uint32_t Primask;
 
-    /* Rebinding must not race a PWM trigger or an old DMA completion.
-     * MT6835 owns TX channel 3 as well as the shared RX channel 5. */
+    /* Rebinding must not race a PWM trigger or an old DMA completion. */
     Primask = __get_PRIMASK();
     __disable_irq();
-    CLEAR_BIT(DMA1_Channel3->CCR, DMA_CCR_EN);
-    CLEAR_BIT(DMA1_Channel5->CCR,
-              DMA_CCR_EN | DMA_CCR_TCIE | DMA_CCR_HTIE | DMA_CCR_TEIE);
-    DMA1->IFCR = DMA_IFCR_CGIF3 | DMA_IFCR_CGIF5;
-    if (hspi1.State != HAL_SPI_STATE_RESET)
-    {
-        CLEAR_BIT(SPI1->CR2, SPI_CR2_RXDMAEN | SPI_CR2_TXDMAEN);
-        SPI1_CSN_GPIO_Port->BSRR = SPI1_CSN_Pin;
-        /* Flush queued words; the next SPI selection uses CubeMX's setup. */
-        SET_BIT(RCC->APB2RSTR, RCC_APB2RSTR_SPI1RST);
-        CLEAR_BIT(RCC->APB2RSTR, RCC_APB2RSTR_SPI1RST);
-        (void)HAL_SPI_DeInit(&hspi1);
-    }
-
-    ABZ_Deinit();
-    /* Release the shared connector before selecting its new function.
-     * ABZ reconfiguration must never drive the A/B/Z inputs as SPI outputs. */
-    Gpio.Pin = GPIO_PIN_3 | GPIO_PIN_4 | GPIO_PIN_5;
-    Gpio.Mode = GPIO_MODE_INPUT;
-    Gpio.Pull = GPIO_NOPULL;
-    HAL_GPIO_Init(GPIOB, &Gpio);
-    Gpio.Pin = SPI1_CSN_Pin;
-    Gpio.Pull = GPIO_PULLUP;
-    HAL_GPIO_Init(SPI1_CSN_GPIO_Port, &Gpio);
+    Encoder_Port_Release();
     Encoder_Feedback_Reset();
 
     if (!Driver_Bind())
@@ -178,13 +153,7 @@ void Encoder_Config_Apply(void)
 
     if (Encoder_Config.Protocol == ENC_PROTOCOL_SPI)
     {
-        SPI1_CSN_GPIO_Port->BSRR = SPI1_CSN_Pin;
-        Gpio.Pin = SPI1_CSN_Pin;
-        Gpio.Mode = GPIO_MODE_OUTPUT_PP;
-        Gpio.Pull = GPIO_PULLUP;
-        Gpio.Speed = GPIO_SPEED_FREQ_LOW;
-        HAL_GPIO_Init(SPI1_CSN_GPIO_Port, &Gpio);
-        MX_SPI1_Init();
+        Encoder_Port_SPI();
     }
     if (Drv_Config != 0)
     {
