@@ -6,7 +6,7 @@
 
 空载小电机，7 极对。电流环 PI、带宽 1250 Hz；速度环 PI，Kp=0.025、Ki=0.2；位置 Kp=40。电流上限沿用 10 A。按本次要求，将板上加速度、减速度均设为 **500 rad/s²** 并保存 Flash，固件默认常量未修改。
 
-`refactor/board-support` 分支中的 `tools/servo_test.py` 通过 USB Parameter/Action 自动下发目标、通过 NORMAL Plot 采集给定与反馈，不依赖 SWD。
+[servo_test.py](../../../tools/servo_test.py) 通过 USB Parameter/Action 自动下发目标、通过 NORMAL Plot 采集给定与反馈，不依赖 SWD。
 
 ```bash
 python3 tools/servo_test.py --port /dev/ttyACM0 --run

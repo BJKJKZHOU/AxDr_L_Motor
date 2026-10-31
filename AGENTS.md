@@ -13,6 +13,15 @@ Before modifying C/C++ source in this repository, read `docs/CODE_STYLE.md` and 
 - 不记录无归档用途的固件哈希、冗长临时文件清单及过时命令；必要的数据和复现入口简要保留。
 - 避免重复的“不能据此”“不代表”等泛化说明，直接写明观察结果、具体差异和待定位问题，区分事实与推测。
 
+## 代码注释
+
+- 新增或修改的注释使用简短、明确、自然的中文；保留必要的代码标识、单位和通用技术名称。
+- 使用常见说法，不堆砌术语、生僻词或生硬缩写，例如用“校准后再次寻相”，不用“校准末次寻相”。
+- 注释说明必要的处理原因、单位、方向和时序，不复述显而易见的代码。
+- 一句话能说明清楚就不扩写，不重复相邻代码或已有注释中的说明。
+- 避免重复的“不能据此”“不代表”等泛化说明，也不在说明后追加无必要的提醒。确有约束时，直接写明具体条件和原因。
+- 修改代码时同步检查相关注释，删除过时、重复或多余的内容。
+
 ## Core rules
 
 - Preserve the existing motor-control behavior and timing unless the task explicitly requires a behavior change.

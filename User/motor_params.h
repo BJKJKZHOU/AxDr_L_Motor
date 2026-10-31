@@ -6,6 +6,7 @@
 #ifndef USER_MOTOR_PARAMS_H
 #define USER_MOTOR_PARAMS_H
 
+#include "Board_Config.h"
 #include "Encoder.h"
 #include "Motor_Type.h"
 
@@ -27,35 +28,8 @@
 /* Default motor torque constant is only used to initialize compile-time controller tuning. */
 #define MOTOR_KT_DEFAULT (1.5f * (float)MOTOR_PP_DEFAULT * MOTOR_FLUX_DEFAULT)
 
-/* MT6816 absolute speed capability; this is the system hardware speed ceiling. */
-#define ENC_MAX_RPM 25000.0f
-#define ENC_WM_MAX  (ENC_MAX_RPM * 6.283185307f / 60.0f)
-
-/* Phase-current command ceiling based on the board 10 A operating range. */
-#define MOTOR_I_MAX_DEFAULT  10.0f
-#define MOTOR_WM_MAX_DEFAULT ENC_WM_MAX
-
 #define USER_I_MAX_DEFAULT  10.0f
 #define USER_WM_MAX_DEFAULT 1256.637061f /* 12000 rpm */
-
-/*
- * AxDr_L V1.3 fixed board-level DC-bus protection limits.
- * These safety thresholds are not user-configurable.
- */
-#define VBUS_UV_FAULT_V          5.0f
-#define VBUS_OV_FAULT_V         52.0f
-#define VBUS_UV_DEBOUNCE_TICKS  20U /* 10 ms at the 2 kHz Motor thread */
-#define VBUS_OV_DEBOUNCE_TICKS   1U /* 0.5 ms at the 2 kHz Motor thread */
-
-/*
- * Fixed AxDr_L V1.3 software overcurrent policy.
- * MOTOR_I_MAX_DEFAULT remains the normal command ceiling; these thresholds
- * protect actual measured current and are not Host-configurable.
- */
-#define PROT_CURRENT_OVERLOAD_A       15.0f
-#define PROT_CURRENT_OVERLOAD_CYCLES  5000U /* 250 ms at 20 kHz */
-#define PROT_CURRENT_FAST_A           25.0f
-#define PROT_CURRENT_FAST_CYCLES         5U /* 250 us at 20 kHz */
 
 #define MOTOR_ENC_DIR_DEFAULT   1
 #define MOTOR_THETA_OFF_DEFAULT 0.0f
@@ -90,8 +64,8 @@
 
 #define MOTOR_LIM_DEFAULT                                                                                              \
     {                                                                                                                  \
-        .I_Max = MOTOR_I_MAX_DEFAULT,                                                                                  \
-        .Wm_Max = MOTOR_WM_MAX_DEFAULT,                                                                                \
+        .I_Max = DRIVE_I_MAX_A,                                                                                        \
+        .Wm_Max = DRIVE_WM_MAX,                                                                                        \
     }
 
 #define USER_LIM_DEFAULT                                                                                               \
