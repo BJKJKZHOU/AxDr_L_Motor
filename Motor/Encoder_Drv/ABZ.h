@@ -10,7 +10,6 @@
 #include <stdint.h>
 
 void ABZ_Config(void);
-void ABZ_Index(uint32_t Cnt);
 FAST_CODE void ABZ_Start(void);
 
 #endif /* ABZ_H */

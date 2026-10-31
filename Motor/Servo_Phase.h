@@ -19,7 +19,7 @@ typedef struct
 
 extern Servo_Phase_Config_T Servo_Phase_Config;
 
-bool Servo_Phase_Start(void);
+bool Servo_Phase_Start(bool Use_Harmonic);
 void Servo_Phase_Abort(void);
 bool Servo_Phase_Active(void);
 bool Servo_Phase_Apply(void);

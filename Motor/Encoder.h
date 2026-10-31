@@ -68,8 +68,8 @@ extern Encoder_Harmonic_T Encoder_Harmonic;
 FAST_CODE float Encoder_Angle_Correct(float Theta_Native, bool Cal_Valid);
 
 void Encoder_Config_Apply(void);
-/* 调用时需屏蔽采样中断；硬件计数保持不变。 */
-void Encoder_Feedback_Reset(void);
+/* 调用时需屏蔽采样中断；保留硬件计数和诊断状态。 */
+void Encoder_Position_Reset(void);
 FAST_CODE void Encoder_DMA_IRQHandler(void);
 FAST_CODE void Encoder_Start(void);
 

@@ -5,7 +5,6 @@
 
 #include "Encoder_Port.h"
 
-#include "ABZ.h"
 #include "main.h"
 #include "spi.h"
 
@@ -92,17 +91,4 @@ void Encoder_Port_ABZ(uint32_t Cpr)
     /* Z 仅用于圈参考观察，不抢占 ADC 快环。 */
     HAL_NVIC_SetPriority(EXTI3_IRQn, 3U, 0U);
     HAL_NVIC_EnableIRQ(EXTI3_IRQn);
-}
-
-/* 中断入口放在此处，避免 CubeMX 导出时覆盖。 */
-void EXTI3_IRQHandler(void)
-{
-    if (__HAL_GPIO_EXTI_GET_IT(GPIO_PIN_3) != 0U)
-    {
-        __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_3);
-        if ((ENCODER_ABZ_TIM->CR1 & TIM_CR1_CEN) != 0U)
-        {
-            ABZ_Index(ENCODER_ABZ_TIM->CNT);
-        }
-    }
 }

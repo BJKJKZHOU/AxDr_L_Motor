@@ -27,14 +27,14 @@ A 接 CH2、B 接 CH1，计数方向由现有寻相流程确定。由旧线序�
 
 A/B 启动后立即产生相对角度反馈，经过原有就绪计数后即可寻相，无需等待 Z，也可以只接 A/B。
 寻相沿用现有两次 ALIGN、方向辨识和电角度偏置流程；保存的电角度偏置在同一次上电期间有效。
-方向变化时，在应用校准参数的同一临界区内复位软件反馈历史，不重启编码器硬件采样；ABZ 的 TIM3 CNT 因此保持不变。
+方向变化时，在应用校准参数的同一临界区内只重建位置坐标历史，不清除诊断计数，也不重启编码器硬件采样；ABZ 的 TIM3 CNT 因此保持不变。
 ABZ 与 SPI 使用相同的 NVS 恢复机制，不在上电时强制清除 `Motor_Cal.Valid`，也不自动启动寻相；是否执行寻相由用户决定。需要注意：ABZ 重新上电后的 CNT 原点不固定，此前保存的 `Theta_Off` 可能不再与当前计数坐标对应；在没有重新建立电角度参考时直接使能有感控制，可能产生错误转矩。
 
 Z 相仅标记每机械圈经过同一物理参考位置，用于检测累计计数偏差。当前驱动仅记录首个 Z 计数基准及后续的相对偏差，不会因为 Z 中断重置 CNT 或改变控制角度；EXTI3 优先级低于 ADC 快环。软件中断读取计数存在边沿延迟，未经实测不能将它直接用于逐圈自动纠偏。
 
 ## CubeMX
 
-IOC 保留 SPI1 的外设参数及引脚映射，在 Advanced Settings 中关闭 `MX_SPI1_Init()` 的自动调用，PD2 配置为上拉输入。`Encoder_Config_Apply()` 选择 SPI 时，经 `BSP/Encoder_Port.c` 调用生成的初始化函数。TIM3 在 IOC 中仅保留基础初始化；共用接口释放、GPIO 复用、编码器模式、四倍频、滤波、ARR 及 EXTI3 中断入口由 `BSP/Encoder_Port.c` 配置。`Motor/Encoder_Drv/ABZ.c` 负责 PPR 检查、计数角度换算和 Z 相偏差处理，通过板级头文件的定时器映射直接读取计数，采样路径不增加函数调用。板级文件独立于 CubeMX 生成文件。
+IOC 保留 SPI1 的外设参数及引脚映射，在 Advanced Settings 中关闭 `MX_SPI1_Init()` 的自动调用，PD2 配置为上拉输入。`Encoder_Config_Apply()` 选择 SPI 时，经 `BSP/Encoder_Port.c` 调用生成的初始化函数。TIM3 在 IOC 中仅保留基础初始化；共用接口释放、GPIO 复用、编码器模式、四倍频、滤波、ARR 及 EXTI3/NVIC 由 `BSP/Encoder_Port.c` 配置。`Motor/Encoder_Drv/ABZ.c` 负责 PPR 检查、计数角度换算、EXTI3 中断入口和 Z 相偏差处理，通过 `BSP/Board_Config.h` 的定时器映射直接读取计数，采样路径不增加函数调用。开发板固定硬件参数统一由该头文件管理，板级文件独立于 CubeMX 生成文件。
 
 通过 CubeMX 更新生成代码；四个快速 ISR 的 CCMRAM 属性声明放在 `stm32g4xx_it.h` 的 USER CODE 区域，避免导出覆盖函数定义后丢失执行位置。
 

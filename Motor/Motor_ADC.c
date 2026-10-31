@@ -4,7 +4,7 @@
  */
 
 #include "Motor_ADC.h"
-#include "ADC_Board.h"
+#include "Board_Config.h"
 
 #include <stdbool.h>
 

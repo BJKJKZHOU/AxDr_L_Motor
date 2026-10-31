@@ -32,7 +32,7 @@ bool Enc_Control_Start(Enc_Mode_e Mode)
     {
         /* 独立寻相不继承完整校准流程的 CAL_DONE 状态。 */
         Enc_Cal.Step = CAL_IDLE;
-        if (!Servo_Phase_Start())
+        if (!Servo_Phase_Start(Motor_Cal.Valid == 2U))
         {
             return false;
         }
@@ -80,7 +80,7 @@ void Enc_Control_Run(void)
             }
             else if (Enc_Cal.Step == CAL_DONE)
             {
-                Enc_Step = Servo_Phase_Start() ? ENC_PHASE_RUN : ENC_FAILED;
+                Enc_Step = Servo_Phase_Start(true) ? ENC_PHASE_RUN : ENC_FAILED;
             }
             break;
 

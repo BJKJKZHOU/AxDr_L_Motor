@@ -43,7 +43,7 @@ FAST_CODE void ABZ_Start(void)
     Fast_Time.Enc_Cyc = DWT->CYCCNT - Fast_Time.T0;
 }
 
-void ABZ_Index(uint32_t Cnt)
+static void ABZ_Index(uint32_t Cnt)
 {
     int32_t Delta;
 
@@ -65,4 +65,17 @@ void ABZ_Index(uint32_t Cnt)
         Delta += (int32_t)Cpr;
     }
     Index_Error_Cnt = Delta;
+}
+
+/* Z 相入口属于 ABZ 驱动，BSP 只负责 EXTI 和引脚配置。 */
+void EXTI3_IRQHandler(void)
+{
+    if (__HAL_GPIO_EXTI_GET_IT(GPIO_PIN_3) != 0U)
+    {
+        __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_3);
+        if ((ENCODER_ABZ_TIM->CR1 & TIM_CR1_CEN) != 0U)
+        {
+            ABZ_Index(ENCODER_ABZ_TIM->CNT);
+        }
+    }
 }

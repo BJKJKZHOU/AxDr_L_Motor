@@ -5,12 +5,12 @@
 
 #include "Protection.h"
 
+#include "Board_Config.h"
 #include "Encoder.h"
 #include "Motor_ADC.h"
 #include "Motor_Control.h"
 #include "Motor_PWM.h"
 #include "main.h"
-#include "motor_params.h"
 
 volatile Protection_T Protection = { 0 };
 

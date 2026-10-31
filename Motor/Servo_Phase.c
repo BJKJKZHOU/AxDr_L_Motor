@@ -6,7 +6,6 @@
 #include "Servo_Phase.h"
 
 #include "Encoder.h"
-#include "Enc_Cal.h"
 #include "Math.h"
 #include "Motor_Cal.h"
 #include "NVS_Storage.h"
@@ -47,6 +46,7 @@ typedef struct
     float Theta_Native_Pre;
     float Native_Delta;
     int8_t Enc_Dir;
+    bool Use_Harmonic;
 
 } Servo_Phase_T;
 
@@ -110,7 +110,7 @@ static void Fail(void)
     Phase.State = PHASE_FAILED;
 }
 
-bool Servo_Phase_Start(void)
+bool Servo_Phase_Start(bool Use_Harmonic)
 {
     if ((Encoder.Ready == 0U) || (Encoder.Fault != 0U) || (Motor_Para.Pp == 0U))
     {
@@ -122,6 +122,7 @@ bool Servo_Phase_Start(void)
 
     Phase.Stable_Theta = Encoder.Theta_Native;
     Phase.Enc_Dir = 1; /* 暂用于判断方向，结束后再应用到 Motor_Cal。 */
+    Phase.Use_Harmonic = Use_Harmonic;
     Phase.State = PHASE_ALIGN;
 
     return true;
@@ -205,7 +206,7 @@ Motor_Fast_Mode_e Servo_Phase_Fast_Run(float *Theta_e,
             {
                 /* 编码器校准后，寻相使用新系数计算零位。 */
                 Phase.Theta_Native_Align = Encoder_Angle_Correct(
-                    Theta_Native_Stable, (Motor_Cal.Valid == 2U) || (Enc_Cal.Step == CAL_DONE));
+                    Theta_Native_Stable, Phase.Use_Harmonic);
                 Phase.Theta_Native_Pre = Encoder.Theta_Native;
                 Phase.Native_Delta = 0.0f;
                 Phase.State = PHASE_RUN;
@@ -250,7 +251,7 @@ Motor_Fast_Mode_e Servo_Phase_Fast_Run(float *Theta_e,
             if (Angle_Stable(Encoder.Theta_Native, &Theta_Native_Stable))
             {
                 Theta_Native_Stable = Encoder_Angle_Correct(
-                    Theta_Native_Stable, (Motor_Cal.Valid == 2U) || (Enc_Cal.Step == CAL_DONE));
+                    Theta_Native_Stable, Phase.Use_Harmonic);
                 Offset_Initial = Angle_Wrap(-(float)Motor_Para.Pp *
                                             (float)Phase.Enc_Dir * Phase.Theta_Native_Align);
                 Offset_Final = Angle_Wrap(-(float)Motor_Para.Pp *

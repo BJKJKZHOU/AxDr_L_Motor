@@ -97,10 +97,19 @@ static bool Driver_Bind(void)
     }
 }
 
-void Encoder_Feedback_Reset(void)
+void Encoder_Position_Reset(void)
 {
     Pos_Valid = 0U;
+    Encoder.Valid = 0U;
+    Motor_Run.Turn = 0;
+    Motor_Run.Theta_m = 0.0f;
+    Mechanical_ESO.State = (Mechanical_ESO_State_T){ 0 };
+}
+
+static void Encoder_Feedback_Reset(void)
+{
     Ready_Cnt = 0U;
+    Encoder_Position_Reset();
 
     Encoder.Raw = 0U;
     Encoder.Theta_Native = 0.0f;
@@ -108,13 +117,8 @@ void Encoder_Feedback_Reset(void)
     Encoder.Miss_Cnt = 0U;
     Encoder.Startup_Cnt = 0U;
     Encoder.Lost_Cnt = 0U;
-    Encoder.Valid = 0U;
     Encoder.Ready = 0U;
     Encoder.Fault = 0U;
-
-    Motor_Run.Turn = 0;
-    Motor_Run.Theta_m = 0.0f;
-    Mechanical_ESO.State = (Mechanical_ESO_State_T){ 0 };
 }
 
 static void Startup_Count(void)
