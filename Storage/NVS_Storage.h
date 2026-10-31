@@ -14,6 +14,8 @@ int NVS_Storage_Load_All(void);
 /* 保存全部需要断电保留的参数，包括按带宽计算增益时未使用的手调 Kp/Ki。
  * 保存失败时返回错误，由调用方决定是否重试。 */
 int NVS_Storage_Save_All(void);
+/* 删除指定记录，RAM 中的参数保持不变。 */
+int NVS_Storage_Delete(uint16_t Id);
 /* 按输入顺序逐项检查并保存指定参数。
  * 遇到错误立即返回，已保存的参数不恢复。 */
 int NVS_Storage_Save_Ids(const uint16_t *Ids, uint16_t Count);

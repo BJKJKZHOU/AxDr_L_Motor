@@ -15,6 +15,7 @@ typedef enum
 {
     ENC_PROTOCOL_NONE = 0,
     ENC_PROTOCOL_SPI,
+    ENC_PROTOCOL_ABZ,
 
 } Encoder_Protocol_e;
 
@@ -28,17 +29,18 @@ typedef enum
 
 typedef struct
 {
-    uint8_t Protocol; /* Encoder_Protocol_e; fixed-width configuration storage. */
-    uint8_t SPI_Type; /* Encoder_SPI_Type_e; used when Protocol == ENC_PROTOCOL_SPI. */
+    uint8_t Protocol; /* Encoder_Protocol_e，按字节保存。 */
+    uint8_t SPI_Type; /* Encoder_SPI_Type_e，仅用于 SPI。 */
+    uint32_t ABZ_PPR; /* 每机械圈 A/B 周期数，计数器采用四倍频。 */
 
 } Encoder_Config_T;
 
 typedef struct
 {
-    /* Raw stays in the native sensor domain and is never direction-corrected. */
+    /* 编码器原始计数。 */
     uint32_t Raw;
 
-    /* Native normalized [0, 2pi) angle before Motor_Cal.Enc_Dir is applied. */
+    /* 原始机械角度，范围 [0, 2pi)，rad。 */
     float Theta_Native;
 
     uint32_t Err_Cnt;
@@ -63,15 +65,17 @@ typedef struct
 } Encoder_Harmonic_T;
 
 extern Encoder_Harmonic_T Encoder_Harmonic;
-FAST_CODE float Encoder_Angle_Correct(float Theta_Native);
+FAST_CODE float Encoder_Angle_Correct(float Theta_Native, bool Cal_Valid);
 
-void Encoder_DMA_Config(void);
+void Encoder_Config_Apply(void);
+/* 调用时需屏蔽采样中断；保留硬件计数和诊断状态。 */
+void Encoder_Position_Reset(void);
 FAST_CODE void Encoder_DMA_IRQHandler(void);
 FAST_CODE void Encoder_Start(void);
 
 void Encoder_Position_Read(int32_t *Turn, float *Theta);
 
-/* Drivers publish native [0, 2pi) angle here; generic Encoder.c owns direction mapping, turns and speed. */
+/* 驱动传入原始角度；此处处理补偿、方向和跨圈计数。 */
 FAST_CODE void Encoder_Sample_Update(uint32_t Raw, float Theta);
 FAST_CODE void Encoder_Sample_Invalid(void);
 FAST_CODE void Encoder_Sample_Reject(void);

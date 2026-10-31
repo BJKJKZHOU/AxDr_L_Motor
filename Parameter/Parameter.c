@@ -11,6 +11,7 @@
 
 #include "Current_Loop.h"
 #include "Encoder.h"
+#include "Enc_Home.h"
 #include "Flux.h"
 #include "Identification.h"
 #include "JB.h"
@@ -318,6 +319,7 @@ static Parameter_Status_e Parameter_Apply(const Parameter_Entry_T *Entry,
     if (Entry->Id == PARAM_MOTOR_PP)
     {
         Motor_Cal.Valid = 0U;
+        Enc_Home.Valid = 0U;
     }
     return PARAM_OK;
 }
@@ -338,6 +340,12 @@ Parameter_Status_e Parameter_Write(uint16_t Id,
     if ((Entry->Flags & PARAM_FLAG_HOST_WRITE) == 0U)
     {
         return PARAM_ERR_READ_ONLY;
+    }
+
+    /* 校准禁能保存后还会继续寻相，期间保持参数不变。 */
+    if (Enc_Control_Active())
+    {
+        return PARAM_ERR_STATE;
     }
 
     State = Motor_State_Get();

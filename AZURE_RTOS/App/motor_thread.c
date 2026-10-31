@@ -178,11 +178,6 @@ static void Motor_Cmd_Run(void)
             case MOTOR_CMD_RUN:
                 Action_Status = Enc_Action_Pending ? AXDR_ERR_STATE :
                                 Motor_Status_Map(Motor_Start());
-                if ((Action_Status == AXDR_OK) && (Motor_Mode == PHASE_SEARCH))
-                {
-                    Enc_Action = Msg.Reserved;
-                    Enc_Action_Pending = true;
-                }
                 Motor_Action_Response(Msg.Reserved, Action_Status);
                 break;
 
@@ -257,7 +252,7 @@ static void Motor_Cmd_Run(void)
                     case SENSORLESS_SPEED:
                     case OPEN_LOOP:
                     case IDENT:
-                    case PHASE_SEARCH:
+                    case ENCODER_CAL:
                         Parameter_Value.U8 = (uint8_t)TORQUE;
                         break;
                     default:
@@ -266,9 +261,9 @@ static void Motor_Cmd_Run(void)
                 (void)Parameter_Write(PARAM_MOTOR_MODE, PARAM_U8, Parameter_Value);
                 break;
 
-            case MOTOR_CMD_ENC_CAL_START:
+            case MOTOR_CMD_ENC_START:
                 Action_Status = Enc_Action_Pending ? AXDR_ERR_STATE :
-                                Motor_Status_Map(Motor_Enc_Cal_Start());
+                                Motor_Status_Map(Motor_Enc_Start((Enc_Mode_e)Msg.Arg));
                 if (Action_Status == AXDR_OK)
                 {
                     Enc_Action = Msg.Reserved;
@@ -359,6 +354,11 @@ UINT Motor_Thread_Init(VOID *memory_ptr)
 
     /* Motor_Ready 置位前完成加载和配置，此时编码器尚未开始采样。 */
     (void)NVS_Storage_Load_All();
+    /* ABZ 上电重建计数原点，旧寻相结果不能继续使用。 */
+    if (Encoder_Config.Protocol == ENC_PROTOCOL_ABZ)
+    {
+        Motor_Cal.Valid = 0U;
+    }
     if (!Motor_Para_Update(&Motor_Para, Mechanical_ESO_Bw_Hz))
     {
         /* 保留原有模型，其他参数仍使用按表恢复的值。 */
@@ -367,7 +367,7 @@ UINT Motor_Thread_Init(VOID *memory_ptr)
         Current_Tuning_Update();
         Speed_Tuning_Update();
     }
-    Encoder_DMA_Config();
+    Encoder_Config_Apply();
 
     UINT Work_Result = Motor_Work_Thread_Init(byte_pool);
     if (Work_Result != TX_SUCCESS)

@@ -27,6 +27,7 @@ extern "C" {
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "Fast_Memory.h"
 
 /* USER CODE END Includes */
 
@@ -67,6 +68,11 @@ void USART3_IRQHandler(void);
 void TIM6_DAC_IRQHandler(void);
 void DMA2_Channel1_IRQHandler(void);
 /* USER CODE BEGIN EFP */
+/* Keep CCMRAM placement across CubeMX regeneration. */
+FAST_CODE void DMA1_Channel5_IRQHandler(void);
+FAST_CODE void ADC1_2_IRQHandler(void);
+FAST_CODE void TIM1_UP_TIM16_IRQHandler(void);
+FAST_CODE void TIM1_CC_IRQHandler(void);
 
 /* USER CODE END EFP */
 

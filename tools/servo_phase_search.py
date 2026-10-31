@@ -3,8 +3,8 @@
 
 The current firmware exposes servo phase search through the Parameter/Action
 interface. Configure encoder protocol/SPI type/pole-pairs/search current while
-DISABLED, then use MOTOR_ENABLE + MOTOR_RUN in PHASE_SEARCH mode. MOTOR_RUN
-completes asynchronously when the phase search finishes.
+DISABLED, then select ENCODER_CAL and issue ACTION_ENC_PHASE_START. The Action
+completes asynchronously after phase search and saving, with the motor disabled.
 
 Servo phase search establishes a self-consistent encoder/FOC coordinate:
 encoder native direction -> Enc_Dir, aligned encoder zero -> Theta_Off, and
@@ -32,7 +32,7 @@ except ImportError:
     raise SystemExit(2)
 
 
-MODE_PHASE_SEARCH = 6
+MODE_ENCODER_CAL = 6
 MOTOR_DISABLED = 0
 PARAM_I8 = 1
 base.PARAM_FORMAT[PARAM_I8] = "<b"
@@ -88,7 +88,7 @@ class PhaseSearch(base.IdentificationClient):
             encoder_spi_type,
         )
         self.parameter_write(base.PARAM_MOTOR_PP, base.PARAM_U8, self.args.pole_pairs)
-        self.parameter_write(base.PARAM_MOTOR_MODE, base.PARAM_U8, MODE_PHASE_SEARCH)
+        self.parameter_write(base.PARAM_MOTOR_MODE, base.PARAM_U8, MODE_ENCODER_CAL)
 
         if self.args.phase_current is not None:
             self.parameter_write(
@@ -163,19 +163,14 @@ class PhaseSearch(base.IdentificationClient):
         }
 
     def run_phase_search(self):
-        self.parameter_action(base.ACTION_MOTOR_ENABLE)
-        state = self.parameter_read(base.PARAM_MOTOR_STATE, base.PARAM_U8)
-        if state == MOTOR_DISABLED:
-            raise RuntimeError("motor enable did not take effect")
-
-        txn = self.parameter_action(base.ACTION_MOTOR_RUN)
+        txn = self.parameter_action(base.ACTION_ENC_PHASE_START)
         deadline = time.monotonic() + self.args.phase_timeout
 
         while time.monotonic() < deadline:
             rx = self.ser.read(4096)
             self.process(self.parser.feed(rx))
 
-            status = self.action_complete_status(txn, base.ACTION_MOTOR_RUN)
+            status = self.action_complete_status(txn, base.ACTION_ENC_PHASE_START)
             if status is None:
                 continue
 

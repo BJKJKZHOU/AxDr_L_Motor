@@ -392,9 +392,10 @@ void Fast_Loop(void)
     {
         Sensored = ((Enc_Step == ENC_CAL_RUN) &&
                     ((Enc_Cal.Step == CAL_SPEED) || (Enc_Cal.Step == CAL_DECEL))) ||
+                   Enc_Home_Active() ||
                    (!Enc_Control_Active() && (Motor_Mode <= POSITION));
         Controller = Sensored ? Current_Controller : CURRENT_CTRL_PI;
-        if ((Controller == CURRENT_CTRL_DPCC) && Enc_Control_Active())
+        if ((Controller == CURRENT_CTRL_DPCC) && Enc_Control_Active() && !Enc_Home_Active())
         {
             Controller = CURRENT_CTRL_PI;
         }

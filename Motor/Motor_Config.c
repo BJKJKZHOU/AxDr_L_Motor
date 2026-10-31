@@ -5,6 +5,7 @@
 
 #include "Motor_Config.h"
 
+#include "Enc_Home.h"
 #include "Math.h"
 #include "motor_params.h"
 
@@ -51,10 +52,22 @@ void Motor_Position_User_To_Internal(int32_t Turn_User,
     {
         *Turn_Int = Turn_User;
         *Theta_Int = Theta_User;
-        return;
+    }
+    else
+    {
+        Position_Reverse(Turn_User, Theta_User, Turn_Int, Theta_Int);
     }
 
-    Position_Reverse(Turn_User, Theta_User, Turn_Int, Theta_Int);
+    if (Enc_Home.Valid != 0U)
+    {
+        *Turn_Int += Enc_Home.Zero.Turn;
+        *Theta_Int += Enc_Home.Zero.Theta;
+        if (*Theta_Int >= TWO_PI_F)
+        {
+            *Theta_Int -= TWO_PI_F;
+            (*Turn_Int)++;
+        }
+    }
 }
 
 void Motor_Position_Internal_To_User(int32_t Turn_Int,
@@ -62,6 +75,17 @@ void Motor_Position_Internal_To_User(int32_t Turn_Int,
                                      int32_t *Turn_User,
                                      float *Theta_User)
 {
+    if (Enc_Home.Valid != 0U)
+    {
+        Turn_Int -= Enc_Home.Zero.Turn;
+        Theta_Int -= Enc_Home.Zero.Theta;
+        if (Theta_Int < 0.0f)
+        {
+            Theta_Int += TWO_PI_F;
+            Turn_Int--;
+        }
+    }
+
     if (Motor_Config.Dir > 0)
     {
         *Turn_User = Turn_Int;

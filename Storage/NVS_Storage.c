@@ -115,6 +115,18 @@ int NVS_Storage_Save_All(void)
     return 0;
 }
 
+int NVS_Storage_Delete(uint16_t Id)
+{
+    int Status = NVS_Storage_Init();
+
+    if (Status != 0)
+    {
+        return Status;
+    }
+
+    return nvs_delete(&Storage_NVS, Id);
+}
+
 int NVS_Storage_Save_Ids(const uint16_t *Ids, uint16_t Count)
 {
     Parameter_Value_T Value;

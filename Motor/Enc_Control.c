@@ -6,7 +6,9 @@
 #include "Enc_Control.h"
 
 #include "Enc_Cal.h"
+#include "Enc_Home.h"
 #include "Motor_Control.h"
+#include "Motor_Cal.h"
 #include "Servo_Phase.h"
 #include "motor_work.h"
 
@@ -26,14 +28,26 @@ bool Enc_Control_Start(Enc_Mode_e Mode)
             return false;
         }
         Enc_Step = ENC_CAL_RUN;
+        Enc_Home.Valid = 0U;
     }
     else if (Mode == ENC_PHASE)
     {
-        if (!Servo_Phase_Start())
+        /* 独立寻相不继承完整校准流程的 CAL_DONE 状态。 */
+        Enc_Cal.Step = CAL_IDLE;
+        if (!Servo_Phase_Start(Motor_Cal.Valid == 2U))
         {
             return false;
         }
         Enc_Step = ENC_PHASE_RUN;
+        Enc_Home.Valid = 0U;
+    }
+    else if (Mode == ENC_HOME)
+    {
+        if (!Enc_Home_Start())
+        {
+            return false;
+        }
+        Enc_Step = ENC_HOME_SEEK;
     }
     else
     {
@@ -57,7 +71,12 @@ void Enc_Control_Abort(void)
     {
         Servo_Phase_Abort();
     }
-    /* A worker may still be fitting or writing Flash after the motor stops. */
+    else if (Enc_Home_Active())
+    {
+        Motor_Cmd.Position_Target = Enc_Home.Position_Save;
+        Motor_Cmd.Wm_Target = Enc_Home.Wm_Save;
+    }
+    /* 停机后等待后台拟合或 Flash 写入结束。 */
     Enc_Step = ENC_STOP_WAIT;
 }
 
@@ -65,6 +84,21 @@ void Enc_Control_Run(void)
 {
     switch (Enc_Step)
     {
+        case ENC_HOME_SEEK:
+        case ENC_HOME_RETURN:
+            Enc_Home_Run();
+            if (!Enc_Home_Active())
+            {
+                Motor_Cmd.Wm_Target = Enc_Home.Wm_Save;
+                if (Enc_Step == ENC_DONE)
+                {
+                    /* 回零完成后由位置环保持零点，禁能由外部命令决定。 */
+                    return;
+                }
+                Motor_Cmd.Position_Target = Enc_Home.Position_Save;
+            }
+            break;
+
         case ENC_CAL_RUN:
             if (Enc_Cal.Step == CAL_FIT)
             {
@@ -77,7 +111,7 @@ void Enc_Control_Run(void)
             }
             else if (Enc_Cal.Step == CAL_DONE)
             {
-                Enc_Step = Servo_Phase_Start() ? ENC_PHASE_RUN : ENC_FAILED;
+                Enc_Step = Servo_Phase_Start(true) ? ENC_PHASE_RUN : ENC_FAILED;
             }
             break;
 
@@ -85,9 +119,14 @@ void Enc_Control_Run(void)
             if (!Servo_Phase_Active())
             {
                 Motor_Disable_Apply();
-                if (Servo_Phase_Apply() && Motor_Work_Request(MOTOR_WORK_SAVE_PHASE))
+                if (Servo_Phase_Apply())
                 {
-                    Enc_Step = ENC_PHASE_SAVE;
+                    if (Enc_Cal.Step == CAL_DONE)
+                    {
+                        Motor_Cal.Valid = 2U;
+                    }
+                    Enc_Step = Motor_Work_Request(MOTOR_WORK_SAVE_PHASE) ?
+                               ENC_PHASE_SAVE : ENC_FAILED;
                 }
                 else
                 {
