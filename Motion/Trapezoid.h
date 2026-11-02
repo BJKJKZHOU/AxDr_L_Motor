@@ -11,7 +11,6 @@
 
 #include "Motion_Type.h"
 
-void Trapezoid_Reset(Motion_Ref_T *Ref, int32_t Turn, float Theta, float Wm);
 void Trapezoid_Run(Motion_Ref_T *Ref,
                    int32_t Turn_Target,
                    float Theta_Target,

@@ -30,8 +30,7 @@
 volatile MT6816_State_T MT6816_State = { 0 };
 
 static volatile uint16_t Rx[2];
-static uint8_t Step = 0U;
-static uint8_t Busy = 0U;
+static uint8_t Step = 0U; /* 0：空闲；1：接收第一帧；2：接收第二帧。 */
 
 static FAST_CODE uint8_t Parity_Check(uint16_t Data)
 {
@@ -72,7 +71,6 @@ static FAST_CODE void Transfer_Abort(void)
 {
     ENC_CS_PORT->BSRR = ENC_CS_PIN;
     Step = 0U;
-    Busy = 0U;
     Encoder.Miss_Cnt++;
     Encoder_Sample_Invalid();
     Fast_Time.Enc_Miss++;
@@ -82,10 +80,7 @@ static FAST_CODE void Transfer_Abort(void)
 void MT6816_Config(void)
 {
     ENC_CS_PORT->BSRR = ENC_CS_PIN;
-    Rx[0] = 0U;
-    Rx[1] = 0U;
     Step = 0U;
-    Busy = 0U;
 
     MT6816_State.Parity_Err = 0U;
     MT6816_State.No_Mag_Cnt = 0U;
@@ -100,7 +95,7 @@ void MT6816_Start(void)
 {
     uint32_t Wait_T0;
 
-    if ((Busy != 0U) || (ENC_DMA_RX->CNDTR != 2U))
+    if ((Step != 0U) || (ENC_DMA_RX->CNDTR != 2U))
     {
         Transfer_Abort();
     }
@@ -113,8 +108,7 @@ void MT6816_Start(void)
         return;
     }
 
-    Busy = 1U;
-    Step = 0U;
+    Step = 1U;
 
     ENC_CS_PORT->BSRR = (uint32_t)ENC_CS_PIN << 16U;
     Wait_T0 = DWT->CYCCNT;
@@ -140,7 +134,6 @@ void MT6816_IRQHandler(void)
 
     if ((Flags & ENC_DMA_RX_ERR) != 0U)
     {
-        ENC_DMA->IFCR = ENC_DMA_RX_CLEAR;
         Transfer_Abort();
         return;
     }
@@ -153,7 +146,7 @@ void MT6816_IRQHandler(void)
         Fast_Time.SPI_1_Flag = Flags;
         Fast_Time.SPI_1_CNDTR = ENC_DMA_RX->CNDTR;
 
-        if ((Busy == 0U) || (Step != 0U))
+        if (Step != 1U)
         {
             Transfer_Abort();
             Fast_Time.SPI_1_ISR_Cyc = DWT->CYCCNT - T0;
@@ -178,7 +171,7 @@ void MT6816_IRQHandler(void)
         {
         }
 
-        Step = 1U;
+        Step = 2U;
         ENC_CS_PORT->BSRR = (uint32_t)ENC_CS_PIN << 16U;
         Wait_T0 = DWT->CYCCNT;
         while ((DWT->CYCCNT - Wait_T0) < ENC_CSN_LOW_CYC)
@@ -201,7 +194,7 @@ void MT6816_IRQHandler(void)
     Fast_Time.SPI_2_Flag = Flags;
     Fast_Time.SPI_2_CNDTR = ENC_DMA_RX->CNDTR;
 
-    if ((Busy == 0U) || (Step != 1U))
+    if (Step != 2U)
     {
         Transfer_Abort();
         Fast_Time.SPI_2_ISR_Cyc = DWT->CYCCNT - T0;
@@ -228,10 +221,7 @@ void MT6816_IRQHandler(void)
         MT6816_State.Parity_Err++;
         Encoder.Err_Cnt++;
         Encoder_Sample_Invalid();
-        Step = 0U;
-        Busy = 0U;
-        Fast_Time.SPI_2_ISR_Cyc = DWT->CYCCNT - T0;
-        return;
+        goto finish;
     }
 
     if ((Data & MT6816_NO_MAG_MASK) != 0U)
@@ -249,10 +239,7 @@ void MT6816_IRQHandler(void)
             Encoder.Fault = 1U;
         }
 
-        Step = 0U;
-        Busy = 0U;
-        Fast_Time.SPI_2_ISR_Cyc = DWT->CYCCNT - T0;
-        return;
+        goto finish;
     }
 
     MT6816_State.No_Mag = 0U;
@@ -263,7 +250,7 @@ void MT6816_IRQHandler(void)
     Encoder_Sample_Update(Raw, Theta);
     Fast_Time.Enc_Cyc = DWT->CYCCNT - Fast_Time.T0;
 
+finish:
     Step = 0U;
-    Busy = 0U;
     Fast_Time.SPI_2_ISR_Cyc = DWT->CYCCNT - T0;
 }

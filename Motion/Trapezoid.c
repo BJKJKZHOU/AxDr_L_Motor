@@ -10,11 +10,6 @@
 #include "Math.h"
 #include "Ramp.h"
 
-static float Abs(float Value)
-{
-    return (Value >= 0.0f) ? Value : -Value;
-}
-
 static float Position_Error(int32_t Turn_Target,
                             float Theta_Target,
                             int32_t Turn_Ref,
@@ -43,14 +38,6 @@ static void Position_Add(Motion_Ref_T *Ref, float Delta)
     }
 }
 
-void Trapezoid_Reset(Motion_Ref_T *Ref, int32_t Turn, float Theta, float Wm)
-{
-    Ref->Turn = Turn;
-    Ref->Theta = Theta;
-    Ref->Wm = Wm;
-    Ref->Am = 0.0f;
-}
-
 void Trapezoid_Run(Motion_Ref_T *Ref,
                    int32_t Turn_Target,
                    float Theta_Target,
@@ -72,12 +59,6 @@ void Trapezoid_Run(Motion_Ref_T *Ref,
     float Delta;
     float Pos_Tol;
 
-    if ((Wm_Max < 0.0f) || (Acc <= 0.0f) || (Dec <= 0.0f) || (Ts <= 0.0f))
-    {
-        Ref->Am = 0.0f;
-        return;
-    }
-
     Err = Position_Error(Turn_Target, Theta_Target, Ref->Turn, Ref->Theta);
     Wm_Old = Ref->Wm;
     Time = Ts;
@@ -90,8 +71,8 @@ void Trapezoid_Run(Motion_Ref_T *Ref,
 
     /* The stopping boundary is repeatedly reconstructed from float turn/angle
      * values. Allow roundoff, not a motion-scale following-error deadband. */
-    Pos_Tol = 4.0f * FLT_EPSILON * (Abs(Err) + TWO_PI_F);
-    if ((Abs(Err) <= Pos_Tol) && (Abs(Wm_Old) <= Dec * Ts))
+    Pos_Tol = 4.0f * FLT_EPSILON * (__builtin_fabsf(Err) + TWO_PI_F);
+    if ((__builtin_fabsf(Err) <= Pos_Tol) && (__builtin_fabsf(Wm_Old) <= Dec * Ts))
     {
         Ref->Turn = Turn_Target;
         Ref->Theta = Theta_Target;
@@ -102,10 +83,10 @@ void Trapezoid_Run(Motion_Ref_T *Ref,
 
     /* A changed target can be behind the stopping point. Brake before returning;
      * forcing the reference onto that target would violate the deceleration limit. */
-    if ((Ref->Wm * Err < 0.0f) || (Ref->Wm * Ref->Wm > 2.0f * Dec * (Abs(Err) + Pos_Tol)))
+    if ((Ref->Wm * Err < 0.0f) || (Ref->Wm * Ref->Wm > 2.0f * Dec * (__builtin_fabsf(Err) + Pos_Tol)))
     {
         Wm = Ref->Wm;
-        Step = Abs(Wm) / Dec;
+        Step = __builtin_fabsf(Wm) / Dec;
         if (Time < Step)
         {
             Ref->Wm += (Wm > 0.0f) ? -Dec * Time : Dec * Time;
@@ -212,14 +193,8 @@ bool Trapezoid_Stop(Motion_Ref_T *Ref, float Dec, float Ts)
     float Step;
     float Delta;
 
-    if ((Dec <= 0.0f) || (Ts <= 0.0f))
-    {
-        Ref->Am = 0.0f;
-        return false;
-    }
-
     Wm_Old = Ref->Wm;
-    Step = Abs(Wm_Old) / Dec;
+    Step = __builtin_fabsf(Wm_Old) / Dec;
     if (Step > Ts)
     {
         Step = Ts;

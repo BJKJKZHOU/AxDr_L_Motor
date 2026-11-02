@@ -24,10 +24,7 @@ static AxDr_Msg_T Resp_Buf[AXDR_RESP_NUM];
 static volatile uint8_t Resp_Wr = 0U;
 static volatile uint8_t Resp_Rd = 0U;
 
-static uint32_t Event_Last_Report = 0U;
-static uint32_t Event_Last_Warning = 0U;
-static uint32_t Event_Last_Error = 0U;
-static uint32_t Event_Last_Trip = 0U;
+static Protection_T Event_Last = { 0 };
 
 uint8_t AxDr_CANFD_Length(uint8_t Required)
 {
@@ -74,7 +71,7 @@ bool AxDr_CANFD_Length_Valid(uint8_t Len)
 
 bool AxDr_CANFD_Padding_Zero(const uint8_t *Data, uint8_t Required, uint8_t Len)
 {
-    if ((Data == NULL) || (Required > Len) || (AxDr_CANFD_Length(Required) != Len))
+    if (AxDr_CANFD_Length(Required) != Len)
     {
         return false;
     }
@@ -123,17 +120,13 @@ static void Response(uint8_t Txn,
     Required = (uint8_t)(4U + Len);
     Msg.Id = (uint16_t)((AXDR_MSG_RESPONSE << 6) | AXDR_NODE_ID);
     Msg.Len = AxDr_CANFD_Length(Required);
-    if (Msg.Len == AXDR_CANFD_INVALID_LEN)
-    {
-        return;
-    }
 
     Msg.Data[0] = Txn;
     Msg.Data[1] = Req_Msg;
     Msg.Data[2] = Req_Op;
     Msg.Data[3] = (uint8_t)Status;
 
-    if ((Data != NULL) && (Len != 0U))
+    if (Len != 0U)
     {
         memcpy(&Msg.Data[4], Data, Len);
     }
@@ -241,30 +234,19 @@ static void Parameter_Rx(const uint8_t *Data, uint8_t Len)
             Id = (uint16_t)Data[2] | ((uint16_t)Data[3] << 8);
             Type = (Parameter_Type_e)Data[4];
 
-            if (Type == PARAM_ACTION)
+            Value_Size = Parameter_Value_Size(Type);
+            Required = (uint8_t)(5U + Value_Size);
+            if ((Type != PARAM_ACTION) && (Value_Size == 0U))
             {
-                Required = 5U;
-                if (!AxDr_CANFD_Padding_Zero(Data, Required, Len))
-                {
-                    Status = AXDR_ERR_LENGTH;
-                }
+                Status = AXDR_ERR_VALUE;
+            }
+            else if (!AxDr_CANFD_Padding_Zero(Data, Required, Len))
+            {
+                Status = AXDR_ERR_LENGTH;
             }
             else
             {
-                Value_Size = Parameter_Value_Size(Type);
-                Required = (uint8_t)(5U + Value_Size);
-                if (Value_Size == 0U)
-                {
-                    Status = AXDR_ERR_VALUE;
-                }
-                else if (!AxDr_CANFD_Padding_Zero(Data, Required, Len))
-                {
-                    Status = AXDR_ERR_LENGTH;
-                }
-                else
-                {
-                    memcpy(&Value, &Data[5], Value_Size);
-                }
+                memcpy(&Value, &Data[5], Value_Size);
             }
 
             if (Status == AXDR_OK)
@@ -400,6 +382,11 @@ static void Plot_Rx(const uint8_t *Data, uint8_t Len)
         {
             Status = AXDR_ERR_LENGTH;
         }
+        else if ((Data[2] == 0U) ||
+                 ((Data[2] & ~(AXDR_PLOT_FAST_MASK | AXDR_PLOT_NORMAL_MASK)) != 0U))
+        {
+            Status = AXDR_ERR_CONFIG;
+        }
         else
         {
             Status = (Op == AXDR_PLOT_START) ? Plot_Start(Data[2]) : Plot_Stop(Data[2]);
@@ -454,8 +441,8 @@ static void Plot_Rx(const uint8_t *Data, uint8_t Len)
                 Resp[4] = AXDR_NORMAL_MAX_CH;
                 Resp[5] = AXDR_FAST_BLOCK_SAMPLE;
 
-                Fast_Rate = Plot_Fast_Rate_Hz();
-                Normal_Rate = Plot_Normal_Rate_Hz();
+                Fast_Rate = Plot_Fast_Rate_Hz;
+                Normal_Rate = Plot_Normal_Rate_Hz;
                 Resp[6] = (uint8_t)Fast_Rate;
                 Resp[7] = (uint8_t)(Fast_Rate >> 8);
                 Resp[8] = (uint8_t)(Fast_Rate >> 16);
@@ -468,11 +455,7 @@ static void Plot_Rx(const uint8_t *Data, uint8_t Len)
                 Dst = AXDR_PLOT_CAP_HEADER_LEN;
                 for (uint8_t n = 0U; n < Count; n++)
                 {
-                    if (!Plot_Capability_Get((uint8_t)(Start + n), &Cap))
-                    {
-                        Status = AXDR_ERR_CONFIG;
-                        break;
-                    }
+                    Plot_Capability_Get((uint8_t)(Start + n), &Cap);
 
                     Resp[Dst++] = (uint8_t)Cap.Id;
                     Resp[Dst++] = (uint8_t)(Cap.Id >> 8);
@@ -484,11 +467,8 @@ static void Plot_Rx(const uint8_t *Data, uint8_t Len)
                     Resp[Dst++] = (uint8_t)(Scale.U >> 24);
                 }
 
-                if (Status == AXDR_OK)
-                {
-                    Response(Txn, AXDR_MSG_PLOT, Op, Status, Resp, Dst);
-                    return;
-                }
+                Response(Txn, AXDR_MSG_PLOT, Op, Status, Resp, Dst);
+                return;
             }
         }
     }
@@ -504,11 +484,6 @@ void Protocol_Rx(uint16_t Id, const uint8_t *Data, uint8_t Len)
 {
     uint8_t Msg_Type;
     uint8_t Node;
-
-    if ((Id > 0x07FFU) || (Data == NULL) || !AxDr_CANFD_Length_Valid(Len))
-    {
-        return;
-    }
 
     Msg_Type = (uint8_t)((Id >> 6) & 0x1FU);
     Node = (uint8_t)(Id & 0x3FU);
@@ -530,21 +505,13 @@ void Protocol_Rx(uint16_t Id, const uint8_t *Data, uint8_t Len)
 
 void Protocol_Event_Poll(void)
 {
-    uint32_t Report;
-    uint32_t Warning;
-    uint32_t Error;
-    uint32_t Trip;
+    Protection_T Event = Protection;
     AxDr_Msg_T Msg = { 0 };
 
-    Report = Protection.Report;
-    Warning = Protection.Warning;
-    Error = Protection.Fault;
-    Trip = Protection.Trip;
-
-    if ((Report == Event_Last_Report) &&
-        (Warning == Event_Last_Warning) &&
-        (Error == Event_Last_Error) &&
-        (Trip == Event_Last_Trip))
+    if ((Event.Report == Event_Last.Report) &&
+        (Event.Warning == Event_Last.Warning) &&
+        (Event.Fault == Event_Last.Fault) &&
+        (Event.Trip == Event_Last.Trip))
     {
         return;
     }
@@ -552,17 +519,14 @@ void Protocol_Event_Poll(void)
     Msg.Id = (uint16_t)((AXDR_MSG_EVENT << 6) | AXDR_NODE_ID);
     Msg.Len = AxDr_CANFD_Length(17U);
     Msg.Data[0] = AXDR_EVENT_NOTIFY;
-    memcpy(&Msg.Data[1], &Report, sizeof(Report));
-    memcpy(&Msg.Data[5], &Warning, sizeof(Warning));
-    memcpy(&Msg.Data[9], &Error, sizeof(Error));
-    memcpy(&Msg.Data[13], &Trip, sizeof(Trip));
+    memcpy(&Msg.Data[1], &Event.Report, sizeof(Event.Report));
+    memcpy(&Msg.Data[5], &Event.Warning, sizeof(Event.Warning));
+    memcpy(&Msg.Data[9], &Event.Fault, sizeof(Event.Fault));
+    memcpy(&Msg.Data[13], &Event.Trip, sizeof(Event.Trip));
 
     if (Response_Push(&Msg))
     {
-        Event_Last_Report = Report;
-        Event_Last_Warning = Warning;
-        Event_Last_Error = Error;
-        Event_Last_Trip = Trip;
+        Event_Last = Event;
     }
 }
 

@@ -45,6 +45,7 @@ FAST_CODE Motor_Fast_Mode_e Enc_Control_Fast_Run(float *Theta_e,
                                                  float *Ualpha,
                                                  float *Ubeta);
 
+/* 用于动作互斥和取消；是否接管闭环由控制模式和校准阶段决定。 */
 static inline bool Enc_Control_Active(void)
 {
     return (Enc_Step > ENC_IDLE) && (Enc_Step < ENC_DONE);

@@ -7,7 +7,7 @@
 
 #include "NVS_Storage.h"
 #include "Enc_Cal.h"
-#include "Servo_Phase.h"
+#include "Parameter.h"
 
 #define WORK_STACK_SIZE 2048U
 #define WORK_THREAD_PRIO 9U
@@ -25,10 +25,7 @@ static void Work_Entry(ULONG Input)
     (void)Input;
     while (1)
     {
-        if (tx_semaphore_get(&Work_Sem, TX_WAIT_FOREVER) != TX_SUCCESS)
-        {
-            continue;
-        }
+        (void)tx_semaphore_get(&Work_Sem, TX_WAIT_FOREVER);
 
         if (Job == MOTOR_WORK_FIT)
         {
@@ -36,11 +33,27 @@ static void Work_Entry(ULONG Input)
         }
         else if (Job == MOTOR_WORK_SAVE_PHASE)
         {
-            Result = Servo_Phase_Save() ? 0 : -1;
+            const uint16_t Ids[] = {
+                PARAM_CAL_ENC_DIR, PARAM_CAL_THETA_OFF, PARAM_CAL_VALID,
+            };
+
+            /* 先删除旧有效标志，方向和零位保存完后再写入有效标志。 */
+            Result = NVS_Storage_Delete(PARAM_CAL_VALID);
+            if (Result == 0)
+            {
+                Result = NVS_Storage_Save_Ids(Ids, sizeof(Ids) / sizeof(Ids[0]));
+            }
         }
         else if (Job == MOTOR_WORK_SAVE_ENC)
         {
-            Result = Enc_Cal_Save() ? 0 : -1;
+            const uint16_t Ids[] = {
+                PARAM_CAL_VALID,
+                PARAM_ENCODER_HARMONIC_C1, PARAM_ENCODER_HARMONIC_S1,
+                PARAM_ENCODER_HARMONIC_C2, PARAM_ENCODER_HARMONIC_S2,
+            };
+
+            /* 先保存无效标志，再保存新系数。 */
+            Result = NVS_Storage_Save_Ids(Ids, sizeof(Ids) / sizeof(Ids[0]));
         }
         else
         {
@@ -50,29 +63,11 @@ static void Work_Entry(ULONG Input)
     }
 }
 
-bool Motor_Work_Request(Motor_Work_Job_e Request)
+void Motor_Work_Request(Motor_Work_Job_e Request)
 {
-    if (Motor_Work_State != MOTOR_WORK_IDLE)
-    {
-        return false;
-    }
-
     Job = Request;
     Motor_Work_State = MOTOR_WORK_BUSY;
-    if (tx_semaphore_put(&Work_Sem) != TX_SUCCESS)
-    {
-        Motor_Work_State = MOTOR_WORK_IDLE;
-        return false;
-    }
-    return true;
-}
-
-void Motor_Work_Ack(void)
-{
-    if (Motor_Work_State >= MOTOR_WORK_DONE)
-    {
-        Motor_Work_State = MOTOR_WORK_IDLE;
-    }
+    (void)tx_semaphore_put(&Work_Sem);
 }
 
 UINT Motor_Work_Thread_Init(TX_BYTE_POOL *Pool)

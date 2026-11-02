@@ -69,9 +69,6 @@ static FAST_CODE bool Frame_Finished(void)
 void MT6835_Config(void)
 {
     ENC_CS_PORT->BSRR = ENC_CS_PIN;
-    Rx[0] = 0U;
-    Rx[1] = 0U;
-    Rx[2] = 0U;
     Busy = 0U;
 
     MT6835_State.CRC_Err = 0U;
@@ -142,7 +139,6 @@ void MT6835_IRQHandler(void)
 
     if ((Flags & ENC_DMA_RX_ERR) != 0U)
     {
-        ENC_DMA->IFCR = ENC_DMA_RX_CLEAR;
         Transfer_Abort();
         return;
     }
@@ -184,9 +180,7 @@ void MT6835_IRQHandler(void)
         MT6835_State.CRC_Err++;
         Encoder.Err_Cnt++;
         Encoder_Sample_Invalid();
-        Busy = 0U;
-        Fast_Time.SPI_2_ISR_Cyc = DWT->CYCCNT - T0;
-        return;
+        goto finish;
     }
 
     MT6835_State.Status = Status;
@@ -205,9 +199,7 @@ void MT6835_IRQHandler(void)
             Encoder.Fault = 1U;
         }
 
-        Busy = 0U;
-        Fast_Time.SPI_2_ISR_Cyc = DWT->CYCCNT - T0;
-        return;
+        goto finish;
     }
 
     MT6835_State.Under_Voltage_Cnt = 0U;
@@ -216,6 +208,7 @@ void MT6835_IRQHandler(void)
     Encoder_Sample_Update(Raw, Theta);
     Fast_Time.Enc_Cyc = DWT->CYCCNT - Fast_Time.T0;
 
+finish:
     Busy = 0U;
     Fast_Time.SPI_2_ISR_Cyc = DWT->CYCCNT - T0;
 }

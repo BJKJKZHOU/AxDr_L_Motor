@@ -12,9 +12,6 @@
 #include "Motor_Type.h"
 #include "Parameter.generated.h"
 
-_Static_assert(sizeof(Motor_Position_T) == 8U,
-               "Motor_Position_T wire ABI must be 8 bytes");
-
 typedef enum
 {
     PARAM_U8 = 0,
@@ -62,14 +59,13 @@ Parameter_Status_e Parameter_Write(uint16_t Id,
 bool Parameter_Persistent_Read(uint16_t Id,
                                Parameter_Type_e *Type,
                                Parameter_Value_T *Value);
+/* 加载时只枚举 Id 和类型，Value 传 NULL；保存时同时读取当前值。 */
 bool Parameter_Persistent_Next(uint32_t *Index,
                                uint16_t *Id,
                                Parameter_Type_e *Type,
                                Parameter_Value_T *Value);
-/* 按表校验并恢复 RAM，不触发参数修改回调。 */
-Parameter_Status_e Parameter_Restore(uint16_t Id,
-                                     Parameter_Type_e Type,
-                                     Parameter_Value_T Value);
+/* Index 使用 Persistent_Next 成功后的游标；校验并恢复刚枚举的参数，不触发修改回调。 */
+Parameter_Status_e Parameter_Restore(uint32_t Index, Parameter_Value_T Value);
 
 uint8_t Parameter_Value_Size(Parameter_Type_e Type);
 

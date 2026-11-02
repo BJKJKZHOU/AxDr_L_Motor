@@ -20,7 +20,6 @@
 #include "Motion_Loop.h"
 #include "Motion_Type.h"
 #include "Motor_ADC.h"
-#include "Motor_Cal.h"
 #include "Motor_Config.h"
 #include "Motor_Control.h"
 #include "Motor_Para.h"
@@ -42,20 +41,12 @@ typedef struct
 {
     uint16_t Id;
     Parameter_Type_e Type;
-    volatile void *Data;
+    const volatile void *Data;
     float Min;
     float Max;
     uint8_t Flags;
 
 } Parameter_Entry_T;
-
-static Motor_Position_T Parameter_Run_Position_Get(void)
-{
-    Motor_Position_T Position;
-
-    Motor_Position_Get(&Position.Turn, &Position.Theta);
-    return Position;
-}
 
 static const Parameter_Entry_T Parameter_Table[] =
 {
@@ -258,11 +249,6 @@ static Parameter_Status_e Parameter_Apply(const Parameter_Entry_T *Entry,
 {
     Parameter_Status_e Status;
 
-    if (Entry->Data == NULL)
-    {
-        return PARAM_ERR_READ_ONLY;
-    }
-
     Status = Parameter_Value_Check(Entry, Type, Value);
     if (Status != PARAM_OK)
     {
@@ -350,14 +336,8 @@ Parameter_Status_e Parameter_Write(uint16_t Id,
 
     State = Motor_State_Get();
 
-    if (((Entry->Flags & PARAM_FLAG_DISABLED_ONLY) != 0U) &&
-        (State != DISABLED))
-    {
-        return PARAM_ERR_STATE;
-    }
-
-    if (((Entry->Flags & PARAM_FLAG_NOT_RUNNING) != 0U) &&
-        (State == RUN))
+    if ((((Entry->Flags & PARAM_FLAG_DISABLED_ONLY) != 0U) && (State != DISABLED)) ||
+        (((Entry->Flags & PARAM_FLAG_NOT_RUNNING) != 0U) && (State == RUN)))
     {
         return PARAM_ERR_STATE;
     }
@@ -365,29 +345,11 @@ Parameter_Status_e Parameter_Write(uint16_t Id,
     return Parameter_Apply(Entry, Type, Value);
 }
 
-static Parameter_Status_e Parameter_Read_Indirect(uint16_t Id,
-                                                  Parameter_Value_T *Value)
-{
-    switch (Id)
-    {
-#define PARAM_GENERATE_READ
-#include "Parameter.generated.inc"
-#undef PARAM_GENERATE_READ
-        default:
-            return PARAM_ERR_ID;
-    }
-}
-
 Parameter_Status_e Parameter_Read(uint16_t Id,
                                   Parameter_Type_e *Type,
                                   Parameter_Value_T *Value)
 {
     const Parameter_Entry_T *Entry;
-
-    if ((Type == NULL) || (Value == NULL))
-    {
-        return PARAM_ERR_VALUE;
-    }
 
     Entry = Parameter_Find(Id);
     if (Entry == NULL)
@@ -399,7 +361,14 @@ Parameter_Status_e Parameter_Read(uint16_t Id,
 
     if (Entry->Data == NULL)
     {
-        return Parameter_Read_Indirect(Id, Value);
+        switch (Id)
+        {
+#define PARAM_GENERATE_READ
+#include "Parameter.generated.inc"
+#undef PARAM_GENERATE_READ
+            default:
+                return PARAM_ERR_ID;
+        }
     }
 
     Parameter_Value_Read(Entry, Value);
@@ -412,15 +381,9 @@ bool Parameter_Persistent_Read(uint16_t Id,
 {
     const Parameter_Entry_T *Entry;
 
-    if ((Type == NULL) || (Value == NULL))
-    {
-        return false;
-    }
-
     Entry = Parameter_Find(Id);
     if ((Entry == NULL) ||
-        ((Entry->Flags & PARAM_FLAG_PERSISTENT) == 0U) ||
-        (Entry->Data == NULL))
+        ((Entry->Flags & PARAM_FLAG_PERSISTENT) == 0U))
     {
         return false;
     }
@@ -438,23 +401,20 @@ bool Parameter_Persistent_Next(uint32_t *Index,
     const Parameter_Entry_T *Entry;
     uint32_t Count;
 
-    if ((Index == NULL) || (Id == NULL) || (Type == NULL) || (Value == NULL))
-    {
-        return false;
-    }
-
     Count = (uint32_t)(sizeof(Parameter_Table) / sizeof(Parameter_Table[0]));
     while (*Index < Count)
     {
         Entry = &Parameter_Table[*Index];
         (*Index)++;
 
-        if (((Entry->Flags & PARAM_FLAG_PERSISTENT) != 0U) &&
-            (Entry->Data != NULL))
+        if ((Entry->Flags & PARAM_FLAG_PERSISTENT) != 0U)
         {
             *Id = Entry->Id;
             *Type = Entry->Type;
-            Parameter_Value_Read(Entry, Value);
+            if (Value != NULL)
+            {
+                Parameter_Value_Read(Entry, Value);
+            }
             return true;
         }
     }
@@ -462,26 +422,12 @@ bool Parameter_Persistent_Next(uint32_t *Index,
     return false;
 }
 
-Parameter_Status_e Parameter_Restore(uint16_t Id,
-                                     Parameter_Type_e Type,
-                                     Parameter_Value_T Value)
+Parameter_Status_e Parameter_Restore(uint32_t Index, Parameter_Value_T Value)
 {
-    const Parameter_Entry_T *Entry;
+    const Parameter_Entry_T *Entry = &Parameter_Table[Index - 1U];
     Parameter_Status_e Status;
 
-    Entry = Parameter_Find(Id);
-    if (Entry == NULL)
-    {
-        return PARAM_ERR_ID;
-    }
-
-    if (((Entry->Flags & PARAM_FLAG_PERSISTENT) == 0U) ||
-        (Entry->Data == NULL))
-    {
-        return PARAM_ERR_READ_ONLY;
-    }
-
-    Status = Parameter_Value_Check(Entry, Type, Value);
+    Status = Parameter_Value_Check(Entry, Entry->Type, Value);
     if (Status != PARAM_OK)
     {
         return Status;

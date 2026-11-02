@@ -43,9 +43,7 @@ extern volatile Enc_Cal_T Enc_Cal;
 extern volatile bool Enc_Cal_Handoff_Ready;
 
 bool Enc_Cal_Start(void);
-void Enc_Cal_Abort(void);
 bool Enc_Cal_Fit_Apply(void);
-bool Enc_Cal_Save(void);
 void Enc_Cal_Run(void);
 FAST_CODE Motor_Fast_Mode_e Enc_Cal_Fast_Run(float *Theta_e,
                                             float *Ualpha,

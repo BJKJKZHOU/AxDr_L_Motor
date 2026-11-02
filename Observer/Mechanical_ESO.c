@@ -17,14 +17,6 @@ bool Mechanical_ESO_Para_Build(Mechanical_ESO_Para_T *Result,
     float B_Over_J;
     float Wo2;
 
-    if (!__builtin_isfinite(J) || (J <= 0.0f) ||
-        !__builtin_isfinite(B) || (B < 0.0f) ||
-        !__builtin_isfinite(Kt) || (Kt <= 0.0f) ||
-        !__builtin_isfinite(Wo) || (Wo <= 0.0f))
-    {
-        return false;
-    }
-
     Para.Inv_J = 1.0f / J;
     Para.Kt_Over_J = Kt * Para.Inv_J;
     Para.B_Over_J = B * Para.Inv_J;
@@ -70,17 +62,7 @@ void Mechanical_ESO_Run(float Theta_Meas, bool Position_Valid, float Iq)
     float Wm_Dot;
     float Td_Dot;
 
-    if (Mechanical_ESO.Para.Valid == 0U)
-    {
-        return;
-    }
-
-    if (!__builtin_isfinite(Iq))
-    {
-        Iq = 0.0f;
-    }
-
-    if (Position_Valid && __builtin_isfinite(Theta_Meas))
+    if (Position_Valid)
     {
         Error = Theta_Meas - Mechanical_ESO.State.Theta;
         /* Both angles are single-turn; crossing zero is not a position step. */

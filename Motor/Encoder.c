@@ -49,54 +49,8 @@ FAST_CODE float Encoder_Angle_Correct(float Theta_Native, bool Cal_Valid)
 static uint8_t Pos_Valid = 0U;
 static uint8_t Ready_Cnt = 0U;
 
-static void (*Drv_Config)(void) = 0;
 static void (*Drv_Start)(void) = 0;
 static void (*Drv_IRQHandler)(void) = 0;
-
-static bool SPI_Driver_Bind(Encoder_SPI_Type_e Type)
-{
-    switch (Type)
-    {
-        case ENC_SPI_MT6816:
-            Drv_Config = MT6816_Config;
-            Drv_Start = MT6816_Start;
-            Drv_IRQHandler = MT6816_IRQHandler;
-            return true;
-
-        case ENC_SPI_MT6835:
-            Drv_Config = MT6835_Config;
-            Drv_Start = MT6835_Start;
-            Drv_IRQHandler = MT6835_IRQHandler;
-            return true;
-
-        default:
-            return false;
-    }
-}
-
-static bool Driver_Bind(void)
-{
-    Drv_Config = 0;
-    Drv_Start = 0;
-    Drv_IRQHandler = 0;
-
-    switch ((Encoder_Protocol_e)Encoder_Config.Protocol)
-    {
-        case ENC_PROTOCOL_NONE:
-            return true;
-
-        case ENC_PROTOCOL_SPI:
-            return SPI_Driver_Bind((Encoder_SPI_Type_e)Encoder_Config.SPI_Type);
-
-        case ENC_PROTOCOL_ABZ:
-            Drv_Config = ABZ_Config;
-            Drv_Start = ABZ_Start;
-            return true;
-
-        default:
-            return false;
-    }
-}
 
 void Encoder_Position_Reset(void)
 {
@@ -108,32 +62,14 @@ void Encoder_Position_Reset(void)
     Mechanical_ESO.State = (Mechanical_ESO_State_T){ 0 };
 }
 
-static void Encoder_Feedback_Reset(void)
-{
-    Ready_Cnt = 0U;
-    Encoder_Position_Reset();
-
-    Encoder.Raw = 0U;
-    Encoder.Theta_Native = 0.0f;
-    Encoder.Err_Cnt = 0U;
-    Encoder.Miss_Cnt = 0U;
-    Encoder.Startup_Cnt = 0U;
-    Encoder.Lost_Cnt = 0U;
-    Encoder.Ready = 0U;
-    Encoder.Fault = 0U;
-}
-
 static void Startup_Count(void)
 {
-    if ((Encoder.Ready != 0U) || (Encoder.Fault != 0U))
+    if (Encoder.Fault != 0U)
     {
         return;
     }
 
-    if (Encoder.Startup_Cnt < ENC_STARTUP_TIMEOUT_CNT)
-    {
-        Encoder.Startup_Cnt++;
-    }
+    Encoder.Startup_Cnt++;
 
     if (Encoder.Startup_Cnt >= ENC_STARTUP_TIMEOUT_CNT)
     {
@@ -149,26 +85,38 @@ void Encoder_Config_Apply(void)
     Primask = __get_PRIMASK();
     __disable_irq();
     Encoder_Port_Release();
-    Encoder_Feedback_Reset();
+    Ready_Cnt = 0U;
+    Encoder_Position_Reset();
+    Encoder = (Encoder_T){ 0 };
 
-    if (!Driver_Bind())
+    Drv_Start = 0;
+    Drv_IRQHandler = 0;
+    switch ((Encoder_Protocol_e)Encoder_Config.Protocol)
     {
-        Encoder.Fault = 1U;
-        __set_PRIMASK(Primask);
-        return;
-    }
+        case ENC_PROTOCOL_SPI:
+            Encoder_Port_SPI();
+            if (Encoder_Config.SPI_Type == ENC_SPI_MT6816)
+            {
+                Drv_Start = MT6816_Start;
+                Drv_IRQHandler = MT6816_IRQHandler;
+                MT6816_Config();
+            }
+            else
+            {
+                Drv_Start = MT6835_Start;
+                Drv_IRQHandler = MT6835_IRQHandler;
+                MT6835_Config();
+            }
+            break;
 
-    if (Encoder_Config.Protocol == ENC_PROTOCOL_SPI)
-    {
-        Encoder_Port_SPI();
-    }
-    if (Drv_Config != 0)
-    {
-        Drv_Config();
-    }
-    if (Encoder.Fault != 0U)
-    {
-        Drv_Start = 0;
+        case ENC_PROTOCOL_ABZ:
+            Drv_Start = ABZ_Start;
+            ABZ_Config();
+            break;
+
+        case ENC_PROTOCOL_NONE:
+        default:
+            break;
     }
     __set_PRIMASK(Primask);
 }
@@ -207,10 +155,7 @@ void Encoder_Sample_Invalid(void)
 
     if ((Encoder.Ready != 0U) && (Encoder.Fault == 0U))
     {
-        if (Encoder.Lost_Cnt < ENC_RUNTIME_INVALID_CNT)
-        {
-            Encoder.Lost_Cnt++;
-        }
+        Encoder.Lost_Cnt++;
 
         if (Encoder.Lost_Cnt >= ENC_RUNTIME_INVALID_CNT)
         {
@@ -272,10 +217,7 @@ void Encoder_Sample_Update(uint32_t Raw, float Theta)
     {
         Startup_Count();
 
-        if (Ready_Cnt < ENC_READY_VALID_CNT)
-        {
-            Ready_Cnt++;
-        }
+        Ready_Cnt++;
 
         if (Ready_Cnt >= ENC_READY_VALID_CNT)
         {

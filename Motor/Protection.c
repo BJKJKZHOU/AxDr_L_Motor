@@ -13,63 +13,58 @@
 #include "main.h"
 
 volatile Protection_T Protection = { 0 };
+const float Protection_Vbus_Min = VBUS_UV_WARNING_V;
+const float Protection_Vbus_Max = VBUS_OV_FAULT_V;
 
-static uint32_t Vbus_Under_Count = 0U;
-static uint32_t Vbus_Over_Count = 0U;
 static uint32_t Current_Overload_Count = 0U;
 static uint32_t Current_Fast_Count = 0U;
-static bool Current_Fault_Latched = false;
 
 void Protection_Fault_Set(uint32_t Event)
 {
     uint32_t Primask = __get_PRIMASK();
 
-    /* 线程和 ADC 中断都会置位，避免更新时覆盖另一处刚记录的故障。 */
+    /* 故障位置位不可被其他更新打断。 */
     __disable_irq();
     Protection.Fault |= Event;
     __set_PRIMASK(Primask);
 }
 
-float Protection_Vbus_Min_Get(void)
-{
-    return VBUS_UV_FAULT_V;
-}
-
-float Protection_Vbus_Max_Get(void)
-{
-    return VBUS_OV_FAULT_V;
-}
-
-bool Protection_Current_Fast(float Ia_A, float Ib_A, float Ic_A)
+void Protection_Fast_Run(void)
 {
     float Current_Sq;
+    uint32_t Event = 0U;
 
-    if (Motor_State_Get() == DISABLED)
+    if (ADC.Vbus_V < VBUS_UV_WARNING_V)
     {
-        Current_Overload_Count = 0U;
-        Current_Fast_Count = 0U;
-        return !Current_Fault_Latched;
+        Protection.Warning |= PROT_UNDERVOLTAGE;
+    }
+    else
+    {
+        Protection.Warning &= ~PROT_UNDERVOLTAGE;
     }
 
-    if (Current_Fault_Latched)
+    if (Protection.Fault != 0U)
     {
-        return false;
+        return;
     }
 
-    /*
-     * Amplitude-invariant three-phase current-vector magnitude squared.
-     * This stays continuous as the phase currents rotate and does not depend
-     * on FOC angle validity, so the same protection covers VF/IF/FOC/IDENT.
-     */
+    if (ADC.Vbus_V > VBUS_OV_FAULT_V)
+    {
+        Event |= PROT_OVERVOLTAGE;
+    }
+
+    if (Motor_Encoder_Required() && (Encoder.Fault != 0U))
+    {
+        Event |= PROT_ENCODER;
+    }
+
+    /* 等幅三相电流矢量的幅值平方，不依赖控制角度，覆盖各运行模式。 */
     Current_Sq = 0.666666667f *
-                 (Ia_A * Ia_A + Ib_A * Ib_A + Ic_A * Ic_A);
+                 (ADC.Ia_A * ADC.Ia_A + ADC.Ib_A * ADC.Ib_A + ADC.Ic_A * ADC.Ic_A);
 
     if (Current_Sq > (PROT_CURRENT_OVERLOAD_A * PROT_CURRENT_OVERLOAD_A))
     {
-        if (Current_Overload_Count < PROT_CURRENT_OVERLOAD_CYCLES)
-        {
-            Current_Overload_Count++;
-        }
+        Current_Overload_Count++;
     }
     else
     {
@@ -78,46 +73,24 @@ bool Protection_Current_Fast(float Ia_A, float Ib_A, float Ic_A)
 
     if (Current_Sq > (PROT_CURRENT_FAST_A * PROT_CURRENT_FAST_A))
     {
-        if (Current_Fast_Count < PROT_CURRENT_FAST_CYCLES)
-        {
-            Current_Fast_Count++;
-        }
+        Current_Fast_Count++;
     }
     else
     {
         Current_Fast_Count = 0U;
     }
 
-    /* NaN bypasses threshold comparisons; invalid feedback must also stop PWM. */
-    if (!__builtin_isfinite(Current_Sq) ||
-        (Current_Overload_Count >= PROT_CURRENT_OVERLOAD_CYCLES) ||
+    if ((Current_Overload_Count >= PROT_CURRENT_OVERLOAD_CYCLES) ||
         (Current_Fast_Count >= PROT_CURRENT_FAST_CYCLES))
     {
-        Current_Fault_Latched = true;
+        Event |= PROT_OVERCURRENT;
+    }
+
+    if (Event != 0U)
+    {
         PWM_Disable();
-        return false;
+        Protection_Fault_Set(Event);
     }
-
-    return true;
-}
-
-bool Protection_Enable_Allowed(void)
-{
-    if ((Protection.Fault != 0U) ||
-        (Protection.Trip != 0U) ||
-        Current_Fault_Latched)
-    {
-        return false;
-    }
-
-    if (!__builtin_isfinite(ADC.Vbus_V) ||
-        (ADC.Vbus_V < VBUS_UV_FAULT_V) ||
-        (ADC.Vbus_V > VBUS_OV_FAULT_V))
-    {
-        return false;
-    }
-
-    return true;
 }
 
 bool Protection_Clear(void)
@@ -128,85 +101,10 @@ bool Protection_Clear(void)
     }
 
     Protection.Report = 0U;
-    Protection.Warning = 0U;
     Protection.Fault = 0U;
     Protection.Trip = 0U;
-    Vbus_Under_Count = 0U;
-    Vbus_Over_Count = 0U;
     Current_Overload_Count = 0U;
     Current_Fast_Count = 0U;
-    Current_Fault_Latched = false;
 
     return true;
-}
-
-void Protection_Control(void)
-{
-    Motor_State_e State;
-
-    State = Motor_State_Get();
-
-    if (State == DISABLED)
-    {
-        Vbus_Under_Count = 0U;
-        Vbus_Over_Count = 0U;
-    }
-    else if (!__builtin_isfinite(ADC.Vbus_V))
-    {
-        Protection_Fault_Set(PROT_UNDERVOLTAGE);
-    }
-    else
-    {
-        if (ADC.Vbus_V < VBUS_UV_FAULT_V)
-        {
-            if (Vbus_Under_Count < VBUS_UV_DEBOUNCE_TICKS)
-            {
-                Vbus_Under_Count++;
-            }
-        }
-        else
-        {
-            Vbus_Under_Count = 0U;
-        }
-
-        if (ADC.Vbus_V > VBUS_OV_FAULT_V)
-        {
-            if (Vbus_Over_Count < VBUS_OV_DEBOUNCE_TICKS)
-            {
-                Vbus_Over_Count++;
-            }
-        }
-        else
-        {
-            Vbus_Over_Count = 0U;
-        }
-
-        if (Vbus_Under_Count >= VBUS_UV_DEBOUNCE_TICKS)
-        {
-            Protection_Fault_Set(PROT_UNDERVOLTAGE);
-        }
-
-        if (Vbus_Over_Count >= VBUS_OV_DEBOUNCE_TICKS)
-        {
-            Protection_Fault_Set(PROT_OVERVOLTAGE);
-        }
-    }
-
-    if (Current_Fault_Latched)
-    {
-        Protection_Fault_Set(PROT_OVERCURRENT);
-    }
-
-    if (Motor_Encoder_Required() && (Encoder.Fault != 0U))
-    {
-        Protection_Fault_Set(PROT_ENCODER);
-    }
-
-    if ((Protection.Fault != 0U) || (Protection.Trip != 0U))
-    {
-        if (State != DISABLED)
-        {
-            Motor_Disable();
-        }
-    }
 }

@@ -15,10 +15,7 @@
 #include "motor_params.h"
 #include "main.h"
 
-#define MOTOR_IF_U_BUDGET_RATIO  0.65f
 #define MOTOR_IF_WE_RL_RATIO     0.15f
-#define MOTOR_IF_WE_MARGIN_RATIO 0.25f
-#define MOTOR_IF_WE_MIN_RAD_S    1.0f
 
 Motor_Para_T Motor_Para = MOTOR_PARA_DEFAULT;
 float Control_Current_Bw_Hz = CUR_BW_HZ_DEFAULT;
@@ -80,8 +77,8 @@ void Speed_Tuning_Update(void)
         float Kt = 1.5f * (float)Motor_Para.Pp * Motor_Para.Flux;
         float Den = (float)Motor_Para.Pp * Kt;
 
-        Kp = (Den > 0.0f) ? Motor_Para.J * Wc / Den : 0.0f;
-        Ki = (Den > 0.0f) ? Motor_Para.B * Wc / Den : 0.0f;
+        Kp = Motor_Para.J * Wc / Den;
+        Ki = Motor_Para.B * Wc / Den;
     }
     Speed_Ctrl.Para.Kp = Kp;
     Speed_Ctrl.Para.Ki = Ki;
@@ -116,48 +113,7 @@ bool Motor_Para_Update(const Motor_Para_T *Para, float Eso_Bw_Hz)
     return true;
 }
 
-bool Motor_IF_We_Base_Calc(float Vbus_V, float I_Max_A, float *We_Base)
+float Motor_IF_We_Base_Calc(void)
 {
-    float U_Available_V;
-    float U_Budget_V;
-    float U_Per_I;
-    float We_RL_Max;
-    float We;
-
-    if (We_Base == NULL)
-    {
-        return false;
-    }
-
-    *We_Base = 0.0f;
-
-    if ((Vbus_V <= 0.0f) || (I_Max_A <= 0.0f) ||
-        (Motor_Para.Rs <= 0.0f) || (Motor_Para.Lq <= 0.0f))
-    {
-        return false;
-    }
-
-    U_Available_V = Vbus_V * INV_SQRT3_F * VOLT_MOD_MAX;
-    U_Budget_V = MOTOR_IF_U_BUDGET_RATIO * U_Available_V;
-    U_Per_I = U_Budget_V / I_Max_A;
-
-    if (U_Per_I <= Motor_Para.Rs)
-    {
-        return false;
-    }
-
-    We = MOTOR_IF_WE_RL_RATIO * Motor_Para.Rs / Motor_Para.Lq;
-    We_RL_Max = __builtin_sqrtf(U_Per_I * U_Per_I - Motor_Para.Rs * Motor_Para.Rs) / Motor_Para.Lq;
-    if (We > MOTOR_IF_WE_MARGIN_RATIO * We_RL_Max)
-    {
-        We = MOTOR_IF_WE_MARGIN_RATIO * We_RL_Max;
-    }
-
-    if (!(We >= MOTOR_IF_WE_MIN_RAD_S))
-    {
-        return false;
-    }
-
-    *We_Base = We;
-    return true;
+    return MOTOR_IF_WE_RL_RATIO * Motor_Para.Rs / Motor_Para.Lq;
 }

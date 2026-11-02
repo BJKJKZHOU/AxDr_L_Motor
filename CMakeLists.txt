@@ -78,13 +78,11 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Motor/Encoder_Drv/MT6835.c
     Motor/Encoder_Drv/ABZ.c
     Motor/Protection.c
-    Motor/Motor_Cal.c
     Motor/Motor_Config.c
     Motor/Motor_Para.c
     Motor/Current_Loop.c
     Motor/Signal_Injection.c
     Motor/Motion_Loop.c
-    Sensorless/Align.c
     Sensorless/VF.c
     Sensorless/Open_Loop.c
     Motor/Servo_Phase.c

@@ -23,11 +23,6 @@ void Speed_Loop_Track(float We_Ref, float We_Fbk, float Iq, float Iq_Min, float 
     float Err;
     float Int;
 
-    Speed_Ctrl.Para.Out_Min = Iq_Min;
-    Speed_Ctrl.Para.Out_Max = Iq_Max;
-    Speed_Ctrl.Para.Int_Min = Iq_Min;
-    Speed_Ctrl.Para.Int_Max = Iq_Max;
-
     Speed_Ctrl.Sig.Ref = We_Ref;
     Speed_Ctrl.Sig.Fbk = We_Fbk;
     Err = We_Ref - We_Fbk;

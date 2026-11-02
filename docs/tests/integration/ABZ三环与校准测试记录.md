@@ -69,3 +69,19 @@ python3 tools/servo_test.py --port /dev/ttyACM0 --run
 ![校准前后对比](../../data/20261030_abz_cal_6000rpm/ABZ-Calibration-6000RPM-2026-10-30.waveform-comparison.png)
 
 原始数据：[正向校准前](../../data/20261030_abz_cal_6000rpm/ABZ-Before-+6000RPM-2026-10-30.waveform.nmixx)、[正向校准后](../../data/20261030_abz_cal_6000rpm/ABZ-After-+6000RPM-2026-10-30.waveform.nmixx)、[反向校准前](../../data/20261030_abz_cal_6000rpm/ABZ-Before--6000RPM-2026-10-30.waveform.nmixx)、[反向校准后](../../data/20261030_abz_cal_6000rpm/ABZ-After--6000RPM-2026-10-30.waveform.nmixx)。
+
+## 2026-11-02：重复判断精简后的实机回归
+
+母线约 24.9 V，ABZ 4096 PPR。电流 PI 带宽 1250 Hz，速度 PI Kp/Ki=0.025/0.2，位置 Kp=40，电流上限 10 A，加减速度均为 500 rad/s²。模型为 Rs=0.282526 Ω、Ld=Lq=71.382 μH、Flux=2.281195 mWb、J=1.678037e-5 kg·m²。复位后重新寻相，三环测试时标定状态为 1，未启用谐波补偿。
+
+使用 `tools/servo_test.py` 分两组测试 ±300/±1000 RPM、±3000/±6000 RPM，每个速度均包含回零速；位置跨度分别为 ±0.5 圈、±1 圈，速度 10 rad/s，每种轨迹各做一组往返、运动中反向及 STOP/RUN。速度统计取末段 150 ms，位置端点由圈数和单圈角读回。
+
+| 轨迹 | 速度工况数 | 位置到位次数 | 最大末段平均速度偏差 / RPM | 最大到位误差 / ° |
+|---|---:|---:|---:|---:|
+| 梯形 | 16 | 12 | 0.336 | 0.396 |
+| 等时长 S 曲线 | 16 | 12 | 0.474 | 0.176 |
+| 等峰值 S 曲线 | 16 | 12 | 0.436 | 0.220 |
+
+ABZ 回零完成时位置为 0.01572 rad。完整编码器校准耗时 10.111 s；另在启动 0.2 s 后发出 STOP，41.4 ms 后收到取消完成事件，拟合系数未改变。完整校准期间 FAST、NORMAL 各丢 1 块，隔离测量见 [Flash 保存与采集并行记录](../system/USB_Plot_分阶段测试记录.md#2026-11-02参数入口与-flash-保存期间采集)。
+
+本地数据：`test-data/20261102_check_cleanup/`，三环波形与结果位于 `servo-smoke/`、`servo-full/`，汇总为 `hardware-summary.json`。

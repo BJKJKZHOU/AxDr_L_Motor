@@ -15,7 +15,6 @@
 #include "Flux.h"
 #include "Mechanical_ESO.h"
 #include "Motor_ADC.h"
-#include "Motor_Cal.h"
 #include "Motor_Config.h"
 #include "Motor_Para.h"
 #include "Motor_PWM.h"
@@ -69,12 +68,6 @@ static bool Stop_Pending = false;
 static bool Sensorless_Profile_Active = false;
 static uint32_t Sensorless_Stop_Delay_Cnt = 0U;
 
-static FAST_CODE void Motor_Limit_Get(Motor_Limit_T *Lim)
-{
-    Lim->I_Max = Motor_I_Limit_Effective_Get();
-    Lim->Wm_Max = Motor_Wm_Limit_Effective_Get();
-}
-
 static void Iq_Limit_Calc(float I_Max, float *Iq_Min, float *Iq_Max)
 {
     float We;
@@ -96,13 +89,6 @@ static void Iq_Limit_Calc(float I_Max, float *Iq_Min, float *Iq_Max)
     A = Motor_Para.Rs * Motor_Para.Rs + Wlq * Wlq;
     B = 2.0f * Motor_Para.Rs * Bemf;
     C = Bemf * Bemf - U_Lim * U_Lim;
-
-    if (A <= 0.0f)
-    {
-        *Iq_Min = 0.0f;
-        *Iq_Max = 0.0f;
-        return;
-    }
 
     D = B * B - 4.0f * A * C;
 
@@ -133,21 +119,6 @@ static void Iq_Limit_Calc(float I_Max, float *Iq_Min, float *Iq_Max)
     }
 }
 
-static void Motion_State_Reset(void)
-{
-    int32_t Turn;
-    float Theta;
-
-    Speed_Ctrl.State.Int = 0.0f;
-    Speed_Ctrl.State.Fbk_Pre = (float)Motor_Para.Pp * Mechanical_ESO.State.Wm;
-    Wm_Ref = 0.0f;
-    We_Ref = 0.0f;
-    Encoder_Position_Read(&Turn, &Theta);
-    Trapezoid_Reset(&Motion_Ref, Turn, Theta, 0.0f);
-    SCurve = (SCurve_T){ 0 };
-    Pos_Div = 0U;
-}
-
 /* Resume the speed trajectory from VF feedback. The first DECEL ADC cycle
  * seeds the current controller from that cycle's voltage and current. */
 void Motor_Cal_Decel_Begin(void)
@@ -157,14 +128,15 @@ void Motor_Cal_Decel_Begin(void)
     float Iq_Min;
     float Iq_Max;
 
-    Ramp_Reset(&Motion_Ref, Wm);
+    Motion_Ref.Wm = Wm;
+    Motion_Ref.Am = 0.0f;
     SCurve = (SCurve_T){ 0 };
     Wm_Ref = Wm;
     We_Ref = (float)Motor_Para.Pp * Wm;
     Current_Ref.Id = Motor_Run.Id;
     Current_Ref.Iq = Iq;
 
-    Iq_Limit_Calc(Motor_I_Limit_Effective_Get(), &Iq_Min, &Iq_Max);
+    Iq_Limit_Calc(User_Lim.I_Max, &Iq_Min, &Iq_Max);
     Speed_Loop_Track(We_Ref, We_Ref, Iq, Iq_Min, Iq_Max);
 }
 
@@ -189,7 +161,7 @@ static void NonServo_Enabled_Apply(void)
 {
     if (Motor_Mode == SENSORLESS_SPEED)
     {
-        Sensorless_Stop();
+        Sensorless_State = SL_IDLE;
     }
 
     Stop_Pending = false;
@@ -207,7 +179,7 @@ void Motor_Disable_Apply(void)
     Stop_Pending = false;
     if (Motor_Mode == SENSORLESS_SPEED)
     {
-        Sensorless_Stop();
+        Sensorless_State = SL_IDLE;
     }
 
     PWM_Disable();
@@ -218,7 +190,6 @@ void Motor_Disable_Apply(void)
 void Motor_Control(void)
 {
     bool Cal_Speed;
-    bool Home;
     Motor_Mode_e Mode;
     int32_t Pos_Turn_Target;
     float Pos_Theta_Target;
@@ -238,20 +209,10 @@ void Motor_Control(void)
 
     Cal_Speed = (Enc_Step == ENC_CAL_RUN) &&
                 ((Enc_Cal.Step == CAL_SPEED) || (Enc_Cal.Step == CAL_DECEL));
-    Home = Enc_Home_Active();
-    if (Enc_Control_Active() && !Cal_Speed && !Home)
+    /* 动作只推进流程；回零继续执行 POSITION，校准速度阶段在闭环更新后推进。 */
+    if (Enc_Control_Active() && !Cal_Speed)
     {
         Enc_Control_Run();
-        return;
-    }
-
-    if (Home)
-    {
-        Enc_Control_Run();
-        if (!Enc_Home_Active())
-        {
-            return;
-        }
     }
 
     if (Motor_State == DISABLED)
@@ -281,12 +242,13 @@ void Motor_Control(void)
         return;
     }
 
-    Motor_Limit_Get(&Lim);
+    Lim.I_Max = User_Lim.I_Max;
+    Lim.Wm_Max = User_Lim.Wm_Max;
 
     switch (Mode)
     {
         case OPEN_LOOP:
-            Wm_Target = ((Motor_State == RUN) && !Stop_Pending) ?
+            Wm_Target = (Motor_State == RUN) ?
                         Motor_User_To_Internal(Motor_Cmd.Wm_Target) : 0.0f;
             Limit_Value(&Wm_Target, -Lim.Wm_Max, Lim.Wm_Max);
             if (Open_Loop_Method == OPEN_LOOP_IF)
@@ -296,13 +258,10 @@ void Motor_Control(void)
             }
             Wm_Ref = Wm_Target;
             We_Ref = (float)Motor_Para.Pp * Wm_Target;
-
-            Current_Ref.Id = 0.0f;
-            Current_Ref.Iq = 0.0f;
             return;
 
         case SENSORLESS_SPEED:
-            if (Sensorless_State_Get() == SL_FAILED)
+            if (Sensorless_State == SL_FAILED)
             {
                 NonServo_Enabled_Apply();
                 return;
@@ -313,25 +272,21 @@ void Motor_Control(void)
             Limit_Value(&Wm_Target, -Lim.Wm_Max, Lim.Wm_Max);
             Sensorless_We_Target = (float)Motor_Para.Pp * Wm_Target;
 
-            if (Sensorless_Profile_Active && !Sensorless_Speed_Control_Active())
+            if (Sensorless_Speed_Control_Active())
             {
-                Sensorless_Profile_Active = false;
-            }
-
-            if (!Sensorless_Profile_Active && Sensorless_Speed_Control_Active())
-            {
-                Wm_Ref = Sensorless_Wm_Get();
-                Ramp_Reset(&Motion_Ref, Wm_Ref);
-                Sensorless_Profile_Active = true;
-            }
-
-            if (Sensorless_Profile_Active)
-            {
+                if (!Sensorless_Profile_Active)
+                {
+                    Wm_Ref = Sensorless_Wm_Get();
+                    Motion_Ref.Wm = Wm_Ref;
+                    Motion_Ref.Am = 0.0f;
+                    Sensorless_Profile_Active = true;
+                }
                 Ramp_Run(&Motion_Ref, Wm_Target, Motion_Config.Wm_Acc, Motion_Config.Wm_Dec, SPD_TS);
                 Wm_Ref = Motion_Ref.Wm;
             }
             else
             {
+                Sensorless_Profile_Active = false;
                 Wm_Ref = Sensorless_Wm_Get();
             }
 
@@ -339,10 +294,7 @@ void Motor_Control(void)
 
             if (Stop_Pending && (Wm_Ref == 0.0f))
             {
-                if (Sensorless_Stop_Delay_Cnt < SENSORLESS_STOP_DELAY_TICKS)
-                {
-                    Sensorless_Stop_Delay_Cnt++;
-                }
+                Sensorless_Stop_Delay_Cnt++;
 
                 if (Sensorless_Stop_Delay_Cnt >= SENSORLESS_STOP_DELAY_TICKS)
                 {
@@ -353,9 +305,6 @@ void Motor_Control(void)
             {
                 Sensorless_Stop_Delay_Cnt = 0U;
             }
-
-            Current_Ref.Id = 0.0f;
-            Current_Ref.Iq = 0.0f;
 
             if (Motor_State == RUN)
             {
@@ -377,7 +326,7 @@ void Motor_Control(void)
     {
         case TORQUE:
             Kt = 1.5f * (float)Motor_Para.Pp * Motor_Para.Flux;
-            if ((Motor_State == RUN) && __builtin_isfinite(Kt) && (Kt > 0.0f))
+            if (Motor_State == RUN)
             {
                 Te_Max = Kt * Lim.I_Max;
                 Te_Ref = Stop_Pending ? 0.0f : Motor_User_To_Internal(Motor_Cmd.Te_Target);
@@ -448,22 +397,6 @@ void Motor_Control(void)
                 Motor_State = ENABLED;
             }
 
-            if (!Cal_Speed && (Speed_Controller == SPEED_CTRL_LADRC))
-            {
-                Current_Ref.Iq = Speed_LADRC(We_Ref, Iq_Min, Iq_Max);
-            }
-            else
-            {
-                Current_Ref.Iq = Speed_Loop(We_Ref, We_Fbk, Iq_Min, Iq_Max);
-            }
-            /* Publish all four 2 kHz values atomically to FAST Plot. */
-            Primask = __get_PRIMASK();
-            __disable_irq();
-            Motor_Frf_Speed.Ref = Speed_Ctrl.Sig.Ref;
-            Motor_Frf_Speed.Fbk = Speed_Ctrl.Sig.Fbk;
-            Motor_Frf_Speed.Iq = Speed_Ctrl.Sig.Out;
-            Motor_Frf_Speed.Inj = Speed_Inj;
-            __set_PRIMASK(Primask);
             break;
 
         case POSITION:
@@ -524,21 +457,35 @@ void Motor_Control(void)
 
             Pos_Div ^= 1U;
             We_Ref = (float)Motor_Para.Pp * Wm_Ref;
-            if (Speed_Controller == SPEED_CTRL_LADRC)
-            {
-                Current_Ref.Iq = Speed_LADRC(We_Ref, Iq_Min, Iq_Max);
-            }
-            else
-            {
-                Current_Ref.Iq = Speed_Loop(We_Ref, We_Fbk, Iq_Min, Iq_Max);
-            }
             break;
 
         default:
             Current_Ref.Iq = 0.0f;
-            break;
+            goto finish;
     }
 
+    if (!Cal_Speed && (Speed_Controller == SPEED_CTRL_LADRC))
+    {
+        Current_Ref.Iq = Speed_LADRC(We_Ref, Iq_Min, Iq_Max);
+    }
+    else
+    {
+        Current_Ref.Iq = Speed_Loop(We_Ref, We_Fbk, Iq_Min, Iq_Max);
+    }
+
+    if (Mode == SPEED)
+    {
+        /* 2 kHz 的四个观测量一起发布，供 FAST Plot 读取。 */
+        Primask = __get_PRIMASK();
+        __disable_irq();
+        Motor_Frf_Speed.Ref = Speed_Ctrl.Sig.Ref;
+        Motor_Frf_Speed.Fbk = Speed_Ctrl.Sig.Fbk;
+        Motor_Frf_Speed.Iq = Speed_Ctrl.Sig.Out;
+        Motor_Frf_Speed.Inj = Speed_Inj;
+        __set_PRIMASK(Primask);
+    }
+
+finish:
     /* The handoff ADC cycle can reseed Current_Ref after Speed_Loop returns. */
     Limit_Value(&Current_Ref.Iq, Iq_Min, Iq_Max);
 
@@ -549,30 +496,29 @@ void Motor_Control(void)
     }
 }
 
-Motor_Fast_Mode_e Motor_Fast_Run(float Encoder_Theta_e,
-                                 bool Encoder_Park_Valid,
+Motor_Fast_Mode_e Motor_Fast_Run(float Ialpha, float Ibeta, float Encoder_Theta_e,
                                  float *Theta_e,
                                  float *Id_Ref,
                                  float *Iq_Ref,
                                  float *Ualpha,
                                  float *Ubeta)
 {
-    bool Enc = Enc_Control_Active();
     bool Cal = (Enc_Step == ENC_CAL_RUN);
 
+    /* 快环输出在分派前统一置零，分支只更新需要的分量。 */
     *Theta_e = 0.0f;
     *Id_Ref = 0.0f;
     *Iq_Ref = 0.0f;
     *Ualpha = 0.0f;
     *Ubeta = 0.0f;
 
-    if ((Motor_State == DISABLED) || (Enc && (Motor_State != RUN)))
+    if ((Motor_State == DISABLED) || ((Motor_Mode == ENCODER_CAL) && (Motor_State != RUN)))
     {
         return FAST_OFF;
     }
 
-    /* 寻相和校准期间，输出由编码器任务控制。 */
-    if (Enc && !Enc_Home_Active() &&
+    /* ENCODER_CAL 接管快环，速度升降阶段复用有感闭环；回零沿用 POSITION。 */
+    if ((Motor_Mode == ENCODER_CAL) &&
         (!Cal || ((Enc_Cal.Step != CAL_SPEED) && (Enc_Cal.Step != CAL_DECEL))))
     {
         return Enc_Control_Fast_Run(Theta_e, Id_Ref, Iq_Ref, Ualpha, Ubeta);
@@ -592,10 +538,7 @@ Motor_Fast_Mode_e Motor_Fast_Run(float Encoder_Theta_e,
             Current_Ref.Iq = Motor_Run.Iq;
         }
 
-        /* Reuse the angle already calculated for the encoder-frame Park.
-         * Retain the original angle path if encoder/ESO feedback is unavailable. */
-        *Theta_e = (Encoder_Park_Valid || Handoff) ? Encoder_Theta_e :
-                   Angle_Wrap((float)Motor_Para.Pp * Motor_Run.Theta_m + Motor_Cal.Theta_Off);
+        *Theta_e = Encoder_Theta_e;
         *Id_Ref = Current_Ref.Id;
         *Iq_Ref = Current_Ref.Iq;
         return FAST_CURRENT;
@@ -612,8 +555,8 @@ Motor_Fast_Mode_e Motor_Fast_Run(float Encoder_Theta_e,
             return Open_Loop(We_Ref, Theta_e, Id_Ref, Iq_Ref, Ualpha, Ubeta);
 
         case IDENT:
-            return Identification_Fast_Run(ADC.Ia_A,
-                                           ADC.Ib_A,
+            return Identification_Fast_Run(Ialpha,
+                                           Ibeta,
                                            Theta_e,
                                            Id_Ref,
                                            Iq_Ref,
@@ -621,7 +564,7 @@ Motor_Fast_Mode_e Motor_Fast_Run(float Encoder_Theta_e,
                                            Ubeta);
 
         case SENSORLESS_SPEED:
-            Sensorless_Run(ADC.Ia_A, ADC.Ib_A, Sensorless_We_Target, Theta_e, Id_Ref, Iq_Ref);
+            Sensorless_Run(Ialpha, Ibeta, Sensorless_We_Target, Theta_e, Id_Ref, Iq_Ref);
             return FAST_CURRENT;
 
         default:
@@ -632,20 +575,6 @@ Motor_Fast_Mode_e Motor_Fast_Run(float Encoder_Theta_e,
 Motor_State_e Motor_State_Get(void)
 {
     return Motor_State;
-}
-
-float Motor_I_Limit_Effective_Get(void)
-{
-    float I_Max = (Motor_Lim.I_Max < User_Lim.I_Max) ? Motor_Lim.I_Max : User_Lim.I_Max;
-
-    return (I_Max < 0.0f) ? 0.0f : I_Max;
-}
-
-float Motor_Wm_Limit_Effective_Get(void)
-{
-    float Wm_Max = (Motor_Lim.Wm_Max < User_Lim.Wm_Max) ? Motor_Lim.Wm_Max : User_Lim.Wm_Max;
-
-    return (Wm_Max < 0.0f) ? 0.0f : Wm_Max;
 }
 
 float Motor_Wm_Ref_Get(void)
@@ -666,19 +595,16 @@ Motor_Position_T Motor_Position_Ref_Get(void)
 
 bool Motor_Encoder_Required(void)
 {
-    return Servo_Mode() || (Motor_Mode == ENCODER_CAL) ||
-           Enc_Control_Active();
+    return Servo_Mode() || (Motor_Mode == ENCODER_CAL);
 }
 
 Motor_Status_e Motor_Enable(void)
 {
-    bool Servo = (Enc_Step == ENC_CAL_RUN) || Enc_Home_Active() ||
-                 (!Enc_Control_Active() && Servo_Mode());
+    bool Servo = (Enc_Step == ENC_CAL_RUN) || Servo_Mode();
 
-    if ((Motor_State != DISABLED) || !Protection_Enable_Allowed() ||
-        (Motor_Work_State != MOTOR_WORK_IDLE) ||
-        (Enc_Control_Active() && (Enc_Step != ENC_PHASE_RUN) && (Enc_Step != ENC_HOME_SEEK) &&
-         !((Enc_Step == ENC_CAL_RUN) && (Enc_Cal.Step == CAL_SPEED))))
+    if ((Motor_State != DISABLED) || (Protection.Fault != 0U) ||
+        ((Protection.Warning & PROT_UNDERVOLTAGE) != 0U) ||
+        (Motor_Work_State != MOTOR_WORK_IDLE))
     {
         return MOTOR_ERR_STATE;
     }
@@ -700,12 +626,22 @@ Motor_Status_e Motor_Enable(void)
 
     if (Servo)
     {
+        int32_t Turn;
+        float Theta;
+
         if (Mechanical_ESO.Para.Valid == 0U)
         {
             return MOTOR_ERR_CONFIG;
         }
 
-        Motion_State_Reset();
+        Speed_Ctrl.State.Int = 0.0f;
+        Speed_Ctrl.State.Fbk_Pre = (float)Motor_Para.Pp * Mechanical_ESO.State.Wm;
+        Wm_Ref = 0.0f;
+        We_Ref = 0.0f;
+        Encoder_Position_Read(&Turn, &Theta);
+        Motion_Ref = (Motion_Ref_T){ .Turn = Turn, .Theta = Theta };
+        SCurve = (SCurve_T){ 0 };
+        Pos_Div = 0U;
         Current_Loop_State_Reset();
     }
 
@@ -727,7 +663,8 @@ Motor_Status_e Motor_Start(void)
     bool Enc = Enc_Control_Active();
     bool Cal = (Enc_Step == ENC_CAL_RUN);
 
-    if (Motor_State != ENABLED)
+    if ((Motor_State != ENABLED) || (Protection.Fault != 0U) ||
+        ((Protection.Warning & PROT_UNDERVOLTAGE) != 0U))
     {
         return MOTOR_ERR_STATE;
     }
@@ -740,33 +677,31 @@ Motor_Status_e Motor_Start(void)
         return MOTOR_ERR_STATE;
     }
 
-    if (!Cal)
+    if (Enc_Step == ENC_PHASE_RUN)
     {
-        if (Enc_Step == ENC_PHASE_RUN)
-        {
-            Current_Loop_State_Reset();
-        }
-        else if (Motor_Mode == OPEN_LOOP)
-        {
-            Current_Loop_State_Reset();
-            Open_Loop_Reset();
-        }
-        else if (Motor_Mode == SENSORLESS_SPEED)
-        {
-            Sensorless_Profile_Active = false;
-            Sensorless_We_Target = 0.0f;
-            Ramp_Reset(&Motion_Ref, 0.0f);
-            Wm_Ref = 0.0f;
-            We_Ref = 0.0f;
+        Current_Loop_State_Reset();
+    }
+    else if (Motor_Mode == OPEN_LOOP)
+    {
+        Current_Loop_State_Reset();
+        Open_Loop_Reset();
+    }
+    else if (Motor_Mode == SENSORLESS_SPEED)
+    {
+        Sensorless_Profile_Active = false;
+        Sensorless_We_Target = 0.0f;
+        Motion_Ref.Wm = 0.0f;
+        Motion_Ref.Am = 0.0f;
+        Wm_Ref = 0.0f;
+        We_Ref = 0.0f;
 
-            if (!Sensorless_Begin())
-            {
-                return MOTOR_ERR_CONFIG;
-            }
+        if (!Sensorless_Begin())
+        {
+            return MOTOR_ERR_CONFIG;
         }
     }
 
-    if ((Enc_Step == ENC_PHASE_RUN) || (!Servo_Mode() && !Cal))
+    if (!Servo_Mode() && !Cal)
     {
         if (!PWM_Enable())
         {
@@ -787,7 +722,8 @@ Motor_Status_e Motor_Enc_Start(Enc_Mode_e Mode)
 
     if ((Motor_State != DISABLED) ||
         (Motor_Mode != ((Mode == ENC_HOME) ? POSITION : ENCODER_CAL)) ||
-        !Protection_Enable_Allowed() || (Motor_Work_State != MOTOR_WORK_IDLE) ||
+        (Protection.Fault != 0U) || ((Protection.Warning & PROT_UNDERVOLTAGE) != 0U) ||
+        (Motor_Work_State != MOTOR_WORK_IDLE) ||
         Enc_Control_Active())
     {
         return MOTOR_ERR_STATE;
@@ -832,7 +768,7 @@ void Motor_Stop(void)
     {
         if (Motor_Mode == SENSORLESS_SPEED)
         {
-            Sensorless_Stop_Request();
+            Sensorless_Stop_Requested = true;
             Sensorless_Stop_Delay_Cnt = 0U;
         }
 
@@ -840,41 +776,47 @@ void Motor_Stop(void)
         return;
     }
 
-    if (Motor_Mode == OPEN_LOOP)
-    {
-        Open_Loop_Reset();
-        NonServo_Enabled_Apply();
-        return;
-    }
-
     if (Motor_Mode == IDENT)
     {
         Identification_Stop();
-        NonServo_Enabled_Apply();
-        return;
     }
-
-    Current_Ref.Id = 0.0f;
-    Current_Ref.Iq = 0.0f;
-    Motor_State = ENABLED;
+    NonServo_Enabled_Apply();
 }
 
 void Motor_Disable(void)
 {
-    Motor_Stop();
+    Signal_Injection_Stop();
+
+    if (Enc_Control_Active())
+    {
+        Enc_Control_Abort();
+    }
+    else if ((Motor_State == RUN) && ((Motor_Mode == OPEN_LOOP) || (Motor_Mode == IDENT)))
+    {
+        if (Motor_Mode == IDENT)
+        {
+            Identification_Stop();
+        }
+
+        Motor_Run.Ud = 0.0f;
+        Motor_Run.Uq = 0.0f;
+        Motor_Run.Ualpha = 0.0f;
+        Motor_Run.Ubeta = 0.0f;
+    }
     Motor_Disable_Apply();
 }
 
 Motor_Status_e Motor_Signal_Start(void)
 {
-    if (Enc_Control_Active() || !Protection_Enable_Allowed() ||
+    if (Enc_Control_Active() || (Protection.Fault != 0U) ||
+        ((Protection.Warning & PROT_UNDERVOLTAGE) != 0U) ||
         ((Signal_Injection.Para.Target == SIGNAL_SPEED) ?
          ((Motor_Mode != SPEED) || ((Motor_State != ENABLED) && (Motor_State != RUN))) :
          ((Motor_Mode != TORQUE) || (Motor_State != ENABLED))))
     {
         return MOTOR_ERR_STATE;
     }
-    if (!Signal_Injection_Start(Motor_I_Limit_Effective_Get(), Motor_Wm_Limit_Effective_Get()))
+    if (!Signal_Injection_Start(User_Lim.I_Max, User_Lim.Wm_Max))
     {
         return MOTOR_ERR_CONFIG;
     }
@@ -884,14 +826,10 @@ Motor_Status_e Motor_Signal_Start(void)
 Motor_Status_e Motor_Ident_Start(Ident_Mode_e Mode)
 {
     if ((Motor_State != ENABLED) ||
-        (Motor_Mode != IDENT) || !Protection_Enable_Allowed())
+        (Motor_Mode != IDENT) || (Protection.Fault != 0U) ||
+        ((Protection.Warning & PROT_UNDERVOLTAGE) != 0U))
     {
         return MOTOR_ERR_STATE;
-    }
-
-    if ((Mode != IDENT_RS_LS) && (Mode != IDENT_FLUX) && (Mode != IDENT_JB))
-    {
-        return MOTOR_ERR_CONFIG;
     }
 
     if (!Identification_Start(Mode, Motor_Cmd.Wm_Target))
@@ -934,13 +872,15 @@ float Motor_Wm_Get(void)
     return 0.0f;
 }
 
-void Motor_Position_Get(int32_t *Turn, float *Theta)
+Motor_Position_T Motor_Position_Get(void)
 {
+    Motor_Position_T Position;
     int32_t Turn_Int;
     float Theta_Int;
 
     Encoder_Position_Read(&Turn_Int, &Theta_Int);
-    Motor_Position_Internal_To_User(Turn_Int, Theta_Int, Turn, Theta);
+    Motor_Position_Internal_To_User(Turn_Int, Theta_Int, &Position.Turn, &Position.Theta);
+    return Position;
 }
 
 bool Motor_Position_Plan_Done(void)
@@ -958,14 +898,13 @@ bool Motor_Position_Plan_Done(void)
 void Motor_Plot_Normal_Update(void)
 {
     Motor_Position_T Ref;
-    int32_t Turn;
-    float Theta;
+    Motor_Position_T Position;
 
     Motor_Plot_Wm = Motor_Wm_Get();
     Motor_Plot_Wm_Ref = Motor_Wm_Ref_Get();
 
-    Motor_Position_Get(&Turn, &Theta);
-    Motor_Plot_Position = (float)Turn + Theta / TWO_PI_F;
+    Position = Motor_Position_Get();
+    Motor_Plot_Position = (float)Position.Turn + Position.Theta / TWO_PI_F;
 
     Ref = Motor_Position_Ref_Get();
     Motor_Plot_Position_Ref = (float)Ref.Turn + Ref.Theta / TWO_PI_F;

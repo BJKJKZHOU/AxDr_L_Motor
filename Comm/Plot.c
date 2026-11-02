@@ -33,7 +33,6 @@ typedef struct
     uint8_t Config_ID;
     uint8_t Count;
     Fast_Var_T Data[AXDR_FAST_MAX_CH];
-    uint8_t Valid;
 } Fast_Config_T;
 
 typedef struct
@@ -41,7 +40,6 @@ typedef struct
     uint8_t Config_ID;
     uint8_t Count;
     const volatile float *Data[AXDR_NORMAL_MAX_CH];
-    uint8_t Valid;
 } Normal_Config_T;
 
 typedef struct
@@ -85,6 +83,9 @@ static uint16_t Normal_Seq = 0U;
 
 volatile uint32_t Plot_Fast_Drop = 0U;
 volatile uint32_t Plot_Normal_Drop = 0U;
+
+const uint32_t Plot_Fast_Rate_Hz = (uint32_t)(CUR_FREQ_HZ_DEFAULT + 0.5f);
+const uint32_t Plot_Normal_Rate_Hz = (uint32_t)(SPD_FREQ_HZ_DEFAULT * 0.5f + 0.5f);
 
 static FAST_CODE int16_t Plot_Fast_Quant(float Value, float Scale)
 {
@@ -155,25 +156,14 @@ uint8_t Plot_Capability_Count(void)
     return (uint8_t)(sizeof(Plot_Capability) / sizeof(Plot_Capability[0]));
 }
 
-bool Plot_Capability_Get(uint8_t Index, Plot_Cap_T *Cap)
+void Plot_Capability_Get(uint8_t Index, Plot_Cap_T *Cap)
 {
-    if ((Cap == 0) || (Index >= Plot_Capability_Count()))
-    {
-        return false;
-    }
-
     *Cap = Plot_Capability[Index];
-    return true;
 }
 
 static bool Plot_Capability_Resolve(uint16_t Id, Plot_Cap_T *Cap)
 {
     uint8_t Count;
-
-    if (Cap == 0)
-    {
-        return false;
-    }
 
     if (Id == PLOT_DEBUG_IDENT_THETA_ID)
     {
@@ -197,54 +187,39 @@ static bool Plot_Capability_Resolve(uint16_t Id, Plot_Cap_T *Cap)
     return false;
 }
 
-uint32_t Plot_Fast_Rate_Hz(void)
-{
-    return (uint32_t)(CUR_FREQ_HZ_DEFAULT + 0.5f);
-}
-
-uint32_t Plot_Normal_Rate_Hz(void)
-{
-    return (uint32_t)(SPD_FREQ_HZ_DEFAULT * 0.5f + 0.5f);
-}
-
 AxDr_Status_e Plot_Config(uint8_t Group, uint8_t Config_ID, const uint16_t *Var, uint8_t Count)
 {
     Plot_Cap_T Cap;
-    uint8_t Mode;
 
-    if (Group > AXDR_PLOT_NORMAL)
+    if ((Group > AXDR_PLOT_NORMAL) || (Count == 0U))
     {
         return AXDR_ERR_CONFIG;
     }
-
-    Mode = (Group == AXDR_PLOT_FAST) ? AXDR_PLOT_CAP_FAST : AXDR_PLOT_CAP_NORMAL;
 
     if (Group == AXDR_PLOT_FAST)
     {
         Fast_Config_T *Config;
         uint8_t Target;
 
-        if ((Count == 0U) || (Count > AXDR_FAST_MAX_CH))
+        if (Count > AXDR_FAST_MAX_CH)
         {
             return AXDR_ERR_CONFIG;
         }
 
-        if ((Plot_Run[AXDR_PLOT_FAST] != 0U) && (Fast_Pending != 0U))
+        if (Fast_Pending != 0U)
         {
             return AXDR_ERR_STATE;
         }
 
         Target = (uint8_t)(Fast_Active ^ 1U);
         Config = &Fast_Config[Target];
-        memset(Config, 0, sizeof(*Config));
         Config->Config_ID = Config_ID;
         Config->Count = Count;
 
         for (uint8_t n = 0U; n < Count; n++)
         {
             if (!Plot_Capability_Resolve(Var[n], &Cap) ||
-                ((Cap.Modes & Mode) == 0U) ||
-                (Cap.Fast_Scale <= 0.0f))
+                ((Cap.Modes & AXDR_PLOT_CAP_FAST) == 0U))
             {
                 return AXDR_ERR_VAR_ID;
             }
@@ -252,8 +227,6 @@ AxDr_Status_e Plot_Config(uint8_t Group, uint8_t Config_ID, const uint16_t *Var,
             Config->Data[n].Data = Cap.Data;
             Config->Data[n].Scale = Cap.Fast_Scale;
         }
-
-        Config->Valid = 1U;
 
         if (Plot_Run[AXDR_PLOT_FAST] != 0U)
         {
@@ -272,33 +245,25 @@ AxDr_Status_e Plot_Config(uint8_t Group, uint8_t Config_ID, const uint16_t *Var,
         Normal_Config_T *Config;
         uint8_t Target;
 
-        if ((Count == 0U) || (Count > AXDR_NORMAL_MAX_CH))
-        {
-            return AXDR_ERR_CONFIG;
-        }
-
-        if ((Plot_Run[AXDR_PLOT_NORMAL] != 0U) && (Normal_Pending != 0U))
+        if (Normal_Pending != 0U)
         {
             return AXDR_ERR_STATE;
         }
 
         Target = (uint8_t)(Normal_Active ^ 1U);
         Config = &Normal_Config[Target];
-        memset(Config, 0, sizeof(*Config));
         Config->Config_ID = Config_ID;
         Config->Count = Count;
 
         for (uint8_t n = 0U; n < Count; n++)
         {
-            if (!Plot_Capability_Resolve(Var[n], &Cap) || ((Cap.Modes & Mode) == 0U))
+            if (!Plot_Capability_Resolve(Var[n], &Cap) || ((Cap.Modes & AXDR_PLOT_CAP_NORMAL) == 0U))
             {
                 return AXDR_ERR_VAR_ID;
             }
 
             Config->Data[n] = Cap.Data;
         }
-
-        Config->Valid = 1U;
 
         if (Plot_Run[AXDR_PLOT_NORMAL] != 0U)
         {
@@ -316,17 +281,12 @@ AxDr_Status_e Plot_Config(uint8_t Group, uint8_t Config_ID, const uint16_t *Var,
 
 AxDr_Status_e Plot_Start(uint8_t Group_Mask)
 {
-    if ((Group_Mask == 0U) || ((Group_Mask & ~(AXDR_PLOT_FAST_MASK | AXDR_PLOT_NORMAL_MASK)) != 0U))
+    if (((Group_Mask & AXDR_PLOT_FAST_MASK) != 0U) && (Fast_Config[Fast_Active].Count == 0U))
     {
         return AXDR_ERR_CONFIG;
     }
 
-    if (((Group_Mask & AXDR_PLOT_FAST_MASK) != 0U) && (Fast_Config[Fast_Active].Valid == 0U))
-    {
-        return AXDR_ERR_CONFIG;
-    }
-
-    if (((Group_Mask & AXDR_PLOT_NORMAL_MASK) != 0U) && (Normal_Config[Normal_Active].Valid == 0U))
+    if (((Group_Mask & AXDR_PLOT_NORMAL_MASK) != 0U) && (Normal_Config[Normal_Active].Count == 0U))
     {
         return AXDR_ERR_CONFIG;
     }
@@ -348,11 +308,6 @@ AxDr_Status_e Plot_Start(uint8_t Group_Mask)
 
 AxDr_Status_e Plot_Stop(uint8_t Group_Mask)
 {
-    if ((Group_Mask == 0U) || ((Group_Mask & ~(AXDR_PLOT_FAST_MASK | AXDR_PLOT_NORMAL_MASK)) != 0U))
-    {
-        return AXDR_ERR_CONFIG;
-    }
-
     if ((Group_Mask & AXDR_PLOT_FAST_MASK) != 0U)
     {
         Plot_Run[AXDR_PLOT_FAST] = 0U;
@@ -377,7 +332,7 @@ void Plot_Fast_Sample(void)
     uint8_t Fill;
     const Fast_Config_T *Config;
 
-    if ((Plot_Run[AXDR_PLOT_FAST] == 0U) || (Fast_Config[Fast_Active].Valid == 0U))
+    if (Plot_Run[AXDR_PLOT_FAST] == 0U)
     {
         return;
     }
@@ -422,7 +377,7 @@ void Plot_Normal_Sample(void)
     uint8_t Fill;
     const Normal_Config_T *Config;
 
-    if ((Plot_Run[AXDR_PLOT_NORMAL] == 0U) || (Normal_Config[Normal_Active].Valid == 0U))
+    if (Plot_Run[AXDR_PLOT_NORMAL] == 0U)
     {
         return;
     }
@@ -460,9 +415,6 @@ bool Plot_Fast_Pop(AxDr_Msg_T *Msg)
     uint8_t Sample_Count;
     uint8_t Remain;
     uint8_t Required;
-    uint16_t Src;
-    uint16_t Dst;
-    int16_t Raw;
     Plot_Buffer_Meta_T Meta;
 
     Ready = Fast_Ready;
@@ -481,25 +433,13 @@ bool Plot_Fast_Pop(AxDr_Msg_T *Msg)
 
     Msg->Id = (uint16_t)((AXDR_MSG_FAST_DATA << 6) | AXDR_NODE_ID);
     Msg->Len = AxDr_CANFD_Length(Required);
-    memset(Msg->Data, 0, Msg->Len);
+    memset(&Msg->Data[Required], 0, Msg->Len - Required);
     Msg->Data[0] = (uint8_t)Fast_Seq;
     Msg->Data[1] = (uint8_t)(Fast_Seq >> 8);
     Msg->Data[2] = Meta.Config_ID;
     Msg->Data[3] = Sample_Count;
 
-    Dst = 4U;
-
-    for (uint8_t s = 0U; s < Sample_Count; s++)
-    {
-        Src = (uint16_t)(Fast_Tx_Sample + s) * Count;
-
-        for (uint8_t n = 0U; n < Count; n++)
-        {
-            Raw = Fast_Buf[Ready][Src + n];
-            Msg->Data[Dst++] = (uint8_t)Raw;
-            Msg->Data[Dst++] = (uint8_t)((uint16_t)Raw >> 8);
-        }
-    }
+    memcpy(&Msg->Data[4], &Fast_Buf[Ready][Fast_Tx_Sample * Count], Required - 4U);
 
     Fast_Seq++;
     Fast_Tx_Sample = (uint8_t)(Fast_Tx_Sample + Sample_Count);
@@ -517,13 +457,6 @@ bool Plot_Normal_Pop(AxDr_Msg_T *Msg)
 {
     uint8_t Ready;
     uint8_t Required;
-    uint16_t Dst;
-    uint32_t Raw;
-    union
-    {
-        float F;
-        uint32_t U;
-    } Cv;
     Plot_Buffer_Meta_T Meta;
 
     Ready = Normal_Ready;
@@ -538,23 +471,13 @@ bool Plot_Normal_Pop(AxDr_Msg_T *Msg)
 
     Msg->Id = (uint16_t)((AXDR_MSG_NORMAL_DATA << 6) | AXDR_NODE_ID);
     Msg->Len = AxDr_CANFD_Length(Required);
-    memset(Msg->Data, 0, Msg->Len);
+    memset(&Msg->Data[Required], 0, Msg->Len - Required);
     Msg->Data[0] = (uint8_t)Normal_Seq;
     Msg->Data[1] = (uint8_t)(Normal_Seq >> 8);
     Msg->Data[2] = Meta.Config_ID;
     Msg->Data[3] = Meta.Count;
 
-    Dst = 4U;
-
-    for (uint8_t n = 0U; n < Meta.Count; n++)
-    {
-        Cv.F = Normal_Buf[Ready][n];
-        Raw = Cv.U;
-        Msg->Data[Dst++] = (uint8_t)Raw;
-        Msg->Data[Dst++] = (uint8_t)(Raw >> 8);
-        Msg->Data[Dst++] = (uint8_t)(Raw >> 16);
-        Msg->Data[Dst++] = (uint8_t)(Raw >> 24);
-    }
+    memcpy(&Msg->Data[4], Normal_Buf[Ready], Required - 4U);
 
     Normal_Seq++;
     Normal_Ready = PLOT_BUF_NONE;

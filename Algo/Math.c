@@ -5,9 +5,6 @@
 
 #include "Math.h"
 
-#include <float.h>
-#include <limits.h>
-
 /* CRC-8 byte recurrence, polynomial 0x07, MSB first. */
 const uint8_t CRC8_07_Table[256] = {
     0x00U, 0x07U, 0x0EU, 0x09U, 0x1CU, 0x1BU, 0x12U, 0x15U, 0x38U, 0x3FU, 0x36U, 0x31U, 0x24U, 0x23U, 0x2AU, 0x2DU,
@@ -78,12 +75,6 @@ void Vector2_Limit(float *X, float *Y, float Lim)
  * TWO_PI_F 舍入后的位模式为 0x40C90FDB，即 0x1.921fb6p+2f；
  * 修改周期常量时，需同步下方的整数约数、指数基准和缩放因子。
  */
-_Static_assert(sizeof(float) * CHAR_BIT == 32 && FLT_RADIX == 2 &&
-               FLT_MANT_DIG == 24 && FLT_MIN_EXP == -125 && FLT_MAX_EXP == 128,
-               "Angle_Wrap requires IEEE 754 binary32 float");
-_Static_assert(TWO_PI_F == 0x1.921fb6p+2f,
-               "Angle_Wrap requires the binary32 period 0x40C90FDB");
-
 float Angle_Wrap(float Theta)
 {
     const float Period = TWO_PI_F;

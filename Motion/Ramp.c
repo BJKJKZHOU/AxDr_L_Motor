@@ -7,11 +7,6 @@
 
 static float Approach(float Target, float Ref, float Step)
 {
-    if (Step <= 0.0f)
-    {
-        return Ref;
-    }
-
     if (Ref < Target)
     {
         Ref += Step;
@@ -32,23 +27,11 @@ static float Approach(float Target, float Ref, float Step)
     return Ref;
 }
 
-void Ramp_Reset(Motion_Ref_T *Ref, float Wm)
-{
-    Ref->Wm = Wm;
-    Ref->Am = 0.0f;
-}
-
 void Ramp_Run(Motion_Ref_T *Ref, float Wm_Target, float Acc, float Dec, float Ts)
 {
     float Wm_Old;
     float Wm_New;
     float Step;
-
-    if ((Acc <= 0.0f) || (Dec <= 0.0f) || (Ts <= 0.0f))
-    {
-        Ref->Am = 0.0f;
-        return;
-    }
 
     Wm_Old = Ref->Wm;
 

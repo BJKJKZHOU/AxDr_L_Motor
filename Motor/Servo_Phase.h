@@ -11,26 +11,35 @@
 
 #include "Motor_Type.h"
 
+typedef enum
+{
+    PHASE_IDLE = 0,
+    PHASE_ALIGN,
+    PHASE_RUN,
+    PHASE_ZERO_IQ,
+    PHASE_ALIGN_FINAL,
+    PHASE_DONE,
+    PHASE_FAILED,
+
+} Servo_Phase_State_e;
+                       
 typedef struct
 {
     float I_Search_A;
+    volatile Servo_Phase_State_e Step;
+    int8_t Enc_Dir;
+    float Theta_Off;
+    float Theta_Off_Error;
 
-} Servo_Phase_Config_T;
+} Servo_Phase_T;
 
-extern Servo_Phase_Config_T Servo_Phase_Config;
+/* 算法推进寻相步骤并生成结果，Enc_Control 负责取消和应用。 */
+extern Servo_Phase_T Servo_Phase;
 
 bool Servo_Phase_Start(bool Use_Harmonic);
-void Servo_Phase_Abort(void);
-bool Servo_Phase_Active(void);
-bool Servo_Phase_Apply(void);
-bool Servo_Phase_Save(void);
-/* Difference between static zero measurements at the two ALIGN positions. */
-float Servo_Phase_Theta_Off_Error_Get(void);
 
 Motor_Fast_Mode_e Servo_Phase_Fast_Run(float *Theta_e,
                                        float *Id_Ref,
-                                       float *Iq_Ref,
-                                       float *Ualpha,
-                                       float *Ubeta);
+                                       float *Iq_Ref);
 
 #endif /* SERVO_PHASE_H */

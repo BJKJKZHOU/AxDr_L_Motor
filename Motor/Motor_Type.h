@@ -101,20 +101,8 @@ typedef struct
 
 } Motor_Para_T;
 
-/*
- * Operating limits, not fault thresholds.
- *
- * Motor_Lim: firmware-defined product operating limits. Users must not
- *            configure commands beyond these limits.
- * User_Lim:  user-configurable operating limits for a more conservative
- *            application range.
- *
- * Effective control limits use the smaller value of Motor_Lim and User_Lim.
- * Reaching or clipping at these limits is normal control behavior and must
- * not be treated as a Warning/Fault/Disable condition.
- *
- * Protection thresholds and hardware trip limits are separate from this type.
- */
+/* Motor_Lim 为固件运行上限，User_Lim 在写入和恢复时限制在此范围内。
+ * 控制直接使用 User_Lim；达到限幅属于正常控制，故障阈值由 Protection 管理。 */
 typedef struct
 {
     float I_Max; /* A */

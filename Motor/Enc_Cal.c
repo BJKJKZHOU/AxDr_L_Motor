@@ -9,13 +9,10 @@
 #include "Math.h"
 #include "Mechanical_ESO.h"
 #include "Motor_ADC.h"
-#include "Motor_Cal.h"
 #include "Motor_Control.h"
 #include "motor_work.h"
 #include "Motor_Para.h"
 #include "Motion_Type.h"
-#include "NVS_Storage.h"
-#include "Parameter.h"
 #include "Sin_LUT.h"
 #include "VF.h"
 #include "control_params.h"
@@ -26,7 +23,6 @@
 #define ENC_CAL_SAMPLE_DIV     10U
 #define ENC_CAL_SAMPLE_TS      (CUR_TS * (float)ENC_CAL_SAMPLE_DIV)
 #define ENC_CAL_SAMPLES        ((uint32_t)(6.0f / ENC_CAL_SAMPLE_TS + 0.5f))
-#define ENC_CAL_COEF_MAX       0.05f
 #define ENC_CAL_STOP_WAIT_CNT  ((uint32_t)(0.3f / SPD_TS + 0.5f))
 #define ENC_CAL_STOP_WM        (10.0f * TWO_PI_F / 60.0f)
 /* 拟合后的机械角度残差 RMS：实测 0.06～0.08°，合格上限取 0.25°。 */
@@ -58,9 +54,7 @@ static FAST_CODE void Enc_Cal_Sample(float Theta_Native);
 
 bool Enc_Cal_Start(void)
 {
-    if ((Motor_Wm_Limit_Effective_Get() < ENC_CAL_WM) ||
-        (Motion_Config.Wm_Acc <= 0.0f) || (Motion_Config.Wm_Dec <= 0.0f) ||
-        (Motor_Para.Flux <= 0.0f))
+    if (User_Lim.Wm_Max < ENC_CAL_WM)
     {
         return false;
     }
@@ -70,15 +64,6 @@ bool Enc_Cal_Start(void)
 
     Enc_Cal.Step = CAL_SPEED;
     return true;
-}
-
-void Enc_Cal_Abort(void)
-{
-    if ((Enc_Cal.Step >= CAL_SPEED) && (Enc_Cal.Step < CAL_DONE))
-    {
-        /* 标记失败，使后台拟合结果在取消后失效。 */
-        Enc_Cal.Step = CAL_FAILED;
-    }
 }
 
 Motor_Fast_Mode_e Enc_Cal_Fast_Run(float *Theta_e,
@@ -133,8 +118,7 @@ static FAST_CODE void Enc_Cal_Sample(float Theta_Native)
         return;
     }
 
-    if ((Encoder.Valid == 0U) || (Encoder.Fault != 0U) ||
-        !__builtin_isfinite(Theta_Native))
+    if ((Encoder.Valid == 0U) || (Encoder.Fault != 0U))
     {
         /* 用超出目标数量的计数记录采样失败，供低频任务检查。 */
         Cal.Sample_Cnt = ENC_CAL_SAMPLES + 1U;
@@ -147,21 +131,9 @@ static FAST_CODE void Enc_Cal_Sample(float Theta_Native)
     }
     Cal.Div = 0U;
 
-    if (Cal.Sample_Cnt == 0U)
+    if (Cal.Sample_Cnt != 0U)
     {
-        Cal.Theta_Err = 0.0f;
-    }
-    else
-    {
-        Delta = Theta_Native - Cal.Theta_Pre;
-        if (Delta > PI_F)
-        {
-            Delta -= TWO_PI_F;
-        }
-        else if (Delta < -PI_F)
-        {
-            Delta += TWO_PI_F;
-        }
+        Delta = Angle_Diff(Theta_Native, Cal.Theta_Pre);
         /* 逐次累加角度误差，避免大角度相减造成浮点精度损失。 */
         Cal.Theta_Err += Delta - (float)Motor_Cal.Enc_Dir * ENC_CAL_WM * ENC_CAL_SAMPLE_TS;
     }
@@ -190,11 +162,6 @@ static bool Enc_Cal_Fit(float C[4])
 {
     double LD[ENC_CAL_FIT_N][ENC_CAL_FIT_N]; /* 下三角保存 L，对角线保存 D。 */
     double Beta[ENC_CAL_FIT_N];
-
-    if (Cal.Sample_Cnt != ENC_CAL_SAMPLES)
-    {
-        return false;
-    }
 
     for (uint32_t i = 0U; i < ENC_CAL_FIT_N; i++)
     {
@@ -244,10 +211,6 @@ static bool Enc_Cal_Fit(float C[4])
 
     for (uint32_t i = 0U; i < 4U; i++)
     {
-        if (__builtin_fabs(Beta[i + 2U]) > ENC_CAL_COEF_MAX)
-        {
-            return false;
-        }
         C[i] = (float)Beta[i + 2U];
     }
 
@@ -279,8 +242,7 @@ bool Enc_Cal_Fit_Apply(void)
 
     Primask = __get_PRIMASK();
     __disable_irq();
-    if ((Enc_Cal.Step != CAL_FIT_WAIT) || (Motor_State_Get() != DISABLED) ||
-        ((TIM1->BDTR & TIM_BDTR_MOE) != 0U))
+    if (Enc_Cal.Step != CAL_FIT_WAIT)
     {
         __set_PRIMASK(Primask);
         return false;
@@ -294,36 +256,17 @@ bool Enc_Cal_Fit_Apply(void)
     return true;
 }
 
-bool Enc_Cal_Save(void)
-{
-    const uint16_t Ids[] = {
-        /* 先保存无效标志，再保存新系数。 */
-        PARAM_CAL_VALID,
-        PARAM_ENCODER_HARMONIC_C1, PARAM_ENCODER_HARMONIC_S1,
-        PARAM_ENCODER_HARMONIC_C2, PARAM_ENCODER_HARMONIC_S2,
-    };
-
-    return NVS_Storage_Save_Ids(Ids, sizeof(Ids) / sizeof(Ids[0])) == 0;
-}
-
 void Enc_Cal_Run(void)
 {
     float Wm;
- 
-    if ((Enc_Cal.Step == CAL_IDLE) || (Enc_Cal.Step >= CAL_DONE))
-    {
-        return;
-    }
 
-    /* 拟合和保存阶段要求电机已禁能。 */
-    if (Motor_State_Get() != ((Enc_Cal.Step < CAL_FIT) ? RUN : DISABLED))
+    if ((Enc_Cal.Step == CAL_SPEED) || (Enc_Cal.Step == CAL_VF))
     {
-        Enc_Cal.Step = CAL_FAILED;
-        return;
-    }
+        if ((Enc_Cal.Step == CAL_VF) && !Cal.VF_Ready)
+        {
+            return;
+        }
 
-    if (Enc_Cal.Step == CAL_SPEED)
-    {
         Wm = Mechanical_ESO.State.Wm;
         Cal.Tick++;
         if (__builtin_fabsf(Wm - ENC_CAL_WM) < 0.1f * ENC_CAL_WM)
@@ -335,47 +278,23 @@ void Enc_Cal_Run(void)
             Cal.Hold_Cnt = 0U;
         }
 
-        if (Cal.Hold_Cnt >= ENC_CAL_SPEED_HOLD_CNT)
+        if (Enc_Cal.Step == CAL_SPEED)
         {
-            Cal.Tick = 0U;
-            Cal.Hold_Cnt = 0U;
-            Enc_Cal.Step = CAL_VF;
+            if (Cal.Hold_Cnt >= ENC_CAL_SPEED_HOLD_CNT)
+            {
+                Cal.Tick = 0U;
+                Cal.Hold_Cnt = 0U;
+                Enc_Cal.Step = CAL_VF;
+            }
+            else if (Cal.Tick > (uint32_t)((ENC_CAL_WM / Motion_Config.Wm_Acc + 4.0f) / SPD_TS))
+            {
+                Enc_Cal.Step = CAL_FAILED;
+            }
         }
-        else if (Cal.Tick > (uint32_t)((ENC_CAL_WM / Motion_Config.Wm_Acc + 4.0f) / SPD_TS))
+        else if (Cal.Tick >= ENC_CAL_VF_SETTLE_CNT)
         {
-            Enc_Cal.Step = CAL_FAILED;
+            Enc_Cal.Step = (Cal.Hold_Cnt >= ENC_CAL_SPEED_HOLD_CNT) ? CAL_SAMPLE : CAL_FAILED;
         }
-        return;
-    }
-
-    if (Enc_Cal.Step == CAL_VF)
-    {
-        if (!Cal.VF_Ready)
-        {
-            return;
-        }
-        Wm = Mechanical_ESO.State.Wm;
-        if (__builtin_isfinite(Wm) &&
-            (__builtin_fabsf(Wm - ENC_CAL_WM) < 0.1f * ENC_CAL_WM))
-        {
-            Cal.Hold_Cnt++;
-        }
-        else
-        {
-            Cal.Hold_Cnt = 0U;
-        }
-        if (++Cal.Tick < ENC_CAL_VF_SETTLE_CNT)
-        {
-            return;
-        }
-
-        if (Cal.Hold_Cnt < ENC_CAL_SPEED_HOLD_CNT)
-        {
-            Enc_Cal.Step = CAL_FAILED;
-            return;
-        }
-
-        Enc_Cal.Step = CAL_SAMPLE;
         return;
     }
 
@@ -432,15 +351,8 @@ void Enc_Cal_Run(void)
 
     if (Enc_Cal.Step == CAL_FIT)
     {
-        if ((TIM1->BDTR & TIM_BDTR_MOE) == 0U)
-        {
-            if (!Motor_Work_Request(MOTOR_WORK_FIT))
-            {
-                Enc_Cal.Step = CAL_FAILED;
-                return;
-            }
-            Enc_Cal.Step = CAL_FIT_WAIT;
-        }
+        Motor_Work_Request(MOTOR_WORK_FIT);
+        Enc_Cal.Step = CAL_FIT_WAIT;
         return;
     }
 
@@ -450,19 +362,14 @@ void Enc_Cal_Run(void)
         {
             return;
         }
-        bool Passed = (Motor_Work_State == MOTOR_WORK_DONE);
-        Motor_Work_Ack();
-        if (!Passed)
+        if (Motor_Work_State != MOTOR_WORK_DONE)
         {
+            Motor_Work_State = MOTOR_WORK_IDLE;
             Enc_Cal.Step = CAL_FAILED;
             return;
         }
 
-        if (!Motor_Work_Request(MOTOR_WORK_SAVE_ENC))
-        {
-            Enc_Cal.Step = CAL_FAILED;
-            return;
-        }
+        Motor_Work_Request(MOTOR_WORK_SAVE_ENC);
 
         Enc_Cal.Step = CAL_SAVE_WAIT;
         return;
@@ -471,6 +378,6 @@ void Enc_Cal_Run(void)
     if ((Enc_Cal.Step == CAL_SAVE_WAIT) && (Motor_Work_State >= MOTOR_WORK_DONE))
     {
         Enc_Cal.Step = (Motor_Work_State == MOTOR_WORK_DONE) ? CAL_DONE : CAL_FAILED;
-        Motor_Work_Ack();
+        Motor_Work_State = MOTOR_WORK_IDLE;
     }
 }

@@ -110,12 +110,6 @@ bool ST7789_Init(void)
     /* Q4 is a PNP high-side switch: PB7 high keeps the backlight off. */
     HAL_GPIO_WritePin(LCD_BLK_GPIO_Port, LCD_BLK_Pin, GPIO_PIN_SET);
 
-    /* Only enable the panel after CubeMX generates and links SPI3 TX DMA. */
-    if (hspi3.hdmatx == NULL)
-    {
-        return false;
-    }
-
     if (tx_semaphore_create(&LCD_Done, "LCD DMA", 0U) != TX_SUCCESS)
     {
         return false;
@@ -188,15 +182,6 @@ bool ST7789_Write(uint16_t X, uint16_t Y, uint16_t Width, uint16_t Height,
                   const uint8_t *Pixels)
 {
     uint32_t Bytes = (uint32_t)Width * Height * 2U;
-
-    if (!ST7789_Ready() || (Pixels == NULL) ||
-        (Width == 0U) || (Height == 0U) ||
-        ((uint32_t)X + Width > ST7789_WIDTH) ||
-        ((uint32_t)Y + Height > ST7789_HEIGHT) ||
-        (Bytes > UINT16_MAX))
-    {
-        return false;
-    }
 
     if (!LCD_Window(X, Y, Width, Height) || !LCD_RAM_Write_Begin())
     {

@@ -8,22 +8,6 @@
 #include "Math.h"
 #include "Sin_LUT.h"
 
-static FAST_CODE float Handover_Angle_Diff(float A, float B)
-{
-    float Diff;
-
-    Diff = A - B;
-    while (Diff > PI_F)
-    {
-        Diff -= TWO_PI_F;
-    }
-    while (Diff < -PI_F)
-    {
-        Diff += TWO_PI_F;
-    }
-    return Diff;
-}
-
 bool Handover_Blend_Run(Handover_T *Handover,
                         uint32_t Blend_Limit,
                         float Theta_Source,
@@ -40,26 +24,17 @@ bool Handover_Blend_Run(Handover_T *Handover,
     float Sin;
     float Cos;
 
-    Blend = (Blend_Limit > 0U) ? (float)(Handover->Blend_Cnt + 1U) / (float)Blend_Limit : 1.0f;
-    if (Blend > 1.0f)
-    {
-        Blend = 1.0f;
-    }
+    Blend = (float)(Handover->Blend_Cnt + 1U) / (float)Blend_Limit;
 
-    Theta_Err = Handover_Angle_Diff(Theta_Obs, Theta_Source);
+    Theta_Err = Angle_Diff(Theta_Obs, Theta_Source);
     *Theta_Use = Angle_Wrap(Theta_Source + Blend * Theta_Err);
 
-    Diff = Handover_Angle_Diff(Theta_Source, *Theta_Use);
+    Diff = Angle_Diff(Theta_Source, *Theta_Use);
     SinCos(Angle_Wrap(Diff), &Sin, &Cos);
     *Id_Ref = Id_Source * Cos - Iq_Source * Sin;
     *Iq_Ref = Id_Source * Sin + Iq_Source * Cos;
 
-    if (Handover->Blend_Cnt < Blend_Limit)
-    {
-        Handover->Blend_Cnt++;
-    }
-
-    return Handover->Blend_Cnt >= Blend_Limit;
+    return ++Handover->Blend_Cnt >= Blend_Limit;
 }
 
 float Handover_Ramp_Zero(float Value, float Step)

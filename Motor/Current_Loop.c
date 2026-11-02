@@ -19,19 +19,6 @@ uint8_t Current_Controller = CURRENT_CTRL_PI;
 float Control_LADRC_Bw_Hz = CUR_LADRC_BW_HZ_DEFAULT;
 float Control_LADRC_Eso_Bw_Hz = CUR_LADRC_ESO_BW_HZ_DEFAULT;
 
-static FAST_CODE void Current_Loop_Limits_Update(float U_Lim)
-{
-    Id_Ctrl.Para.Out_Max = U_Lim;
-    Id_Ctrl.Para.Out_Min = -U_Lim;
-    Id_Ctrl.Para.Int_Max = U_Lim;
-    Id_Ctrl.Para.Int_Min = -U_Lim;
-
-    Iq_Ctrl.Para.Out_Max = U_Lim;
-    Iq_Ctrl.Para.Out_Min = -U_Lim;
-    Iq_Ctrl.Para.Int_Max = U_Lim;
-    Iq_Ctrl.Para.Int_Min = -U_Lim;
-}
-
 void Current_Loop_State_Reset(void)
 {
     Id_Ctrl.State.Int = 0.0f;
@@ -43,10 +30,6 @@ void Current_Loop_State_Reset(void)
     Id_LADRC.State.Z2 = 0.0f;
     Iq_LADRC.State.Z1 = 0.0f;
     Iq_LADRC.State.Z2 = 0.0f;
-    Id_LADRC.Sig.Out = 0.0f;
-    Iq_LADRC.Sig.Out = 0.0f;
-    Id_LADRC.Sig.Ref_Dot = 0.0f;
-    Iq_LADRC.Sig.Ref_Dot = 0.0f;
 }
 
 /* Follow the last VF voltage with the controller selected for calibration.
@@ -56,17 +39,9 @@ void Current_Loop_Track(uint8_t Controller, float Id, float Iq, float Ud, float 
 {
     if (Controller == CURRENT_CTRL_PI)
     {
-        Id_Ctrl.Sig.Ref = Id;
-        Id_Ctrl.Sig.Fbk = Id;
-        Id_Ctrl.Sig.Err = 0.0f;
-        Id_Ctrl.Sig.Out = Ud;
         Id_Ctrl.State.Int = Ud;
         Id_Ctrl.State.Fbk_Pre = Id;
 
-        Iq_Ctrl.Sig.Ref = Iq;
-        Iq_Ctrl.Sig.Fbk = Iq;
-        Iq_Ctrl.Sig.Err = 0.0f;
-        Iq_Ctrl.Sig.Out = Uq;
         Iq_Ctrl.State.Int = Uq;
         Iq_Ctrl.State.Fbk_Pre = Iq;
         return;
@@ -78,8 +53,6 @@ void Current_Loop_Track(uint8_t Controller, float Id, float Iq, float Ud, float 
     Iq_LADRC.Sig.F0 = (-Motor_Para.Rs * Iq - Uq_FF) * Iq_LADRC.Para.B0;
     Id_LADRC.State.Z2 = -(Ud + Ud_FF) * Id_LADRC.Para.B0 - Id_LADRC.Sig.F0;
     Iq_LADRC.State.Z2 = -(Uq + Uq_FF) * Iq_LADRC.Para.B0 - Iq_LADRC.Sig.F0;
-    Id_LADRC.Sig.Out = Ud + Ud_FF;
-    Iq_LADRC.Sig.Out = Uq + Uq_FF;
 }
 
 void Current_Loop(float Id_Ref, float Iq_Ref, float U_Lim,
@@ -140,7 +113,15 @@ void Current_Loop(float Id_Ref, float Iq_Ref, float U_Lim,
         return;
     }
 
-    Current_Loop_Limits_Update(U_Lim);
+    Id_Ctrl.Para.Out_Max = U_Lim;
+    Id_Ctrl.Para.Out_Min = -U_Lim;
+    Id_Ctrl.Para.Int_Max = U_Lim;
+    Id_Ctrl.Para.Int_Min = -U_Lim;
+
+    Iq_Ctrl.Para.Out_Max = U_Lim;
+    Iq_Ctrl.Para.Out_Min = -U_Lim;
+    Iq_Ctrl.Para.Int_Max = U_Lim;
+    Iq_Ctrl.Para.Int_Min = -U_Lim;
 
     PID_Run(&Id_Ctrl, CUR_TS);
     PID_Run(&Iq_Ctrl, CUR_TS);

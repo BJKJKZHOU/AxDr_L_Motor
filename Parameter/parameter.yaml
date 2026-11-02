@@ -340,9 +340,9 @@ objects:
     binding: Motor_Config.RL_I_Peak_A
     label: RL Injection Peak
     unit: A
-    description: "RL辨识注入电流目标峰值，为直流偏置与交流幅值之和，按65%直流、35%交流分配，默认1 A；独立于保护限值。最小约0.114286 A对应交流幅值0.04 A，启动时需低于有效电流限值。"
+    description: "RL辨识注入电流目标峰值，为直流偏置与交流幅值之和，按65%直流、35%交流分配，默认1 A；启动时需低于有效电流限值，测量有效性由实测电流判断。"
     write_state: disabled
-    range: { min: 0.11428572, max_binding: Motor_Lim.I_Max }
+    range: { min: 0.0, exclusive_min: true, max_binding: Motor_Lim.I_Max }
 
   PARAM_LIMIT_I_MAX:
     id: 0x0201
@@ -378,7 +378,7 @@ objects:
     id: 0x0203
     type: f32
     access: ro
-    getter: Motor_I_Limit_Effective_Get
+    binding: User_Lim.I_Max
     label: Imax Active
     unit: A
     description: "当前控制实际使用的相电流上限。"
@@ -387,25 +387,25 @@ objects:
     id: 0x0204
     type: f32
     access: ro
-    getter: Motor_Wm_Limit_Effective_Get
+    binding: User_Lim.Wm_Max
     label: ωm Max Active
     unit: rad/s
-    description: "当前控制使用的机械速度上限，为Motor与User速度限值的较小值，与目标转速无关。"
+    description: "当前控制使用的机械速度上限，写入时已限制在Motor_Lim.Wm_Max以内。"
 
   PARAM_LIMIT_VBUS_MIN:
     id: 0x0205
     type: f32
     access: ro
-    getter: Protection_Vbus_Min_Get
+    binding: Protection_Vbus_Min
     label: Vbus Min
     unit: V
-    description: "AxDr_L板级固定欠压保护阈值，只读。"
+    description: "AxDr_L板级固定欠压警告阈值，只读。"
 
   PARAM_LIMIT_VBUS_MAX:
     id: 0x0206
     type: f32
     access: ro
-    getter: Protection_Vbus_Max_Get
+    binding: Protection_Vbus_Max
     label: Vbus Max
     unit: V
     description: "AxDr_L板级固定过压保护阈值，只读。"
@@ -474,7 +474,7 @@ objects:
     persistent: true
     binding: Encoder_Config.ABZ_PPR
     label: ABZ PPR
-    description: "ABZ每机械圈A/B周期数，TIM3固定四倍频；当前使用ABZ时修改后重建计数原点并重新寻相，无需等待Z。"
+    description: "ABZ每机械圈A/B周期数，TIM3固定四倍频；当前使用ABZ时修改后重建计数原点并重新寻相。"
     write_state: disabled
     range: { min: 1, max: 16384 }
     on_change: ENCODER_ABZ_PPR
@@ -502,7 +502,6 @@ objects:
     unit: rad
     description: "原生机械角度Cos 1谐波误差系数；写入使电角零位失效。"
     write_state: disabled
-    range: { min: -0.05, max: 0.05 }
     on_change: ENCODER_HARMONIC
 
   PARAM_ENCODER_HARMONIC_S1:
@@ -515,7 +514,6 @@ objects:
     unit: rad
     description: "原生机械角度Sin 1谐波误差系数；写入使电角零位失效。"
     write_state: disabled
-    range: { min: -0.05, max: 0.05 }
     on_change: ENCODER_HARMONIC
 
   PARAM_ENCODER_HARMONIC_C2:
@@ -528,7 +526,6 @@ objects:
     unit: rad
     description: "原生机械角度Cos 2谐波误差系数；写入使电角零位失效。"
     write_state: disabled
-    range: { min: -0.05, max: 0.05 }
     on_change: ENCODER_HARMONIC
 
   PARAM_ENCODER_HARMONIC_S2:
@@ -541,14 +538,13 @@ objects:
     unit: rad
     description: "原生机械角度Sin 2谐波误差系数；写入使电角零位失效。"
     write_state: disabled
-    range: { min: -0.05, max: 0.05 }
     on_change: ENCODER_HARMONIC
 
   PARAM_PHASE_I_SEARCH:
     id: 0x0401
     type: f32
     access: rw
-    binding: Servo_Phase_Config.I_Search_A
+    binding: Servo_Phase.I_Search_A
     label: Phase Search Current
     unit: A
     description: "伺服寻相两次静态ALIGN的Id电流及方向辨识起转的Iq电流；起转后Iq归零等待500ms。"
@@ -589,7 +585,7 @@ objects:
     id: 0x0410
     type: f32
     access: ro
-    getter: Servo_Phase_Theta_Off_Error_Get
+    binding: Servo_Phase.Theta_Off_Error
     label: Phase Offset Error
     unit: rad
     description: "两次静态ALIGN计算得到的电角零位偏差，单位rad；最后一次成功计算后更新。"
@@ -620,7 +616,7 @@ objects:
     id: 0x0501
     type: position
     access: ro
-    getter: Parameter_Run_Position_Get
+    getter: Motor_Position_Get
     label: Position
     unit: turn+rad
     description: "当前用户机械坐标下的位置反馈。"

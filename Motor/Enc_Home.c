@@ -10,7 +10,6 @@
 #include "Math.h"
 #include "Motor_Config.h"
 #include "Motor_Control.h"
-#include "Motion_Type.h"
 #include "main.h"
 
 Enc_Home_T Enc_Home = { .Wm = 1.0f };
@@ -19,9 +18,8 @@ bool Enc_Home_Start(void)
 {
     if ((Motor_Cal.Valid == 0U) || (Encoder.Ready == 0U) ||
         (Encoder.Fault != 0U) || (Encoder_Config.Protocol != ENC_PROTOCOL_ABZ) ||
-        !__builtin_isfinite(Enc_Home.Wm) || (Enc_Home.Wm == 0.0f) ||
-        (__builtin_fabsf(Enc_Home.Wm) > Motor_Wm_Limit_Effective_Get()) ||
-        (Motion_Config.Wm_Acc <= 0.0f) || (Motion_Config.Wm_Dec <= 0.0f))
+        (Enc_Home.Wm == 0.0f) ||
+        (__builtin_fabsf(Enc_Home.Wm) > User_Lim.Wm_Max))
     {
         return false;
     }
@@ -29,7 +27,7 @@ bool Enc_Home_Start(void)
     Enc_Home.Wm_Save = Motor_Cmd.Wm_Target;
     Enc_Home.Position_Save = Motor_Cmd.Position_Target;
     Enc_Home.Valid = 0U;
-    Motor_Position_Get(&Motor_Cmd.Position_Target.Turn, &Motor_Cmd.Position_Target.Theta);
+    Motor_Cmd.Position_Target = Motor_Position_Get();
     /* Z 每圈一次，最多搜索两圈。 */
     Motor_Cmd.Position_Target.Turn += (Enc_Home.Wm > 0.0f) ? 2 : -2;
     Motor_Cmd.Wm_Target = __builtin_fabsf(Enc_Home.Wm);
@@ -76,8 +74,7 @@ void Enc_Home_Run(void)
     Enc_Step_e Step = Enc_Step;
     uint32_t Primask;
 
-    if ((Motor_State_Get() != RUN) || (Motor_Cal.Valid == 0U) ||
-        (Encoder.Valid == 0U) || (Encoder.Fault != 0U))
+    if ((Encoder.Valid == 0U) || (Encoder.Fault != 0U))
     {
         Enc_Step = ENC_FAILED;
         return;

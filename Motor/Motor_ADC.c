@@ -70,18 +70,6 @@ void ADC_Calib(void)
     JSQR1 = ADC1->JSQR;
     JSQR2 = ADC2->JSQR;
 
-    /* Both ADCs must be independent, with the same TIM1 TRGO2 trigger.
-     * ADC1 uses one current rank; ADC2 keeps current + Vbus (rank 2).
-     * Generated ADC configuration is authoritative for this initial context. */
-    if ((LL_ADC_GetMultimode(__LL_ADC_COMMON_INSTANCE(ADC1)) != LL_ADC_MULTI_INDEPENDENT) ||
-        ((JSQR1 & ADC_JSQR_JEXTEN) == 0U) ||
-        (((JSQR1 ^ JSQR2) & (ADC_JSQR_JEXTSEL | ADC_JSQR_JEXTEN)) != 0U) ||
-        ((JSQR1 & ADC_JSQR_JL) != 0U) ||
-        ((JSQR2 & ADC_JSQR_JL) != ADC_JSQR_JL_0))
-    {
-        Error_Handler();
-    }
-
     /* Alternate Rank1 channels use the same acquisition time. */
     LL_ADC_SetChannelSamplingTime(ADC1, ADC1_IB_CH,
                                   LL_ADC_GetChannelSamplingTime(ADC1, ADC1_IA_CH));
@@ -220,7 +208,6 @@ static void Iabc_Calib(void)
 void Fast_Loop(void)
 {
     Motor_Fast_Mode_e Fast_Mode;
-    bool Current_OK;
     bool Encoder_Park_Valid;
     bool Sensored;
     bool Cal_Handoff;
@@ -301,8 +288,8 @@ void Fast_Loop(void)
     Encoder_Theta_e = 0.0f;
     Iq_Encoder = 0.0f;
 
-    /* Check current protection before observer work; trip disables PWM here. */
-    Current_OK = Protection_Current_Fast(ADC.Ia_A, ADC.Ib_A, ADC.Ic_A);
+    /* 采样后统一判定保护事件，故障在此关断输出。 */
+    Protection_Fast_Run();
 
     /* Feedback remains live with PWM off and in every control mode. */
     if ((Encoder.Ready != 0U) && (Encoder.Fault == 0U) &&
@@ -322,20 +309,9 @@ void Fast_Loop(void)
         Mechanical_ESO_Run(Theta_m, Encoder.Valid != 0U, Iq_Encoder);
     }
 
-    if (!Current_OK)
+    if (Protection.Fault != 0U)
     {
         Signal_Injection_Stop();
-        Motor_Run.Ualpha = 0.0f;
-        Motor_Run.Ubeta = 0.0f;
-        goto finish;
-    }
-
-    /* A latched encoder fault must also turn off an ENABLED servo hold.
-     * The 2 kHz protection task performs the final Disable transition. */
-    if ((Encoder.Fault != 0U) && (Motor_State_Get() != DISABLED) &&
-        Motor_Encoder_Required())
-    {
-        PWM_Disable();
         Motor_Run.Ud = 0.0f;
         Motor_Run.Uq = 0.0f;
         Motor_Run.Ualpha = 0.0f;
@@ -351,17 +327,11 @@ void Fast_Loop(void)
                    ((Enc_Cal.Step == CAL_DECEL) && Enc_Cal_Handoff_Ready));
     if (Cal_Handoff)
     {
-        if (!Encoder_Park_Valid)
-        {
-            Encoder_Theta_e = Angle_Wrap((float)Motor_Para.Pp * Motor_Run.Theta_m + Motor_Cal.Theta_Off);
-            SinCos(Encoder_Theta_e, &Sin, &Cos);
-            Iq_Encoder = -Ialpha * Sin + Ibeta * Cos;
-        }
         Motor_Run.Id = Ialpha * Cos + Ibeta * Sin;
         Motor_Run.Iq = Iq_Encoder;
     }
 
-    Fast_Mode = Motor_Fast_Run(Encoder_Theta_e, Encoder_Park_Valid,
+    Fast_Mode = Motor_Fast_Run(Ialpha, Ibeta, Encoder_Theta_e,
                                &Theta_e, &Id_Ref, &Iq_Ref, &Ualpha, &Ubeta);
     Motor_Plot_Iq_Ref = Iq_Ref;
 
@@ -382,12 +352,13 @@ void Fast_Loop(void)
 
     if (Fast_Mode == FAST_CURRENT)
     {
-        Sensored = ((Enc_Step == ENC_CAL_RUN) &&
-                    ((Enc_Cal.Step == CAL_SPEED) || (Enc_Cal.Step == CAL_DECEL))) ||
-                   Enc_Home_Active() ||
-                   (!Enc_Control_Active() && (Motor_Mode <= POSITION));
+        bool Cal_Speed = (Enc_Step == ENC_CAL_RUN) &&
+                         ((Enc_Cal.Step == CAL_SPEED) || (Enc_Cal.Step == CAL_DECEL));
+
+        Sensored = Cal_Speed || (Motor_Mode <= POSITION);
         Controller = Sensored ? Current_Controller : CURRENT_CTRL_PI;
-        if ((Controller == CURRENT_CTRL_DPCC) && Enc_Control_Active() && !Enc_Home_Active())
+        /* 校准升降速将 DPCC 切回 PI；普通伺服（含位置回零）使用所选控制器。 */
+        if ((Controller == CURRENT_CTRL_DPCC) && Cal_Speed)
         {
             Controller = CURRENT_CTRL_PI;
         }
@@ -426,7 +397,7 @@ void Fast_Loop(void)
 
         /* One command-current limit for every current-controlled mode, including
          * phase search, I/F and the final injected d-axis reference. */
-        Vector2_Limit(&Id_Ref, &Iq_Ref, Motor_I_Limit_Effective_Get());
+        Vector2_Limit(&Id_Ref, &Iq_Ref, User_Lim.I_Max);
         Motor_Plot_Iq_Ref = Iq_Ref;
 
         U_Lim = ADC.Vbus_V * INV_SQRT3_F * VOLT_MOD_MAX;
@@ -489,10 +460,7 @@ void Fast_Loop(void)
         Next_Sample = ADC_SAMPLE_AB;
     }
 
-    if (!ADC_Phase_Set(Next_Sample))
-    {
-        goto finish;
-    }
+    (void)ADC_Phase_Set(Next_Sample);
 
 finish:
     Plot_Fast_Sample();

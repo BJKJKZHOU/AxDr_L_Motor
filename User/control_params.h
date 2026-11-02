@@ -106,7 +106,7 @@
 #define OPEN_ALIGN_ID_A   0.2f
 #define OPEN_ALIGN_TIME_S 0.5f
 #define OPEN_ALIGN_CNT    ((uint32_t)(OPEN_ALIGN_TIME_S / CUR_TS + 0.5f))
-#define OPEN_IQ_A         0.2f
+#define OPEN_IQ_A         1.0f
 
 /* Standard Align / I/F timing. Motor-specific currents live in Motor_Config. */
 #define IF_ALIGN_TIME_S 1.0f

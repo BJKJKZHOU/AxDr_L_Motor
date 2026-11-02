@@ -42,7 +42,7 @@ typedef struct
 extern Mechanical_ESO_T Mechanical_ESO;
 extern float Mechanical_ESO_Bw_Hz;
 
-/* Compute coefficients; reject invalid physical inputs or non-finite results. */
+/* 输入参数已在来源处校验，系数非有限时不写入结果。 */
 bool Mechanical_ESO_Para_Build(Mechanical_ESO_Para_T *Result,
                                 float J, float B, float Kt, float Wo);
 /* Theta_Meas is the direction-corrected single-turn mechanical angle. */

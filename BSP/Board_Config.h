@@ -41,10 +41,8 @@
 #define DRIVE_WM_MAX    (DRIVE_WM_MAX_RPM * 6.283185307f / 60.0f)
 
 /* AxDrive-L V1.3 固定母线保护阈值。 */
-#define VBUS_UV_FAULT_V          5.0f
+#define VBUS_UV_WARNING_V        5.0f
 #define VBUS_OV_FAULT_V         52.0f
-#define VBUS_UV_DEBOUNCE_TICKS  20U /* 2 kHz Motor Thread 下 10 ms。 */
-#define VBUS_OV_DEBOUNCE_TICKS   1U /* 2 kHz Motor Thread 下 0.5 ms。 */
 
 /* AxDrive-L V1.3 软件过流保护阈值。 */
 #define PROT_CURRENT_OVERLOAD_A       15.0f
