@@ -20,6 +20,23 @@ FAST_CODE int8_t Limit_Value(float *Value, float Min, float Max);
 FAST_CODE void Vector2_Limit(float *X, float *Y, float Lim);
 FAST_CODE float Angle_Wrap(float Theta);
 
+/* 单圈角度之差按 ±π 折返，恰好 ±π 时保留原符号。 */
+static inline float Angle_Diff(float Theta, float Theta_Pre)
+{
+    float Delta = Theta - Theta_Pre;
+
+    if (Delta > PI_F)
+    {
+        Delta -= TWO_PI_F;
+    }
+    else if (Delta < -PI_F)
+    {
+        Delta += TWO_PI_F;
+    }
+
+    return Delta;
+}
+
 /* Polynomial 0x07, MSB first, no reflection or final XOR.
  * Pass the initial CRC on the first byte, then the previous result. */
 extern const uint8_t CRC8_07_Table[256];

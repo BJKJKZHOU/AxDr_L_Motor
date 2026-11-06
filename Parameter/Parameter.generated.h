@@ -91,7 +91,7 @@ typedef enum
     /* Motor_Config.IF_Current_A: 该电机标准I/F开环拖动使用的q轴电流，供Flux/JB辨识与正常无感运行共用。 */
     PARAM_MOTOR_IF_CURRENT = 0x0118U,
 
-    /* Motor_Config.RL_I_Peak_A: RL辨识注入电流目标峰值，为直流偏置与交流幅值之和，按65%直流、35%交流分配，默认1 A；独立于保护限值。最小约0.114286 A对应交流幅值0.04 A，启动时需低于有效电流限值。 */
+    /* Motor_Config.RL_I_Peak_A: RL辨识注入电流目标峰值，为直流偏置与交流幅值之和，按65%直流、35%交流分配，默认1 A；启动时需低于有效电流限值，测量有效性由实测电流判断。 */
     PARAM_MOTOR_RL_I_PEAK = 0x0119U,
 
     /* User_Lim.I_Max: 用户配置的最大相电流限制，实际限制不会超过硬件/固件Motor_Lim.I_Max。 */
@@ -100,16 +100,16 @@ typedef enum
     /* User_Lim.Wm_Max: 用户配置的最大机械角速度限制，实际限制不会超过Motor_Lim.Wm_Max。 */
     PARAM_LIMIT_WM_MAX = 0x0202U,
 
-    /* Motor_I_Limit_Effective_Get(): 当前控制实际使用的相电流上限。 */
+    /* User_Lim.I_Max: 当前控制实际使用的相电流上限。 */
     PARAM_LIMIT_I_EFFECTIVE = 0x0203U,
 
-    /* Motor_Wm_Limit_Effective_Get(): 当前控制使用的机械速度上限，为Motor与User速度限值的较小值，与目标转速无关。 */
+    /* User_Lim.Wm_Max: 当前控制使用的机械速度上限，写入时已限制在Motor_Lim.Wm_Max以内。 */
     PARAM_LIMIT_WM_EFFECTIVE = 0x0204U,
 
-    /* Protection_Vbus_Min_Get(): AxDr_L板级固定欠压保护阈值，只读。 */
+    /* Protection_Vbus_Min: AxDr_L板级固定欠压警告阈值，只读。 */
     PARAM_LIMIT_VBUS_MIN = 0x0205U,
 
-    /* Protection_Vbus_Max_Get(): AxDr_L板级固定过压保护阈值，只读。 */
+    /* Protection_Vbus_Max: AxDr_L板级固定过压保护阈值，只读。 */
     PARAM_LIMIT_VBUS_MAX = 0x0206U,
 
     /* Encoder_Config.Protocol: 运行前选择的编码器通信协议。 */
@@ -127,6 +127,9 @@ typedef enum
     /* Encoder_Config.SPI_Type: SPI协议下选择的编码器芯片协议。 */
     PARAM_ENCODER_SPI_TYPE = 0x0310U,
 
+    /* Encoder_Config.ABZ_PPR: ABZ每机械圈A/B周期数，TIM3固定四倍频；当前使用ABZ时修改后重建计数原点并重新寻相。 */
+    PARAM_ENCODER_ABZ_PPR = 0x0316U,
+
     /* Encoder.Theta_Native: 方向和谐波补偿之前的原生机械角度。 */
     PARAM_ENCODER_THETA_NATIVE = 0x0311U,
 
@@ -142,10 +145,10 @@ typedef enum
     /* Encoder_Harmonic.S2: 原生机械角度Sin 2谐波误差系数；写入使电角零位失效。 */
     PARAM_ENCODER_HARMONIC_S2 = 0x0315U,
 
-    /* Servo_Phase_Config.I_Search_A: 伺服寻相两次静态ALIGN的Id电流及方向辨识起转的Iq电流；起转后Iq归零等待500ms。 */
+    /* Servo_Phase.I_Search_A: 伺服寻相两次静态ALIGN的Id电流及方向辨识起转的Iq电流；起转后Iq归零等待500ms。 */
     PARAM_PHASE_I_SEARCH = 0x0401U,
 
-    /* Motor_Cal.Valid: 当前寻相结果是否有效；重新寻相或用户修改极对数、编码器协议、SPI类型时清零，结果应用成功时置位，上电按保存值恢复。 */
+    /* Motor_Cal.Valid: 0=未寻相，1=寻相完成但编码器未校准，2=寻相及编码器校准有效；1和2均允许有感运行。极对数或当前使用的编码器配置变化时清零；独立重新寻相在新结果应用前保留原状态，完整编码器校准应用新系数后清零并在最终寻相成功后置2。SPI上电按保存值恢复，ABZ上电清零并要求重新寻相。 */
     PARAM_CAL_VALID = 0x0402U,
 
     /* Motor_Cal.Enc_Dir: 寻相得到的编码器方向符号，按工程约定用于机械方向对齐。 */
@@ -154,10 +157,16 @@ typedef enum
     /* Motor_Cal.Theta_Off: 寻相/校准得到的编码器到电角度的零位偏置。 */
     PARAM_CAL_THETA_OFF = 0x0404U,
 
-    /* Servo_Phase_Theta_Off_Error_Get(): 两次静态ALIGN计算得到的电角零位偏差，单位rad；最后一次成功计算后更新。 */
+    /* Servo_Phase.Theta_Off_Error: 两次静态ALIGN计算得到的电角零位偏差，单位rad；最后一次成功计算后更新。 */
     PARAM_PHASE_THETA_OFF_ERROR = 0x0410U,
 
-    /* Parameter_Run_Position_Get(): 当前用户机械坐标下的位置反馈。 */
+    /* Enc_Home.Wm: 机械回零搜索速度，默认1 rad/s；正负号按用户方向，零速不能启动；仅保存在RAM。 */
+    PARAM_ENC_HOME_WM = 0x0420U,
+
+    /* Enc_Home.Valid: 1=机械回零完成；断电、编码器重新配置、重新寻相或校准后失效。 */
+    PARAM_ENC_HOME_VALID = 0x0421U,
+
+    /* Motor_Position_Get(): 当前用户机械坐标下的位置反馈。 */
     PARAM_RUN_POSITION = 0x0501U,
 
     /* Motor_Wm_Get(): 当前用户机械坐标下的机械角速度反馈。 */
@@ -184,7 +193,7 @@ typedef enum
     /* Motion_Config.Profile: 有感Speed/Position轨迹：0梯形；1五次速度S曲线、保持梯形加减速时间（峰值1.875倍）；2五次速度S曲线、保持峰值加减速度（时间1.875倍）。允许DISABLED/ENABLED修改，RUN禁止。 */
     PARAM_MOTION_PROFILE = 0x0605U,
 
-    /* Motor_Mode: 当前选择的电机控制模式；与TORQUE/SPEED/POSITION/OPEN_LOOP/IDENT/SENSORLESS_SPEED/PHASE_SEARCH对应。 */
+    /* Motor_Mode: 当前选择的电机控制模式；与TORQUE/SPEED/POSITION/OPEN_LOOP/IDENT/SENSORLESS_SPEED/ENCODER_CAL对应。 */
     PARAM_MOTOR_MODE = 0x0701U,
 
     /* Open_Loop_Method: 开环运行方法：IF或VF；在Disabled下选择，IF为默认。 */
@@ -316,7 +325,7 @@ typedef enum
     /* MOTOR_CMD_ENABLE: 使能电机功率级。 */
     ACTION_MOTOR_ENABLE = 0x1001U,
 
-    /* MOTOR_CMD_RUN: 按当前Motor Mode启动运行；PHASE_SEARCH模式下作为异步寻相启动动作。 */
+    /* MOTOR_CMD_RUN: 按当前Motor Mode启动正常运行；IDENT和ENCODER_CAL必须使用各自的专用启动Action。 */
     ACTION_MOTOR_RUN = 0x1002U,
 
     /* MOTOR_CMD_STOP: 请求停止当前运行；运动模式按当前减速度受控停稳后回到ENABLED，Disable仍用于立即关闭驱动。 */
@@ -400,8 +409,14 @@ typedef enum
     /* MOTOR_CMD_SIGNAL_ABORT: 立即取消激励，不改变正常Motor Stop/Disable状态。 */
     ACTION_SIGNAL_ABORT = 0x1302U,
 
-    /* MOTOR_CMD_ENC_CAL_START: 固件自动执行有感升速、VF采样辨识、应用谐波补偿及重新寻相保存。 */
+    /* MOTOR_CMD_ENC_START: 在ENCODER_CAL/DISABLED启动；固件自动执行有感升速、VF采样辨识、应用谐波补偿及重新寻相保存，完成后禁能并保留模式。 */
     ACTION_ENC_CAL_START = 0x1401U,
+
+    /* MOTOR_CMD_ENC_START: 在ENCODER_CAL/DISABLED启动寻相；固件自动使能、运行、应用并保存方向与电角零位，完成后禁能并保留模式。 */
+    ACTION_ENC_PHASE_START = 0x1402U,
+
+    /* MOTOR_CMD_ENC_START: 在POSITION/DISABLED启动，要求本次上电已寻相且使用ABZ；按当前轨迹参数低速搜索Z，触发后返回触发位置并保持使能。最多搜索两圈，机械零点仅保存在RAM。 */
+    ACTION_ENC_HOME_START = 0x1403U,
 
 } Parameter_Id_e;
 

@@ -7,7 +7,6 @@
 
 #include <errno.h>
 #include <stdbool.h>
-#include <string.h>
 
 #include "Flash_Storage.h"
 #include "Parameter.h"
@@ -50,19 +49,13 @@ int NVS_Storage_Load_All(void)
         return Status;
     }
 
-    while (Parameter_Persistent_Next(&Index, &Id, &Type, &Value))
+    while (Parameter_Persistent_Next(&Index, &Id, &Type, NULL))
     {
         Size = Parameter_Value_Size(Type);
-        if (Size == 0U)
-        {
-            continue;
-        }
-
-        memset(&Value, 0, sizeof(Value));
         Rc = nvs_read(&Storage_NVS, Id, &Value, Size);
         if (Rc == (ssize_t)Size)
         {
-            (void)Parameter_Restore(Id, Type, Value);
+            (void)Parameter_Restore(Index, Value);
         }
     }
 
@@ -74,19 +67,8 @@ static int Record_Save(uint16_t Id, Parameter_Type_e Type, Parameter_Value_T Val
     uint8_t Size = Parameter_Value_Size(Type);
     ssize_t Rc;
 
-    if (Size == 0U)
-    {
-        return -EINVAL;
-    }
-
     Rc = nvs_write(&Storage_NVS, Id, &Value, Size);
-    if (Rc < 0)
-    {
-        return (int)Rc;
-    }
-
-    /* Zephyr NVS also returns zero when the value is already stored. */
-    return ((Rc == 0) || (Rc == (ssize_t)Size)) ? 0 : -EIO;
+    return (Rc < 0) ? (int)Rc : 0;
 }
 
 int NVS_Storage_Save_All(void)
@@ -115,21 +97,23 @@ int NVS_Storage_Save_All(void)
     return 0;
 }
 
+int NVS_Storage_Delete(uint16_t Id)
+{
+    int Status = NVS_Storage_Init();
+
+    if (Status != 0)
+    {
+        return Status;
+    }
+
+    return nvs_delete(&Storage_NVS, Id);
+}
+
 int NVS_Storage_Save_Ids(const uint16_t *Ids, uint16_t Count)
 {
     Parameter_Value_T Value;
     Parameter_Type_e Type;
     int Status;
-
-    if ((Count != 0U) && (Ids == NULL))
-    {
-        return -EINVAL;
-    }
-
-    if (Count == 0U)
-    {
-        return 0;
-    }
 
     Status = NVS_Storage_Init();
     if (Status != 0)

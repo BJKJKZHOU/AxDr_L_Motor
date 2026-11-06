@@ -7,7 +7,7 @@
 
 #include "LCD_Wave.h"
 #include "ST7789.h"
-#include "main.h"
+#include "Key.h"
 #include "Motor_Control.h"
 #include "RGB.h"
 #include "motor_thread.h"
@@ -15,37 +15,8 @@
 /* LCD rendering/HAL nesting plus the Cortex-M4F exception context. */
 #define PANEL_STACK_SIZE  1024U
 #define PANEL_THREAD_PRIO 12U
-#define KEY_SCAN_TICK     5U
-#define KEY_STABLE_CNT    3U
-
-typedef struct
-{
-    GPIO_PinState State;
-    uint8_t Cnt;
-
-} Key_T;
 
 static TX_THREAD Panel_Thread;
-
-static uint32_t Key_Press(Key_T *Key, GPIO_TypeDef *Port, uint16_t Pin)
-{
-    GPIO_PinState Sample;
-
-    Sample = HAL_GPIO_ReadPin(Port, Pin);
-
-    if (Sample == Key->State)
-    {
-        Key->Cnt = 0U;
-    }
-    else if (++Key->Cnt == KEY_STABLE_CNT)
-    {
-        Key->Cnt = 0U;
-        Key->State = Sample;
-        return (Sample == GPIO_PIN_RESET) ? 1U : 0U;
-    }
-
-    return 0U;
-}
 
 static void Panel_LED(Motor_State_e State)
 {
@@ -71,15 +42,11 @@ static void Panel_LED(Motor_State_e State)
 
 static void Panel_Entry(ULONG thread_input)
 {
-    Key_T Key1 = { GPIO_PIN_SET, 0U };
-    Key_T Key2 = { GPIO_PIN_SET, 0U };
-    Key_T Key3 = { GPIO_PIN_SET, 0U };
+    Key_T Keys[3] = { 0 };
     Motor_State_e State;
     Motor_State_e State_Pre;
     Motor_Cmd_Msg_T Msg = { 0 };
-    uint32_t Key1_Press;
-    uint32_t Key2_Press;
-    uint32_t Key3_Press;
+    uint32_t Press;
     uint32_t Tick;
     uint32_t Key_Tick;
 
@@ -98,18 +65,16 @@ static void Panel_Entry(ULONG thread_input)
         if ((uint32_t)(Tick - Key_Tick) >= KEY_SCAN_TICK)
         {
             Key_Tick = Tick;
-            Key1_Press = Key_Press(&Key1, KEY1_GPIO_Port, KEY1_Pin);
-            Key2_Press = Key_Press(&Key2, KEY2_GPIO_Port, KEY2_Pin);
-            Key3_Press = Key_Press(&Key3, KEY3_GPIO_Port, KEY3_Pin);
+            Press = Key_Scan(Keys);
 
-            if ((Key1_Press != 0U) || (Key2_Press != 0U) ||
-                ((Key3_Press != 0U) && (Motor_State_Get() == DISABLED)))
+            if (((Press & KEY_1) != 0U) || ((Press & KEY_2) != 0U) ||
+                (((Press & KEY_3) != 0U) && (Motor_State_Get() == DISABLED)))
             {
-                if (Key1_Press != 0U)
+                if ((Press & KEY_1) != 0U)
                 {
                     Msg.Cmd = (ULONG)MOTOR_CMD_EN_TOGGLE;
                 }
-                else if (Key2_Press != 0U)
+                else if ((Press & KEY_2) != 0U)
                 {
                     Msg.Cmd = (ULONG)MOTOR_CMD_RUN_TOGGLE;
                 }

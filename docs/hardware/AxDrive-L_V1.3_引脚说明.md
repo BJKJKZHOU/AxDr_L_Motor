@@ -78,10 +78,12 @@ PA0 的模拟引脚初始化及反初始化归属 ADC2。
 
 | 原理图信号 | MCU 引脚 | 当前配置 | 说明 |
 | --- | --- | --- | --- |
-| `SPI1_SCK` | PB3 | SPI1_SCK | 编码器时钟 |
-| `SPI1_MISO` | PB4 | SPI1_MISO | 编码器数据输入 |
-| `SPI1_MOSI` | PB5 | SPI1_MOSI | 编码器数据输出 |
-| `SPI1_CSN` | PD2 | GPIO 输出 | 片选，当前上电置高 |
+| `SPI1_SCK` | PB3 | SPI1_SCK | SPI 时钟；ABZ 模式为 Z / EXTI3 |
+| `SPI1_MISO` | PB4 | SPI1_MISO | SPI 数据输入；ABZ 模式为 B / TIM3_CH1 |
+| `SPI1_MOSI` | PB5 | SPI1_MOSI | SPI 数据输出；ABZ 模式为 A / TIM3_CH2 |
+| `SPI1_CSN` | PD2 | GPIO 上拉输入 | 选择 SPI 后配置为片选输出，空闲置高；ABZ 模式不接 |
+
+SPI1 初始化延后到读取编码器协议参数之后，仅选择 SPI 时才配置 PB3/PB4/PB5 复用。CN47 的 ABZ 默认线序从 GND 端开始为 **GND → A → B → Z → 空 → VCC**；接线和运行时切换见 [ABZ 编码器接入](ABZ编码器接入.md)。
 
 ### 4.2 Hall 接口
 
@@ -183,3 +185,14 @@ KEY1/KEY2/KEY3 同一轮扫描触发时按此顺序优先处理。
 5. TIM1 CH1～CH5 时基关系和电机控制时序由电机控制文档说明，本文档只记录硬件引脚归属。
 
 LCD 显示配置与实测结果见[LCD 显示与实时性验证记录](../tests/system/LCD显示与实时性验证记录.md)。
+
+## 10. 固件中的板级配置
+
+| 配置位置 | 职责 |
+| --- | --- |
+| `BSP/Encoder_Port.c/.h` | 共用编码器接口的引脚复用、TX DMAMUX 路由、ABZ 定时器配置和 Z 中断入口 |
+| `User/control_params.h` | 采样电阻、放大倍数、母线分压电阻、ADC 参考电压及满量程等采样换算参数 |
+| `BSP/Board_Config.h` | ADC 通道映射、编码器外设资源、开发板运行上限和保护阈值 |
+| `BSP/Key.c/.h` | 三个按键的引脚读取、低有效电平转换和消抖；每 5 tick 扫描，连续 3 次稳定采样确认变化，按下返回事件 |
+
+SPI 芯片驱动保留帧格式、收发时序和错误处理；`Motor_ADC.c` 保留采样相选择与电流重构；面板线程保留按键动作和同时按下时的优先级。高频采样通过板级常量直接访问寄存器。CubeMX 仍负责基础外设和 GPIO 初始化。

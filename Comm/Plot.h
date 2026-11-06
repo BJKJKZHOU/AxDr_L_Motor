@@ -32,14 +32,15 @@ typedef struct
 extern volatile uint32_t Plot_Fast_Drop;
 extern volatile uint32_t Plot_Normal_Drop;
 
+extern const uint32_t Plot_Fast_Rate_Hz;
+extern const uint32_t Plot_Normal_Rate_Hz;
+
 AxDr_Status_e Plot_Config(uint8_t Group, uint8_t Config_ID, const uint16_t *Var, uint8_t Count);
 AxDr_Status_e Plot_Start(uint8_t Group_Mask);
 AxDr_Status_e Plot_Stop(uint8_t Group_Mask);
 
 uint8_t Plot_Capability_Count(void);
-bool Plot_Capability_Get(uint8_t Index, Plot_Cap_T *Cap);
-uint32_t Plot_Fast_Rate_Hz(void);
-uint32_t Plot_Normal_Rate_Hz(void);
+void Plot_Capability_Get(uint8_t Index, Plot_Cap_T *Cap);
 
 FAST_CODE void Plot_Fast_Sample(void);
 void Plot_Normal_Sample(void);

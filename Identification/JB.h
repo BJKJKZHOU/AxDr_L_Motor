@@ -23,12 +23,10 @@ extern JB_Result_T JB_Result;
 
 bool JB_Start(void);
 void JB_Control(void);
-Motor_Fast_Mode_e JB_Fast_Run(float Ia_A,
-                              float Ib_A,
+Motor_Fast_Mode_e JB_Fast_Run(float Ialpha,
+                              float Ibeta,
                               float *Theta_e,
                               float *Id_Ref,
-                              float *Iq_Ref,
-                              float *Ualpha_V,
-                              float *Ubeta_V);
+                              float *Iq_Ref);
 
 #endif /* JB_H */

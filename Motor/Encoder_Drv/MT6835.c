@@ -6,6 +6,7 @@
 #include "MT6835.h"
 
 #include "Encoder.h"
+#include "Encoder_Port.h"
 #include "Math.h"
 #include "control_params.h"
 #include "main.h"
@@ -19,7 +20,7 @@
 #define ENC_UNDERVOLT_FAULT_MS  2U
 #define ENC_UNDERVOLT_FAULT_CNT ((uint16_t)((CUR_FREQ_HZ_DEFAULT * (float)ENC_UNDERVOLT_FAULT_MS) / 1000.0f))
 
-/* At 170 MHz: CSN setup 100 ns, SPI timeout 1 us. */
+/* 170 MHz 下：片选建立时间 100 ns，SPI 超时 1 us。 */
 #define ENC_CSN_LOW_CYC 17U
 #define ENC_SPI_END_CYC 170U
 
@@ -34,18 +35,18 @@ static FAST_CODE void Transfer_Abort(void)
     uint32_t CR1;
     uint32_t CR2;
 
-    CLEAR_BIT(DMA1_Channel3->CCR, DMA_CCR_EN);
-    CLEAR_BIT(DMA1_Channel5->CCR, DMA_CCR_EN);
-    DMA1->IFCR = DMA_IFCR_CGIF3 | DMA_IFCR_CGIF5;
-    SPI1_CSN_GPIO_Port->BSRR = SPI1_CSN_Pin;
+    CLEAR_BIT(ENC_DMA_TX->CCR, DMA_CCR_EN);
+    CLEAR_BIT(ENC_DMA_RX->CCR, DMA_CCR_EN);
+    ENC_DMA->IFCR = ENC_DMA_TX_CLEAR | ENC_DMA_RX_CLEAR;
+    ENC_CS_PORT->BSRR = ENC_CS_PIN;
 
-    /* Flush a partial frame and queued TX words before the next CSN edge. */
-    CR1 = SPI1->CR1;
-    CR2 = SPI1->CR2;
-    SET_BIT(RCC->APB2RSTR, RCC_APB2RSTR_SPI1RST);
-    CLEAR_BIT(RCC->APB2RSTR, RCC_APB2RSTR_SPI1RST);
-    SPI1->CR2 = CR2;
-    SPI1->CR1 = CR1;
+    /* 复位 SPI，清除未完成的收发数据。 */
+    CR1 = ENC_SPI->CR1;
+    CR2 = ENC_SPI->CR2;
+    SET_BIT(ENC_SPI_RST_REG, ENC_SPI_RST);
+    CLEAR_BIT(ENC_SPI_RST_REG, ENC_SPI_RST);
+    ENC_SPI->CR2 = CR2;
+    ENC_SPI->CR1 = CR1;
 
     Busy = 0U;
     Encoder.Miss_Cnt++;
@@ -58,43 +59,38 @@ static FAST_CODE bool Frame_Finished(void)
     uint32_t Wait_T0;
 
     Wait_T0 = DWT->CYCCNT;
-    while (((SPI1->SR & SPI_SR_BSY) != 0U) && ((DWT->CYCCNT - Wait_T0) < ENC_SPI_END_CYC))
+    while (((ENC_SPI->SR & SPI_SR_BSY) != 0U) && ((DWT->CYCCNT - Wait_T0) < ENC_SPI_END_CYC))
     {
     }
 
-    return ((SPI1->SR & (SPI_SR_BSY | SPI_SR_TXE)) == SPI_SR_TXE);
+    return ((ENC_SPI->SR & (SPI_SR_BSY | SPI_SR_TXE)) == SPI_SR_TXE);
 }
 
 void MT6835_Config(void)
 {
-    SPI1_CSN_GPIO_Port->BSRR = SPI1_CSN_Pin;
-    Rx[0] = 0U;
-    Rx[1] = 0U;
-    Rx[2] = 0U;
+    ENC_CS_PORT->BSRR = ENC_CS_PIN;
     Busy = 0U;
 
     MT6835_State.CRC_Err = 0U;
     MT6835_State.Under_Voltage_Cnt = 0U;
     MT6835_State.Status = 0U;
 
-    /* Channel 3 supplies the complete burst; only RX channel 5 interrupts.
-     * Keep halfword transfers so MT6816 can share the same SPI data format. */
-    DMA1_Channel3->CCR = DMA_CCR_DIR | DMA_CCR_MINC |
+    /* DMA 连续发送整帧，仅接收产生中断；沿用 MT6816 的 16 位格式。 */
+    ENC_DMA_TX->CCR = DMA_CCR_DIR | DMA_CCR_MINC |
                         DMA_CCR_PSIZE_0 | DMA_CCR_MSIZE_0 | DMA_CCR_PL_0;
-    DMAMUX1_Channel2->CCR = DMA_REQUEST_SPI1_TX;
-    DMA1_Channel3->CPAR = (uint32_t)&SPI1->DR;
-    DMA1_Channel3->CMAR = (uint32_t)Tx;
-    DMA1_Channel3->CNDTR = 0U;
+    ENC_DMA_TX->CPAR = (uint32_t)&ENC_SPI->DR;
+    ENC_DMA_TX->CMAR = (uint32_t)Tx;
+    ENC_DMA_TX->CNDTR = 0U;
 
-    DMA1_Channel5->CCR = DMA_CCR_MINC | DMA_CCR_PSIZE_0 | DMA_CCR_MSIZE_0 |
+    ENC_DMA_RX->CCR = DMA_CCR_MINC | DMA_CCR_PSIZE_0 | DMA_CCR_MSIZE_0 |
                         DMA_CCR_PL_1 | DMA_CCR_TCIE | DMA_CCR_TEIE;
-    DMA1_Channel5->CPAR = (uint32_t)&SPI1->DR;
-    DMA1_Channel5->CMAR = (uint32_t)Rx;
-    DMA1_Channel5->CNDTR = 0U;
-    DMA1->IFCR = DMA_IFCR_CGIF3 | DMA_IFCR_CGIF5;
+    ENC_DMA_RX->CPAR = (uint32_t)&ENC_SPI->DR;
+    ENC_DMA_RX->CMAR = (uint32_t)Rx;
+    ENC_DMA_RX->CNDTR = 0U;
+    ENC_DMA->IFCR = ENC_DMA_TX_CLEAR | ENC_DMA_RX_CLEAR;
 
-    SET_BIT(SPI1->CR2, SPI_CR2_RXDMAEN | SPI_CR2_TXDMAEN);
-    SET_BIT(SPI1->CR1, SPI_CR1_SPE);
+    SET_BIT(ENC_SPI->CR2, SPI_CR2_RXDMAEN | SPI_CR2_TXDMAEN);
+    SET_BIT(ENC_SPI->CR1, SPI_CR1_SPE);
 }
 
 void MT6835_Start(void)
@@ -102,28 +98,28 @@ void MT6835_Start(void)
     uint32_t Wait_T0;
 
     if ((Busy != 0U) ||
-        ((DMA1->ISR & (DMA_ISR_TEIF3 | DMA_ISR_TEIF5)) != 0U) ||
-        ((SPI1->SR & (SPI_SR_BSY | SPI_SR_TXE | SPI_SR_FTLVL)) != SPI_SR_TXE))
+        ((ENC_DMA->ISR & (ENC_DMA_TX_ERR | ENC_DMA_RX_ERR)) != 0U) ||
+        ((ENC_SPI->SR & (SPI_SR_BSY | SPI_SR_TXE | SPI_SR_FTLVL)) != SPI_SR_TXE))
     {
         Transfer_Abort();
         return;
     }
 
-    CLEAR_BIT(DMA1_Channel3->CCR, DMA_CCR_EN);
-    CLEAR_BIT(DMA1_Channel5->CCR, DMA_CCR_EN);
-    DMA1->IFCR = DMA_IFCR_CGIF3 | DMA_IFCR_CGIF5;
-    DMA1_Channel3->CNDTR = 3U;
-    DMA1_Channel5->CNDTR = 3U;
-    SET_BIT(DMA1_Channel5->CCR, DMA_CCR_EN);
+    CLEAR_BIT(ENC_DMA_TX->CCR, DMA_CCR_EN);
+    CLEAR_BIT(ENC_DMA_RX->CCR, DMA_CCR_EN);
+    ENC_DMA->IFCR = ENC_DMA_TX_CLEAR | ENC_DMA_RX_CLEAR;
+    ENC_DMA_TX->CNDTR = 3U;
+    ENC_DMA_RX->CNDTR = 3U;
+    SET_BIT(ENC_DMA_RX->CCR, DMA_CCR_EN);
     Busy = 1U;
 
-    SPI1_CSN_GPIO_Port->BSRR = (uint32_t)SPI1_CSN_Pin << 16U;
+    ENC_CS_PORT->BSRR = (uint32_t)ENC_CS_PIN << 16U;
     Wait_T0 = DWT->CYCCNT;
     while ((DWT->CYCCNT - Wait_T0) < ENC_CSN_LOW_CYC)
     {
     }
 
-    SET_BIT(DMA1_Channel3->CCR, DMA_CCR_EN);
+    SET_BIT(ENC_DMA_TX->CCR, DMA_CCR_EN);
 }
 
 void MT6835_IRQHandler(void)
@@ -139,21 +135,20 @@ void MT6835_IRQHandler(void)
     uint32_t Flags;
 
     T0 = DWT->CYCCNT;
-    Flags = DMA1->ISR;
+    Flags = ENC_DMA->ISR;
 
-    if ((Flags & DMA_ISR_TEIF5) != 0U)
+    if ((Flags & ENC_DMA_RX_ERR) != 0U)
     {
-        DMA1->IFCR = DMA_IFCR_CGIF5;
         Transfer_Abort();
         return;
     }
 
-    if ((Flags & DMA_ISR_TCIF5) == 0U)
+    if ((Flags & ENC_DMA_RX_TC) == 0U)
     {
         return;
     }
 
-    DMA1->IFCR = DMA_IFCR_CTCIF5;
+    ENC_DMA->IFCR = ENC_DMA_RX_TC_CLEAR;
     Fast_Time.SPI_RX_Cnt++;
 
     if ((Busy == 0U) || !Frame_Finished())
@@ -162,12 +157,12 @@ void MT6835_IRQHandler(void)
         return;
     }
 
-    /* SPI_2 fields remain the final-frame timing; SPI_RX_Cnt is now one. */
+    /* 整帧接收计数一次，耗时记录到 SPI_2 字段。 */
     Fast_Time.SPI_2_Cyc = T0 - Fast_Time.T0;
     Fast_Time.SPI_2_Flag = Flags;
-    Fast_Time.SPI_2_CNDTR = DMA1_Channel5->CNDTR;
+    Fast_Time.SPI_2_CNDTR = ENC_DMA_RX->CNDTR;
 
-    SPI1_CSN_GPIO_Port->BSRR = SPI1_CSN_Pin;
+    ENC_CS_PORT->BSRR = ENC_CS_PIN;
 
     Data_H = Rx[1];
     Data_L = Rx[2];
@@ -175,7 +170,7 @@ void MT6835_IRQHandler(void)
     Status = (uint8_t)((Data_L >> 8) & 0x07U);
     Crc_Recv = (uint8_t)(Data_L & 0x00FFU);
 
-    /* Registers 0x003..0x005, wire byte order; initial CRC and final XOR are zero. */
+    /* 按传输顺序校验 0x003～0x005，CRC 初值和最终异或值均为 0。 */
     Crc = CRC8_07(0U, (uint8_t)(Data_H >> 8));
     Crc = CRC8_07(Crc, (uint8_t)Data_H);
     Crc = CRC8_07(Crc, (uint8_t)(Data_L >> 8));
@@ -185,9 +180,7 @@ void MT6835_IRQHandler(void)
         MT6835_State.CRC_Err++;
         Encoder.Err_Cnt++;
         Encoder_Sample_Invalid();
-        Busy = 0U;
-        Fast_Time.SPI_2_ISR_Cyc = DWT->CYCCNT - T0;
-        return;
+        goto finish;
     }
 
     MT6835_State.Status = Status;
@@ -206,9 +199,7 @@ void MT6835_IRQHandler(void)
             Encoder.Fault = 1U;
         }
 
-        Busy = 0U;
-        Fast_Time.SPI_2_ISR_Cyc = DWT->CYCCNT - T0;
-        return;
+        goto finish;
     }
 
     MT6835_State.Under_Voltage_Cnt = 0U;
@@ -217,6 +208,7 @@ void MT6835_IRQHandler(void)
     Encoder_Sample_Update(Raw, Theta);
     Fast_Time.Enc_Cyc = DWT->CYCCNT - Fast_Time.T0;
 
+finish:
     Busy = 0U;
     Fast_Time.SPI_2_ISR_Cyc = DWT->CYCCNT - T0;
 }

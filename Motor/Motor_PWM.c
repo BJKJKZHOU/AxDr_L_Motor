@@ -32,11 +32,6 @@ void PWM_Timing_Update(void)
     Adc_Offset = (uint32_t)(((float)Timer_Clk * ADC_TRIG_CENTER_S) + 0.5f);
     Enc_Lead = (uint32_t)(((float)Timer_Clk * ENC_TRIG_LEAD_S) + 0.5f);
 
-    if ((Arr <= Adc_Offset) || ((Arr - Adc_Offset) <= Enc_Lead))
-    {
-        return;
-    }
-
     htim1.Init.Period = Arr;
     TIM1->ARR = Arr;
     TIM1->CCR4 = Arr - Adc_Offset - Enc_Lead;

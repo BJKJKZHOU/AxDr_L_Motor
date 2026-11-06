@@ -73,16 +73,16 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Motor/Motor_ADC.c
     Motor/Encoder.c
     Motor/Enc_Control.c
+    Motor/Enc_Home.c
     Motor/Encoder_Drv/MT6816.c
     Motor/Encoder_Drv/MT6835.c
+    Motor/Encoder_Drv/ABZ.c
     Motor/Protection.c
-    Motor/Motor_Cal.c
     Motor/Motor_Config.c
     Motor/Motor_Para.c
     Motor/Current_Loop.c
     Motor/Signal_Injection.c
     Motor/Motion_Loop.c
-    Sensorless/Align.c
     Sensorless/VF.c
     Sensorless/Open_Loop.c
     Motor/Servo_Phase.c
@@ -93,6 +93,8 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Storage/Flash_Storage.c
     Storage/NVS_Storage.c
     AZURE_RTOS/App/motor_work.c
+    BSP/Encoder_Port.c
+    BSP/Key.c
     BSP/RGB.c
     BSP/ST7789.c
     BSP/LCD_Wave.c

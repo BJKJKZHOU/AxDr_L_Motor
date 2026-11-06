@@ -32,8 +32,6 @@ typedef struct
 
 } PLL_T;
 
-void PLL_Reset(PLL_T *Pll, float Theta, float We);
-
 FAST_CODE bool PLL_Run(PLL_T *Pll, float X, float Y, float Ts);
 
 #endif /* PLL_H */

@@ -52,6 +52,6 @@ void Speed_Tuning_Update(void);
  * On failure, active parameters, coefficients and observer state are unchanged. */
 bool Motor_Para_Update(const Motor_Para_T *Para, float Eso_Bw_Hz);
 
-bool Motor_IF_We_Base_Calc(float Vbus_V, float I_Max_A, float *We_Base);
+float Motor_IF_We_Base_Calc(void);
 
 #endif /* MOTOR_PARA_H */

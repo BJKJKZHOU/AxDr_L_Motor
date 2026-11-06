@@ -27,9 +27,7 @@ bool Flux_Estimator_Run(Flux_Estimator_T *Est,
     float Flux_Next;
     float Window_Flux;
 
-    if ((Est == 0) || (Ts <= 0.0f) ||
-        ((Mode != FLUX_EST_VECTOR) && (Mode != FLUX_EST_SCALAR)) ||
-        !__builtin_isfinite(Ud) || !__builtin_isfinite(Uq) ||
+    if (!__builtin_isfinite(Ud) || !__builtin_isfinite(Uq) ||
         !__builtin_isfinite(Id) || !__builtin_isfinite(Iq) || !__builtin_isfinite(We))
     {
         return false;
@@ -43,7 +41,6 @@ bool Flux_Estimator_Run(Flux_Estimator_T *Est,
         Est->State.Id_F = Id;
         Est->State.Iq_F = Iq;
         Est->State.I_Valid = true;
-        Est->State.Model_Valid = false;
         return false;
     }
 
@@ -60,8 +57,7 @@ bool Flux_Estimator_Run(Flux_Estimator_T *Est,
 
     Est->State.Yd = Uq - Est->Para.Rs * Iq - Est->Para.Lq * Iq_Dot - We * L * Id;
     Est->State.Yq = -Ud + Est->Para.Rs * Id + L * Id_Dot - We * Est->Para.Lq * Iq;
-    Est->State.Model_Valid = __builtin_isfinite(Est->State.Yd) && __builtin_isfinite(Est->State.Yq);
-    if (!Est->State.Model_Valid)
+    if (!__builtin_isfinite(Est->State.Yd) || !__builtin_isfinite(Est->State.Yq))
     {
         return false;
     }
@@ -98,7 +94,7 @@ bool Flux_Estimator_Run(Flux_Estimator_T *Est,
         }
     }
 
-    if (Measure && (Mode == FLUX_EST_SCALAR) && (Est->Para.Window_Samples > 0U))
+    if (Measure)
     {
         Est->State.Window_Num += We * Est->State.Yd;
         Est->State.Window_Den += We * We;

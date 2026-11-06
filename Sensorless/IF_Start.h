@@ -21,7 +21,6 @@ typedef enum
 typedef struct
 {
     float Iq_Min_A;
-    float Iq_Max_A;
     float We_Base;
     float Acc;
     float Iq_Slew_A_S;

@@ -43,7 +43,6 @@ typedef struct
     float Window_Flux;
     uint32_t Window_Count;
     bool I_Valid;
-    bool Model_Valid;
     bool Estimate_Valid;
     bool Window_Ready;
 

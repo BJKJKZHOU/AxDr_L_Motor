@@ -15,6 +15,7 @@ typedef enum
 {
     ENC_PHASE = 1,
     ENC_CAL,
+    ENC_HOME,
 
 } Enc_Mode_e;
 
@@ -24,13 +25,15 @@ typedef enum
     ENC_CAL_RUN,
     ENC_PHASE_RUN,
     ENC_PHASE_SAVE,
+    ENC_HOME_SEEK,
+    ENC_HOME_RETURN,
     ENC_STOP_WAIT,
     ENC_DONE,
     ENC_FAILED,
 
 } Enc_Step_e;
 
-/* Normal encoder feedback remains live throughout these operations. */
+/* 编码器动作期间持续采集反馈。 */
 extern volatile Enc_Step_e Enc_Step;
 
 bool Enc_Control_Start(Enc_Mode_e Mode);
@@ -42,9 +45,15 @@ FAST_CODE Motor_Fast_Mode_e Enc_Control_Fast_Run(float *Theta_e,
                                                  float *Ualpha,
                                                  float *Ubeta);
 
+/* 用于动作互斥和取消；是否接管闭环由控制模式和校准阶段决定。 */
 static inline bool Enc_Control_Active(void)
 {
     return (Enc_Step > ENC_IDLE) && (Enc_Step < ENC_DONE);
+}
+
+static inline bool Enc_Home_Active(void)
+{
+    return (Enc_Step == ENC_HOME_SEEK) || (Enc_Step == ENC_HOME_RETURN);
 }
 
 #endif /* ENC_CONTROL_H */

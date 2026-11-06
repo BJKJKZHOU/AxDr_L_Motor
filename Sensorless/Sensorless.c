@@ -5,7 +5,6 @@
 
 #include "Sensorless.h"
 
-#include "Align.h"
 #include "Current_Loop.h"
 #include "Flux_Observer.h"
 #include "Handover.h"
@@ -15,6 +14,7 @@
 #include "Motion_Type.h"
 #include "Motor_ADC.h"
 #include "Motor_Config.h"
+#include "Motor_Control.h"
 #include "Motor_Para.h"
 #include "Motor_Type.h"
 #include "PLL.h"
@@ -29,46 +29,32 @@
 #define OBS_EXIT_BEMF_RATIO  0.05f
 #define IF_ACC_TORQUE_RATIO   0.05f
 
-static volatile Sensorless_State_e State = SL_IDLE;
-static bool Stop_Requested = false;
+volatile Sensorless_State_e Sensorless_State = SL_IDLE;
+volatile bool Sensorless_Stop_Requested = false;
 
 static Flux_Observer_T Sensorless_Observer = { 0 };
 PLL_T Sensorless_PLL = { 0 };
 
 static Handover_T Handover = { 0 };
 static IF_T Sensorless_IF = { 0 };
-static Align_T Sensorless_Align = { .Para.Hold_Cnt = IF_ALIGN_CNT };
+static uint32_t Align_Cnt = 0U;
 static bool Flux_Obs_U_Valid = false;
 static float We_Obs_Enter = 0.0f;
 static float We_Obs_Exit = 0.0f;
-static uint32_t Blend_Cnt = 0U;
 static float Obs_Id_Ref = 0.0f;
 static volatile float Obs_Iq_Ref = 0.0f;
 static float Theta_Use_Last = 0.0f;
-
-static FAST_CODE float Abs_F(float X)
-{
-    return (X >= 0.0f) ? X : -X;
-}
-
-static FAST_CODE float Current_Limit_Get(void)
-{
-    float I_Max;
-
-    I_Max = (Motor_Lim.I_Max < User_Lim.I_Max) ? Motor_Lim.I_Max : User_Lim.I_Max;
-    return (I_Max > 0.0f) ? I_Max : 0.0f;
-}
 
 static FAST_CODE float IF_Target(float We_Ref)
 {
     float Target;
 
-    if (Stop_Requested)
+    if (Sensorless_Stop_Requested)
     {
         return We_Ref;
     }
 
-    Target = Abs_F(We_Ref);
+    Target = __builtin_fabsf(We_Ref);
     if (Target > We_Obs_Enter)
     {
         Target = We_Obs_Enter;
@@ -79,31 +65,25 @@ static FAST_CODE float IF_Target(float We_Ref)
 
 bool Sensorless_Begin(void)
 {
+    float I_Max;
     float Kt;
     float Am_IF;
     float Pll_Wn;
 
-    State = SL_IDLE;
-    Stop_Requested = false;
+    Sensorless_State = SL_IDLE;
+    Sensorless_Stop_Requested = false;
     Theta_Use_Last = 0.0f;
     Sensorless_IF = (IF_T){ 0 };
 
-    Sensorless_Align.State.Cnt = 0U;
+    Align_Cnt = 0U;
     Current_Loop_State_Reset();
 
-    Sensorless_IF.Para.Iq_Max_A = Current_Limit_Get();
-    if ((Motor_Para.Pp == 0U) ||
-        !__builtin_isfinite(Motor_Para.Flux) || (Motor_Para.Flux <= 0.0f) ||
-        !__builtin_isfinite(Motor_Para.J) || (Motor_Para.J <= 0.0f) ||
-        !__builtin_isfinite(ADC.Vbus_V) || (ADC.Vbus_V <= 0.0f) ||
-        !__builtin_isfinite(Motor_Config.Align_Current_A) ||
-        (Motor_Config.Align_Current_A <= 0.0f) ||
-        (Motor_Config.Align_Current_A > Sensorless_IF.Para.Iq_Max_A) ||
-        !__builtin_isfinite(Motor_Config.IF_Current_A) ||
-        (Motor_Config.IF_Current_A <= 0.0f) ||
-        (Motor_Config.IF_Current_A > Sensorless_IF.Para.Iq_Max_A))
+    I_Max = User_Lim.I_Max;
+    if ((ADC.Vbus_V <= 0.0f) ||
+        (Motor_Config.Align_Current_A > I_Max) ||
+        (Motor_Config.IF_Current_A > I_Max))
     {
-        State = SL_FAILED;
+        Sensorless_State = SL_FAILED;
         return false;
     }
 
@@ -116,7 +96,7 @@ bool Sensorless_Begin(void)
     if (!__builtin_isfinite(We_Obs_Enter) || (We_Obs_Enter <= 0.0f) ||
         !__builtin_isfinite(We_Obs_Exit) || (We_Obs_Exit <= 0.0f))
     {
-        State = SL_FAILED;
+        Sensorless_State = SL_FAILED;
         return false;
     }
 
@@ -130,14 +110,13 @@ bool Sensorless_Begin(void)
     }
 
     Sensorless_IF.Para.Iq_Min_A = Motor_Config.IF_Current_A;
-    Sensorless_IF.Para.We_Base = We_Obs_Enter;
     Sensorless_IF.Para.Acc = (float)Motor_Para.Pp * Am_IF;
     Sensorless_IF.Para.Iq_Slew_A_S = IF_IQ_SLEW_A_S;
 
     if (!__builtin_isfinite(Sensorless_IF.Para.Acc) ||
         (Sensorless_IF.Para.Acc <= 0.0f))
     {
-        State = SL_FAILED;
+        Sensorless_State = SL_FAILED;
         return false;
     }
 
@@ -151,34 +130,18 @@ bool Sensorless_Begin(void)
     Sensorless_PLL.Para.Kp = 2.0f * Control_PLL_Damp * Pll_Wn;
     Sensorless_PLL.Para.Ki = Pll_Wn * Pll_Wn;
 
-    State = SL_ALIGN;
+    Sensorless_State = SL_ALIGN;
     return true;
-}
-
-void Sensorless_Stop_Request(void)
-{
-    Stop_Requested = true;
-}
-
-void Sensorless_Stop(void)
-{
-    Stop_Requested = false;
-    State = SL_IDLE;
 }
 
 bool Sensorless_Speed_Control_Active(void)
 {
-    return (State == SL_OBS) || (State == SL_IF_TO_OBS_CURRENT);
+    return (Sensorless_State == SL_OBS) || (Sensorless_State == SL_IF_TO_OBS_CURRENT);
 }
 
 float Sensorless_Wm_Get(void)
 {
     float We;
-
-    if (Motor_Para.Pp == 0U)
-    {
-        return 0.0f;
-    }
 
     We = Sensorless_Speed_Control_Active() ?
              Sensorless_PLL.State.We :
@@ -188,16 +151,14 @@ float Sensorless_Wm_Get(void)
 
 void Sensorless_Control(float We_Ref, float Iq_Min, float Iq_Max)
 {
-    if ((State == SL_OBS) || (State == SL_IF_TO_OBS_CURRENT))
+    if ((Sensorless_State == SL_OBS) || (Sensorless_State == SL_IF_TO_OBS_CURRENT))
     {
         Obs_Iq_Ref = Speed_Loop(We_Ref, Sensorless_PLL.State.We, Iq_Min, Iq_Max);
     }
 }
 
-void Sensorless_Run(float Ia_A, float Ib_A, float We_Target, float *Theta_e, float *Id_Ref, float *Iq_Ref)
+void Sensorless_Run(float Ialpha, float Ibeta, float We_Target, float *Theta_e, float *Id_Ref, float *Iq_Ref)
 {
-    float Ialpha;
-    float Ibeta;
     float Theta_Start;
     float Theta_IF;
     float Theta_Obs;
@@ -210,47 +171,46 @@ void Sensorless_Run(float Ia_A, float Ib_A, float We_Target, float *Theta_e, flo
     int8_t Dir;
     bool Obs_Valid = false;
 
-    if ((State == SL_IDLE) || (State == SL_FAILED))
+    if ((Sensorless_State == SL_IDLE) || (Sensorless_State == SL_FAILED))
     {
         *Theta_e = Theta_Use_Last;
-        *Id_Ref = 0.0f;
-        *Iq_Ref = 0.0f;
         return;
     }
 
-    Ialpha = Ia_A;
-    Ibeta = (Ia_A + 2.0f * Ib_A) * INV_SQRT3_F;
-    Theta_IF = 0.0f;
-    Id_IF = 0.0f;
-    Iq_IF = 0.0f;
-
-    if (State == SL_ALIGN)
+    if (Sensorless_State == SL_ALIGN)
     {
-        *Theta_e = 0.0f;
-        Theta_Use_Last = 0.0f;
+        *Id_Ref = Motor_Config.Align_Current_A;
 
-        Sensorless_Align.Para.Id_A = Motor_Config.Align_Current_A;
-        bool Done = Align_Run(&Sensorless_Align);
-        *Id_Ref = Sensorless_Align.Sig.Id_Ref;
-        *Iq_Ref = Sensorless_Align.Sig.Iq_Ref;
-
-        if (Done)
+        if (++Align_Cnt >= IF_ALIGN_CNT)
         {
-            Current_Loop_State_Reset();
+            float Ud_Int = Id_Ctrl.State.Int;
 
             Dir = (We_Target < 0.0f) ? -1 : 1;
             We_IF_Target = IF_Target(We_Target);
             Theta_Start = -(float)Dir * (0.5f * PI_F);
 
             IF_Init(&Sensorless_IF, Theta_Start, 0.0f);
-            Sensorless_IF.State.Iq = (float)Dir * Motor_Config.IF_Current_A;
+            Sensorless_IF.State.Iq = (float)Dir * Motor_Config.Align_Current_A;
             IF_Target_Set(&Sensorless_IF, We_IF_Target);
+            if (Sensorless_IF.State.Mode == IF_FAILED)
+            {
+                Sensorless_State = SL_FAILED;
+                return;
+            }
+
+            /* 参考和积分同拍换轴，继承预定位电流及其积分电压。 */
+            *Theta_e = Sensorless_IF.State.Theta_e;
+            *Id_Ref = 0.0f;
+            *Iq_Ref = Sensorless_IF.State.Iq;
+            Id_Ctrl.State.Int = -(float)Dir * Iq_Ctrl.State.Int;
+            Iq_Ctrl.State.Int = (float)Dir * Ud_Int;
+            Theta_Use_Last = *Theta_e;
 
             Flux_Observer_Reset(&Sensorless_Observer, Theta_Start, Ialpha, Ibeta);
-            PLL_Reset(&Sensorless_PLL, Theta_Start, 0.0f);
+            Sensorless_PLL.State = (PLL_State_T){ .Theta = Angle_Wrap(Theta_Start), .We = 0.0f };
             Flux_Obs_U_Valid = false;
 
-            State = (Sensorless_IF.State.Mode == IF_FAILED) ? SL_FAILED : SL_IF;
+            Sensorless_State = SL_IF;
         }
 
         return;
@@ -267,7 +227,7 @@ void Sensorless_Run(float Ia_A, float Ib_A, float We_Target, float *Theta_e, flo
                             CUR_TS);
     }
 
-    if (State != SL_OBS)
+    if ((Sensorless_State != SL_OBS) && (Sensorless_State != SL_IF_TO_OBS_CURRENT))
     {
         IF_Target_Set(&Sensorless_IF, IF_Target(We_Target));
         IF_Run(&Sensorless_IF,
@@ -277,10 +237,8 @@ void Sensorless_Run(float Ia_A, float Ib_A, float We_Target, float *Theta_e, flo
                CUR_TS);
         if (Sensorless_IF.State.Mode == IF_FAILED)
         {
-            State = SL_FAILED;
+            Sensorless_State = SL_FAILED;
             *Theta_e = Theta_Use_Last;
-            *Id_Ref = 0.0f;
-            *Iq_Ref = 0.0f;
             return;
         }
     }
@@ -288,21 +246,21 @@ void Sensorless_Run(float Ia_A, float Ib_A, float We_Target, float *Theta_e, flo
     Flux_Obs_U_Valid = true;
     Theta_Obs = Sensorless_PLL.State.Theta;
 
-    if (State == SL_IF)
+    if (Sensorless_State == SL_IF)
     {
         Theta_Use = Theta_IF;
         *Id_Ref = Id_IF;
         *Iq_Ref = Iq_IF;
 
-        if (Obs_Valid && !Stop_Requested &&
-            (Abs_F(We_Target) > We_Obs_Enter) &&
-            (Abs_F(Sensorless_IF.State.We) >= We_Obs_Enter))
+        if (Obs_Valid && !Sensorless_Stop_Requested &&
+            (__builtin_fabsf(We_Target) > We_Obs_Enter) &&
+            (__builtin_fabsf(Sensorless_IF.State.We) >= We_Obs_Enter))
         {
             Handover.Blend_Cnt = 0U;
-            State = SL_IF_TO_OBS;
+            Sensorless_State = SL_IF_TO_OBS;
         }
     }
-    else if (State == SL_IF_TO_OBS)
+    else if (Sensorless_State == SL_IF_TO_OBS)
     {
         if (Handover_Blend_Run(&Handover,
                                BLEND_CNT,
@@ -316,16 +274,16 @@ void Sensorless_Run(float Ia_A, float Ib_A, float We_Target, float *Theta_e, flo
         {
             Obs_Id_Ref = *Id_Ref;
             Obs_Iq_Ref = *Iq_Ref;
-            I_Max = Current_Limit_Get();
+            I_Max = User_Lim.I_Max;
             Speed_Loop_Track(Sensorless_PLL.State.We,
                              Sensorless_PLL.State.We,
                              Obs_Iq_Ref,
                              -I_Max,
                              I_Max);
-            State = SL_IF_TO_OBS_CURRENT;
+            Sensorless_State = SL_IF_TO_OBS_CURRENT;
         }
     }
-    else if (State == SL_IF_TO_OBS_CURRENT)
+    else if (Sensorless_State == SL_IF_TO_OBS_CURRENT)
     {
         Theta_Use = Theta_Obs;
         Obs_Id_Ref = Handover_Ramp_Zero(Obs_Id_Ref, ID_RAMP_STEP);
@@ -334,75 +292,44 @@ void Sensorless_Run(float Ia_A, float Ib_A, float We_Target, float *Theta_e, flo
 
         if (Obs_Id_Ref == 0.0f)
         {
-            State = SL_OBS;
+            Sensorless_State = SL_OBS;
         }
     }
-    else if (State == SL_OBS)
+    else if (Sensorless_State == SL_OBS)
     {
         Theta_Use = Theta_Obs;
-        *Id_Ref = 0.0f;
         *Iq_Ref = Obs_Iq_Ref;
 
-        if (Abs_F(Sensorless_PLL.State.We) <= We_Obs_Exit)
+        if (__builtin_fabsf(Sensorless_PLL.State.We) <= We_Obs_Exit)
         {
             IF_Init(&Sensorless_IF, Theta_Obs, Sensorless_PLL.State.We);
             Sensorless_IF.State.Iq = Obs_Iq_Ref;
             IF_Target_Set(&Sensorless_IF, We_Target);
             if (Sensorless_IF.State.Mode == IF_FAILED)
             {
-                State = SL_FAILED;
+                Sensorless_State = SL_FAILED;
                 *Theta_e = Theta_Use_Last;
-                *Id_Ref = 0.0f;
                 *Iq_Ref = 0.0f;
                 return;
             }
-            Blend_Cnt = 0U;
-            State = SL_OBS_TO_IF;
+            Handover.Blend_Cnt = 0U;
+            Sensorless_State = SL_OBS_TO_IF;
         }
     }
-    else if (State == SL_OBS_TO_IF)
+    else
     {
-        if (BLEND_CNT > 0U)
-        {
-            Blend = (float)(Blend_Cnt + 1U) / (float)BLEND_CNT;
-        }
-        else
-        {
-            Blend = 1.0f;
-        }
-
-        if (Blend > 1.0f)
-        {
-            Blend = 1.0f;
-        }
+        Blend = (float)(Handover.Blend_Cnt + 1U) / (float)BLEND_CNT;
 
         Theta_Use = Theta_IF;
         *Id_Ref = Id_IF;
         *Iq_Ref = Obs_Iq_Ref + Blend * (Iq_IF - Obs_Iq_Ref);
 
-        if (Blend_Cnt < BLEND_CNT)
+        if (++Handover.Blend_Cnt >= BLEND_CNT)
         {
-            Blend_Cnt++;
+            Sensorless_State = SL_IF;
         }
-
-        if (Blend_Cnt >= BLEND_CNT)
-        {
-            State = SL_IF;
-        }
-    }
-    else
-    {
-        *Theta_e = Theta_Use_Last;
-        *Id_Ref = 0.0f;
-        *Iq_Ref = 0.0f;
-        return;
     }
 
     *Theta_e = Theta_Use;
     Theta_Use_Last = Theta_Use;
-}
-
-Sensorless_State_e Sensorless_State_Get(void)
-{
-    return State;
 }

@@ -36,11 +36,8 @@ volatile Motor_Time_T Motor_Time = { 0 };
 
 static TX_THREAD Motor_Thread;
 static uint8_t Normal_Div = 0U;
-static bool Ident_Action_Pending = false;
 static ULONG Ident_Action = 0U;
-static bool Enc_Action_Pending = false;
 static ULONG Enc_Action = 0U;
-static bool Save_Action_Pending = false;
 static ULONG Save_Action = 0U;
 
 static void Motor_Entry(ULONG thread_input);
@@ -80,10 +77,7 @@ Motor_Parameter_Request_Status_e Motor_Parameter_Write_Request(
     {
         Msg.Cmd = (ULONG)MOTOR_CMD_PARAMETER_WRITE;
         Msg.Arg = (ULONG)Id;
-        memcpy(&Msg.Arg2, Value, sizeof(Msg.Arg2));
-        memcpy(&Msg.Arg3,
-               (const uint8_t *)Value + sizeof(Msg.Arg2),
-               sizeof(Msg.Arg3));
+        memcpy(&Msg.Arg2, Value, sizeof(*Value));
         Msg.Reserved = (ULONG)Type | ((ULONG)Txn << MOTOR_PARAM_TXN_SHIFT);
     }
 
@@ -95,51 +89,41 @@ Motor_Parameter_Request_Status_e Motor_Parameter_Write_Request(
     return MOTOR_PARAM_REQUEST_OK;
 }
 
-static uint16_t Motor_Action_Id_Get(ULONG Action)
-{
-    return (uint16_t)((Action >> MOTOR_ACTION_ID_SHIFT) & MOTOR_ACTION_ID_MASK);
-}
-
-static uint8_t Motor_Action_Txn_Get(ULONG Action)
-{
-    return (uint8_t)((Action >> MOTOR_ACTION_TXN_SHIFT) & MOTOR_ACTION_TXN_MASK);
-}
-
 static void Motor_Action_Response(ULONG Action, AxDr_Status_e Status)
 {
-    Protocol_Write_Response(Motor_Action_Txn_Get(Action),
-                            Motor_Action_Id_Get(Action),
+    Protocol_Write_Response((uint8_t)((Action >> MOTOR_ACTION_TXN_SHIFT) & MOTOR_ACTION_TXN_MASK),
+                            (uint16_t)((Action >> MOTOR_ACTION_ID_SHIFT) & MOTOR_ACTION_ID_MASK),
                             Status);
 }
 
 static void Motor_Action_Complete(ULONG Action, AxDr_Status_e Status)
 {
-    Protocol_Action_Complete(Motor_Action_Txn_Get(Action),
-                             Motor_Action_Id_Get(Action),
+    Protocol_Action_Complete((uint8_t)((Action >> MOTOR_ACTION_TXN_SHIFT) & MOTOR_ACTION_TXN_MASK),
+                             (uint16_t)((Action >> MOTOR_ACTION_ID_SHIFT) & MOTOR_ACTION_ID_MASK),
                              Status);
 }
 
 static void Motor_Async_Action_Poll(void)
 {
-    if (Ident_Action_Pending && (Ident_State != IDENT_RUNNING) && (Ident_State != IDENT_FINISH))
+    if ((Ident_Action != 0U) && (Ident_State != IDENT_RUNNING) && (Ident_State != IDENT_FINISH))
     {
         Motor_Action_Complete(Ident_Action,
                               (Ident_State == IDENT_DONE) ? AXDR_OK : AXDR_ERR_CONFIG);
-        Ident_Action_Pending = false;
+        Ident_Action = 0U;
     }
 
-    if (Save_Action_Pending && (Motor_Work_State >= MOTOR_WORK_DONE))
+    if ((Save_Action != 0U) && (Motor_Work_State >= MOTOR_WORK_DONE))
     {
         Motor_Action_Response(Save_Action,
                               (Motor_Work_State == MOTOR_WORK_DONE) ? AXDR_OK : AXDR_ERR_CONFIG);
-        Save_Action_Pending = false;
-        Motor_Work_Ack();
+        Save_Action = 0U;
+        Motor_Work_State = MOTOR_WORK_IDLE;
     }
 
-    if (Enc_Action_Pending && !Enc_Control_Active())
+    if ((Enc_Action != 0U) && !Enc_Control_Active())
     {
         Motor_Action_Complete(Enc_Action, (Enc_Step == ENC_DONE) ? AXDR_OK : AXDR_ERR_CONFIG);
-        Enc_Action_Pending = false;
+        Enc_Action = 0U;
     }
 }
 
@@ -170,19 +154,14 @@ static void Motor_Cmd_Run(void)
         switch ((Motor_Cmd_e)Msg.Cmd)
         {
             case MOTOR_CMD_ENABLE:
-                Action_Status = Enc_Action_Pending ? AXDR_ERR_STATE :
+                Action_Status = Enc_Control_Active() ? AXDR_ERR_STATE :
                                 Motor_Status_Map(Motor_Enable());
                 Motor_Action_Response(Msg.Reserved, Action_Status);
                 break;
 
             case MOTOR_CMD_RUN:
-                Action_Status = Enc_Action_Pending ? AXDR_ERR_STATE :
+                Action_Status = (Enc_Action != 0U) ? AXDR_ERR_STATE :
                                 Motor_Status_Map(Motor_Start());
-                if ((Action_Status == AXDR_OK) && (Motor_Mode == PHASE_SEARCH))
-                {
-                    Enc_Action = Msg.Reserved;
-                    Enc_Action_Pending = true;
-                }
                 Motor_Action_Response(Msg.Reserved, Action_Status);
                 break;
 
@@ -197,19 +176,7 @@ static void Motor_Cmd_Run(void)
                 break;
 
             case MOTOR_CMD_EN_TOGGLE:
-                if (Enc_Control_Active())
-                {
-                    Motor_Disable();
-                    break;
-                }
-                State = Motor_State_Get();
-
-                if ((State == DISABLED) && (Motor_Work_State != MOTOR_WORK_IDLE))
-                {
-                    break;
-                }
-
-                if (State == DISABLED)
+                if (!Enc_Control_Active() && (Motor_State_Get() == DISABLED))
                 {
                     (void)Motor_Enable();
                 }
@@ -242,7 +209,6 @@ static void Motor_Cmd_Run(void)
                 {
                     break;
                 }
-                Parameter_Value = (Parameter_Value_T){ 0 };
                 switch (Motor_Mode)
                 {
                     case TORQUE:
@@ -257,7 +223,7 @@ static void Motor_Cmd_Run(void)
                     case SENSORLESS_SPEED:
                     case OPEN_LOOP:
                     case IDENT:
-                    case PHASE_SEARCH:
+                    case ENCODER_CAL:
                         Parameter_Value.U8 = (uint8_t)TORQUE;
                         break;
                     default:
@@ -266,13 +232,11 @@ static void Motor_Cmd_Run(void)
                 (void)Parameter_Write(PARAM_MOTOR_MODE, PARAM_U8, Parameter_Value);
                 break;
 
-            case MOTOR_CMD_ENC_CAL_START:
-                Action_Status = Enc_Action_Pending ? AXDR_ERR_STATE :
-                                Motor_Status_Map(Motor_Enc_Cal_Start());
+            case MOTOR_CMD_ENC_START:
+                Action_Status = Motor_Status_Map(Motor_Enc_Start((Enc_Mode_e)Msg.Arg));
                 if (Action_Status == AXDR_OK)
                 {
                     Enc_Action = Msg.Reserved;
-                    Enc_Action_Pending = true;
                 }
                 Motor_Action_Response(Msg.Reserved, Action_Status);
                 break;
@@ -282,16 +246,12 @@ static void Motor_Cmd_Run(void)
                 if (Action_Status == AXDR_OK)
                 {
                     Ident_Action = Msg.Reserved;
-                    Ident_Action_Pending = true;
                 }
                 Motor_Action_Response(Msg.Reserved, Action_Status);
                 break;
 
             case MOTOR_CMD_PARAMETER_WRITE:
-                memcpy(&Parameter_Value, &Msg.Arg2, sizeof(Msg.Arg2));
-                memcpy((uint8_t *)&Parameter_Value + sizeof(Msg.Arg2),
-                       &Msg.Arg3,
-                       sizeof(Msg.Arg3));
+                memcpy(&Parameter_Value, &Msg.Arg2, sizeof(Parameter_Value));
                 Parameter_Status = (Motor_Work_State == MOTOR_WORK_IDLE) ?
                                    Parameter_Write((uint16_t)Msg.Arg,
                                                    (Parameter_Type_e)(Msg.Reserved & 0xFFU),
@@ -327,15 +287,11 @@ static void Motor_Cmd_Run(void)
                 {
                     Motor_Action_Response(Msg.Reserved, AXDR_ERR_STATE);
                 }
-                else if (!Motor_Work_Request(MOTOR_WORK_SAVE_ALL))
-                {
-                    Motor_Action_Response(Msg.Reserved, AXDR_ERR_CONFIG);
-                }
                 else
                 {
-                    /* Keep the original final ActionResponse after NVS finishes. */
+                    Motor_Work_Request(MOTOR_WORK_SAVE_ALL);
+                    /* 保存完成后回复最终结果。 */
                     Save_Action = Msg.Reserved;
-                    Save_Action_Pending = true;
                 }
                 break;
 
@@ -359,6 +315,11 @@ UINT Motor_Thread_Init(VOID *memory_ptr)
 
     /* Motor_Ready 置位前完成加载和配置，此时编码器尚未开始采样。 */
     (void)NVS_Storage_Load_All();
+    /* ABZ 上电重建计数原点，旧寻相结果不能继续使用。 */
+    if (Encoder_Config.Protocol == ENC_PROTOCOL_ABZ)
+    {
+        Motor_Cal.Valid = 0U;
+    }
     if (!Motor_Para_Update(&Motor_Para, Mechanical_ESO_Bw_Hz))
     {
         /* 保留原有模型，其他参数仍使用按表恢复的值。 */
@@ -367,7 +328,7 @@ UINT Motor_Thread_Init(VOID *memory_ptr)
         Current_Tuning_Update();
         Speed_Tuning_Update();
     }
-    Encoder_DMA_Config();
+    Encoder_Config_Apply();
 
     UINT Work_Result = Motor_Work_Thread_Init(byte_pool);
     if (Work_Result != TX_SUCCESS)
@@ -429,62 +390,63 @@ static void Motor_Entry(ULONG thread_input)
 
     while (1)
     {
-        if (tx_semaphore_get(&Motor_Sem, TX_WAIT_FOREVER) == TX_SUCCESS)
+        (void)tx_semaphore_get(&Motor_Sem, TX_WAIT_FOREVER);
+        Total_T0 = DWT->CYCCNT;
+
+        /* Count remaining tokens after consuming this activation. A nonzero
+         * value means the 2 kHz Motor Thread has already fallen behind. */
+        Sem_Count = (uint32_t)Motor_Sem.tx_semaphore_count;
+        Motor_Time.Sem_Count = Sem_Count;
+        if (Sem_Count > Motor_Time.Sem_Max)
         {
-            Total_T0 = DWT->CYCCNT;
-
-            /* Count remaining tokens after consuming this activation. A nonzero
-             * value means the 2 kHz Motor Thread has already fallen behind. */
-            Sem_Count = (uint32_t)Motor_Sem.tx_semaphore_count;
-            Motor_Time.Sem_Count = Sem_Count;
-            if (Sem_Count > Motor_Time.Sem_Max)
-            {
-                Motor_Time.Sem_Max = Sem_Count;
-            }
-
-            T0 = DWT->CYCCNT;
-            Protection_Control();
-            Cyc = DWT->CYCCNT - T0;
-            Motor_Time_Set(Cyc, &Motor_Time.Protection_Cyc, &Motor_Time.Protection_Max);
-
-            T0 = DWT->CYCCNT;
-            Motor_Cmd_Run();
-            Cyc = DWT->CYCCNT - T0;
-            Motor_Time_Set(Cyc, &Motor_Time.Cmd_Cyc, &Motor_Time.Cmd_Max);
-
-            T0 = DWT->CYCCNT;
-            Motor_Control();
-            Cyc = DWT->CYCCNT - T0;
-            Motor_Time_Set(Cyc, &Motor_Time.Control_Cyc, &Motor_Time.Control_Max);
-
-            T0 = DWT->CYCCNT;
-            Motor_Async_Action_Poll();
-            Cyc = DWT->CYCCNT - T0;
-            Motor_Time_Set(Cyc, &Motor_Time.Async_Cyc, &Motor_Time.Async_Max);
-
-            T0 = DWT->CYCCNT;
-            Protocol_Event_Poll();
-            Cyc = DWT->CYCCNT - T0;
-            Motor_Time_Set(Cyc, &Motor_Time.Event_Cyc, &Motor_Time.Event_Max);
-
-            T0 = DWT->CYCCNT;
-            USB_Tx_Poll();
-            Cyc = DWT->CYCCNT - T0;
-            Motor_Time_Set(Cyc, &Motor_Time.USB_Poll_Cyc, &Motor_Time.USB_Poll_Max);
-
-            Normal_Div ^= 1U;
-
-            T0 = DWT->CYCCNT;
-            if (Normal_Div == 0U)
-            {
-                Motor_Plot_Normal_Update();
-                Plot_Normal_Sample();
-            }
-            Cyc = DWT->CYCCNT - T0;
-            Motor_Time_Set(Cyc, &Motor_Time.Plot_Cyc, &Motor_Time.Plot_Max);
-
-            Cyc = DWT->CYCCNT - Total_T0;
-            Motor_Time_Set(Cyc, &Motor_Time.Total_Cyc, &Motor_Time.Total_Max);
+            Motor_Time.Sem_Max = Sem_Count;
         }
+
+        T0 = DWT->CYCCNT;
+        if ((Protection.Fault != 0U) && (Motor_State_Get() != DISABLED))
+        {
+            Motor_Disable();
+        }
+        Cyc = DWT->CYCCNT - T0;
+        Motor_Time_Set(Cyc, &Motor_Time.Protection_Cyc, &Motor_Time.Protection_Max);
+
+        T0 = DWT->CYCCNT;
+        Motor_Cmd_Run();
+        Cyc = DWT->CYCCNT - T0;
+        Motor_Time_Set(Cyc, &Motor_Time.Cmd_Cyc, &Motor_Time.Cmd_Max);
+
+        T0 = DWT->CYCCNT;
+        Motor_Control();
+        Cyc = DWT->CYCCNT - T0;
+        Motor_Time_Set(Cyc, &Motor_Time.Control_Cyc, &Motor_Time.Control_Max);
+
+        T0 = DWT->CYCCNT;
+        Motor_Async_Action_Poll();
+        Cyc = DWT->CYCCNT - T0;
+        Motor_Time_Set(Cyc, &Motor_Time.Async_Cyc, &Motor_Time.Async_Max);
+
+        T0 = DWT->CYCCNT;
+        Protocol_Event_Poll();
+        Cyc = DWT->CYCCNT - T0;
+        Motor_Time_Set(Cyc, &Motor_Time.Event_Cyc, &Motor_Time.Event_Max);
+
+        T0 = DWT->CYCCNT;
+        USB_Tx_Poll();
+        Cyc = DWT->CYCCNT - T0;
+        Motor_Time_Set(Cyc, &Motor_Time.USB_Poll_Cyc, &Motor_Time.USB_Poll_Max);
+
+        Normal_Div ^= 1U;
+
+        T0 = DWT->CYCCNT;
+        if (Normal_Div == 0U)
+        {
+            Motor_Plot_Normal_Update();
+            Plot_Normal_Sample();
+        }
+        Cyc = DWT->CYCCNT - T0;
+        Motor_Time_Set(Cyc, &Motor_Time.Plot_Cyc, &Motor_Time.Plot_Max);
+
+        Cyc = DWT->CYCCNT - Total_T0;
+        Motor_Time_Set(Cyc, &Motor_Time.Total_Cyc, &Motor_Time.Total_Max);
     }
 }

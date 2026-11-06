@@ -4,7 +4,9 @@
  */
 
 #include "Encoder.h"
+#include "Enc_Home.h"
 
+#include "ABZ.h"
 #include "MT6816.h"
 #include "MT6835.h"
 #include "Math.h"
@@ -14,6 +16,7 @@
 #include "control_params.h"
 #include "main.h"
 #include "motor_params.h"
+#include "Encoder_Port.h"
 
 #define ENC_READY_VALID_CNT      16U
 #define ENC_RUNTIME_INVALID_CNT  3U
@@ -23,14 +26,15 @@ Encoder_Config_T Encoder_Config = ENCODER_CONFIG_DEFAULT;
 volatile Encoder_T Encoder = { 0 };
 Encoder_Harmonic_T Encoder_Harmonic = { 0 };
 
-FAST_CODE float Encoder_Angle_Correct(float Theta_Native)
+FAST_CODE float Encoder_Angle_Correct(float Theta_Native, bool Cal_Valid)
 {
     float Sin;
     float Cos;
     float Error;
 
-    if ((Encoder_Harmonic.C1 == 0.0f) && (Encoder_Harmonic.S1 == 0.0f) &&
-        (Encoder_Harmonic.C2 == 0.0f) && (Encoder_Harmonic.S2 == 0.0f))
+    if (!Cal_Valid ||
+        ((Encoder_Harmonic.C1 == 0.0f) && (Encoder_Harmonic.S1 == 0.0f) &&
+         (Encoder_Harmonic.C2 == 0.0f) && (Encoder_Harmonic.S2 == 0.0f)))
     {
         return Theta_Native;
     }
@@ -45,86 +49,14 @@ FAST_CODE float Encoder_Angle_Correct(float Theta_Native)
 static uint8_t Pos_Valid = 0U;
 static uint8_t Ready_Cnt = 0U;
 
-static void (*Drv_Config)(void) = 0;
 static void (*Drv_Start)(void) = 0;
 static void (*Drv_IRQHandler)(void) = 0;
 
-static void None_Config(void)
+void Encoder_Position_Reset(void)
 {
-    CLEAR_BIT(SPI1->CR2, SPI_CR2_RXDMAEN);
-    CLEAR_BIT(DMA1_Channel5->CCR, DMA_CCR_EN);
-    CLEAR_BIT(DMA1_Channel5->CCR,
-              DMA_CCR_TCIE | DMA_CCR_HTIE | DMA_CCR_TEIE);
-    DMA1->IFCR = DMA_IFCR_CGIF5;
-    SPI1_CSN_GPIO_Port->BSRR = SPI1_CSN_Pin;
-}
-
-static void None_Start(void)
-{
-}
-
-static void None_IRQHandler(void)
-{
-    DMA1->IFCR = DMA_IFCR_CGIF5;
-}
-
-static bool SPI_Driver_Bind(Encoder_SPI_Type_e Type)
-{
-    switch (Type)
-    {
-        case ENC_SPI_MT6816:
-            Drv_Config = MT6816_Config;
-            Drv_Start = MT6816_Start;
-            Drv_IRQHandler = MT6816_IRQHandler;
-            return true;
-
-        case ENC_SPI_MT6835:
-            Drv_Config = MT6835_Config;
-            Drv_Start = MT6835_Start;
-            Drv_IRQHandler = MT6835_IRQHandler;
-            return true;
-
-        default:
-            return false;
-    }
-}
-
-static bool Driver_Bind(void)
-{
-    switch ((Encoder_Protocol_e)Encoder_Config.Protocol)
-    {
-        case ENC_PROTOCOL_NONE:
-            Drv_IRQHandler = None_IRQHandler;
-            Drv_Start = None_Start;
-            Drv_Config = None_Config;
-            return true;
-
-        case ENC_PROTOCOL_SPI:
-            return SPI_Driver_Bind((Encoder_SPI_Type_e)Encoder_Config.SPI_Type);
-
-        default:
-            Drv_Config = 0;
-            Drv_Start = 0;
-            Drv_IRQHandler = 0;
-            return false;
-    }
-}
-
-static void Feedback_Reset(void)
-{
+    Enc_Home.Valid = 0U;
     Pos_Valid = 0U;
-    Ready_Cnt = 0U;
-
-    Encoder.Raw = 0U;
-    Encoder.Theta_Native = 0.0f;
-    Encoder.Err_Cnt = 0U;
-    Encoder.Miss_Cnt = 0U;
-    Encoder.Startup_Cnt = 0U;
-    Encoder.Lost_Cnt = 0U;
     Encoder.Valid = 0U;
-    Encoder.Ready = 0U;
-    Encoder.Fault = 0U;
-
     Motor_Run.Turn = 0;
     Motor_Run.Theta_m = 0.0f;
     Mechanical_ESO.State = (Mechanical_ESO_State_T){ 0 };
@@ -132,15 +64,12 @@ static void Feedback_Reset(void)
 
 static void Startup_Count(void)
 {
-    if ((Encoder.Ready != 0U) || (Encoder.Fault != 0U))
+    if (Encoder.Fault != 0U)
     {
         return;
     }
 
-    if (Encoder.Startup_Cnt < ENC_STARTUP_TIMEOUT_CNT)
-    {
-        Encoder.Startup_Cnt++;
-    }
+    Encoder.Startup_Cnt++;
 
     if (Encoder.Startup_Cnt >= ENC_STARTUP_TIMEOUT_CNT)
     {
@@ -148,40 +77,47 @@ static void Startup_Count(void)
     }
 }
 
-void Encoder_DMA_Config(void)
+void Encoder_Config_Apply(void)
 {
     uint32_t Primask;
-    uint32_t CR1;
-    uint32_t CR2;
 
-    /* Rebinding must not race a PWM trigger or an old DMA completion.
-     * MT6835 owns TX channel 3 as well as the shared RX channel 5. */
+    /* 切换驱动时暂停中断，避免采样和 DMA 同时访问外设。 */
     Primask = __get_PRIMASK();
     __disable_irq();
-    CR1 = SPI1->CR1;
-    CR2 = SPI1->CR2 & ~(SPI_CR2_RXDMAEN | SPI_CR2_TXDMAEN);
-    SPI1->CR2 = CR2;
-    CLEAR_BIT(DMA1_Channel3->CCR, DMA_CCR_EN);
-    CLEAR_BIT(DMA1_Channel5->CCR,
-              DMA_CCR_EN | DMA_CCR_TCIE | DMA_CCR_HTIE | DMA_CCR_TEIE);
-    DMA1->IFCR = DMA_IFCR_CGIF3 | DMA_IFCR_CGIF5;
-    SPI1_CSN_GPIO_Port->BSRR = SPI1_CSN_Pin;
-    /* Discard any queued SPI words when switching to another driver or None. */
-    SET_BIT(RCC->APB2RSTR, RCC_APB2RSTR_SPI1RST);
-    CLEAR_BIT(RCC->APB2RSTR, RCC_APB2RSTR_SPI1RST);
-    SPI1->CR2 = CR2;
-    SPI1->CR1 = CR1;
+    Encoder_Port_Release();
+    Ready_Cnt = 0U;
+    Encoder_Position_Reset();
+    Encoder = (Encoder_T){ 0 };
 
-    Feedback_Reset();
-
-    if (!Driver_Bind())
+    Drv_Start = 0;
+    Drv_IRQHandler = 0;
+    switch ((Encoder_Protocol_e)Encoder_Config.Protocol)
     {
-        Encoder.Fault = 1U;
-        __set_PRIMASK(Primask);
-        return;
-    }
+        case ENC_PROTOCOL_SPI:
+            Encoder_Port_SPI();
+            if (Encoder_Config.SPI_Type == ENC_SPI_MT6816)
+            {
+                Drv_Start = MT6816_Start;
+                Drv_IRQHandler = MT6816_IRQHandler;
+                MT6816_Config();
+            }
+            else
+            {
+                Drv_Start = MT6835_Start;
+                Drv_IRQHandler = MT6835_IRQHandler;
+                MT6835_Config();
+            }
+            break;
 
-    Drv_Config();
+        case ENC_PROTOCOL_ABZ:
+            Drv_Start = ABZ_Start;
+            ABZ_Config();
+            break;
+
+        case ENC_PROTOCOL_NONE:
+        default:
+            break;
+    }
     __set_PRIMASK(Primask);
 }
 
@@ -189,7 +125,7 @@ void Encoder_Position_Read(int32_t *Turn, float *Theta)
 {
     uint32_t Primask;
 
-    /* Turn and Theta_m are updated together by the encoder DMA ISR. */
+    /* 一起读取圈数和角度，避免采样中断在两次读取之间更新位置。 */
     Primask = __get_PRIMASK();
     __disable_irq();
     *Turn = Motor_Run.Turn;
@@ -219,10 +155,7 @@ void Encoder_Sample_Invalid(void)
 
     if ((Encoder.Ready != 0U) && (Encoder.Fault == 0U))
     {
-        if (Encoder.Lost_Cnt < ENC_RUNTIME_INVALID_CNT)
-        {
-            Encoder.Lost_Cnt++;
-        }
+        Encoder.Lost_Cnt++;
 
         if (Encoder.Lost_Cnt >= ENC_RUNTIME_INVALID_CNT)
         {
@@ -248,7 +181,7 @@ void Encoder_Sample_Update(uint32_t Raw, float Theta)
 
     Encoder.Raw = Raw;
     Encoder.Theta_Native = Theta;
-    Theta = Encoder_Angle_Correct(Theta);
+    Theta = Encoder_Angle_Correct(Theta, Motor_Cal.Valid == 2U);
 
     if (Motor_Cal.Enc_Dir < 0)
     {
@@ -271,6 +204,8 @@ void Encoder_Sample_Update(uint32_t Raw, float Theta)
     }
     else
     {
+        /* 坐标重建后，用首个采样角度对齐观测器。 */
+        Mechanical_ESO.State.Theta = Theta;
         Pos_Valid = 1U;
     }
 
@@ -282,15 +217,11 @@ void Encoder_Sample_Update(uint32_t Raw, float Theta)
     {
         Startup_Count();
 
-        if (Ready_Cnt < ENC_READY_VALID_CNT)
-        {
-            Ready_Cnt++;
-        }
+        Ready_Cnt++;
 
         if (Ready_Cnt >= ENC_READY_VALID_CNT)
         {
-            /* Establish the observer angle when the feedback first becomes
-             * usable, not each time the power stage is enabled. */
+            /* 编码器就绪时，用当前角度初始化观测器。 */
             Mechanical_ESO.State.Theta = Theta;
             Encoder.Ready = 1U;
         }

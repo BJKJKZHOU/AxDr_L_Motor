@@ -104,3 +104,18 @@ NORMAL: frames=60001 seq_lost=0
 ## 关联时序记录
 
 ADC ISR 中 USB 唤醒导致的周期性长尾与 Deadline Miss 见[快环时序记录](20kHz快环时序调试记录.md#fast-plot-的-usb-唤醒导致-adc-isr-长尾)。
+
+## 2026-11-02：参数入口与 Flash 保存期间采集
+
+重复判断精简后，通过 USB 验证 150 项非法参数写入，包括可写浮点参数的 NaN、正负无穷，以及加减速度、运行限值、注入参数和枚举边界；全部在入口拒绝，原参数值保持。采集中提交未知通道配置返回 `ERR_VAR_ID`，原 FAST/NORMAL 配置继续采集。
+
+完整编码器校准期间 FAST、NORMAL 各丢 1 块。随后在电机失能、母线约 24.9 V 时隔离测试：FAST 20 kHz 采集三相电流，NORMAL 1 kHz 采集 Wm、Wm_Ref、Id、Iq、Ud、Uq、Vbus 和机械 ESO 速度。临时将寻相电流乘以 1.001 后保存，再恢复原值并保存，分别统计动作请求耗时和固件 Drop 增量。
+
+| 保存操作 | 请求耗时 / ms | FAST 丢块增量 | NORMAL 丢块增量 |
+|---|---:|---:|---:|
+| 保存临时值 | 12.564 | 10 | 11 |
+| 保存原值 | 12.520 | 10 | 11 |
+
+两次保存都复现丢块，主机接收序号连续；这两份波形标为 invalid。保存工作线程优先级为 9，USB 发送线程为 11，同步保存延后发送服务是当前推测，尚未直接测量线程调度时序。
+
+本地数据：`test-data/20261102_check_cleanup/Plot-flash-save.json` 及对应 FAST/NORMAL 波形；完整校准结果见 `Encoder-complete.json`。

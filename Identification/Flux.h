@@ -22,12 +22,10 @@ extern Flux_Result_T Flux_Result;
 
 bool Flux_Start(float Wm_Target);
 void Flux_Control(void);
-Motor_Fast_Mode_e Flux_Fast_Run(float Ia_A,
-                                float Ib_A,
+Motor_Fast_Mode_e Flux_Fast_Run(float Ialpha,
+                                float Ibeta,
                                 float *Theta_e,
                                 float *Id_Ref,
-                                float *Iq_Ref,
-                                float *Ualpha_V,
-                                float *Ubeta_V);
+                                float *Iq_Ref);
 
 #endif /* FLUX_IDENT_H */

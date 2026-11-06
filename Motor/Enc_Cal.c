@@ -9,13 +9,10 @@
 #include "Math.h"
 #include "Mechanical_ESO.h"
 #include "Motor_ADC.h"
-#include "Motor_Cal.h"
 #include "Motor_Control.h"
 #include "motor_work.h"
 #include "Motor_Para.h"
 #include "Motion_Type.h"
-#include "NVS_Storage.h"
-#include "Parameter.h"
 #include "Sin_LUT.h"
 #include "VF.h"
 #include "control_params.h"
@@ -26,68 +23,47 @@
 #define ENC_CAL_SAMPLE_DIV     10U
 #define ENC_CAL_SAMPLE_TS      (CUR_TS * (float)ENC_CAL_SAMPLE_DIV)
 #define ENC_CAL_SAMPLES        ((uint32_t)(6.0f / ENC_CAL_SAMPLE_TS + 0.5f))
-#define ENC_CAL_COEF_MAX       0.05f
 #define ENC_CAL_STOP_WAIT_CNT  ((uint32_t)(0.3f / SPD_TS + 0.5f))
 #define ENC_CAL_STOP_WM        (10.0f * TWO_PI_F / 60.0f)
-/* Mechanical angle RMS after removing offset, speed and 1x/2x.
- * The accepted VF records were 0.06..0.08 degrees; allow 0.25 degrees. */
+/* 拟合后的机械角度残差 RMS：实测 0.06～0.08°，合格上限取 0.25°。 */
 #define ENC_CAL_RMS_MAX        (0.25f * PI_F / 180.0f)
 #define ENC_CAL_FIT_N          6U
 
 volatile Enc_Cal_T Enc_Cal = { 0 };
-static volatile uint32_t Sample_Cnt = 0U;
-static uint32_t Tick = 0U;
-static uint32_t Hold_Cnt = 0U;
-static volatile bool VF_Ready = false;
 volatile bool Enc_Cal_Handoff_Ready = false;
-static VF_T Cal_VF = { 0 };
 
-static uint8_t Div = 0U;
-static float Theta_Pre = 0.0f;
-static float Theta_Err = 0.0f;
-static float A[ENC_CAL_FIT_N][ENC_CAL_FIT_N] = { 0 };
-static float B[ENC_CAL_FIT_N] = { 0 };
-static float Y2 = 0.0f;
+typedef struct
+{
+    uint32_t Tick;
+    uint32_t Hold_Cnt;
+    volatile uint32_t Sample_Cnt;
+    volatile bool VF_Ready;
+    VF_T VF;
+    uint8_t Div;
+    float Theta_Pre;
+    float Theta_Err;
+    float A[ENC_CAL_FIT_N][ENC_CAL_FIT_N];
+    float B[ENC_CAL_FIT_N];
+    float Y2;
+
+} Enc_Cal_State_T;
+
+static Enc_Cal_State_T Cal = { 0 };
 
 static FAST_CODE void Enc_Cal_Sample(float Theta_Native);
 
 bool Enc_Cal_Start(void)
 {
-    if ((Motor_Wm_Limit_Effective_Get() < ENC_CAL_WM) ||
-        (Motion_Config.Wm_Acc <= 0.0f) || (Motion_Config.Wm_Dec <= 0.0f) ||
-        (Motor_Para.Flux <= 0.0f))
+    if (User_Lim.Wm_Max < ENC_CAL_WM)
     {
         return false;
     }
 
-    Tick = 0U;
-    Hold_Cnt = 0U;
-    VF_Ready = false;
+    Cal = (Enc_Cal_State_T){ 0 };
     Enc_Cal_Handoff_Ready = false;
-    Cal_VF = (VF_T){ 0 };
-    Div = 0U;
-    Sample_Cnt = 0U;
-    Y2 = 0.0f;
-    for (uint32_t i = 0U; i < ENC_CAL_FIT_N; i++)
-    {
-        B[i] = 0.0f;
-        for (uint32_t j = i; j < ENC_CAL_FIT_N; j++)
-        {
-            A[i][j] = 0.0f;
-        }
-    }
 
     Enc_Cal.Step = CAL_SPEED;
     return true;
-}
-
-void Enc_Cal_Abort(void)
-{
-    if ((Enc_Cal.Step >= CAL_SPEED) && (Enc_Cal.Step < CAL_DONE))
-    {
-        /* Prevent a late worker result from applying after cancellation. */
-        Enc_Cal.Step = CAL_FAILED;
-    }
 }
 
 Motor_Fast_Mode_e Enc_Cal_Fast_Run(float *Theta_e,
@@ -100,38 +76,36 @@ Motor_Fast_Mode_e Enc_Cal_Fast_Run(float *Theta_e,
         return FAST_OFF;
     }
 
-    if (!VF_Ready)
+    if (!Cal.VF_Ready)
     {
-        /* The stored voltage was applied last cycle. Advance its phase once
-         * before VF_Run emits this cycle, preserving the rotating vector. */
+        /* 保存的是上周期电压，先推进一个周期的相位以保持连续。 */
         float Ua = Motor_Run.Ualpha;
         float Ub = Motor_Run.Ubeta;
 
-        Cal_VF.State.U = __builtin_sqrtf(Ua * Ua + Ub * Ub);
-        Cal_VF.State.We = (float)Motor_Para.Pp * ENC_CAL_WM;
-        Cal_VF.State.Theta_e = Angle_Wrap(__builtin_atan2f(-Ua, Ub) +
-                                         Cal_VF.State.We * CUR_TS);
-        Cal_VF.Para.U_Slew_V_S = 30.0f;
-        Cal_VF.Para.We_Acc = (float)Motor_Para.Pp * Motion_Config.Wm_Acc;
-        VF_Ready = true;
+        Cal.VF.State.U = __builtin_sqrtf(Ua * Ua + Ub * Ub);
+        Cal.VF.State.We = (float)Motor_Para.Pp * ENC_CAL_WM;
+        Cal.VF.State.Theta_e = Angle_Wrap(__builtin_atan2f(-Ua, Ub) +
+                                         Cal.VF.State.We * CUR_TS);
+        Cal.VF.Para.U_Slew_V_S = 30.0f;
+        Cal.VF.Para.We_Acc = (float)Motor_Para.Pp * Motion_Config.Wm_Acc;
+        Cal.VF_Ready = true;
     }
 
-    /* Constant-speed calibration holds the measured operating voltage. Encoder
-     * feedback never adjusts VF angle or amplitude after the transfer. */
-    Cal_VF.Para.U_Max_V = ADC.Vbus_V * INV_SQRT3_F * VOLT_MOD_MAX;
-    *Theta_e = Cal_VF.State.Theta_e;
-    VF_Run(&Cal_VF, (float)Motor_Para.Pp * ENC_CAL_WM,
-           Cal_VF.State.U, Ualpha, Ubeta, CUR_TS);
+    /* 切入 VF 后保持电压幅值和转速，开环采集编码器误差。 */
+    Cal.VF.Para.U_Max_V = ADC.Vbus_V * INV_SQRT3_F * VOLT_MOD_MAX;
+    *Theta_e = Cal.VF.State.Theta_e;
+    VF_Run(&Cal.VF, (float)Motor_Para.Pp * ENC_CAL_WM,
+           Cal.VF.State.U, Ualpha, Ubeta, CUR_TS);
 
     if (Enc_Cal.Step == CAL_HANDOFF)
     {
-        /* Keep rotating while the 2 kHz owner prepares the speed ramp. */
+        /* 等待速度环准备减速时，继续 VF 转动。 */
         Enc_Cal_Handoff_Ready = true;
     }
 
     Enc_Cal_Sample(Encoder.Theta_Native);
-    /* An incomplete/invalid capture cannot become a successful fit. */
-    return (Sample_Cnt > ENC_CAL_SAMPLES) ? FAST_OFF : FAST_VOLTAGE;
+    /* 采样失败时关闭输出。 */
+    return (Cal.Sample_Cnt > ENC_CAL_SAMPLES) ? FAST_OFF : FAST_VOLTAGE;
 }
 
 static FAST_CODE void Enc_Cal_Sample(float Theta_Native)
@@ -139,83 +113,61 @@ static FAST_CODE void Enc_Cal_Sample(float Theta_Native)
     float X[ENC_CAL_FIT_N];
     float Delta;
 
-    if ((Enc_Cal.Step != CAL_SAMPLE) || (Sample_Cnt >= ENC_CAL_SAMPLES))
+    if ((Enc_Cal.Step != CAL_SAMPLE) || (Cal.Sample_Cnt >= ENC_CAL_SAMPLES))
     {
         return;
     }
 
-    if ((Encoder.Valid == 0U) || (Encoder.Fault != 0U) ||
-        !__builtin_isfinite(Theta_Native))
+    if ((Encoder.Valid == 0U) || (Encoder.Fault != 0U))
     {
-        /* Preserve rejection even if the encoder recovers before the next
-         * slow tick. A count above the requested length is never fitted. */
-        Sample_Cnt = ENC_CAL_SAMPLES + 1U;
+        /* 用超出目标数量的计数记录采样失败，供低频任务检查。 */
+        Cal.Sample_Cnt = ENC_CAL_SAMPLES + 1U;
         return;
     }
 
-    if (++Div < ENC_CAL_SAMPLE_DIV)
+    if (++Cal.Div < ENC_CAL_SAMPLE_DIV)
     {
         return;
     }
-    Div = 0U;
+    Cal.Div = 0U;
 
-    if (Sample_Cnt == 0U)
+    if (Cal.Sample_Cnt != 0U)
     {
-        Theta_Err = 0.0f;
+        Delta = Angle_Diff(Theta_Native, Cal.Theta_Pre);
+        /* 逐次累加角度误差，避免大角度相减造成浮点精度损失。 */
+        Cal.Theta_Err += Delta - (float)Motor_Cal.Enc_Dir * ENC_CAL_WM * ENC_CAL_SAMPLE_TS;
     }
-    else
-    {
-        Delta = Theta_Native - Theta_Pre;
-        if (Delta > PI_F)
-        {
-            Delta -= TWO_PI_F;
-        }
-        else if (Delta < -PI_F)
-        {
-            Delta += TWO_PI_F;
-        }
-        /* Accumulate the small deviation, not ~600 rad of single-precision
-         * angle followed by cancellation against the nominal trajectory. */
-        Theta_Err += Delta - (float)Motor_Cal.Enc_Dir * ENC_CAL_WM * ENC_CAL_SAMPLE_TS;
-    }
-    Theta_Pre = Theta_Native;
+    Cal.Theta_Pre = Theta_Native;
 
-    /* Offset, speed error, then 1x/2x encoder harmonics. */
+    /* 拟合项：偏置、速度误差、一阶和二阶谐波。 */
     X[0] = 1.0f;
-    X[1] = (float)Sample_Cnt * ENC_CAL_SAMPLE_TS - 3.0f;
+    X[1] = (float)Cal.Sample_Cnt * ENC_CAL_SAMPLE_TS - 3.0f;
     SinCos(Theta_Native, &X[3], &X[2]);
     SinCos(Angle_Wrap(2.0f * Theta_Native), &X[5], &X[4]);
 
     for (uint32_t i = 0U; i < ENC_CAL_FIT_N; i++)
     {
-        B[i] += X[i] * Theta_Err;
+        Cal.B[i] += X[i] * Cal.Theta_Err;
         for (uint32_t j = i; j < ENC_CAL_FIT_N; j++)
         {
-            A[i][j] += X[i] * X[j];
+            Cal.A[i][j] += X[i] * X[j];
         }
     }
-    Y2 += Theta_Err * Theta_Err;
-    Sample_Cnt++;
+    Cal.Y2 += Cal.Theta_Err * Cal.Theta_Err;
+    Cal.Sample_Cnt++;
 }
 
-/* A = X'X is positive definite for a complete rotating capture. LDL' solves
- * A*Beta = B without pivoting or square roots. Double precision is confined to this offline
- * solve so RSS = Y2 - Beta'B does not amplify float solve error. */
+/* 用 LDL' 分解求解 A*Beta=B；采用双精度以减小残差计算误差。 */
 static bool Enc_Cal_Fit(float C[4])
 {
-    double LD[ENC_CAL_FIT_N][ENC_CAL_FIT_N]; /* Unit L below diagonal, D on diagonal. */
+    double LD[ENC_CAL_FIT_N][ENC_CAL_FIT_N]; /* 下三角保存 L，对角线保存 D。 */
     double Beta[ENC_CAL_FIT_N];
-
-    if (Sample_Cnt != ENC_CAL_SAMPLES)
-    {
-        return false;
-    }
 
     for (uint32_t i = 0U; i < ENC_CAL_FIT_N; i++)
     {
         for (uint32_t j = 0U; j <= i; j++)
         {
-            double V = A[j][i];
+            double V = Cal.A[j][i];
             for (uint32_t k = 0U; k < j; k++)
             {
                 V -= LD[i][k] * LD[j][k] * LD[k][k];
@@ -234,8 +186,8 @@ static bool Enc_Cal_Fit(float C[4])
             }
         }
 
-        /* Forward substitution L*z = B; Beta temporarily holds z. */
-        double V = B[i];
+        /* 求解 L*z=B，Beta 暂存 z。 */
+        double V = Cal.B[i];
         for (uint32_t j = 0U; j < i; j++)
         {
             V -= LD[i][j] * Beta[j];
@@ -259,17 +211,13 @@ static bool Enc_Cal_Fit(float C[4])
 
     for (uint32_t i = 0U; i < 4U; i++)
     {
-        if (__builtin_fabs(Beta[i + 2U]) > ENC_CAL_COEF_MAX)
-        {
-            return false;
-        }
         C[i] = (float)Beta[i + 2U];
     }
 
-    double Rss = (double)Y2;
+    double Rss = (double)Cal.Y2;
     for (uint32_t i = 0U; i < ENC_CAL_FIT_N; i++)
     {
-        Rss -= Beta[i] * (double)B[i];
+        Rss -= Beta[i] * (double)Cal.B[i];
     }
     double Rss_Max = (double)ENC_CAL_SAMPLES * ENC_CAL_RMS_MAX * ENC_CAL_RMS_MAX;
     if (!__builtin_isfinite(Rss) || (Rss > Rss_Max) || (Rss < -Rss_Max) ||
@@ -281,8 +229,7 @@ static bool Enc_Cal_Fit(float C[4])
     return true;
 }
 
-/* The low-priority Motor Work thread calls this only while DISABLED.
- * Fit owns its coefficients; the encoder consumes the published correction. */
+/* 禁能后由后台线程拟合并应用系数。 */
 bool Enc_Cal_Fit_Apply(void)
 {
     float Coeff[4];
@@ -295,8 +242,7 @@ bool Enc_Cal_Fit_Apply(void)
 
     Primask = __get_PRIMASK();
     __disable_irq();
-    if ((Enc_Cal.Step != CAL_FIT_WAIT) || (Motor_State_Get() != DISABLED) ||
-        ((TIM1->BDTR & TIM_BDTR_MOE) != 0U))
+    if (Enc_Cal.Step != CAL_FIT_WAIT)
     {
         __set_PRIMASK(Primask);
         return false;
@@ -310,100 +256,57 @@ bool Enc_Cal_Fit_Apply(void)
     return true;
 }
 
-bool Enc_Cal_Save(void)
-{
-    const uint16_t Ids[] = {
-        /* Publish the invalid phase marker before the changed correction. */
-        PARAM_CAL_VALID,
-        PARAM_ENCODER_HARMONIC_C1, PARAM_ENCODER_HARMONIC_S1,
-        PARAM_ENCODER_HARMONIC_C2, PARAM_ENCODER_HARMONIC_S2,
-    };
-
-    return NVS_Storage_Save_Ids(Ids, sizeof(Ids) / sizeof(Ids[0])) == 0;
-}
-
 void Enc_Cal_Run(void)
 {
     float Wm;
- 
-    if ((Enc_Cal.Step == CAL_IDLE) || (Enc_Cal.Step >= CAL_DONE))
-    {
-        return;
-    }
 
-    /* Fitting and saving follow the actual transition to DISABLED. */
-    if (Motor_State_Get() != ((Enc_Cal.Step < CAL_FIT) ? RUN : DISABLED))
+    if ((Enc_Cal.Step == CAL_SPEED) || (Enc_Cal.Step == CAL_VF))
     {
-        Enc_Cal.Step = CAL_FAILED;
-        return;
-    }
+        if ((Enc_Cal.Step == CAL_VF) && !Cal.VF_Ready)
+        {
+            return;
+        }
 
-    if (Enc_Cal.Step == CAL_SPEED)
-    {
         Wm = Mechanical_ESO.State.Wm;
-        Tick++;
+        Cal.Tick++;
         if (__builtin_fabsf(Wm - ENC_CAL_WM) < 0.1f * ENC_CAL_WM)
         {
-            Hold_Cnt++;
+            Cal.Hold_Cnt++;
         }
         else
         {
-            Hold_Cnt = 0U;
+            Cal.Hold_Cnt = 0U;
         }
 
-        if (Hold_Cnt >= ENC_CAL_SPEED_HOLD_CNT)
+        if (Enc_Cal.Step == CAL_SPEED)
         {
-            Tick = 0U;
-            Hold_Cnt = 0U;
-            Enc_Cal.Step = CAL_VF;
+            if (Cal.Hold_Cnt >= ENC_CAL_SPEED_HOLD_CNT)
+            {
+                Cal.Tick = 0U;
+                Cal.Hold_Cnt = 0U;
+                Enc_Cal.Step = CAL_VF;
+            }
+            else if (Cal.Tick > (uint32_t)((ENC_CAL_WM / Motion_Config.Wm_Acc + 4.0f) / SPD_TS))
+            {
+                Enc_Cal.Step = CAL_FAILED;
+            }
         }
-        else if (Tick > (uint32_t)((ENC_CAL_WM / Motion_Config.Wm_Acc + 4.0f) / SPD_TS))
+        else if (Cal.Tick >= ENC_CAL_VF_SETTLE_CNT)
         {
-            Enc_Cal.Step = CAL_FAILED;
+            Enc_Cal.Step = (Cal.Hold_Cnt >= ENC_CAL_SPEED_HOLD_CNT) ? CAL_SAMPLE : CAL_FAILED;
         }
-        return;
-    }
-
-    if (Enc_Cal.Step == CAL_VF)
-    {
-        if (!VF_Ready)
-        {
-            return;
-        }
-        Wm = Mechanical_ESO.State.Wm;
-        if (__builtin_isfinite(Wm) &&
-            (__builtin_fabsf(Wm - ENC_CAL_WM) < 0.1f * ENC_CAL_WM))
-        {
-            Hold_Cnt++;
-        }
-        else
-        {
-            Hold_Cnt = 0U;
-        }
-        if (++Tick < ENC_CAL_VF_SETTLE_CNT)
-        {
-            return;
-        }
-
-        if (Hold_Cnt < ENC_CAL_SPEED_HOLD_CNT)
-        {
-            Enc_Cal.Step = CAL_FAILED;
-            return;
-        }
-
-        Enc_Cal.Step = CAL_SAMPLE;
         return;
     }
 
     if (Enc_Cal.Step == CAL_SAMPLE)
     {
         Wm = Mechanical_ESO.State.Wm;
-        if ((Sample_Cnt > ENC_CAL_SAMPLES) || !__builtin_isfinite(Wm) ||
+        if ((Cal.Sample_Cnt > ENC_CAL_SAMPLES) || !__builtin_isfinite(Wm) ||
             (__builtin_fabsf(Wm - ENC_CAL_WM) >= 0.1f * ENC_CAL_WM))
         {
             Enc_Cal.Step = CAL_FAILED;
         }
-        else if (Sample_Cnt == ENC_CAL_SAMPLES)
+        else if (Cal.Sample_Cnt == ENC_CAL_SAMPLES)
         {
             Enc_Cal.Step = CAL_HANDOFF;
         }
@@ -415,8 +318,8 @@ void Enc_Cal_Run(void)
         if (Enc_Cal_Handoff_Ready)
         {
             Motor_Cal_Decel_Begin();
-            Hold_Cnt = 0U;
-            Tick = 0U;
+            Cal.Hold_Cnt = 0U;
+            Cal.Tick = 0U;
             Enc_Cal.Step = CAL_DECEL;
         }
         return;
@@ -425,7 +328,7 @@ void Enc_Cal_Run(void)
     if (Enc_Cal.Step == CAL_DECEL)
     {
         Wm = Mechanical_ESO.State.Wm;
-        if (++Tick > (uint32_t)((ENC_CAL_WM / Motion_Config.Wm_Dec + 4.0f) / SPD_TS))
+        if (++Cal.Tick > (uint32_t)((ENC_CAL_WM / Motion_Config.Wm_Dec + 4.0f) / SPD_TS))
         {
             Enc_Cal.Step = CAL_FAILED;
             return;
@@ -433,11 +336,11 @@ void Enc_Cal_Run(void)
         if ((Motor_Wm_Ref_Get() != 0.0f) || !__builtin_isfinite(Wm) ||
             (__builtin_fabsf(Wm) > ENC_CAL_STOP_WM))
         {
-            Hold_Cnt = 0U;
+            Cal.Hold_Cnt = 0U;
             return;
         }
 
-        if (++Hold_Cnt < ENC_CAL_STOP_WAIT_CNT)
+        if (++Cal.Hold_Cnt < ENC_CAL_STOP_WAIT_CNT)
         {
             return;
         }
@@ -448,15 +351,8 @@ void Enc_Cal_Run(void)
 
     if (Enc_Cal.Step == CAL_FIT)
     {
-        if ((TIM1->BDTR & TIM_BDTR_MOE) == 0U)
-        {
-            if (!Motor_Work_Request(MOTOR_WORK_FIT))
-            {
-                Enc_Cal.Step = CAL_FAILED;
-                return;
-            }
-            Enc_Cal.Step = CAL_FIT_WAIT;
-        }
+        Motor_Work_Request(MOTOR_WORK_FIT);
+        Enc_Cal.Step = CAL_FIT_WAIT;
         return;
     }
 
@@ -466,19 +362,14 @@ void Enc_Cal_Run(void)
         {
             return;
         }
-        bool Passed = (Motor_Work_State == MOTOR_WORK_DONE);
-        Motor_Work_Ack();
-        if (!Passed)
+        if (Motor_Work_State != MOTOR_WORK_DONE)
         {
+            Motor_Work_State = MOTOR_WORK_IDLE;
             Enc_Cal.Step = CAL_FAILED;
             return;
         }
 
-        if (!Motor_Work_Request(MOTOR_WORK_SAVE_ENC))
-        {
-            Enc_Cal.Step = CAL_FAILED;
-            return;
-        }
+        Motor_Work_Request(MOTOR_WORK_SAVE_ENC);
 
         Enc_Cal.Step = CAL_SAVE_WAIT;
         return;
@@ -487,6 +378,6 @@ void Enc_Cal_Run(void)
     if ((Enc_Cal.Step == CAL_SAVE_WAIT) && (Motor_Work_State >= MOTOR_WORK_DONE))
     {
         Enc_Cal.Step = (Motor_Work_State == MOTOR_WORK_DONE) ? CAL_DONE : CAL_FAILED;
-        Motor_Work_Ack();
+        Motor_Work_State = MOTOR_WORK_IDLE;
     }
 }

@@ -112,11 +112,7 @@ static void LCD_Pixel(uint16_t X, uint16_t Y, uint8_t Signal)
     uint32_t Index;
     uint32_t Shift;
 
-    if ((X >= ST7789_WIDTH) || (Y >= ST7789_HEIGHT))
-    {
-        return;
-    }
-
+    /* 文字使用固定布局，曲线坐标已裁剪到屏幕内。 */
     Index = (uint32_t)Y * LCD_ROW_BYTES * 4U + X;
     Shift = (Index & 3U) * 2U;
     Frame_New[Index >> 2U] |= (uint8_t)(Signal << Shift);
@@ -192,7 +188,7 @@ static void LCD_Number(float Value, uint8_t Decimals, char *Text)
     {
         Digits[Count++] = (char)('0' + (Whole % 10U));
         Whole /= 10U;
-    } while ((Whole != 0U) && (Count < sizeof(Digits)));
+    } while (Whole != 0U);
 
     while (Count != 0U)
     {
@@ -220,7 +216,7 @@ static const char *LCD_Mode_Name(Motor_Mode_e Mode)
         case OPEN_LOOP:       return "OPEN LOOP";
         case IDENT:           return "IDENT";
         case SENSORLESS_SPEED:return "SENSORLESS";
-        case PHASE_SEARCH:    return "PHASE";
+        case ENCODER_CAL:    return "ENC CAL";
         default:              return "UNKNOWN";
     }
 }
@@ -247,13 +243,6 @@ static const char *LCD_State_Name(Motor_State_e State)
         case RUN:      return "RUN";
         default:       return "OFF";
     }
-}
-
-static bool LCD_Feedback_Valid(void)
-{
-    return (Encoder.Ready != 0U) &&
-           (Encoder.Fault == 0U) &&
-           (Mechanical_ESO.Para.Valid != 0U);
 }
 
 static void LCD_Sample(void)
@@ -284,7 +273,8 @@ static void LCD_Sample(void)
             Ref = Motor_Plot_Wm_Ref;
             Fbk = Motor_Plot_Wm;
             if (((Mode == SPEED) || (Mode == OPEN_LOOP)) &&
-                !LCD_Feedback_Valid())
+                ((Encoder.Ready == 0U) || (Encoder.Fault != 0U) ||
+                 (Mechanical_ESO.Para.Valid == 0U)))
             {
                 Fbk = __builtin_nanf("");
             }
@@ -338,8 +328,7 @@ static void LCD_Scale_Run(void)
         case TORQUE:
         {
             float Kt = 1.5f * (float)Motor_Para.Pp * Motor_Para.Flux;
-            End = (__builtin_isfinite(Kt) && (Kt > 0.0f)) ?
-                  Motor_User_To_Internal(Motor_Cmd.Te_Target) / Kt : 0.0f;
+            End = Motor_User_To_Internal(Motor_Cmd.Te_Target) / Kt;
             break;
         }
         case SPEED:
@@ -489,10 +478,7 @@ static void LCD_Render(void)
 
     LCD_Scale_Run();
 
-    if (History_Count != 0U)
-    {
-        (void)LCD_History_Get(0U, &Ref, &Fbk);
-    }
+    (void)LCD_History_Get(0U, &Ref, &Fbk);
 
     uint8_t Decimals = (Display_Mode == POSITION) ? 3U : ((Display_Mode == TORQUE) ? 2U : 1U);
     LCD_Number(Ref, Decimals, Ref_Text);
@@ -534,6 +520,11 @@ static void LCD_Render(void)
                 LCD_Pixel(x, Y, LCD_REF);
             }
             Ref_Y_Pre = Y;
+            Ref_Valid_Pre = true;
+        }
+        else
+        {
+            Ref_Valid_Pre = false;
         }
 
         if (__builtin_isfinite(Cur_Fbk))
@@ -549,28 +540,26 @@ static void LCD_Render(void)
                 LCD_Pixel(x, Y, LCD_FBK);
             }
             Fbk_Y_Pre = Y;
+            Fbk_Valid_Pre = true;
         }
-
-        Ref_Valid_Pre = __builtin_isfinite(Cur_Ref);
-        Fbk_Valid_Pre = __builtin_isfinite(Cur_Fbk);
+        else
+        {
+            Fbk_Valid_Pre = false;
+        }
     }
-}
-
-static uint8_t LCD_Pixel_Get(uint16_t X, uint16_t Y)
-{
-    uint32_t Index = (uint32_t)Y * LCD_ROW_BYTES * 4U + X;
-    return (Frame_New[Index >> 2U] >> ((Index & 3U) * 2U)) & 3U;
 }
 
 static uint16_t LCD_Color(uint16_t X, uint16_t Y)
 {
-    switch (LCD_Pixel_Get(X, Y))
+    uint32_t Index = (uint32_t)Y * LCD_ROW_BYTES * 4U + X;
+
+    switch ((Frame_New[Index >> 2U] >> ((Index & 3U) * 2U)) & 3U)
     {
         case LCD_REF: return 0x17D4U; /* cyan */
         case LCD_FBK: return 0xFD20U; /* amber */
         case 3U:      return 0xFFFFU;
         default:
-            if ((Y >= LCD_GRAPH_Y) && (Y < LCD_GRAPH_Y + LCD_GRAPH_H))
+            if (Y >= LCD_GRAPH_Y)
             {
                 return ((X % 40U == 0U) ||
                         ((Y - LCD_GRAPH_Y) % 26U == 0U)) ? 0x2945U : 0x0841U;
@@ -618,7 +607,7 @@ static void LCD_Dirty_Calc(void)
 
 static void LCD_Flush_Pump(void)
 {
-    if (!Flush_Active || !ST7789_Ready())
+    if (!ST7789_Ready())
     {
         return;
     }

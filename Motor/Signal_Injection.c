@@ -22,9 +22,7 @@ bool Signal_Injection_Start(float I_Max, float Wm_Max)
     float Rate;
     uint32_t Samples;
 
-    if ((Signal_Injection.State.Active != 0U) ||
-        !__builtin_isfinite(Freq) || (Freq <= 0.0f) ||
-        !__builtin_isfinite(Time) || (Time < CUR_TS) || (Time > 60.0f))
+    if ((Signal_Injection.State.Active != 0U) || (Time < CUR_TS))
     {
         return false;
     }
@@ -33,28 +31,21 @@ bool Signal_Injection_Start(float I_Max, float Wm_Max)
     {
         Rate = SPD_FREQ_HZ_DEFAULT;
         Amp = Signal_Injection.Para.Speed_Amp;
-        /* Accept the requested sweep range up to 1 Hz below Nyquist. */
-        if ((Freq > 999.0f) || !__builtin_isfinite(Wm_Max) ||
-            !__builtin_isfinite(Amp) || (Amp <= 0.0f) || (Amp > Wm_Max))
-        {
-            return false;
-        }
-    }
-    else if ((Target == SIGNAL_ID) || (Target == SIGNAL_IQ))
-    {
-        Rate = CUR_FREQ_HZ_DEFAULT;
-        Amp = Signal_Injection.Para.Amp_A;
-        if ((Freq > 9999.0f) || !__builtin_isfinite(I_Max) ||
-            !__builtin_isfinite(Amp) || (Amp <= 0.0f) || (Amp > I_Max))
+        /* 速度环的激励频率低于 Nyquist 频率至少 1 Hz。 */
+        if ((Freq > 999.0f) || (Amp > Wm_Max))
         {
             return false;
         }
     }
     else
     {
-        return false;
+        Rate = CUR_FREQ_HZ_DEFAULT;
+        Amp = Signal_Injection.Para.Amp_A;
+        if (Amp > I_Max)
+        {
+            return false;
+        }
     }
-
     Samples = (uint32_t)(Time * Rate + 0.5f);
     if (Samples == 0U)
     {

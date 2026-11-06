@@ -11,11 +11,6 @@
 #include "stm32g4xx_hal.h"
 #include <zephyr/drivers/flash.h>
 
-_Static_assert(STORAGE_NVS_OFFSET + STORAGE_NVS_SIZE == STORAGE_FLASH_TOTAL_SIZE,
-               "NVS partition must end at flash boundary");
-_Static_assert((STORAGE_NVS_OFFSET % STORAGE_NVS_SECTOR_SIZE) == 0U,
-               "NVS partition must start on a flash page boundary");
-
 static const struct flash_parameters Flash_Parameters = {
     .write_block_size = STORAGE_FLASH_WRITE_SIZE,
     .caps = { .no_explicit_erase = false },
@@ -49,7 +44,7 @@ int flash_read(const struct device *Dev, off_t Offset, void *Data, size_t Length
 {
     (void)Dev;
 
-    if ((Data == NULL) || !Storage_Range_Valid(Offset, Length))
+    if (!Storage_Range_Valid(Offset, Length))
     {
         return -EINVAL;
     }
@@ -66,8 +61,7 @@ int flash_write(const struct device *Dev, off_t Offset, const void *Data, size_t
 
     (void)Dev;
 
-    if ((Data == NULL) || !Flash_Storage_Geometry_Valid() ||
-        !Storage_Range_Valid(Offset, Length) ||
+    if (!Storage_Range_Valid(Offset, Length) ||
         (((uint32_t)Offset % STORAGE_FLASH_WRITE_SIZE) != 0U) ||
         ((Length % STORAGE_FLASH_WRITE_SIZE) != 0U))
     {
@@ -99,13 +93,13 @@ int flash_write(const struct device *Dev, off_t Offset, const void *Data, size_t
 int flash_flatten(const struct device *Dev, off_t Offset, size_t Size)
 {
     FLASH_EraseInitTypeDef Erase = { 0 };
+    HAL_StatusTypeDef Status;
     uint32_t PageError = 0U;
     uint32_t Page;
 
     (void)Dev;
 
-    if (!Flash_Storage_Geometry_Valid() ||
-        !Storage_Range_Valid(Offset, Size) ||
+    if (!Storage_Range_Valid(Offset, Size) ||
         (((uint32_t)Offset % STORAGE_NVS_SECTOR_SIZE) != 0U) ||
         ((Size == 0U) || ((Size % STORAGE_NVS_SECTOR_SIZE) != 0U)))
     {
@@ -124,14 +118,9 @@ int flash_flatten(const struct device *Dev, off_t Offset, size_t Size)
         return -EIO;
     }
 
-    if (HAL_FLASHEx_Erase(&Erase, &PageError) != HAL_OK)
-    {
-        (void)HAL_FLASH_Lock();
-        return -EIO;
-    }
-
+    Status = HAL_FLASHEx_Erase(&Erase, &PageError);
     (void)HAL_FLASH_Lock();
-    return 0;
+    return (Status == HAL_OK) ? 0 : -EIO;
 }
 
 const struct flash_parameters *flash_get_parameters(const struct device *Dev)
@@ -154,7 +143,7 @@ int flash_get_page_info_by_offs(const struct device *Dev,
 
     (void)Dev;
 
-    if ((Info == NULL) || !Storage_Range_Valid(Offset, 1U))
+    if (!Storage_Range_Valid(Offset, 1U))
     {
         return -EINVAL;
     }

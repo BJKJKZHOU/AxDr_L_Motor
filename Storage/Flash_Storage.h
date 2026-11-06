@@ -9,7 +9,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define STORAGE_FLASH_TOTAL_SIZE   (512U * 1024U)
 #define STORAGE_NVS_OFFSET         0x0007C000UL
 #define STORAGE_NVS_SIZE           (16U * 1024U)
 #define STORAGE_NVS_SECTOR_SIZE    2048U

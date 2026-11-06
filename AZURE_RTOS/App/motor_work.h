@@ -29,8 +29,7 @@ typedef enum
 
 extern volatile Motor_Work_State_e Motor_Work_State;
 
-bool Motor_Work_Request(Motor_Work_Job_e Job);
-void Motor_Work_Ack(void);
+void Motor_Work_Request(Motor_Work_Job_e Job);
 UINT Motor_Work_Thread_Init(TX_BYTE_POOL *Pool);
 
 #endif /* MOTOR_WORK_H */

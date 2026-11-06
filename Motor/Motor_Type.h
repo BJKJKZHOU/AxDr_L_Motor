@@ -24,7 +24,7 @@ typedef enum
     OPEN_LOOP,
     IDENT,
     SENSORLESS_SPEED,
-    PHASE_SEARCH,
+    ENCODER_CAL,
 
 } Motor_Mode_e;
 
@@ -71,34 +71,19 @@ typedef struct
 } Motor_Cmd_T;
 
 /*
- * Servo phase calibration establishes one self-consistent internal motor
- * coordinate. Enc_Dir, phase order and Theta_Off belong to that calibration
- * result and must not be changed merely to reverse the user-facing direction.
+ * 寻相确定 Enc_Dir 和 Theta_Off，统一正 Iq、正转矩和内部机械正方向。
+ * 用户转向由 Motor_Config.Dir 设置；编码器方向和零位在禁能后应用。
+ * Theta_e = wrap(Pp * Theta_m + Theta_Off)。
  *
- * Internal sign invariant:
- *   +Iq -> +Te -> internal positive mechanical direction.
- *
- * Motor_Config.Dir separately maps this internal direction to the user
- * mechanical coordinate. By project convention the user may choose output-
- * shaft-side CCW as positive; if the observed direction is opposite, change
- * Motor_Config.Dir only. This does not invalidate Enc_Dir or Theta_Off.
- *
- * Enc_Dir maps the encoder native angle direction into the internal motor
- * coordinate. Only +1 / -1 are valid and direction calibration may only be
- * changed while DISABLED. After direction correction, Motor_Run.Theta_m
- * and Turn belong to the internal motor coordinate, as does the ESO speed.
- *
- * Theta_Off must be calibrated after Enc_Dir / phase order are established:
- * Theta_e = wrap(Pp * Theta_m + Theta_Off).
- *
- * Valid 表示当前寻相结果可用；重新寻相或用户修改极对数、编码器类型时清零。
- * 上电按参数表恢复保存值。
+ * Valid：0=未寻相，1=已寻相，2=寻相和编码器校准有效。
+ * 极对数或当前使用的编码器配置变化时清零；独立重新寻相在新结果应用前保留原状态。
+ * 完整编码器校准应用新系数后清零，最终寻相成功置 2；ABZ 上电清零，SPI 恢复保存值。
  */
 typedef struct
 {
     int8_t Enc_Dir; /* 寻相得到的方向，+1 / -1。 */
     float Theta_Off; /* 寻相得到的电角度偏置，rad。 */
-    uint8_t Valid; /* 寻相有效标记，对应参数 0x0402。 */
+    uint8_t Valid; /* 校准状态，对应参数 0x0402；非零允许有感运行。 */
 
 } Motor_Cal_T;
 
@@ -116,20 +101,8 @@ typedef struct
 
 } Motor_Para_T;
 
-/*
- * Operating limits, not fault thresholds.
- *
- * Motor_Lim: firmware-defined product operating limits. Users must not
- *            configure commands beyond these limits.
- * User_Lim:  user-configurable operating limits for a more conservative
- *            application range.
- *
- * Effective control limits use the smaller value of Motor_Lim and User_Lim.
- * Reaching or clipping at these limits is normal control behavior and must
- * not be treated as a Warning/Fault/Disable condition.
- *
- * Protection thresholds and hardware trip limits are separate from this type.
- */
+/* Motor_Lim 为固件运行上限，User_Lim 在写入和恢复时限制在此范围内。
+ * 控制直接使用 User_Lim；达到限幅属于正常控制，故障阈值由 Protection 管理。 */
 typedef struct
 {
     float I_Max; /* A */

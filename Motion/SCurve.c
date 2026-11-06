@@ -15,11 +15,6 @@ static float Max(float A, float B)
     return (A > B) ? A : B;
 }
 
-static float Position_Error(int32_t Turn, float Theta, const Motion_Ref_T *Ref)
-{
-    return (float)((int64_t)Turn - Ref->Turn) * TWO_PI_F + Theta - Ref->Theta;
-}
-
 static void Position_Add(Motion_Ref_T *Ref, float Delta, float *Rem)
 {
     float Theta;
@@ -251,7 +246,7 @@ static void Plan(SCurve_T *S, const Motion_Ref_T *Ref, bool Position,
         return;
     }
 
-    Err = Position_Error(Turn, Theta, &Start);
+    Err = (float)((int64_t)Turn - Start.Turn) * TWO_PI_F + Theta - Start.Theta;
     Dir = (Err >= 0.0f) ? 1.0f : -1.0f;
     V = Dir * Start.Wm;
     Err *= Dir;
@@ -282,12 +277,6 @@ static void Run(SCurve_T *S, Motion_Ref_T *Ref, bool Position,
                 int32_t Turn, float Theta, float Wm,
                 float Acc, float Dec, uint8_t Profile, float Ts)
 {
-    if (!isfinite(Wm) || !isfinite(Acc) || !isfinite(Dec) || !isfinite(Ts) ||
-        (Acc <= 0.0f) || (Dec <= 0.0f) || (Ts <= 0.0f) ||
-        ((Profile != MOTION_S_TIME) && (Profile != MOTION_S_PEAK)))
-    {
-        return;
-    }
     if ((S->Position != Position) || (S->Turn != Turn) || (S->Theta != Theta) ||
         (S->Wm != Wm) || (S->Acc != Acc) || (S->Dec != Dec) || (S->Profile != Profile))
     {
@@ -388,7 +377,7 @@ void SCurve_Position(SCurve_T *S, Motion_Ref_T *Ref,
                      int32_t Turn, float Theta, float Wm_Max,
                      float Acc, float Dec, uint8_t Profile, float Ts)
 {
-    Run(S, Ref, true, Turn, Theta, fabsf(Wm_Max), Acc, Dec, Profile, Ts);
+    Run(S, Ref, true, Turn, Theta, Wm_Max, Acc, Dec, Profile, Ts);
 }
 
 void SCurve_Speed(SCurve_T *S, Motion_Ref_T *Ref, float Wm,

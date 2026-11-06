@@ -10,6 +10,14 @@
 #include "PID.h"
 #include "motor_params.h"
 
+/* 电流和母线电压的采样换算参数。 */
+#define ADC_VREF_V     3.3f
+#define ADC_FULL_SCALE 4096.0f
+#define CUR_SHUNT_OHM  0.001f
+#define CUR_AMP_GAIN   20.0f
+#define VBUS_R1_OHM    20000.0f
+#define VBUS_R2_OHM    1000.0f
+
 /* Fast-loop timing source. Current control runs once per PWM period. */
 #define PWM_FREQ_HZ_DEFAULT 20000.0f
 #define CUR_FREQ_HZ_DEFAULT PWM_FREQ_HZ_DEFAULT
@@ -98,7 +106,7 @@
 #define OPEN_ALIGN_ID_A   0.2f
 #define OPEN_ALIGN_TIME_S 0.5f
 #define OPEN_ALIGN_CNT    ((uint32_t)(OPEN_ALIGN_TIME_S / CUR_TS + 0.5f))
-#define OPEN_IQ_A         0.2f
+#define OPEN_IQ_A         1.0f
 
 /* Standard Align / I/F timing. Motor-specific currents live in Motor_Config. */
 #define IF_ALIGN_TIME_S 1.0f

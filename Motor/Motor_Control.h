@@ -10,10 +10,10 @@
 
 #include "Motor_Type.h"
 #include "Identification.h"
+#include "Enc_Control.h"
 
 void Motor_Control(void);
-FAST_CODE Motor_Fast_Mode_e Motor_Fast_Run(float Encoder_Theta_e,
-                                          bool Encoder_Park_Valid,
+FAST_CODE Motor_Fast_Mode_e Motor_Fast_Run(float Ialpha, float Ibeta, float Encoder_Theta_e,
                                           float *Theta_e,
                                           float *Id_Ref,
                                           float *Iq_Ref,
@@ -21,10 +21,9 @@ FAST_CODE Motor_Fast_Mode_e Motor_Fast_Run(float Encoder_Theta_e,
                                           float *Ubeta);
 
 FAST_CODE Motor_State_e Motor_State_Get(void);
-FAST_CODE float Motor_I_Limit_Effective_Get(void);
-float Motor_Wm_Limit_Effective_Get(void);
 float Motor_Wm_Ref_Get(void);
 Motor_Position_T Motor_Position_Ref_Get(void);
+bool Motor_Position_Plan_Done(void);
 bool Motor_Encoder_Required(void);
 
 /* Existing speed/current PI handover used by encoder calibration. */
@@ -41,7 +40,7 @@ typedef enum
 
 Motor_Status_e Motor_Enable(void);
 Motor_Status_e Motor_Start(void);
-Motor_Status_e Motor_Enc_Cal_Start(void);
+Motor_Status_e Motor_Enc_Start(Enc_Mode_e Mode);
 void Motor_Stop(void);
 void Motor_Disable(void);
 
@@ -55,7 +54,7 @@ Motor_Status_e Motor_Signal_Start(void);
 
 /* User mechanical coordinate feedback. Internal FOC state remains in Motor_Run. */
 float Motor_Wm_Get(void);
-void Motor_Position_Get(int32_t *Turn, float *Theta);
+Motor_Position_T Motor_Position_Get(void);
 
 /* Coherent 2 kHz active speed-controller sample, held for the 20 kHz FAST plot. */
 typedef struct

@@ -37,14 +37,15 @@ extern PLL_T Sensorless_PLL;
 /* Stable compatibility name used by the generated Parameter binding. */
 #define Flux_PLL Sensorless_PLL
 
+/* 快环推进阶段，Motor_Control 在停止时设置请求或结束运行。 */
+extern volatile Sensorless_State_e Sensorless_State;
+extern volatile bool Sensorless_Stop_Requested;
+
 bool Sensorless_Begin(void);
-void Sensorless_Stop_Request(void);
-void Sensorless_Stop(void);
 bool Sensorless_Speed_Control_Active(void);
 float Sensorless_Wm_Get(void);
 
 void Sensorless_Control(float We_Ref, float Iq_Min, float Iq_Max);
-FAST_CODE void Sensorless_Run(float Ia_A, float Ib_A, float We_Target, float *Theta_e, float *Id_Ref, float *Iq_Ref);
-Sensorless_State_e Sensorless_State_Get(void);
+FAST_CODE void Sensorless_Run(float Ialpha, float Ibeta, float We_Target, float *Theta_e, float *Id_Ref, float *Iq_Ref);
 
 #endif /* SENSORLESS_H */
