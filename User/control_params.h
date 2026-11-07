@@ -13,7 +13,7 @@
 /* 电流和母线电压的采样换算参数。 */
 #define ADC_VREF_V     3.3f
 #define ADC_FULL_SCALE 4096.0f
-#define CUR_SHUNT_OHM  0.001f
+#define CUR_SHUNT_OHM  0.002f
 #define CUR_AMP_GAIN   20.0f
 #define VBUS_R1_OHM    20000.0f
 #define VBUS_R2_OHM    1000.0f
