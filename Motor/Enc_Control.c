@@ -187,7 +187,7 @@ Motor_Fast_Mode_e Enc_Control_Fast_Run(float *Theta_e,
     }
     if (Enc_Step == ENC_CAL_RUN)
     {
-        return Enc_Cal_Fast_Run(Theta_e, Ualpha, Ubeta);
+        return Enc_Cal_Fast_Run(Ualpha, Ubeta);
     }
     return FAST_OFF;
 }

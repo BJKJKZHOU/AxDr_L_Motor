@@ -8,7 +8,6 @@
 #include <float.h>
 
 #include "Math.h"
-#include "Ramp.h"
 
 static float Position_Error(int32_t Turn_Target,
                             float Theta_Target,

@@ -22,7 +22,7 @@
 #include "Motion_Loop.h"
 #include "Open_Loop.h"
 #include "Protection.h"
-#include "Ramp.h"
+#include "Motion.h"
 #include "SCurve.h"
 #include "Sensorless.h"
 #include "Signal_Injection.h"
@@ -55,8 +55,7 @@ volatile float Motor_Plot_Position_Ref = 0.0f;
 
 static volatile Motor_State_e Motor_State = DISABLED;
 
-/* The 2 kHz loop owns these references. The first VF-to-FOC ADC cycle
- * seeds them from fresh dq feedback until the next speed-loop update. */
+/* 2 kHz 控制任务更新电流参考，供 ADC 电流环使用。 */
 static Current_Ref_T Current_Ref = { 0 };
 static Motion_Ref_T Motion_Ref = { 0 };
 static SCurve_T SCurve = { 0 };
@@ -117,27 +116,6 @@ static void Iq_Limit_Calc(float I_Max, float *Iq_Min, float *Iq_Max)
         *Iq_Min = 0.0f;
         *Iq_Max = 0.0f;
     }
-}
-
-/* Resume the speed trajectory from VF feedback. The first DECEL ADC cycle
- * seeds the current controller from that cycle's voltage and current. */
-void Motor_Cal_Decel_Begin(void)
-{
-    float Wm = Mechanical_ESO.State.Wm;
-    float Iq = Motor_Run.Iq;
-    float Iq_Min;
-    float Iq_Max;
-
-    Motion_Ref.Wm = Wm;
-    Motion_Ref.Am = 0.0f;
-    SCurve = (SCurve_T){ 0 };
-    Wm_Ref = Wm;
-    We_Ref = (float)Motor_Para.Pp * Wm;
-    Current_Ref.Id = Motor_Run.Id;
-    Current_Ref.Iq = Iq;
-
-    Iq_Limit_Calc(User_Lim.I_Max, &Iq_Min, &Iq_Max);
-    Speed_Loop_Track(We_Ref, We_Ref, Iq, Iq_Min, Iq_Max);
 }
 
 static FAST_CODE bool Servo_Mode(void)
@@ -207,8 +185,7 @@ void Motor_Control(void)
     uint32_t Primask;
     Motor_Limit_T Lim;
 
-    Cal_Speed = (Enc_Step == ENC_CAL_RUN) &&
-                ((Enc_Cal.Step == CAL_SPEED) || (Enc_Cal.Step == CAL_DECEL));
+    Cal_Speed = (Enc_Step == ENC_CAL_RUN) && (Enc_Cal.Step == CAL_SPEED);
     /* 动作只推进流程；回零继续执行 POSITION，校准速度阶段在闭环更新后推进。 */
     if (Enc_Control_Active() && !Cal_Speed)
     {
@@ -356,8 +333,7 @@ void Motor_Control(void)
             return;
 
         case SPEED:
-            Wm_Target = Cal_Speed ?
-                        ((Enc_Cal.Step == CAL_DECEL) ? 0.0f : ENC_CAL_WM) :
+            Wm_Target = Cal_Speed ? ENC_CAL_WM :
                         (((Motor_State == RUN) && !Stop_Pending) ?
                          Motor_User_To_Internal(Motor_Cmd.Wm_Target) : 0.0f);
             Limit_Value(&Wm_Target, -Lim.Wm_Max, Lim.Wm_Max);
@@ -373,8 +349,7 @@ void Motor_Control(void)
             Wm_Ref = Motion_Ref.Wm;
             We_Ref = (float)Motor_Para.Pp * Wm_Ref;
 
-            /* Stop keeps RUN while decelerating, so a later FRF Start can
-             * still pass the Action gate. Cancel it before adding excitation. */
+            /* Stop 减速期间仍为 RUN，叠加激励前取消此时新启动的扫频。 */
             Speed_Inj = 0.0f;
             if ((Signal_Injection.State.Active != 0U) &&
                 (Signal_Injection.State.Target == SIGNAL_SPEED))
@@ -428,8 +403,7 @@ void Motor_Control(void)
                                                     Motor_Cmd.Position_Target.Theta,
                                                     &Pos_Turn_Target,
                                                     &Pos_Theta_Target);
-                    /* Position determines direction; the shared speed command
-                     * supplies magnitude. Zero brakes the trajectory in place. */
+                    /* 位置目标决定方向，速度指令提供幅值；零速度指令使轨迹停车。 */
                     Wm_Target = __builtin_fabsf(Motor_Cmd.Wm_Target);
                     Limit_Value(&Wm_Target, 0.0f, Lim.Wm_Max);
                     if (Motion_Config.Profile == MOTION_TRAPEZOID)
@@ -460,8 +434,7 @@ void Motor_Control(void)
             break;
 
         default:
-            Current_Ref.Iq = 0.0f;
-            goto finish;
+            break;
     }
 
     if (!Cal_Speed && (Speed_Controller == SPEED_CTRL_LADRC))
@@ -485,13 +458,9 @@ void Motor_Control(void)
         __set_PRIMASK(Primask);
     }
 
-finish:
-    /* The handoff ADC cycle can reseed Current_Ref after Speed_Loop returns. */
-    Limit_Value(&Current_Ref.Iq, Iq_Min, Iq_Max);
-
     if (Cal_Speed)
     {
-        /* Preserve motion update -> experiment transition -> next ADC handoff. */
+        /* 升速参考更新后，再判断是否进入 VF 采集。 */
         Enc_Control_Run();
     }
 }
@@ -517,27 +486,16 @@ Motor_Fast_Mode_e Motor_Fast_Run(float Ialpha, float Ibeta, float Encoder_Theta_
         return FAST_OFF;
     }
 
-    /* ENCODER_CAL 接管快环，速度升降阶段复用有感闭环；回零沿用 POSITION。 */
+    /* 校准仅在升速阶段复用有感闭环；回零沿用 POSITION。 */
     if ((Motor_Mode == ENCODER_CAL) &&
-        (!Cal || ((Enc_Cal.Step != CAL_SPEED) && (Enc_Cal.Step != CAL_DECEL))))
+        (!Cal || (Enc_Cal.Step != CAL_SPEED)))
     {
         return Enc_Control_Fast_Run(Theta_e, Id_Ref, Iq_Ref, Ualpha, Ubeta);
     }
 
-    /* Sensored modes retain current control while ENABLED for servo holding. */
+    /* 有感模式在 ENABLED 状态继续运行电流环，保持伺服。 */
     if (Cal || Servo_Mode())
     {
-        bool Handoff = Cal && (Enc_Cal.Step == CAL_DECEL) && Enc_Cal_Handoff_Ready;
-
-        if (Handoff)
-        {
-            /* ADC has published this sample in the encoder frame. Keep VF
-             * rotating once more; ADC tracks that voltage before running FOC. */
-            (void)Enc_Cal_Fast_Run(Theta_e, Ualpha, Ubeta);
-            Current_Ref.Id = Motor_Run.Id;
-            Current_Ref.Iq = Motor_Run.Iq;
-        }
-
         *Theta_e = Encoder_Theta_e;
         *Id_Ref = Current_Ref.Id;
         *Iq_Ref = Current_Ref.Iq;

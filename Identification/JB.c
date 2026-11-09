@@ -20,7 +20,7 @@
 #include "Motor_Para.h"
 #include "Motor_Type.h"
 #include "PLL.h"
-#include "Ramp.h"
+#include "Motion.h"
 #include "Sin_LUT.h"
 #include "control_params.h"
 #include "main.h"
@@ -292,7 +292,7 @@ Motor_Fast_Mode_e JB_Fast_Run(float Ialpha,
             IF_Init(&JB_IF, -0.5f * PI_F, 0.0f);
             JB_IF.State.Iq = Motor_Config.Align_Current_A;
             IF_Target_Set(&JB_IF, JB_IF.Para.We_Base);
-            if (JB_IF.State.Mode == IF_FAILED)
+            if (JB_IF.State.Failed)
             {
                 Identification_Report(false);
                 return FAST_OFF;
@@ -337,7 +337,7 @@ Motor_Fast_Mode_e JB_Fast_Run(float Ialpha,
                &Id_Open,
                &Iq_Open,
                CUR_TS);
-        if (JB_IF.State.Mode == IF_FAILED)
+        if (JB_IF.State.Failed)
         {
             Identification_Report(false);
             return FAST_OFF;
@@ -346,7 +346,7 @@ Motor_Fast_Mode_e JB_Fast_Run(float Ialpha,
         Model_U_Valid = true;
         if (State == JB_IF_RUN)
         {
-            if ((JB_IF.State.Mode == IF_HOLD) && Obs_Valid)
+            if ((JB_IF.State.We == JB_IF.State.We_Target) && Obs_Valid)
             {
                 Handover.Blend_Cnt = 0U;
                 State = JB_HANDOVER_BLEND;

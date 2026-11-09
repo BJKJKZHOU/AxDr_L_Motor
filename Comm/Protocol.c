@@ -387,9 +387,13 @@ static void Plot_Rx(const uint8_t *Data, uint8_t Len)
         {
             Status = AXDR_ERR_CONFIG;
         }
+        else if (Op == AXDR_PLOT_START)
+        {
+            Status = Plot_Start(Data[2]);
+        }
         else
         {
-            Status = (Op == AXDR_PLOT_START) ? Plot_Start(Data[2]) : Plot_Stop(Data[2]);
+            Plot_Stop(Data[2]);
         }
     }
     else if (Op == AXDR_PLOT_CAPS)

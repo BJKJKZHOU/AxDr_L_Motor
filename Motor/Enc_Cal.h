@@ -20,7 +20,6 @@ typedef enum
     CAL_SPEED,
     CAL_VF,
     CAL_SAMPLE,
-    CAL_HANDOFF,
     CAL_DECEL,
     CAL_FIT,
     CAL_FIT_WAIT,
@@ -37,16 +36,10 @@ typedef struct
 } Enc_Cal_T;
 
 extern volatile Enc_Cal_T Enc_Cal;
-/* Fast CAL_HANDOFF publishes fresh dq feedback, then sets Ready. The 2 kHz
- * owner prepares the speed ramp and selects CAL_DECEL. Its first ADC cycle
- * tracks the VF voltage into the current controller before clearing Ready. */
-extern volatile bool Enc_Cal_Handoff_Ready;
 
 bool Enc_Cal_Start(void);
 bool Enc_Cal_Fit_Apply(void);
 void Enc_Cal_Run(void);
-FAST_CODE Motor_Fast_Mode_e Enc_Cal_Fast_Run(float *Theta_e,
-                                            float *Ualpha,
-                                            float *Ubeta);
+FAST_CODE Motor_Fast_Mode_e Enc_Cal_Fast_Run(float *Ualpha, float *Ubeta);
 
 #endif /* ENC_CAL_H */

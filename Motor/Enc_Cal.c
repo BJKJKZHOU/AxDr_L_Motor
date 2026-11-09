@@ -9,10 +9,9 @@
 #include "Math.h"
 #include "Mechanical_ESO.h"
 #include "Motor_ADC.h"
-#include "Motor_Control.h"
 #include "motor_work.h"
 #include "Motor_Para.h"
-#include "Motion_Type.h"
+#include "Motion.h"
 #include "Sin_LUT.h"
 #include "VF.h"
 #include "control_params.h"
@@ -23,18 +22,16 @@
 #define ENC_CAL_SAMPLE_DIV     10U
 #define ENC_CAL_SAMPLE_TS      (CUR_TS * (float)ENC_CAL_SAMPLE_DIV)
 #define ENC_CAL_SAMPLES        ((uint32_t)(6.0f / ENC_CAL_SAMPLE_TS + 0.5f))
-#define ENC_CAL_STOP_WAIT_CNT  ((uint32_t)(0.3f / SPD_TS + 0.5f))
-#define ENC_CAL_STOP_WM        (10.0f * TWO_PI_F / 60.0f)
+#define ENC_CAL_STOP_WAIT_CNT  ((uint32_t)(0.5f / CUR_TS + 0.5f))
 /* 拟合后的机械角度残差 RMS：实测 0.06～0.08°，合格上限取 0.25°。 */
 #define ENC_CAL_RMS_MAX        (0.25f * PI_F / 180.0f)
 #define ENC_CAL_FIT_N          6U
 
 volatile Enc_Cal_T Enc_Cal = { 0 };
-volatile bool Enc_Cal_Handoff_Ready = false;
 
 typedef struct
 {
-    uint32_t Tick;
+    volatile uint32_t Tick;
     uint32_t Hold_Cnt;
     volatile uint32_t Sample_Cnt;
     volatile bool VF_Ready;
@@ -60,18 +57,18 @@ bool Enc_Cal_Start(void)
     }
 
     Cal = (Enc_Cal_State_T){ 0 };
-    Enc_Cal_Handoff_Ready = false;
 
     Enc_Cal.Step = CAL_SPEED;
     return true;
 }
 
-Motor_Fast_Mode_e Enc_Cal_Fast_Run(float *Theta_e,
-                                   float *Ualpha,
-                                   float *Ubeta)
+Motor_Fast_Mode_e Enc_Cal_Fast_Run(float *Ualpha, float *Ubeta)
 {
+    float We_Target;
+    float U_Target;
+
     if ((Enc_Cal.Step != CAL_VF) && (Enc_Cal.Step != CAL_SAMPLE) &&
-        (Enc_Cal.Step != CAL_HANDOFF) && (Enc_Cal.Step != CAL_DECEL))
+        (Enc_Cal.Step != CAL_DECEL))
     {
         return FAST_OFF;
     }
@@ -91,17 +88,22 @@ Motor_Fast_Mode_e Enc_Cal_Fast_Run(float *Theta_e,
         Cal.VF_Ready = true;
     }
 
-    /* 切入 VF 后保持电压幅值和转速，开环采集编码器误差。 */
-    Cal.VF.Para.U_Max_V = ADC.Vbus_V * INV_SQRT3_F * VOLT_MOD_MAX;
-    *Theta_e = Cal.VF.State.Theta_e;
-    VF_Run(&Cal.VF, (float)Motor_Para.Pp * ENC_CAL_WM,
-           Cal.VF.State.U, Ualpha, Ubeta, CUR_TS);
-
-    if (Enc_Cal.Step == CAL_HANDOFF)
+    We_Target = (float)Motor_Para.Pp * ENC_CAL_WM;
+    U_Target = Cal.VF.State.U;
+    if (Enc_Cal.Step == CAL_DECEL)
     {
-        /* 等待速度环准备减速时，继续 VF 转动。 */
-        Enc_Cal_Handoff_Ready = true;
+        We_Target = 0.0f;
+        U_Target = 0.0f;
+        /* 频率和电压归零后等待 500 ms，再关闭输出并进入拟合。 */
+        if ((Cal.VF.State.We == 0.0f) && (Cal.VF.State.U == 0.0f) &&
+            (++Cal.Tick >= ENC_CAL_STOP_WAIT_CNT))
+        {
+            return FAST_OFF;
+        }
     }
+
+    Cal.VF.Para.U_Max_V = ADC.Vbus_V * INV_SQRT3_F * VOLT_MOD_MAX;
+    VF_Run(&Cal.VF, We_Target, U_Target, Ualpha, Ubeta, CUR_TS);
 
     Enc_Cal_Sample(Encoder.Theta_Native);
     /* 采样失败时关闭输出。 */
@@ -203,10 +205,6 @@ static bool Enc_Cal_Fit(float C[4])
             V -= LD[j][i] * Beta[j];
         }
         Beta[i] = V;
-        if (!__builtin_isfinite(Beta[i]))
-        {
-            return false;
-        }
     }
 
     for (uint32_t i = 0U; i < 4U; i++)
@@ -308,17 +306,9 @@ void Enc_Cal_Run(void)
         }
         else if (Cal.Sample_Cnt == ENC_CAL_SAMPLES)
         {
-            Enc_Cal.Step = CAL_HANDOFF;
-        }
-        return;
-    }
-
-    if (Enc_Cal.Step == CAL_HANDOFF)
-    {
-        if (Enc_Cal_Handoff_Ready)
-        {
-            Motor_Cal_Decel_Begin();
-            Cal.Hold_Cnt = 0U;
+            /* 电压与频率按相同的减速时间归零。 */
+            Cal.VF.Para.We_Acc = (float)Motor_Para.Pp * Motion_Config.Wm_Dec;
+            Cal.VF.Para.U_Slew_V_S = Cal.VF.State.U * Motion_Config.Wm_Dec / ENC_CAL_WM;
             Cal.Tick = 0U;
             Enc_Cal.Step = CAL_DECEL;
         }
@@ -327,25 +317,10 @@ void Enc_Cal_Run(void)
 
     if (Enc_Cal.Step == CAL_DECEL)
     {
-        Wm = Mechanical_ESO.State.Wm;
-        if (++Cal.Tick > (uint32_t)((ENC_CAL_WM / Motion_Config.Wm_Dec + 4.0f) / SPD_TS))
+        if (Cal.Tick >= ENC_CAL_STOP_WAIT_CNT)
         {
-            Enc_Cal.Step = CAL_FAILED;
-            return;
+            Enc_Cal.Step = CAL_FIT;
         }
-        if ((Motor_Wm_Ref_Get() != 0.0f) || !__builtin_isfinite(Wm) ||
-            (__builtin_fabsf(Wm) > ENC_CAL_STOP_WM))
-        {
-            Cal.Hold_Cnt = 0U;
-            return;
-        }
-
-        if (++Cal.Hold_Cnt < ENC_CAL_STOP_WAIT_CNT)
-        {
-            return;
-        }
-
-        Enc_Cal.Step = CAL_FIT;
         return;
     }
 

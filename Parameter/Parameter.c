@@ -18,7 +18,7 @@
 #include "Math.h"
 #include "Mechanical_ESO.h"
 #include "Motion_Loop.h"
-#include "Motion_Type.h"
+#include "Motion.h"
 #include "Motor_ADC.h"
 #include "Motor_Config.h"
 #include "Motor_Control.h"

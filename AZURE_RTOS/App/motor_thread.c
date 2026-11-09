@@ -151,28 +151,29 @@ static void Motor_Cmd_Run(void)
 
     while (tx_queue_receive(&Motor_Cmd_Q, &Msg, TX_NO_WAIT) == TX_SUCCESS)
     {
+        /* 先处理已结束的动作，再接收新动作或使用后台任务状态。 */
+        Motor_Async_Action_Poll();
+
         switch ((Motor_Cmd_e)Msg.Cmd)
         {
             case MOTOR_CMD_ENABLE:
                 Action_Status = Enc_Control_Active() ? AXDR_ERR_STATE :
                                 Motor_Status_Map(Motor_Enable());
-                Motor_Action_Response(Msg.Reserved, Action_Status);
                 break;
 
             case MOTOR_CMD_RUN:
                 Action_Status = (Enc_Action != 0U) ? AXDR_ERR_STATE :
                                 Motor_Status_Map(Motor_Start());
-                Motor_Action_Response(Msg.Reserved, Action_Status);
                 break;
 
             case MOTOR_CMD_STOP:
                 Motor_Stop();
-                Motor_Action_Response(Msg.Reserved, AXDR_OK);
+                Action_Status = AXDR_OK;
                 break;
 
             case MOTOR_CMD_DISABLE:
                 Motor_Disable();
-                Motor_Action_Response(Msg.Reserved, AXDR_OK);
+                Action_Status = AXDR_OK;
                 break;
 
             case MOTOR_CMD_EN_TOGGLE:
@@ -184,13 +185,13 @@ static void Motor_Cmd_Run(void)
                 {
                     Motor_Disable();
                 }
-                break;
+                continue;
 
             case MOTOR_CMD_RUN_TOGGLE:
                 if (Enc_Control_Active())
                 {
                     Motor_Stop();
-                    break;
+                    continue;
                 }
                 State = Motor_State_Get();
 
@@ -202,12 +203,12 @@ static void Motor_Cmd_Run(void)
                 {
                     Motor_Stop();
                 }
-                break;
+                continue;
 
             case MOTOR_CMD_MODE_NEXT:
                 if (Motor_Work_State != MOTOR_WORK_IDLE)
                 {
-                    break;
+                    continue;
                 }
                 switch (Motor_Mode)
                 {
@@ -230,7 +231,7 @@ static void Motor_Cmd_Run(void)
                         continue;
                 }
                 (void)Parameter_Write(PARAM_MOTOR_MODE, PARAM_U8, Parameter_Value);
-                break;
+                continue;
 
             case MOTOR_CMD_ENC_START:
                 Action_Status = Motor_Status_Map(Motor_Enc_Start((Enc_Mode_e)Msg.Arg));
@@ -238,7 +239,6 @@ static void Motor_Cmd_Run(void)
                 {
                     Enc_Action = Msg.Reserved;
                 }
-                Motor_Action_Response(Msg.Reserved, Action_Status);
                 break;
 
             case MOTOR_CMD_IDENT_START:
@@ -247,7 +247,6 @@ static void Motor_Cmd_Run(void)
                 {
                     Ident_Action = Msg.Reserved;
                 }
-                Motor_Action_Response(Msg.Reserved, Action_Status);
                 break;
 
             case MOTOR_CMD_PARAMETER_WRITE:
@@ -261,46 +260,45 @@ static void Motor_Cmd_Run(void)
                     (uint8_t)(Msg.Reserved >> MOTOR_PARAM_TXN_SHIFT),
                     (uint16_t)Msg.Arg,
                     Parameter_Status);
-                break;
+                continue;
 
             case MOTOR_CMD_IDENT_APPLY:
-                Motor_Action_Response(Msg.Reserved, Motor_Status_Map(Motor_Ident_Apply()));
+                Action_Status = Motor_Status_Map(Motor_Ident_Apply());
                 break;
 
             case MOTOR_CMD_PROTECTION_CLEAR:
                 Action_Status = Protection_Clear() ? AXDR_OK : AXDR_ERR_STATE;
-                Motor_Action_Response(Msg.Reserved, Action_Status);
                 break;
 
             case MOTOR_CMD_SIGNAL_START:
-                Motor_Action_Response(Msg.Reserved, Motor_Status_Map(Motor_Signal_Start()));
+                Action_Status = Motor_Status_Map(Motor_Signal_Start());
                 break;
 
             case MOTOR_CMD_SIGNAL_ABORT:
                 Signal_Injection_Stop();
-                Motor_Action_Response(Msg.Reserved, AXDR_OK);
+                Action_Status = AXDR_OK;
                 break;
 
             case MOTOR_CMD_PARAMETER_SAVE:
                 if ((Motor_State_Get() != DISABLED) ||
                     (Motor_Work_State != MOTOR_WORK_IDLE) || Enc_Control_Active())
                 {
-                    Motor_Action_Response(Msg.Reserved, AXDR_ERR_STATE);
+                    Action_Status = AXDR_ERR_STATE;
                 }
                 else
                 {
                     Motor_Work_Request(MOTOR_WORK_SAVE_ALL);
                     /* 保存完成后回复最终结果。 */
                     Save_Action = Msg.Reserved;
+                    continue;
                 }
                 break;
 
             default:
-                break;
+                continue;
         }
 
-        /* 先通知被本条命令结束的动作，再处理后续命令，避免覆盖原请求信息。 */
-        Motor_Async_Action_Poll();
+        Motor_Action_Response(Msg.Reserved, Action_Status);
     }
 }
 

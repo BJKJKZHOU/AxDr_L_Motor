@@ -5,7 +5,6 @@
 
 #include "SCurve.h"
 
-#include <float.h>
 #include <math.h>
 
 #include "Math.h"
@@ -66,8 +65,7 @@ static float Segment_Distance(const SCurve_Seg_T *Seg, float U0, float U1)
     float V1 = Bernstein(Seg->B, 5U, Mid);
     float V2 = Bernstein(Seg->B, 5U, Mid + Offset);
 
-    /* Three-point Gauss integration is exact for quintic velocity; evaluate
-     * only the current interval, avoiding subtraction of large positions. */
+    /* 三点高斯积分对五次速度多项式精确；只积分当前区间，避免大位置相减。 */
     return Seg->T * (U1 - U0) * (Seg->Wm + (5.0f * V0 + 8.0f * V1 + 5.0f * V2) / 18.0f);
 }
 
@@ -88,114 +86,27 @@ static void Segment_Add(SCurve_T *S, float W0, float W1, float T)
     }
 }
 
-static void Release(SCurve_T *S, Motion_Ref_T *Start,
-                    float Acc, float Dec, float Wm, uint8_t Profile)
+static void Release(SCurve_T *S, Motion_Ref_T *Start)
 {
-    float A[5];
-    float J[4];
-    float U = S->Time / S->Seg[0].T;
     float T = 0.25f * (S->Seg[0].T - S->Time);
-    float A0;
-    float J0;
-    float Scale = (Profile == MOTION_S_TIME) ? 1.875f : 1.0f;
-    float Old_Scale = (S->Profile == MOTION_S_TIME) ? 1.875f : 1.0f;
-    float Up = Max(Scale * Acc, Old_Scale * S->Acc);
-    float Down = Max(Scale * Dec, Old_Scale * S->Dec);
-    float Limit = Max(Max(fabsf(Wm), fabsf(S->Wm)), fabsf(Start->Wm));
-    SCurve_Seg_T Seg = { .Wm = Start->Wm };
-    bool Fits = false;
+    float Delta = Start->Am * T;
 
-    for (uint32_t n = 0U; n < 5U; n++)
-    {
-        A[n] = 5.0f * (S->Seg[0].B[n + 1U] - S->Seg[0].B[n]) / S->Seg[0].T;
-    }
-    for (uint32_t n = 0U; n < 4U; n++)
-    {
-        J[n] = 4.0f * (A[n + 1U] - A[n]) / S->Seg[0].T;
-    }
-    A0 = Bernstein(A, 4U, U);
-    J0 = Bernstein(J, 3U, U);
-    if (Start->Wm < 0.0f)
-    {
-        float Swap = Up;
-        Up = Down;
-        Down = Swap;
-    }
-    /* A second command may arrive before a previous limit reduction has
-     * finished. Its inherited acceleration and velocity cannot jump away. */
-    Up = Max(Up, A0);
-    Down = Max(Down, -A0);
-    for (uint32_t n = 0U; n < 6U; n++)
-    {
-        Limit = Max(Limit, fabsf(S->Seg[0].Wm + S->Seg[0].B[n]));
-    }
-
-    /* Free terminal speed lets a quintic release acceleration/jerk without
-     * root solving. Its acceleration Bernstein ordinates are
-     * [A0, A0+J0*T/4, A0/2+J0*T/6, 0, 0]. Their convex hull certifies limits.
-     * On a limit reduction, this one segment uses the old/new envelope;
-     * all following segments use the new limits. */
-    for (uint32_t Try = 0U; Try < 32U; Try++)
-    {
-        float A_Tol = 32.0f * FLT_EPSILON * Max(1.0f, Max(Up, Down));
-        float V_Tol = 8.0f * FLT_EPSILON * Max(1.0f, Limit);
-
-        Fits = true;
-        A[0] = A0;
-        A[1] = A0 + 0.25f * J0 * T;
-        A[2] = 0.5f * A0 + J0 * T / 6.0f;
-        A[3] = 0.0f;
-        A[4] = 0.0f;
-        Seg.T = T;
-        for (uint32_t n = 0U; n < 5U; n++)
-        {
-            Seg.B[n + 1U] = Seg.B[n] + T * A[n] / 5.0f;
-            if ((A[n] > Up + A_Tol) || (A[n] < -Down - A_Tol) ||
-                (fabsf(Seg.Wm + Seg.B[n + 1U]) > Limit + V_Tol))
-            {
-                Fits = false;
-            }
-        }
-        if (Fits)
-        {
-            break;
-        }
-        T *= 0.5f;
-    }
-    if (!Fits)
-    {
-        float B[6];
-        float Tail[6];
-
-        /* Numerical edge: retain the existing admissible segment tail,
-         * then apply the latest target. Never accept an unchecked bridge. */
-        for (uint32_t n = 0U; n < 6U; n++)
-        {
-            B[n] = S->Seg[0].B[n];
-        }
-        Tail[5] = B[5];
-        for (uint32_t k = 5U; k > 0U; k--)
-        {
-            for (uint32_t n = 0U; n < k; n++)
-            {
-                B[n] += U * (B[n + 1U] - B[n]);
-            }
-            Tail[k - 1U] = B[k - 1U];
-        }
-        for (uint32_t n = 0U; n < 6U; n++)
-        {
-            Seg.B[n] = Tail[n] - Tail[0];
-        }
-        Seg.T = S->Seg[0].T - S->Time;
-    }
     S->Count = 0U;
     S->Time = 0.0f;
     S->Time_Rem = 0.0f;
-    if ((A0 != 0.0f) || (J0 != 0.0f))
+    if (Start->Am != 0.0f)
     {
-        S->Seg[S->Count++] = Seg;
+        /* 加速度从当前值单调回零，不继承旧段的加加速度。
+         * 取剩余时间的 1/4，使末速度仍在旧段控制点范围内。 */
+        SCurve_Seg_T Seg = {
+            .Wm = Start->Wm,
+            .B = { 0.0f, 0.2f * Delta, 0.4f * Delta,
+                   0.6f * Delta, 0.6f * Delta, 0.6f * Delta },
+            .T = T,
+        };
         float Rem = 0.0f;
 
+        S->Seg[S->Count++] = Seg;
         Position_Add(Start, Segment_Distance(&Seg, 0.0f, 1.0f), &Rem);
         Start->Wm = Seg.Wm + Seg.B[5];
     }
@@ -217,7 +128,7 @@ static void Plan(SCurve_T *S, const Motion_Ref_T *Ref, bool Position,
 
     if (S->Count != 0U)
     {
-        Release(S, &Start, Acc, Dec, Wm, Profile);
+        Release(S, &Start);
     }
     else
     {
@@ -252,8 +163,7 @@ static void Plan(SCurve_T *S, const Motion_Ref_T *Ref, bool Position,
     Err *= Dir;
     if ((V < 0.0f) || (V > Wm) || (K * V * V / (2.0f * Dec) > Err))
     {
-        /* Brake before returning to a target inside the smooth stopping
-         * distance. The next plan starts at rest at that stopping point. */
+        /* 方向相反、速度超限或目标在停止距离内时，先停车，再从停止点规划。 */
         Segment_Add(S, Start.Wm, 0.0f, K * fabsf(Start.Wm) / Dec);
         return;
     }
@@ -283,8 +193,7 @@ static void Run(SCurve_T *S, Motion_Ref_T *Ref, bool Position,
         Plan(S, Ref, Position, Turn, Theta, Wm, Acc, Dec, Profile);
     }
 
-    /* A sample may cross release/acceleration/cruise/braking boundaries.
-     * At most a brake-and-return plus a four-segment plan is needed. */
+    /* 单周期可跨过多个段；先停车再返回时，还需继续执行下一次规划。 */
     for (uint32_t Step = 0U; (Step < 12U) && (Ts > 0.0f); Step++)
     {
         SCurve_Seg_T *Seg;
