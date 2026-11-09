@@ -210,7 +210,6 @@ void Fast_Loop(void)
     Motor_Fast_Mode_e Fast_Mode;
     bool Encoder_Park_Valid;
     bool Sensored;
-    bool Cal_Handoff;
     float Theta_e;
     float Encoder_Theta_e;
     float Ialpha;
@@ -240,10 +239,7 @@ void Fast_Loop(void)
 
     T0 = DWT->CYCCNT;
 
-    /*
-     * Both current samples use injected Rank1. ADC2 Rank2 Vbus may be one
-     * trigger old, as in the previous fixed-AB implementation.
-     */
+    /* 两路电流使用注入序列 Rank1；ADC2 Rank2 的母线电压可能滞后一次触发。 */
     Raw1 = (uint16_t)ADC1->JDR1;
     Raw2 = (uint16_t)ADC2->JDR1;
     ADC.Vbus_Raw = (uint16_t)ADC2->JDR2;
@@ -291,7 +287,7 @@ void Fast_Loop(void)
     /* 采样后统一判定保护事件，故障在此关断输出。 */
     Protection_Fast_Run();
 
-    /* Feedback remains live with PWM off and in every control mode. */
+    /* 各模式均更新反馈，关闭 PWM 后仍跟踪转子运动。 */
     if ((Encoder.Ready != 0U) && (Encoder.Fault == 0U) &&
         (Mechanical_ESO.Para.Valid != 0U))
     {
@@ -299,7 +295,7 @@ void Fast_Loop(void)
 
         if (Motor_Cal.Valid != 0U)
         {
-            /* ESO uses the encoder frame, including coast current. */
+            /* ESO 使用编码器坐标系下的电流，包含停机滑行时的电流。 */
             Encoder_Theta_e = Angle_Wrap((float)Motor_Para.Pp * Theta_m + Motor_Cal.Theta_Off);
             SinCos(Encoder_Theta_e, &Sin, &Cos);
             Iq_Encoder = -Ialpha * Sin + Ibeta * Cos;
@@ -316,153 +312,122 @@ void Fast_Loop(void)
         Motor_Run.Uq = 0.0f;
         Motor_Run.Ualpha = 0.0f;
         Motor_Run.Ubeta = 0.0f;
-        Motor_Plot_Iq_Ref = 0.0f;
-        goto finish;
-    }
-
-    /* The slow speed-loop handoff and the first FOC cycle both need fresh
-     * encoder-frame currents, while VF still owns the output voltage. */
-    Cal_Handoff = (Motor_State_Get() == RUN) && (Enc_Step == ENC_CAL_RUN) &&
-                  ((Enc_Cal.Step == CAL_HANDOFF) ||
-                   ((Enc_Cal.Step == CAL_DECEL) && Enc_Cal_Handoff_Ready));
-    if (Cal_Handoff)
-    {
-        Motor_Run.Id = Ialpha * Cos + Ibeta * Sin;
-        Motor_Run.Iq = Iq_Encoder;
-    }
-
-    Fast_Mode = Motor_Fast_Run(Ialpha, Ibeta, Encoder_Theta_e,
-                               &Theta_e, &Id_Ref, &Iq_Ref, &Ualpha, &Ubeta);
-    Motor_Plot_Iq_Ref = Iq_Ref;
-
-    if (Fast_Mode == FAST_OFF)
-    {
-        Motor_Run.Ud = 0.0f;
-        Motor_Run.Uq = 0.0f;
-        Motor_Run.Ualpha = 0.0f;
-        Motor_Run.Ubeta = 0.0f;
-        /* End an active flow before the slow loop can leave a spinning motor shorted. */
-        if (Motor_State_Get() == RUN)
-        {
-            PWM_Disable();
-        }
-
-        goto finish;
-    }
-
-    if (Fast_Mode == FAST_CURRENT)
-    {
-        bool Cal_Speed = (Enc_Step == ENC_CAL_RUN) &&
-                         ((Enc_Cal.Step == CAL_SPEED) || (Enc_Cal.Step == CAL_DECEL));
-
-        Sensored = Cal_Speed || (Motor_Mode <= POSITION);
-        Controller = Sensored ? Current_Controller : CURRENT_CTRL_PI;
-        /* 校准升降速将 DPCC 切回 PI；普通伺服（含位置回零）使用所选控制器。 */
-        if ((Controller == CURRENT_CTRL_DPCC) && Cal_Speed)
-        {
-            Controller = CURRENT_CTRL_PI;
-        }
-
-        /* Motor_Fast_Run may use the previous-cycle dq values (IF/ident).
-         * Publish this sample only after it has selected the FOC angle. */
-        if (!Cal_Handoff)
-        {
-            if (!Encoder_Park_Valid || !Sensored)
-            {
-                SinCos(Theta_e, &Sin, &Cos);
-                Motor_Run.Iq = -Ialpha * Sin + Ibeta * Cos;
-            }
-            else
-            {
-                Motor_Run.Iq = Iq_Encoder;
-            }
-            Motor_Run.Id = Ialpha * Cos + Ibeta * Sin;
-        }
-        Motor_Run.Theta_e = Theta_e;
-
-        /* Motor_Signal_Start checks TORQUE/ENABLED before starting current FRF.
-         * Stop, Disable and Run cancel it; only the per-sample target remains here. */
-        if ((Signal_Injection.State.Active != 0U) &&
-            (Signal_Injection.State.Target != SIGNAL_SPEED))
-        {
-            if (Signal_Injection.State.Target == SIGNAL_ID)
-            {
-                Id_Ref += Signal_Injection_Run();
-            }
-            else
-            {
-                Iq_Ref += Signal_Injection_Run();
-            }
-        }
-
-        /* One command-current limit for every current-controlled mode, including
-         * phase search, I/F and the final injected d-axis reference. */
-        Vector2_Limit(&Id_Ref, &Iq_Ref, User_Lim.I_Max);
-        Motor_Plot_Iq_Ref = Iq_Ref;
-
-        U_Lim = ADC.Vbus_V * INV_SQRT3_F * VOLT_MOD_MAX;
-        We = 0.0f;
-        Ud_FF = 0.0f;
-        Uq_FF = 0.0f;
-        if (Sensored && Encoder_Park_Valid)
-        {
-            We = (float)Motor_Para.Pp * Mechanical_ESO.State.Wm;
-            if (Current_FF_Enable != 0U)
-            {
-                Ud_FF = -We * Motor_Para.Lq * Motor_Run.Iq;
-                Uq_FF = We * (Motor_Para.Ld * Motor_Run.Id + Motor_Para.Flux);
-            }
-        }
-
-        if (Cal_Handoff)
-        {
-            /* Track this cycle's rotating VF vector with the selected PI/LADRC.
-             * Park and model feedforward above are shared with normal FOC. */
-            Motor_Run.Ud = Ualpha * Cos + Ubeta * Sin;
-            Motor_Run.Uq = -Ualpha * Sin + Ubeta * Cos;
-            Current_Loop_State_Reset();
-            Current_Loop_Track(Controller, Motor_Run.Id, Motor_Run.Iq,
-                               Motor_Run.Ud - Ud_FF, Motor_Run.Uq - Uq_FF, Ud_FF, Uq_FF);
-            Enc_Cal_Handoff_Ready = false;
-        }
-
-        Current_Loop(Id_Ref, Iq_Ref, U_Lim, Controller, We, Sin, Cos,
-                     Ud_FF, Uq_FF, &Ud, &Uq);
-        /* One shared model feedforward and final voltage-vector limit. */
-        Ud += Ud_FF;
-        Uq += Uq_FF;
-
-        Vector2_Limit(&Ud, &Uq, U_Lim);
-
-        Motor_Run.Ud = Ud;
-        Motor_Run.Uq = Uq;
-        Ualpha = Ud * Cos - Uq * Sin;
-        Ubeta = Ud * Sin + Uq * Cos;
-    }
-
-    Motor_Run.Ualpha = Ualpha;
-    Motor_Run.Ubeta = Ubeta;
-
-    SVPWM_Calc(Ualpha, Ubeta, ADC.Vbus_V, &DutyA, &DutyB, &DutyC);
-    PWM_Update(DutyA, DutyB, DutyC);
-
-    /* Skip the phase with the shortest low-side conduction window. */
-    if ((DutyA >= DutyB) && (DutyA >= DutyC))
-    {
-        Next_Sample = ADC_SAMPLE_BC;
-    }
-    else if (DutyB >= DutyC)
-    {
-        Next_Sample = ADC_SAMPLE_AC;
+        Iq_Ref = 0.0f;
     }
     else
     {
-        Next_Sample = ADC_SAMPLE_AB;
+        Fast_Mode = Motor_Fast_Run(Ialpha, Ibeta, Encoder_Theta_e,
+                                   &Theta_e, &Id_Ref, &Iq_Ref, &Ualpha, &Ubeta);
+
+        if (Fast_Mode == FAST_OFF)
+        {
+            Motor_Run.Ud = 0.0f;
+            Motor_Run.Uq = 0.0f;
+            Motor_Run.Ualpha = 0.0f;
+            Motor_Run.Ubeta = 0.0f;
+            /* 运行中停止输出时立即关闭 PWM，避免等待慢环期间短接旋转中的电机。 */
+            if (Motor_State_Get() == RUN)
+            {
+                PWM_Disable();
+            }
+        }
+        else
+        {
+            if (Fast_Mode == FAST_CURRENT)
+            {
+                bool Cal_Speed = (Enc_Step == ENC_CAL_RUN) && (Enc_Cal.Step == CAL_SPEED);
+
+                Sensored = Cal_Speed || (Motor_Mode <= POSITION);
+                Controller = Sensored ? Current_Controller : CURRENT_CTRL_PI;
+                /* 校准升速将 DPCC 切回 PI；普通伺服（含位置回零）使用所选控制器。 */
+                if ((Controller == CURRENT_CTRL_DPCC) && Cal_Speed)
+                {
+                    Controller = CURRENT_CTRL_PI;
+                }
+
+                /* I/F 和辨识可能使用上拍 dq 电流，选定本拍控制角度后再更新。 */
+                if (!Encoder_Park_Valid || !Sensored)
+                {
+                    SinCos(Theta_e, &Sin, &Cos);
+                    Motor_Run.Iq = -Ialpha * Sin + Ibeta * Cos;
+                }
+                else
+                {
+                    Motor_Run.Iq = Iq_Encoder;
+                }
+                Motor_Run.Id = Ialpha * Cos + Ibeta * Sin;
+                Motor_Run.Theta_e = Theta_e;
+
+                /* 电流 FRF 的模式和状态已在启动入口检查，停止、禁能或运行命令会取消注入。 */
+                if ((Signal_Injection.State.Active != 0U) &&
+                    (Signal_Injection.State.Target != SIGNAL_SPEED))
+                {
+                    if (Signal_Injection.State.Target == SIGNAL_ID)
+                    {
+                        Id_Ref += Signal_Injection_Run();
+                    }
+                    else
+                    {
+                        Iq_Ref += Signal_Injection_Run();
+                    }
+                }
+
+                /* 寻相、I/F 和注入后的电流参考统一按矢量幅值限流。 */
+                Vector2_Limit(&Id_Ref, &Iq_Ref, User_Lim.I_Max);
+
+                U_Lim = ADC.Vbus_V * INV_SQRT3_F * VOLT_MOD_MAX;
+                We = 0.0f;
+                Ud_FF = 0.0f;
+                Uq_FF = 0.0f;
+                if (Sensored && Encoder_Park_Valid)
+                {
+                    We = (float)Motor_Para.Pp * Mechanical_ESO.State.Wm;
+                    if (Current_FF_Enable != 0U)
+                    {
+                        Ud_FF = -We * Motor_Para.Lq * Motor_Run.Iq;
+                        Uq_FF = We * (Motor_Para.Ld * Motor_Run.Id + Motor_Para.Flux);
+                    }
+                }
+
+                Current_Loop(Id_Ref, Iq_Ref, U_Lim, Controller, We, Sin, Cos,
+                             Ud_FF, Uq_FF, &Ud, &Uq);
+                /* 各控制器共用前馈补偿和电压矢量限幅。 */
+                Ud += Ud_FF;
+                Uq += Uq_FF;
+
+                Vector2_Limit(&Ud, &Uq, U_Lim);
+
+                Motor_Run.Ud = Ud;
+                Motor_Run.Uq = Uq;
+                Ualpha = Ud * Cos - Uq * Sin;
+                Ubeta = Ud * Sin + Uq * Cos;
+            }
+
+            Motor_Run.Ualpha = Ualpha;
+            Motor_Run.Ubeta = Ubeta;
+
+            SVPWM_Calc(Ualpha, Ubeta, ADC.Vbus_V, &DutyA, &DutyB, &DutyC);
+            PWM_Update(DutyA, DutyB, DutyC);
+
+            /* 避开下桥臂导通时间最短的一相，保证电流采样窗口。 */
+            if ((DutyA >= DutyB) && (DutyA >= DutyC))
+            {
+                Next_Sample = ADC_SAMPLE_BC;
+            }
+            else if (DutyB >= DutyC)
+            {
+                Next_Sample = ADC_SAMPLE_AC;
+            }
+            else
+            {
+                Next_Sample = ADC_SAMPLE_AB;
+            }
+
+            (void)ADC_Phase_Set(Next_Sample);
+        }
     }
 
-    (void)ADC_Phase_Set(Next_Sample);
-
-finish:
+    Motor_Plot_Iq_Ref = Iq_Ref;
     Plot_Fast_Sample();
     Cyc = DWT->CYCCNT - T0;
     Fast_Time.ADC_Run_Cyc = Cyc;

@@ -11,7 +11,7 @@
 #include "IF_Start.h"
 #include "Math.h"
 #include "Motion_Loop.h"
-#include "Motion_Type.h"
+#include "Motion.h"
 #include "Motor_ADC.h"
 #include "Motor_Config.h"
 #include "Motor_Control.h"
@@ -166,7 +166,6 @@ void Sensorless_Run(float Ialpha, float Ibeta, float We_Target, float *Theta_e, 
     float Id_IF;
     float Iq_IF;
     float Blend;
-    float We_IF_Target;
     float I_Max;
     int8_t Dir;
     bool Obs_Valid = false;
@@ -186,17 +185,10 @@ void Sensorless_Run(float Ialpha, float Ibeta, float We_Target, float *Theta_e, 
             float Ud_Int = Id_Ctrl.State.Int;
 
             Dir = (We_Target < 0.0f) ? -1 : 1;
-            We_IF_Target = IF_Target(We_Target);
             Theta_Start = -(float)Dir * (0.5f * PI_F);
 
             IF_Init(&Sensorless_IF, Theta_Start, 0.0f);
             Sensorless_IF.State.Iq = (float)Dir * Motor_Config.Align_Current_A;
-            IF_Target_Set(&Sensorless_IF, We_IF_Target);
-            if (Sensorless_IF.State.Mode == IF_FAILED)
-            {
-                Sensorless_State = SL_FAILED;
-                return;
-            }
 
             /* 参考和积分同拍换轴，继承预定位电流及其积分电压。 */
             *Theta_e = Sensorless_IF.State.Theta_e;
@@ -235,7 +227,7 @@ void Sensorless_Run(float Ialpha, float Ibeta, float We_Target, float *Theta_e, 
                &Id_IF,
                &Iq_IF,
                CUR_TS);
-        if (Sensorless_IF.State.Mode == IF_FAILED)
+        if (Sensorless_IF.State.Failed)
         {
             Sensorless_State = SL_FAILED;
             *Theta_e = Theta_Use_Last;
@@ -304,14 +296,6 @@ void Sensorless_Run(float Ialpha, float Ibeta, float We_Target, float *Theta_e, 
         {
             IF_Init(&Sensorless_IF, Theta_Obs, Sensorless_PLL.State.We);
             Sensorless_IF.State.Iq = Obs_Iq_Ref;
-            IF_Target_Set(&Sensorless_IF, We_Target);
-            if (Sensorless_IF.State.Mode == IF_FAILED)
-            {
-                Sensorless_State = SL_FAILED;
-                *Theta_e = Theta_Use_Last;
-                *Iq_Ref = 0.0f;
-                return;
-            }
             Handover.Blend_Cnt = 0U;
             Sensorless_State = SL_OBS_TO_IF;
         }

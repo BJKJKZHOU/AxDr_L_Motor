@@ -6,8 +6,6 @@
 #include "Encoder_Port.h"
 
 #include "ABZ.h"
-#include "Enc_Home.h"
-#include "Math.h"
 #include "main.h"
 #include "spi.h"
 
@@ -91,22 +89,18 @@ void Encoder_Port_ABZ(uint32_t Cpr)
     ENCODER_ABZ_TIM->CR1 = TIM_CR1_CEN;
 
     __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_3);
-    /* Z 仅用于圈参考观察，不抢占 ADC 快环。 */
-    HAL_NVIC_SetPriority(EXTI3_IRQn, 3U, 0U);
+    /* 与编码器采样同级，Z 取数可抢占 ADC，双方不互相抢占。 */
+    HAL_NVIC_SetPriority(EXTI3_IRQn, 0U, 0U);
     HAL_NVIC_EnableIRQ(EXTI3_IRQn);
 }
 
-void EXTI3_IRQHandler(void)
+FAST_CODE void EXTI3_IRQHandler(void)
 {
+    uint32_t Cnt = ENCODER_ABZ_TIM->CNT;
+
     if (__HAL_GPIO_EXTI_GET_IT(GPIO_PIN_3) != 0U)
     {
-        uint32_t Cnt = ENCODER_ABZ_TIM->CNT;
-
         __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_3);
-        if ((ENCODER_ABZ_TIM->CR1 & TIM_CR1_CEN) != 0U)
-        {
-            ABZ_Index(Cnt);
-            Enc_Home_Trigger((float)Cnt * (TWO_PI_F / (float)(ENCODER_ABZ_TIM->ARR + 1U)));
-        }
+        ABZ_Index_Cnt = (int32_t)Cnt;
     }
 }

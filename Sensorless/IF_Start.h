@@ -8,15 +8,7 @@
 
 #include "Fast_Memory.h"
 
-#include <stdint.h>
-
-typedef enum
-{
-    IF_RAMP = 0,
-    IF_HOLD,
-    IF_FAILED,
-
-} IF_State_e;
+#include <stdbool.h>
 
 typedef struct
 {
@@ -29,7 +21,7 @@ typedef struct
 
 typedef struct
 {
-    IF_State_e Mode;
+    bool Failed;
     float Theta_e;
     float We;
     float We_Target;

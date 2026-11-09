@@ -32,29 +32,6 @@ void Current_Loop_State_Reset(void)
     Iq_LADRC.State.Z2 = 0.0f;
 }
 
-/* Follow the last VF voltage with the controller selected for calibration.
- * PI needs its integral, LADRC needs the measured state and disturbance. */
-void Current_Loop_Track(uint8_t Controller, float Id, float Iq, float Ud, float Uq,
-                        float Ud_FF, float Uq_FF)
-{
-    if (Controller == CURRENT_CTRL_PI)
-    {
-        Id_Ctrl.State.Int = Ud;
-        Id_Ctrl.State.Fbk_Pre = Id;
-
-        Iq_Ctrl.State.Int = Uq;
-        Iq_Ctrl.State.Fbk_Pre = Iq;
-        return;
-    }
-
-    Id_LADRC.State.Z1 = Id;
-    Iq_LADRC.State.Z1 = Iq;
-    Id_LADRC.Sig.F0 = (-Motor_Para.Rs * Id - Ud_FF) * Id_LADRC.Para.B0;
-    Iq_LADRC.Sig.F0 = (-Motor_Para.Rs * Iq - Uq_FF) * Iq_LADRC.Para.B0;
-    Id_LADRC.State.Z2 = -(Ud + Ud_FF) * Id_LADRC.Para.B0 - Id_LADRC.Sig.F0;
-    Iq_LADRC.State.Z2 = -(Uq + Uq_FF) * Iq_LADRC.Para.B0 - Iq_LADRC.Sig.F0;
-}
-
 void Current_Loop(float Id_Ref, float Iq_Ref, float U_Lim,
                   uint8_t Controller, float We, float Sin, float Cos,
                   float Ud_FF, float Uq_FF,

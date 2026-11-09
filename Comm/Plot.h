@@ -37,7 +37,7 @@ extern const uint32_t Plot_Normal_Rate_Hz;
 
 AxDr_Status_e Plot_Config(uint8_t Group, uint8_t Config_ID, const uint16_t *Var, uint8_t Count);
 AxDr_Status_e Plot_Start(uint8_t Group_Mask);
-AxDr_Status_e Plot_Stop(uint8_t Group_Mask);
+void Plot_Stop(uint8_t Group_Mask);
 
 uint8_t Plot_Capability_Count(void);
 void Plot_Capability_Get(uint8_t Index, Plot_Cap_T *Cap);

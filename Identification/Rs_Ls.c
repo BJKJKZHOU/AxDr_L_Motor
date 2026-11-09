@@ -328,7 +328,7 @@ static bool Result_Valid(float Rs, float Ls)
 
 static bool Probe_Retry(void)
 {
-    /* Only the rough probe retries; its injection period identifies the step. */
+    /* 粗辨识失败后只重试一次，用注入周期区分是否已重试。 */
     if (Sample_Per_Cycle <= (uint32_t)(CUR_FREQ_HZ_DEFAULT / RS_LS_PROBE_RETRY_FREQ_HZ + 0.5f))
     {
         return false;
@@ -345,8 +345,6 @@ static bool Probe_Retry(void)
 
 void Rs_Ls_Start(void)
 {
-    Rough_RL_Restore();
-
     Rs_Ls_Result = (Rs_Ls_Result_T){ 0 };
 
     Phase = 0.0f;
@@ -724,7 +722,7 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
     }
     else
     {
-        /* Each 100-cycle window discards its first five complete cycles. */
+        /* 每个测量窗口包含 100 个注入周期，跳过前 5 个完整周期。 */
         if (Cnt >= Sample_Per_Cycle * RS_LS_MEASURE_SKIP_CYCLE)
         {
             U_Re += U_Meas * Cos;
@@ -753,7 +751,6 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
                     Phase = 0.0f;
                     Freq_Refined = true;
                     Ramp_Reset();
-                    Measure_Reset();
                     State = RS_LS_RAMP;
                     *Ualpha_V = U_Hold;
                     *Ubeta_V = 0.0f;
@@ -807,12 +804,9 @@ Motor_Fast_Mode_e Rs_Ls_Run(float Ialpha_A,
                 Rs_Ls_Result.Rs_Ohm = Rs;
                 Rs_Ls_Result.Ld_H = Ls;
                 Q_Axis = true;
-                /* Reuse the refined frequency and AC voltage as the q-axis
-                 * starting point; both axes use the same current target/ramp.
-                 * Keep Ud and the fixed alignment angle through the handoff. */
+                /* q 轴沿用修正后的频率和交流电压，再调整幅值；切换时保持直流电压和对齐角度。 */
                 Phase = 0.0f;
                 Ramp_Reset();
-                Measure_Reset();
                 State = RS_LS_RAMP;
                 *Ualpha_V = U_Hold;
                 *Ubeta_V = 0.0f;

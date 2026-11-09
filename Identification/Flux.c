@@ -21,7 +21,7 @@
 #include "Motor_Para.h"
 #include "Motor_Type.h"
 #include "PLL.h"
-#include "Ramp.h"
+#include "Motion.h"
 #include "control_params.h"
 #include "main.h"
 
@@ -346,7 +346,7 @@ static Motor_Fast_Mode_e Flux_Align_Run(int8_t Dir, float *Theta_e, float *Id_Re
         IF_Init(&Flux_IF, -0.5f * PI_F * (float)Dir, 0.0f);
         Flux_IF.State.Iq = (float)Dir * Motor_Config.Align_Current_A;
         IF_Target_Set(&Flux_IF, We_Target);
-        if (Flux_IF.State.Mode == IF_FAILED)
+        if (Flux_IF.State.Failed)
         {
             return Flux_Fail_Off();
         }
@@ -400,14 +400,14 @@ static bool Flux_Open_Loop_Run(float Ialpha, float Ibeta,
            Id_Ref,
            Iq_Ref,
            CUR_TS);
-    if (Flux_IF.State.Mode == IF_FAILED)
+    if (Flux_IF.State.Failed)
     {
         Flux_Fail_Off();
         return false;
     }
 
-    /* A recovered PLL must complete one fast update before a new blend. */
-    if ((State == FLUX_IF) && (Flux_IF.State.Mode == IF_HOLD) && PLL_Active)
+    /* PLL 恢复后先完成一次快环更新，再进入角度混合。 */
+    if ((State == FLUX_IF) && (Flux_IF.State.We == Flux_IF.State.We_Target) && PLL_Active)
     {
         Handover.Blend_Cnt = 0U;
         State = FLUX_HANDOVER_BLEND;

@@ -18,6 +18,7 @@
 #include "Current_Loop.h"
 #include "USB_Thread.h"
 #include "control_params.h"
+#include "main.h"
 
 #define PLOT_BUF_NONE 0xFFU
 #define PLOT_DEBUG_IDENT_THETA_ID 0xF001U
@@ -67,9 +68,9 @@ static volatile uint8_t Fast_Pending = 0U;
 static volatile uint8_t Normal_Pending = 0U;
 
 static int16_t Fast_Buf[2][AXDR_FAST_BLOCK_SAMPLE * AXDR_FAST_MAX_CH] = { 0 };
-static float Normal_Buf[2][AXDR_NORMAL_MAX_CH] = { 0 };
+static float Normal_Buf[AXDR_NORMAL_MAX_CH] = { 0 };
 static Plot_Buffer_Meta_T Fast_Meta[2] = { 0 };
-static Plot_Buffer_Meta_T Normal_Meta[2] = { 0 };
+static Plot_Buffer_Meta_T Normal_Meta = { 0 };
 
 static volatile uint8_t Fast_Fill = 0U;
 static volatile uint8_t Fast_Ready = PLOT_BUF_NONE;
@@ -77,8 +78,7 @@ static volatile uint8_t Fast_Sample_Cnt = 0U;
 static uint8_t Fast_Tx_Sample = 0U;
 static uint16_t Fast_Seq = 0U;
 
-static volatile uint8_t Normal_Fill = 0U;
-static volatile uint8_t Normal_Ready = PLOT_BUF_NONE;
+static volatile bool Normal_Ready = false;
 static uint16_t Normal_Seq = 0U;
 
 volatile uint32_t Plot_Fast_Drop = 0U;
@@ -121,12 +121,6 @@ static void Plot_Fast_Flush(void)
     Fast_Ready = PLOT_BUF_NONE;
     Fast_Sample_Cnt = 0U;
     Fast_Tx_Sample = 0U;
-}
-
-static void Plot_Normal_Flush(void)
-{
-    Normal_Fill = 0U;
-    Normal_Ready = PLOT_BUF_NONE;
 }
 
 static FAST_CODE void Plot_Fast_Apply_Pending(void)
@@ -272,7 +266,7 @@ AxDr_Status_e Plot_Config(uint8_t Group, uint8_t Config_ID, const uint16_t *Var,
         else
         {
             Normal_Active = Target;
-            Plot_Normal_Flush();
+            Normal_Ready = false;
         }
 
         return AXDR_OK;
@@ -299,14 +293,14 @@ AxDr_Status_e Plot_Start(uint8_t Group_Mask)
 
     if ((Group_Mask & AXDR_PLOT_NORMAL_MASK) != 0U)
     {
-        Plot_Normal_Flush();
+        Normal_Ready = false;
         Plot_Run[AXDR_PLOT_NORMAL] = 1U;
     }
 
     return AXDR_OK;
 }
 
-AxDr_Status_e Plot_Stop(uint8_t Group_Mask)
+void Plot_Stop(uint8_t Group_Mask)
 {
     if ((Group_Mask & AXDR_PLOT_FAST_MASK) != 0U)
     {
@@ -319,10 +313,8 @@ AxDr_Status_e Plot_Stop(uint8_t Group_Mask)
     {
         Plot_Run[AXDR_PLOT_NORMAL] = 0U;
         Plot_Normal_Apply_Pending();
-        Plot_Normal_Flush();
+        Normal_Ready = false;
     }
-
-    return AXDR_OK;
 }
 
 void Plot_Fast_Sample(void)
@@ -374,7 +366,6 @@ void Plot_Fast_Sample(void)
 
 void Plot_Normal_Sample(void)
 {
-    uint8_t Fill;
     const Normal_Config_T *Config;
 
     if (Plot_Run[AXDR_PLOT_NORMAL] == 0U)
@@ -384,24 +375,21 @@ void Plot_Normal_Sample(void)
 
     Config = &Normal_Config[Normal_Active];
 
-    if (Normal_Ready != PLOT_BUF_NONE)
+    if (Normal_Ready)
     {
         Plot_Normal_Drop++;
         Plot_Normal_Apply_Pending();
         return;
     }
 
-    Fill = Normal_Fill;
-
     for (uint8_t n = 0U; n < Config->Count; n++)
     {
-        Normal_Buf[Fill][n] = *Config->Data[n];
+        Normal_Buf[n] = *Config->Data[n];
     }
 
-    Normal_Meta[Fill].Config_ID = Config->Config_ID;
-    Normal_Meta[Fill].Count = Config->Count;
-    Normal_Ready = Fill;
-    Normal_Fill ^= 1U;
+    Normal_Meta.Config_ID = Config->Config_ID;
+    Normal_Meta.Count = Config->Count;
+    Normal_Ready = true;
     USB_Tx_Wake();
 
     Plot_Normal_Apply_Pending();
@@ -455,19 +443,24 @@ bool Plot_Fast_Pop(AxDr_Msg_T *Msg)
 
 bool Plot_Normal_Pop(AxDr_Msg_T *Msg)
 {
-    uint8_t Ready;
     uint8_t Required;
     Plot_Buffer_Meta_T Meta;
+    uint32_t Primask;
 
-    Ready = Normal_Ready;
-
-    if (Ready == PLOT_BUF_NONE)
+    /* 取帧期间禁止启停命令清空标志，避免采样覆盖尚未复制的数据。 */
+    Primask = __get_PRIMASK();
+    __disable_irq();
+    if (!Normal_Ready)
     {
+        __set_PRIMASK(Primask);
         return false;
     }
 
-    Meta = Normal_Meta[Ready];
+    Meta = Normal_Meta;
     Required = (uint8_t)(4U + Meta.Count * 4U);
+    memcpy(&Msg->Data[4], Normal_Buf, Required - 4U);
+    Normal_Ready = false;
+    __set_PRIMASK(Primask);
 
     Msg->Id = (uint16_t)((AXDR_MSG_NORMAL_DATA << 6) | AXDR_NODE_ID);
     Msg->Len = AxDr_CANFD_Length(Required);
@@ -477,10 +470,7 @@ bool Plot_Normal_Pop(AxDr_Msg_T *Msg)
     Msg->Data[2] = Meta.Config_ID;
     Msg->Data[3] = Meta.Count;
 
-    memcpy(&Msg->Data[4], Normal_Buf[Ready], Required - 4U);
-
     Normal_Seq++;
-    Normal_Ready = PLOT_BUF_NONE;
 
     return true;
 }

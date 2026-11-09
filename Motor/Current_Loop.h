@@ -34,9 +34,7 @@ extern PID_T Id_Ctrl;
 extern PID_T Iq_Ctrl;
 
 void Current_Loop_State_Reset(void);
-void Current_Loop_Track(uint8_t Controller, float Id, float Iq, float Ud, float Uq,
-                        float Ud_FF, float Uq_FF);
-/* Sin/Cos are the same sample-angle values used by current Park. */
+/* Sin/Cos 与本拍电流 Park 变换使用相同角度。 */
 FAST_CODE void Current_Loop(float Id_Ref, float Iq_Ref, float U_Lim,
                             uint8_t Controller, float We, float Sin, float Cos,
                             float Ud_FF, float Uq_FF,

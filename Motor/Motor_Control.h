@@ -26,9 +26,6 @@ Motor_Position_T Motor_Position_Ref_Get(void);
 bool Motor_Position_Plan_Done(void);
 bool Motor_Encoder_Required(void);
 
-/* Existing speed/current PI handover used by encoder calibration. */
-void Motor_Cal_Decel_Begin(void);
-
 /* 动作执行结果，由命令入口转换为通信应答。 */
 typedef enum
 {

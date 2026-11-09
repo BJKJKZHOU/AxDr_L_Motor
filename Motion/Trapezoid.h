@@ -9,7 +9,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "Motion_Type.h"
+#include "Motion.h"
 
 void Trapezoid_Run(Motion_Ref_T *Ref,
                    int32_t Turn_Target,

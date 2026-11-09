@@ -22,12 +22,6 @@ FAST_CODE void Flux_Observer_Calc_Update(const Flux_Observer_Para_T *Para, Flux_
     Calc->BW_Used = Para->BW_Hz;
     Calc->Gamma = 0.0f;
 
-    if (!__builtin_isfinite(Para->Flux) || !__builtin_isfinite(Para->BW_Hz) ||
-        (Para->Flux <= 0.0f) || (Para->BW_Hz <= 0.0f))
-    {
-        return;
-    }
-
     Flux2 = Para->Flux * Para->Flux;
     Gamma = TWO_PI_F * Para->BW_Hz / Flux2;
     if (!__builtin_isfinite(Gamma) || (Gamma <= 0.0f))

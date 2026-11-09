@@ -8,7 +8,7 @@
 #include "Math.h"
 #include "Motor_ADC.h"
 #include "Motor_Para.h"
-#include "Motion_Type.h"
+#include "Motion.h"
 #include "VF.h"
 #include "control_params.h"
 
@@ -49,7 +49,6 @@ Motor_Fast_Mode_e Open_Loop(float We_Ref, float *Theta_e,
 
         VF.Para.U_Max_V = ADC.Vbus_V * INV_SQRT3_F * VOLT_MOD_MAX;
         VF.Para.We_Acc = (float)Motor_Para.Pp * Motion_Config.Wm_Acc;
-        *Theta_e = VF.State.Theta_e;
         VF_Run(&VF, We_Ref, U_Target, Ualpha, Ubeta, CUR_TS);
         return FAST_VOLTAGE;
     }

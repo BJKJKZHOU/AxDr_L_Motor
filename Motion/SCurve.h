@@ -8,10 +8,9 @@
 
 #include <stdbool.h>
 
-#include "Motion_Type.h"
+#include "Motion.h"
 
-/* Quintic velocity in Bernstein form: Wm + B(u), u=t/T. Storing velocity
- * increments keeps derivatives accurate when a small change rides on high speed. */
+/* 五次速度多项式，B 为相对起始速度的 Bernstein 控制点。 */
 typedef struct
 {
     float Wm;
@@ -22,14 +21,13 @@ typedef struct
 
 typedef struct
 {
-    SCurve_Seg_T Seg[4]; /* acceleration release, acceleration, cruise, braking */
+    SCurve_Seg_T Seg[4]; // 加速度回零、加速、匀速、减速。
     float Time;
     float Time_Rem;
-    float Pos_Rem; /* integration roundoff below the single-turn float resolution */
-    /* Inputs retained from the last plan to detect changes requiring replanning. */
-    int32_t Turn; /* position target, paired with Theta; zero in speed planning */
+    float Pos_Rem; // 保留小于单圈角度分辨率的位置增量。
+    int32_t Turn; // 上次规划的位置目标圈数，与 Theta 配对。
     float Theta;
-    float Wm; /* signed speed target, or nonnegative position-mode speed limit (rad/s) */
+    float Wm; // 速度目标，或位置模式的速度上限。
     float Acc;
     float Dec;
     uint8_t Profile;
@@ -39,10 +37,8 @@ typedef struct
 
 } SCurve_T;
 
-/* Zero-initialize on servo enable. Ref.Am is instantaneous acceleration here.
- * Input snapshots belong to the active plan, so changing any input replans once.
- * Speed also integrates position, allowing the same path to perform position Stop.
- * Stop is complete only when Count==0 and Ref.Wm==0, not at a velocity zero crossing. */
+/* 使能时清零。改目标时继承规划位置、速度和加速度；Ref.Am 为瞬时加速度。
+ * 速度规划也累计位置，用于位置模式 Stop；Count 和速度都为零才表示停止。 */
 void SCurve_Position(SCurve_T *S, Motion_Ref_T *Ref,
                      int32_t Turn, float Theta, float Wm_Max,
                      float Acc, float Dec, uint8_t Profile, float Ts);

@@ -7,20 +7,11 @@
 
 #include "Math.h"
 
-/*
- * Standard I/F actuator.
- *
- * Electrical speed follows the predetermined ramp to We_Target while the
- * torque-producing current reference stays fixed after its commanded slew.
- * Runtime current, voltage, observer, PLL and back-EMF signals never modify
- * the I/F trajectory. Measured current below the startup current is not a
- * failure condition; phase-current protection remains the only current
- * validity guard.
- */
+/* 电角速度按给定斜坡变化，Iq 渐变到设定值；反馈不参与 I/F 轨迹调整。 */
 
 static void IF_Fail(IF_T *IF)
 {
-    IF->State.Mode = IF_FAILED;
+    IF->State.Failed = true;
     IF->State.We = 0.0f;
     IF->State.Iq = 0.0f;
 }
@@ -36,21 +27,17 @@ void IF_Init(IF_T *IF, float Theta_Start, float We_Start)
         !__builtin_isfinite(IF->Para.Acc))
     {
         IF_Fail(IF);
-        return;
     }
-
-    IF->State.Mode = IF_HOLD;
 }
 
 void IF_Target_Set(IF_T *IF, float We_Target)
 {
-    if (!__builtin_isfinite(We_Target) || (IF->State.Mode == IF_FAILED))
+    if (!__builtin_isfinite(We_Target) || IF->State.Failed)
     {
         return;
     }
 
     IF->State.We_Target = We_Target;
-    IF->State.Mode = (IF->State.We == We_Target) ? IF_HOLD : IF_RAMP;
 }
 
 void IF_Run(IF_T *IF,
@@ -70,7 +57,7 @@ void IF_Run(IF_T *IF,
         IF_Fail(IF);
     }
 
-    if (IF->State.Mode == IF_FAILED)
+    if (IF->State.Failed)
     {
         *Theta_e = __builtin_isfinite(IF->State.Theta_e) ? IF->State.Theta_e : 0.0f;
         *Id_Ref = 0.0f;
@@ -78,7 +65,7 @@ void IF_Run(IF_T *IF,
         return;
     }
 
-    if (IF->State.Mode == IF_RAMP)
+    if (IF->State.We != IF->State.We_Target)
     {
         We_Step = IF->Para.Acc * Ts;
         if (IF->State.We < IF->State.We_Target)
@@ -87,7 +74,6 @@ void IF_Run(IF_T *IF,
             if (IF->State.We >= IF->State.We_Target)
             {
                 IF->State.We = IF->State.We_Target;
-                IF->State.Mode = IF_HOLD;
             }
         }
         else
@@ -96,7 +82,6 @@ void IF_Run(IF_T *IF,
             if (IF->State.We <= IF->State.We_Target)
             {
                 IF->State.We = IF->State.We_Target;
-                IF->State.Mode = IF_HOLD;
             }
         }
     }
