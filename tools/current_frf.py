@@ -489,7 +489,7 @@ from parameter_ids_generated import (
     PARAM_CTRL_ID_KP, PARAM_CTRL_ID_KI, PARAM_CTRL_IQ_KP, PARAM_CTRL_IQ_KI,
     PARAM_MOTOR_RS, PARAM_MOTOR_LD, PARAM_MOTOR_LQ,
     PARAM_MOTOR_PP, PARAM_REF_WM, PARAM_RUN_WM, PARAM_TARGET_SPEED,
-    ACTION_SIGNAL_START, ACTION_SIGNAL_ABORT,
+    ACTION_SIGNAL_START, ACTION_SIGNAL_ABORT, ACTION_MOTOR_DISABLE,
 )
 
 MAGIC = b"AXDR"
@@ -576,6 +576,7 @@ class Client:
         self.malformed = 0
         self.collect = False
         self.channels = CHANNELS["id"]
+        self.current_trip_a = None
 
     def close(self):
         self.ser.close()
@@ -597,6 +598,17 @@ class Client:
                     self.dropped += (seq - self.last_seq - 1) & 0xFFFF
                 self.last_seq = seq
                 self.fast.extend(payload[4:needed])
+                if self.current_trip_a is not None:
+                    values = np.frombuffer(payload[4:needed], dtype="<i2").reshape(n, len(self.channels))
+                    for col, (_, pid, scale) in enumerate(self.channels):
+                        if pid not in (PARAM_RUN_ID, PARAM_RUN_IQ):
+                            continue
+                        peak = float(np.max(np.abs(values[:, col].astype(np.int32)))) * scale
+                        if peak > self.current_trip_a:
+                            limit = self.current_trip_a
+                            # 保留触发数据，关闭重复检测，让退出命令能收到应答。
+                            self.current_trip_a = None
+                            raise RuntimeError(f"measured current {peak:.3f} A exceeds trip {limit:g} A")
             elif msg_type == MSG_RESPONSE:
                 responses.append(payload)
         return responses
@@ -765,10 +777,12 @@ def main():
     p.add_argument("--plot", action="store_true", help="write A4 bode.png")
     p.add_argument("--linear-verified", action="store_true",
                    help="capture only: operator confirms linear, unsaturated, non-oscillatory conditions; fit checks still apply")
+    p.add_argument("--current-trip", type=float,
+                   help="abort and disable on measured Id/Iq peak above this many A (host-side, captured channels only)")
     args = p.parse_args()
     if args.result is not None:
         if (args.port or args.freq is not None or args.start is not None or
-            args.stop is not None or args.linear_verified):
+            args.stop is not None or args.linear_verified or args.current_trip is not None):
             p.error("--result is offline; do not pass capture options or override archived quality")
         metrics = replot(args.result, args.out)
         for name, values in metrics.items():
@@ -803,6 +817,9 @@ def main():
         not math.isfinite(args.duration) or not 0 < args.duration <= 60 or
         not math.isfinite(args.settle_cycles) or args.settle_cycles < 0):
         p.error("invalid frequency points, amplitude, duration or settle cycles")
+    if args.current_trip is not None and (
+            not math.isfinite(args.current_trip) or args.current_trip <= 0 or args.loop == "speed"):
+        p.error("--current-trip requires a positive finite limit and an Id/Iq sweep")
     print(f"{len(freqs)} sweep points (Hz): " +
           ", ".join(f"{f:g}" for f in freqs))
 
@@ -813,6 +830,7 @@ def main():
     if data_path.exists():
         p.error(f"archive already exists; use another --out directory: {data_path}")
     client = Client(args.port, args.baud)
+    client.current_trip_a = args.current_trip
     results = []
     plotting = False
     channels = CHANNELS[args.loop]
@@ -886,8 +904,8 @@ def main():
             client.set_float(amp_param, args.amp)
             client.set_float(PARAM_SIGNAL_TIME_S, duration)
             drops_before = client.read_u32(PARAM_PLOT_FAST_DROP)
-            client.plot_start(channels)
             plotting = True
+            client.plot_start(channels)
             try:
                 client.action(ACTION_SIGNAL_START)
                 end = time.monotonic() + duration + 0.25
@@ -978,6 +996,15 @@ def main():
                 if metrics[key]:
                     print(f"  {key}: {metrics[key]}")
         print("Results:", data_path)
+    except BaseException:
+        # 采集异常时先禁能，再保存触发点；正常扫频保留原有使能状态。
+        client.current_trip_a = None
+        try:
+            client.action(ACTION_MOTOR_DISABLE)
+        finally:
+            if client.fast:
+                (args.out / "failed_point.raw").write_bytes(client.fast)
+        raise
     finally:
         try:
             client.action(ACTION_SIGNAL_ABORT)
